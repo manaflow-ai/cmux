@@ -191844,6 +191844,23 @@
         }
       }
     },
+    "settings.search.alias.setting.sidebarAppearance.tool-position": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.toolPosition native tool file files find vault feed dock left right position"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.toolPosition ネイティブ ツール ファイル 検索 Vault フィード Dock 左 右 位置"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.sidebarAppearance.right-max-width": {
       "extractionState": "manual",
       "localizations": {
@@ -195002,6 +195019,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cmd または Control を押し続けるとショートカットヒントのチップを表示します。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.toolPosition": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool Sidebar Position"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ツールサイドバーの位置"
+          }
+        }
+      }
+    },
+    "settings.sidebar.toolPosition.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Place Files, Find, Vault, Feed, and Dock on the left or right of the workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル、検索、Vault、フィード、Dock をワークスペースの左側または右側に配置します。"
           }
         }
       }

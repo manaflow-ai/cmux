@@ -876,6 +876,8 @@ struct ContentView: View {
 #endif
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
+    @AppStorage(SidebarCatalogSection().toolPosition.userDefaultsKey)
+    private var toolSidebarPositionRawValue = ToolSidebarPosition.right.rawValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -1244,6 +1246,10 @@ struct ContentView: View {
         case explorerDivider
     }
 
+    private var toolSidebarPosition: ToolSidebarPosition {
+        ToolSidebarPosition(rawValue: toolSidebarPositionRawValue) ?? .right
+    }
+
     /// Returns the current drag width, start width capture, width update, and drag end cleanup for a resizer handle.
     private func resizerConfig(for handle: SidebarResizerHandle, availableWidth: CGFloat) -> (
         currentWidth: CGFloat,
@@ -1275,8 +1281,9 @@ struct ContentView: View {
                 captureStart: { fileExplorerDragStartWidth = fileExplorerWidth },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
+                    let signedTranslation = toolSidebarPosition == .left ? translation : -translation
                     let nextWidth = Self.clampedRightSidebarWidth(
-                        startWidth - translation,
+                        startWidth + signedTranslation,
                         availableWidth: availableWidth,
                         configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
                     )
@@ -1448,13 +1455,17 @@ struct ContentView: View {
         // Use live pointer location; overlapping WKWebView tracking areas can report stale cursor-update locations.
         let pointInWindow = window.convertPoint(fromScreen: NSEvent.mouseLocation)
         let pointInContent = contentView.convert(pointInWindow, from: nil)
+        let toolDividerX = toolSidebarPosition == .left
+            ? (sidebarState.isVisible ? sidebarWidth : 0) + rightSidebarWidth
+            : contentView.bounds.maxX - rightSidebarWidth
         let isInDividerBand = sidebarResizerOcclusionResolver.dividerBandContains(
             point: pointInContent,
             contentBounds: contentView.bounds,
             isLeftSidebarVisible: sidebarState.isVisible,
             leftDividerX: sidebarWidth,
             isRightSidebarVisible: rightSidebarVisible,
-            rightDividerX: contentView.bounds.maxX - rightSidebarWidth
+            rightDividerX: toolDividerX,
+            rightSidebarEdge: toolSidebarPosition == .left ? .leading : .trailing
         )
         let mayActivate = sidebarResizerOcclusionResolver.bandMayActivate(
             isDragging: isResizerDragging,
@@ -1720,12 +1731,19 @@ struct ContentView: View {
     }
 
     private var rightSidebarResizerOverlay: some View {
-        placedSidebarResizerOverlay(
-            handle: .explorerDivider,
-            edge: .trailing,
-            accessibilityIdentifier: "RightSidebarResizer",
-            dividerX: { totalWidth in totalWidth - rightSidebarWidth }
-        )
+        SidebarWidthReader(layout: sidebarLayout) { leftSidebarWidth in
+            placedSidebarResizerOverlay(
+                handle: .explorerDivider,
+                edge: toolSidebarPosition == .left ? .leading : .trailing,
+                accessibilityIdentifier: "RightSidebarResizer",
+                dividerX: { totalWidth in
+                    if toolSidebarPosition == .left {
+                        return (sidebarState.isVisible ? leftSidebarWidth : 0) + rightSidebarWidth
+                    }
+                    return totalWidth - rightSidebarWidth
+                }
+            )
+        }
     }
 
     private var sidebarView: some View {
@@ -1795,7 +1813,8 @@ struct ContentView: View {
         isSidebarVisible: Bool,
         sidebarWidth: CGFloat,
         minimumSidebarWidth: CGFloat,
-        titlebarLeadingInset: CGFloat
+        titlebarLeadingInset: CGFloat,
+        reservedSidebarWidth: CGFloat = 0
     ) -> CGFloat {
         if isFullScreen && !isSidebarVisible {
             return 8
@@ -1808,10 +1827,10 @@ struct ContentView: View {
 
         let visibleSidebarTitleInset = sidebarWidth + 12
         // Absorb floating-point drift around the minimum-width clamp.
-        guard sidebarWidth > minimumSidebarWidth + 0.5 else {
-            return minimumSidebarTitleInset
-        }
-        return max(titlebarLeadingInset, visibleSidebarTitleInset)
+        let resolvedPadding = sidebarWidth > minimumSidebarWidth + 0.5
+            ? max(titlebarLeadingInset, visibleSidebarTitleInset)
+            : minimumSidebarTitleInset
+        return max(0, resolvedPadding - max(0, reservedSidebarWidth))
     }
 
     /// Where the always-visible fullscreen titlebar controls (sidebar toggle,
@@ -1912,8 +1931,14 @@ struct ContentView: View {
         // animate without SwiftUI insertion/removal. Cold hidden launches defer
         // heavy mode content until the sidebar has been shown at least once.
         return HStack(spacing: 0) {
-            terminalContentWithSidebarDropOverlay(appearance: appearance)
-            rightSidebarPanelWithBackdrop(appearance: appearance)
+            ForEach(ToolSidebarLayoutPolicy.order(for: toolSidebarPosition), id: \.self) { item in
+                switch item {
+                case .workspaceContent:
+                    terminalContentWithSidebarDropOverlay(appearance: appearance)
+                case .toolSidebar:
+                    rightSidebarPanelWithBackdrop(appearance: appearance)
+                }
+            }
         }
     }
 
@@ -1965,7 +1990,7 @@ struct ContentView: View {
         let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
             rightSidebarPanel(appearance: appearance)
         }
-        .overlay(alignment: .leading) {
+        .overlay(alignment: toolSidebarPosition == .left ? .trailing : .leading) {
             if rightSidebarVisible {
                 WindowChromeBorder(
                     orientation: .vertical,
@@ -1979,6 +2004,10 @@ struct ContentView: View {
     }
 
     private func rightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
+        let fullscreenPlacement = Self.fullscreenControlsPlacement(
+            isFullScreen: isFullScreen,
+            isSidebarVisible: sidebarState.isVisible
+        )
         return RightSidebarPanelView(
             tabManager: tabManager,
             fileExplorerStore: fileExplorerStore,
@@ -2001,7 +2030,18 @@ struct ContentView: View {
                 cmuxDebugLog("rightSidebar.closeButton")
                 #endif
                 _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
-            }
+            },
+            modeBarLeadingPadding: ToolSidebarModeBarLayoutPolicy.leadingPadding(
+                position: toolSidebarPosition,
+                isWorkspaceSidebarVisible: sidebarState.isVisible,
+                isFullScreen: isFullScreen,
+                trafficLightInset: max(
+                    titlebarLeadingInset,
+                    MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset()
+                ),
+                fullscreenControlsLeadingPadding: fullscreenPlacement?.leadingPadding ?? 0,
+                fullscreenControlsWidth: fullscreenControlsWidth
+            )
         )
         .frame(width: rightSidebarWidth)
         .clipped()
@@ -2137,7 +2177,10 @@ struct ContentView: View {
         )
     }
 
-    private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
+    private func customTitlebar(
+        appearance: WindowAppearanceSnapshot,
+        leadingSidebarSpaceAlreadyReserved: Bool = false
+    ) -> some View {
         let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
         return ZStack {
             // Enable window dragging from the titlebar strip without making the entire content
@@ -2185,7 +2228,10 @@ struct ContentView: View {
                     isSidebarVisible: sidebarState.isVisible,
                     sidebarWidth: width,
                     minimumSidebarWidth: minimumSidebarWidth,
-                    titlebarLeadingInset: titlebarLeadingInset
+                    titlebarLeadingInset: titlebarLeadingInset,
+                    reservedSidebarWidth: leadingSidebarSpaceAlreadyReserved && sidebarState.isVisible
+                        ? width
+                        : 0
                 ))
                 .padding(.trailing, 8)
             }
@@ -2201,7 +2247,12 @@ struct ContentView: View {
                     refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
                     backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
                 )
-                    .padding(.leading, sidebarState.isVisible ? width : 0)
+                    .padding(
+                        .leading,
+                        leadingSidebarSpaceAlreadyReserved
+                            ? 0
+                            : (sidebarState.isVisible ? width : 0)
+                    )
             }
         }
     }
@@ -2211,26 +2262,25 @@ struct ContentView: View {
             .frame(height: WindowChromeMetrics.appTitlebarHeight)
             .frame(maxWidth: .infinity)
             .overlay(alignment: .topLeading) {
-                customTitlebar(appearance: appearance)
-                    // The workspace titlebar band spans the full window width and sits at
-                    // zIndex(100) over the content/sidebar layout. Its drag/double-click
-                    // surface (`WindowDragHandleView` + `.contentShape(Rectangle())`) must
-                    // not cover the right sidebar, whose mode bar (Files/Search/Feed/Vault)
-                    // lives inside the titlebar-height strip — otherwise the band wins the
-                    // hit-test and swallows every click/hover on those buttons (#5099).
-                    // Confine the interactive titlebar surface to the area left of the
-                    // right sidebar, matching the pre-#5017 "only over terminal content,
-                    // not the sidebar" intent. The left sidebar's titlebar controls live in
-                    // the AppKit titlebar accessory (above this band), so only the trailing
-                    // (right-sidebar) edge needs to be ceded here.
-                    //
-                    // `rightSidebarWidth` is already `rightSidebarVisible ? fileExplorerWidth : 0`,
-                    // so it collapses to 0 when the sidebar is hidden. The sidebar panel itself
-                    // snaps without animation (`.transaction { $0.animation = nil }`), so we match
-                    // that here — otherwise this inset could animate out of step with the panel on
-                    // toggle and momentarily expose (or re-cover) the mode bar mid-transition.
-                    .padding(.trailing, rightSidebarWidth)
-                    .animation(nil, value: rightSidebarWidth)
+                SidebarWidthReader(layout: sidebarLayout) { leftSidebarWidth in
+                    customTitlebar(
+                        appearance: appearance,
+                        leadingSidebarSpaceAlreadyReserved: toolSidebarPosition == .left
+                    )
+                        // The workspace titlebar band sits above the content layout. Keep its
+                        // drag surface out of the native tool sidebar's mode bar on either edge;
+                        // otherwise it swallows clicks and hovers on Files/Find/Vault/Feed/Dock
+                        // controls (#5099). A left-positioned tool sidebar follows the workspace
+                        // sidebar, so include that retained width in the leading inset.
+                        .padding(
+                            .leading,
+                            toolSidebarPosition == .left
+                                ? (sidebarState.isVisible ? leftSidebarWidth : 0) + rightSidebarWidth
+                                : 0
+                        )
+                        .padding(.trailing, toolSidebarPosition == .right ? rightSidebarWidth : 0)
+                        .animation(nil, value: rightSidebarWidth)
+                }
             }
             .overlay(alignment: .topLeading) {
                 if let placement = Self.fullscreenControlsPlacement(
@@ -2595,16 +2645,11 @@ struct ContentView: View {
             // the sidebar backdrop samples the window.
             layout = AnyView(
                 ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
-                        terminalContentWithSidebarDropOverlay(appearance: appearance)
-                            .modifier(SidebarWidthLeadingPaddingModifier(
-                                layout: sidebarLayout,
-                                enabled: sidebarState.isVisible
-                            ))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .layoutPriority(1)
-                        rightSidebarPanelWithBackdrop(appearance: appearance)
-                    }
+                    terminalContentWithRightSidebarPanel(appearance: appearance)
+                        .modifier(SidebarWidthLeadingPaddingModifier(
+                            layout: sidebarLayout,
+                            enabled: sidebarState.isVisible
+                        ))
                     if sidebarState.isVisible {
                         sidebarPanelWithBackdrop(appearance: appearance)
                     }
@@ -3259,6 +3304,11 @@ struct ContentView: View {
             if rightSidebarVisible {
                 schedulePortalGeometrySynchronize()
             }
+            updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: toolSidebarPositionRawValue) { _, _ in
+            schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
 

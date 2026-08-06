@@ -37,7 +37,8 @@ struct SidebarResizerOcclusionResolver {
         isLeftSidebarVisible: Bool,
         leftDividerX: CGFloat,
         isRightSidebarVisible: Bool,
-        rightDividerX: CGFloat
+        rightDividerX: CGFloat,
+        rightSidebarEdge: SidebarResizeInteraction.Edge = .trailing
     ) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
         if isLeftSidebarVisible,
@@ -45,7 +46,7 @@ struct SidebarResizerOcclusionResolver {
             return true
         }
         return isRightSidebarVisible &&
-            SidebarResizeInteraction.Edge.trailing.hitRange(dividerX: rightDividerX).contains(point.x)
+            rightSidebarEdge.hitRange(dividerX: rightDividerX).contains(point.x)
     }
 
     func bandMayActivate(

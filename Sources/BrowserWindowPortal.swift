@@ -235,6 +235,19 @@ final class WindowBrowserHostView: NSView {
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
+    static func leftToolSidebarDividerX(
+        contentFrames: [NSRect],
+        dockFrames: [NSRect],
+        bounds: NSRect
+    ) -> CGFloat? {
+        PortalToolSidebarResizerRouting.leftDividerX(
+            contentFrames: contentFrames,
+            dockFrames: dockFrames,
+            bounds: bounds,
+            minimumVisibleContentWidth: minimumVisibleLeadingContentWidth
+        )
+    }
+
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
         if let trackingArea {
@@ -674,8 +687,25 @@ final class WindowBrowserHostView: NSView {
         let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
             .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
 
-        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleSlots: visibleSlots) {
-            return true
+        switch PortalToolSidebarResizerRouting.currentPosition {
+        case .left:
+            let contentFrames = visibleSlots
+                .filter { !$0.isRightSidebarDockSlot }
+                .map(\.frame)
+            let dockFrames = visibleSlots
+                .filter(\.isRightSidebarDockSlot)
+                .map(\.frame)
+            if let dividerX = Self.leftToolSidebarDividerX(
+                contentFrames: contentFrames,
+                dockFrames: dockFrames,
+                bounds: bounds
+            ), SidebarResizeInteraction.Edge.leading.hitRange(dividerX: dividerX).contains(point.x) {
+                return true
+            }
+        case .right:
+            if shouldPassThroughToTrailingSidebarResizer(at: point, visibleSlots: visibleSlots) {
+                return true
+            }
         }
 
         // If content is flush to the leading edge, sidebar is effectively hidden.

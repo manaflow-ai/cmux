@@ -81,14 +81,45 @@ enum FileExplorerRootSyncPolicy {
     }
 }
 
-enum ToolSidebarLayoutItem: Equatable {
+enum ToolSidebarLayoutItem: Hashable {
     case workspaceContent
     case toolSidebar
 }
 
 enum ToolSidebarLayoutPolicy {
-    static func order(for _: ToolSidebarPosition) -> [ToolSidebarLayoutItem] {
-        [.workspaceContent, .toolSidebar]
+    static func order(for position: ToolSidebarPosition) -> [ToolSidebarLayoutItem] {
+        switch position {
+        case .left:
+            return [.toolSidebar, .workspaceContent]
+        case .right:
+            return [.workspaceContent, .toolSidebar]
+        }
+    }
+}
+
+enum ToolSidebarModeBarLayoutPolicy {
+    static let defaultLeadingPadding: CGFloat = 4
+
+    static func leadingPadding(
+        position: ToolSidebarPosition,
+        isWorkspaceSidebarVisible: Bool,
+        isFullScreen: Bool,
+        trafficLightInset: CGFloat,
+        fullscreenControlsLeadingPadding: CGFloat,
+        fullscreenControlsWidth: CGFloat
+    ) -> CGFloat {
+        guard position == .left, !isWorkspaceSidebarVisible else {
+            return defaultLeadingPadding
+        }
+
+        if isFullScreen {
+            return max(
+                defaultLeadingPadding,
+                fullscreenControlsLeadingPadding + fullscreenControlsWidth + 8
+            )
+        }
+
+        return max(defaultLeadingPadding, trafficLightInset)
     }
 }
 
@@ -128,6 +159,7 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    let modeBarLeadingPadding: CGFloat
 
     @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
@@ -263,7 +295,7 @@ struct RightSidebarPanelView: View {
                 closeButton
             }
         }
-        .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .rightSidebarChromeBar(leadingPadding: modeBarLeadingPadding, trailingPadding: 6, height: titlebarHeight)
         .overlay(alignment: .topLeading) {
             focusShortcutHintOverlay
         }

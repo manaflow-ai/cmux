@@ -1116,6 +1116,12 @@
           "default": true,
           "description": "Show custom metadata pills."
         },
+        "toolPosition": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "right",
+          "description": "Which side of the workspace hosts the native Files, Find, Vault, Feed, and Dock sidebar."
+        },
         "rightMaxWidth": {
           "type": "number",
           "exclusiveMinimum": 0,

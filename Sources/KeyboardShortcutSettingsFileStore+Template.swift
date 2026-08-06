@@ -157,6 +157,7 @@ extension CmuxSettingsFileStore {
                     "showProgress": SidebarWorkspaceDetailDefaults.showProgress,
                     "showAgentActivity": SidebarWorkspaceDetailDefaults.showAgentActivity,
                     "showCustomMetadata": SidebarWorkspaceDetailDefaults.showCustomMetadata,
+                    "toolPosition": SettingCatalog().sidebar.toolPosition.defaultValue.rawValue,
                 ],
             ],
             [
