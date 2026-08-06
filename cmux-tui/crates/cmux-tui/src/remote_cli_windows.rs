@@ -288,7 +288,8 @@ fn ensure_mux_owner(
     let executable = std::env::current_exe().context("could not locate Windows cmux-tui")?;
     let log = OpenOptions::new()
         .create(true)
-        .append(true)
+        .write(true)
+        .truncate(true)
         .open(&paths.owner_log)
         .with_context(|| format!("could not open {}", paths.owner_log.display()))?;
     let mut command = Command::new(executable);
