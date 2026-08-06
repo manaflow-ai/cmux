@@ -1,4 +1,3 @@
-import { unstable_cache } from "next/cache";
 import {
   listAccounts,
   listEncryptedCredentials,
@@ -9,44 +8,21 @@ import { fetchProviderRead } from "./providerFetch";
 import { reportCoderouterFailure } from "./observability";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
-const USAGE_CACHE_MS = 15_000;
-const MAX_CACHED_TEAMS = 256;
-const usageCache = new Map<string, {
-  readonly expiresAt: number;
-  readonly accounts: Awaited<ReturnType<typeof loadAccountsWithUsage>>;
-}>();
 const usageRequests = new Map<
   string,
   Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>
 >();
-const sharedAccountsWithUsage = unstable_cache(
-  loadAccountsWithUsage,
-  ["coderouter-usage-v1"],
-  { revalidate: USAGE_CACHE_MS / 1_000 },
-);
 
 export async function accountsWithUsage(teamId: string) {
-  const cached = usageCache.get(teamId);
-  if (cached && cached.expiresAt > Date.now()) return cached.accounts;
   const pending = usageRequests.get(teamId);
   if (pending) return await pending;
 
-  // Vercel's encrypted data cache is shared across function instances. It
-  // stores only account summaries and provider usage, never credentials.
-  const request = sharedAccountsWithUsage(teamId);
+  // Provider reads fan out in parallel. Coalesce only requests that are
+  // concurrently in flight; completed quota data is never served from cache.
+  const request = loadAccountsWithUsage(teamId);
   usageRequests.set(teamId, request);
   try {
-    const accounts = await request;
-    if (usageCache.size >= MAX_CACHED_TEAMS && !usageCache.has(teamId)) {
-      const oldest = usageCache.keys().next().value;
-      if (oldest !== undefined) usageCache.delete(oldest);
-    }
-    usageCache.delete(teamId);
-    usageCache.set(teamId, {
-      expiresAt: Date.now() + USAGE_CACHE_MS,
-      accounts,
-    });
-    return accounts;
+    return await request;
   } finally {
     usageRequests.delete(teamId);
   }
@@ -111,7 +87,7 @@ async function loadAccountsWithUsage(teamId: string) {
     accounts: withUsage,
     usageAsOf: new Date().toISOString(),
     usageGeneratedAtMs: Date.now(),
-    cacheMaxAgeSeconds: USAGE_CACHE_MS / 1_000,
+    cacheMaxAgeSeconds: 0,
     timing: {
       rdsMs,
       providerMs: performance.now() - providerStartedAt,
