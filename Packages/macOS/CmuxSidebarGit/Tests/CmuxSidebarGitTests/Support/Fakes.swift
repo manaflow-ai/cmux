@@ -38,7 +38,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
             if probedTrackedPathEventGenerations.count >= minimumCount {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         return probedTrackedPathEventGenerations.count >= minimumCount
     }
@@ -48,7 +48,7 @@ actor GatedMetadataReader: WorkspaceGitMetadataReading {
             if probedDirectories.count >= minimumCount {
                 return true
             }
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(1))
         }
         return probedDirectories.count >= minimumCount
     }
