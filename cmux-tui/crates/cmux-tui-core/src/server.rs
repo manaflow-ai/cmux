@@ -14483,7 +14483,7 @@ mod tests {
         });
         let admission = Arc::new(ServerSurfaceOperationAdmission::default());
         let scheduler = Arc::new(ConnectionSurfaceScheduler::new(admission.clone()));
-        let writer = test_writer();
+        let (writer, outbound) = captured_writer();
 
         let mut clear = Some(Request {
             id: Some(json!(1)),
@@ -14500,7 +14500,21 @@ mod tests {
         });
         assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut wait, 0, writer), Some(true));
 
-        std::thread::sleep(Duration::from_millis(350));
+        let clear_response = pop_json(&outbound);
+        assert_eq!(clear_response["id"], json!(1));
+        let clear_deadline = Instant::now() + Duration::from_secs(1);
+        let mut state = scheduler.state.lock().unwrap();
+        while state.active_clear_surfaces.contains(&surface.id) {
+            let remaining = clear_deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "clear-history worker did not settle");
+            let (next, timeout) = scheduler.changed.wait_timeout(state, remaining).unwrap();
+            state = next;
+            assert!(
+                !timeout.timed_out() || !state.active_clear_surfaces.contains(&surface.id),
+                "clear-history worker did not settle"
+            );
+        }
+        drop(state);
         let active_clear_workers = admission.state.lock().unwrap().workers;
         let drained = scheduler.close_and_wait(Duration::from_secs(1));
         mux.close_surface(surface.id).unwrap();
