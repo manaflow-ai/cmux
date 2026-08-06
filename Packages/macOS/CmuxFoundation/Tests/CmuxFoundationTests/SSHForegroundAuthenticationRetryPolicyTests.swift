@@ -1239,6 +1239,85 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test func recoverySweepReclaimsStoppedPublisherWithoutLiveCleanupOwner() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-stopped-publisher-\(UUID().uuidString)", isDirectory: true)
+        let abandonedDirectory = root
+            .appendingPathComponent("cmux-ssh-auth-group.abandoned", isDirectory: true)
+        let activeDirectory = root
+            .appendingPathComponent("cmux-ssh-auth-group.active", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: abandonedDirectory)
+        try createSecureGroupDirectory(at: activeDirectory)
+        for directory in [abandonedDirectory, activeDirectory] {
+            try "999999|888888|Thu_Jan_1_00:00:00_1970\n".write(
+                to: directory.appendingPathComponent("identity"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        /bin/sleep 30 &
+        cmux_test_abandoned_publisher=$!
+        /bin/sleep 30 &
+        cmux_test_active_publisher=$!
+        trap '/bin/kill -KILL "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" >/dev/null 2>&1 || true; wait "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" 2>/dev/null || true' EXIT
+        cmux_test_abandoned_identity=$(cmux_ssh_auth_identity "$cmux_test_abandoned_publisher") || exit 99
+        cmux_test_active_identity=$(cmux_ssh_auth_identity "$cmux_test_active_publisher") || exit 98
+        printf '%s|%s\n' "$cmux_test_abandoned_publisher" "$cmux_test_abandoned_identity" \
+          > "$CMUX_TEST_ABANDONED_GROUP/publisher" || exit 97
+        printf '%s|%s\n' "$cmux_test_active_publisher" "$cmux_test_active_identity" \
+          > "$CMUX_TEST_ACTIVE_GROUP/publisher" || exit 96
+        cmux_test_cleanup_owner_identity=$(cmux_ssh_auth_identity "$$") || exit 95
+        printf '%s|%s\n' "$$" "$cmux_test_cleanup_owner_identity" \
+          > "$CMUX_TEST_ACTIVE_GROUP/cleanup.owner" || exit 94
+        /bin/kill -STOP "$cmux_test_abandoned_publisher" "$cmux_test_active_publisher" || exit 93
+        cmux_test_stop_attempt=0
+        while [ "$cmux_test_stop_attempt" -lt 100 ]; do
+          if [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_abandoned_publisher")" = \
+            "$cmux_test_abandoned_identity" ] && \
+            [ "$(cmux_ssh_auth_stopped_identity "$cmux_test_active_publisher")" = \
+              "$cmux_test_active_identity" ]; then break; fi
+          /bin/sleep 0.01
+          cmux_test_stop_attempt=$((cmux_test_stop_attempt + 1))
+        done
+        test "$cmux_test_stop_attempt" -lt 100 || exit 92
+        cmux_ssh_terminate_owned_auth_group() {
+          /usr/bin/basename "$CMUX_SSH_AUTH_GROUP_DIR" >> "$CMUX_TEST_RECOVERY_CALLS"
+          /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity" \
+            "$CMUX_SSH_AUTH_GROUP_DIR/publisher" 2>/dev/null || true
+        }
+        cmux_ssh_launch_owned_auth_group_reaper() {
+          CMUX_SSH_AUTH_REAPER_LAUNCHED=1
+          (CMUX_SSH_AUTH_GROUP_DIR="$1"
+            export CMUX_SSH_AUTH_GROUP_DIR
+            cmux_ssh_terminate_owned_auth_group)
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_ABANDONED_GROUP" || exit 91
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_ACTIVE_GROUP" || exit 90
+        cmux_ssh_resume_failed_auth_group_reapers || exit 89
+        test "$(/bin/cat "$CMUX_TEST_RECOVERY_CALLS" 2>/dev/null)" = \
+          "cmux-ssh-auth-group.abandoned" || exit 88
+        test -s "$CMUX_TEST_ACTIVE_GROUP/identity" || exit 87
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_ABANDONED_GROUP": abandonedDirectory.path,
+            "CMUX_TEST_ACTIVE_GROUP": activeDirectory.path,
+            "CMUX_TEST_RECOVERY_CALLS": callsFile.path,
+            "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func recoverySweepDoesNotStarveGroupsAfterEightPersistentFailures() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1649,6 +1728,19 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(functions.contains("kill -STOP"))
         #expect(functions.contains("kill -KILL"))
         #expect(functions.contains("kill -CONT"))
+    }
+
+    @Test func cleanupPublishesOwnerLeaseBeforeFreezeTransaction() throws {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+        let ownerPublication = try #require(
+            functions.range(of: "cmux-cleanup-owner \"$cmux_ssh_auth_cleanup_owner_publish_file\"")
+        )
+        let cleanupTransaction = try #require(
+            functions.range(of: "cmux_ssh_auth_run_cleanup_transactions || exit 0")
+        )
+
+        #expect(ownerPublication.lowerBound < cleanupTransaction.lowerBound)
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
