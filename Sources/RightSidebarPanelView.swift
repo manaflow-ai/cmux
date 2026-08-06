@@ -81,48 +81,6 @@ enum FileExplorerRootSyncPolicy {
     }
 }
 
-enum ToolSidebarLayoutItem: Hashable {
-    case workspaceContent
-    case toolSidebar
-}
-
-enum ToolSidebarLayoutPolicy {
-    static func order(for position: ToolSidebarPosition) -> [ToolSidebarLayoutItem] {
-        switch position {
-        case .left:
-            return [.toolSidebar, .workspaceContent]
-        case .right:
-            return [.workspaceContent, .toolSidebar]
-        }
-    }
-}
-
-enum ToolSidebarModeBarLayoutPolicy {
-    static let defaultLeadingPadding: CGFloat = 4
-
-    static func leadingPadding(
-        position: ToolSidebarPosition,
-        isWorkspaceSidebarVisible: Bool,
-        isFullScreen: Bool,
-        trafficLightInset: CGFloat,
-        fullscreenControlsLeadingPadding: CGFloat,
-        fullscreenControlsWidth: CGFloat
-    ) -> CGFloat {
-        guard position == .left, !isWorkspaceSidebarVisible else {
-            return defaultLeadingPadding
-        }
-
-        if isFullScreen {
-            return max(
-                defaultLeadingPadding,
-                fullscreenControlsLeadingPadding + fullscreenControlsWidth + 8
-            )
-        }
-
-        return max(defaultLeadingPadding, trafficLightInset)
-    }
-}
-
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })

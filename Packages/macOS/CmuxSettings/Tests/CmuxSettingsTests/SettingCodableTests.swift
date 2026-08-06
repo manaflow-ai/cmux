@@ -31,6 +31,7 @@ struct SettingCodableTests {
         #expect(ToolSidebarPosition.decodeFromJSON("right") == .right)
         #expect(ToolSidebarPosition.decodeFromJSON("center") == nil)
         #expect(ToolSidebarPosition.left.encodeForJSON() as? String == "left")
+        #expect(ToolSidebarPosition.right.encodeForJSON() as? String == "right")
     }
 
     @Test func arrayRoundTrip() {

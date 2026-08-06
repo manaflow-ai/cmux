@@ -510,9 +510,9 @@ public struct SidebarSection: View {
     private func toolPositionLabel(_ position: ToolSidebarPosition) -> String {
         switch position {
         case .left:
-            return String(localized: "settings.app.loadingSpinnerPosition.left", defaultValue: "Left")
+            return String(localized: "settings.sidebar.toolPosition.left", defaultValue: "Left")
         case .right:
-            return String(localized: "settings.app.loadingSpinnerPosition.right", defaultValue: "Right")
+            return String(localized: "settings.sidebar.toolPosition.right", defaultValue: "Right")
         }
     }
 

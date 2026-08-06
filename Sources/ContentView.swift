@@ -878,6 +878,8 @@ struct ContentView: View {
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SidebarCatalogSection().toolPosition.userDefaultsKey)
     private var toolSidebarPositionRawValue = ToolSidebarPosition.right.rawValue
+    private let toolSidebarLayoutPolicy = ToolSidebarLayoutPolicy()
+    private let toolSidebarModeBarLayoutPolicy = ToolSidebarModeBarLayoutPolicy()
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
@@ -1248,6 +1250,13 @@ struct ContentView: View {
 
     private var toolSidebarPosition: ToolSidebarPosition {
         ToolSidebarPosition(rawValue: toolSidebarPositionRawValue) ?? .right
+    }
+
+    /// Injects the current tool-sidebar placement into this window's AppKit portal hosts.
+    private func syncToolSidebarPositionToPortals(in window: NSWindow? = nil) {
+        guard let targetWindow = window ?? observedWindow else { return }
+        TerminalWindowPortalRegistry.setToolSidebarPosition(toolSidebarPosition, for: targetWindow)
+        BrowserWindowPortalRegistry.setToolSidebarPosition(toolSidebarPosition, for: targetWindow)
     }
 
     /// Returns the current drag width, start width capture, width update, and drag end cleanup for a resizer handle.
@@ -1931,13 +1940,12 @@ struct ContentView: View {
         // animate without SwiftUI insertion/removal. Cold hidden launches defer
         // heavy mode content until the sidebar has been shown at least once.
         return HStack(spacing: 0) {
-            ForEach(ToolSidebarLayoutPolicy.order(for: toolSidebarPosition), id: \.self) { item in
-                switch item {
-                case .workspaceContent:
-                    terminalContentWithSidebarDropOverlay(appearance: appearance)
-                case .toolSidebar:
-                    rightSidebarPanelWithBackdrop(appearance: appearance)
-                }
+            if toolSidebarLayoutPolicy.placesToolSidebarBeforeWorkspace(for: toolSidebarPosition) {
+                rightSidebarPanelWithBackdrop(appearance: appearance)
+                terminalContentWithSidebarDropOverlay(appearance: appearance)
+            } else {
+                terminalContentWithSidebarDropOverlay(appearance: appearance)
+                rightSidebarPanelWithBackdrop(appearance: appearance)
             }
         }
     }
@@ -2031,7 +2039,7 @@ struct ContentView: View {
                 #endif
                 _ = AppDelegate.shared?.closeRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
             },
-            modeBarLeadingPadding: ToolSidebarModeBarLayoutPolicy.leadingPadding(
+            modeBarLeadingPadding: toolSidebarModeBarLayoutPolicy.leadingPadding(
                 position: toolSidebarPosition,
                 isWorkspaceSidebarVisible: sidebarState.isVisible,
                 isFullScreen: isFullScreen,
@@ -3308,6 +3316,7 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: toolSidebarPositionRawValue) { _, _ in
+            syncToolSidebarPositionToPortals()
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
         })
@@ -3448,6 +3457,7 @@ struct ContentView: View {
         appearance: WindowAppearanceSnapshot,
         commandPaletteOverlayView: AnyView
     ) {
+        syncToolSidebarPositionToPortals(in: window)
         window.identifier = NSUserInterfaceItemIdentifier(windowIdentifier)
         window.isRestorable = false
         setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)

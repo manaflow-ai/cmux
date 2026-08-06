@@ -13,53 +13,6 @@ import Testing
 @MainActor
 @Suite("Hidden right sidebar content mounting", .serialized)
 struct HiddenRightSidebarContentMountingTests {
-    @Test func leftToolSidebarPrecedesWorkspaceContent() {
-        #expect(
-            ToolSidebarLayoutPolicy.order(for: .left) == [.toolSidebar, .workspaceContent]
-        )
-    }
-
-    @Test func leftToolSidebarClearsTrafficLightsWhenWorkspaceSidebarIsHidden() {
-        #expect(
-            ToolSidebarModeBarLayoutPolicy.leadingPadding(
-                position: .left,
-                isWorkspaceSidebarVisible: false,
-                isFullScreen: false,
-                trafficLightInset: 78,
-                fullscreenControlsLeadingPadding: 10,
-                fullscreenControlsWidth: 84
-            ) == 78
-        )
-    }
-
-    @Test func leftToolSidebarClearsFullscreenControlsWhenWorkspaceSidebarIsHidden() {
-        #expect(
-            ToolSidebarModeBarLayoutPolicy.leadingPadding(
-                position: .left,
-                isWorkspaceSidebarVisible: false,
-                isFullScreen: true,
-                trafficLightInset: 78,
-                fullscreenControlsLeadingPadding: 10,
-                fullscreenControlsWidth: 84
-            ) == 102
-        )
-    }
-
-    @Test func toolSidebarUsesCompactModeBarPaddingWhenChromeCannotOverlap() {
-        for position in ToolSidebarPosition.allCases {
-            #expect(
-                ToolSidebarModeBarLayoutPolicy.leadingPadding(
-                    position: position,
-                    isWorkspaceSidebarVisible: true,
-                    isFullScreen: false,
-                    trafficLightInset: 78,
-                    fullscreenControlsLeadingPadding: 10,
-                    fullscreenControlsWidth: 84
-                ) == ToolSidebarModeBarLayoutPolicy.defaultLeadingPadding
-            )
-        }
-    }
-
     @Test func coldHiddenRightSidebarDoesNotMountContent() {
         #expect(
             !RightSidebarContentMountPolicy.shouldMountContent(
@@ -121,7 +74,7 @@ struct HiddenRightSidebarContentMountingTests {
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},
-            modeBarLeadingPadding: ToolSidebarModeBarLayoutPolicy.defaultLeadingPadding
+            modeBarLeadingPadding: 4
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)

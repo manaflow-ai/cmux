@@ -1120,6 +1120,7 @@
           "type": "string",
           "enum": ["left", "right"],
           "default": "right",
+          "descriptionKey": "schemaDescriptions.sidebar.toolPosition",
           "description": "Which side of the workspace hosts the native Files, Find, Vault, Feed, and Dock sidebar."
         },
         "rightMaxWidth": {

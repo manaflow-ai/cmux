@@ -209,7 +209,10 @@ extension Array where Element == CuratedSettingEntry {
                     defaultValue: "Place Files, Find, Vault, Feed, and Dock on the left or right of the workspace."
                 ),
                 paths: ["sidebar.toolPosition"],
-                synonyms: "sidebar.toolPosition native tool file files find vault feed dock left right position"
+                synonyms: String(
+                    localized: "settings.search.alias.setting.sidebarAppearance.tool-position",
+                    defaultValue: "sidebar.toolPosition native tool file files find vault feed dock left right position"
+                )
             ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 

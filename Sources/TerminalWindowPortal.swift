@@ -3,48 +3,13 @@ import ObjectiveC
 import CmuxAppKitSupportUI
 import CmuxSettings
 import CmuxTerminal
+import CmuxWindowing
 #if DEBUG
 import Bonsplit
 #endif
 
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
-
-enum PortalToolSidebarResizerRouting {
-    private static let positionSetting = SidebarCatalogSection().toolPosition
-
-    static var currentPosition: ToolSidebarPosition {
-        ToolSidebarPosition.decodeFromUserDefaults(
-            UserDefaults.standard.object(forKey: positionSetting.userDefaultsKey)
-        ) ?? positionSetting.defaultValue
-    }
-
-    static func leftDividerX(
-        contentFrames: [NSRect],
-        dockFrames: [NSRect],
-        bounds: NSRect,
-        minimumVisibleContentWidth: CGFloat
-    ) -> CGFloat? {
-        let minimumDividerX = bounds.minX + minimumVisibleContentWidth
-        let maximumDividerX = bounds.maxX - minimumVisibleContentWidth
-        guard maximumDividerX > minimumDividerX else { return nil }
-
-        // Prefer the workspace's leading edge: it is the tool sidebar's exact
-        // trailing edge even when Dock contains a mix of terminal and browser
-        // panes. During portal layout churn that edge can temporarily report 0;
-        // fall back to the trailing edge of the visible Dock surfaces.
-        let contentLeadingEdge = contentFrames
-            .map(\.minX)
-            .filter { $0 > minimumDividerX && $0 < maximumDividerX }
-            .min()
-        if let contentLeadingEdge { return contentLeadingEdge }
-
-        return dockFrames
-            .map(\.maxX)
-            .filter { $0 > minimumDividerX && $0 < maximumDividerX }
-            .max()
-    }
-}
 
 final class WindowTerminalHostView: NSView {
     private typealias DividerRegion = PortalSplitDividerRegion
@@ -62,23 +27,20 @@ final class WindowTerminalHostView: NSView {
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
+    private let toolSidebarDividerRouting = ToolSidebarDividerRouting(
+        minimumVisibleContentWidth: minimumVisibleLeadingContentWidth
+    )
+    /// The window-local placement injected by ``ContentView`` for pointer routing.
+    var toolSidebarPosition: ToolSidebarPosition = .right {
+        didSet {
+            guard toolSidebarPosition != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
     let paneDropRoutingSession = PaneDropRoutingSession()
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
-
-    static func leftToolSidebarDividerX(
-        contentFrames: [NSRect],
-        dockFrames: [NSRect],
-        bounds: NSRect
-    ) -> CGFloat? {
-        PortalToolSidebarResizerRouting.leftDividerX(
-            contentFrames: contentFrames,
-            dockFrames: dockFrames,
-            bounds: bounds,
-            minimumVisibleContentWidth: minimumVisibleLeadingContentWidth
-        )
-    }
 
     deinit {
         if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
@@ -311,18 +273,13 @@ final class WindowTerminalHostView: NSView {
         let visibleHostedViews = subviews.compactMap { $0 as? GhosttySurfaceScrollView }
             .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
 
-        switch PortalToolSidebarResizerRouting.currentPosition {
+        switch toolSidebarPosition {
         case .left:
-            let contentFrames = visibleHostedViews
-                .filter { !$0.isRightSidebarDockSurface }
-                .map(\.frame)
-            let dockFrames = visibleHostedViews
-                .filter(\.isRightSidebarDockSurface)
-                .map(\.frame)
-            if let dividerX = Self.leftToolSidebarDividerX(
-                contentFrames: contentFrames,
-                dockFrames: dockFrames,
-                bounds: bounds
+            if let dividerX = toolSidebarDividerRouting.leftDividerX(
+                in: visibleHostedViews,
+                bounds: bounds,
+                frame: \.frame,
+                isDock: \.isRightSidebarDockSurface
             ), SidebarResizeInteraction.Edge.leading.hitRange(dividerX: dividerX).contains(point.x) {
                 return true
             }
@@ -702,7 +659,7 @@ final class WindowTerminalPortal: NSObject {
 #endif
 
     weak var window: NSWindow?
-    let hostView = WindowTerminalHostView(frame: .zero)
+    let hostView: WindowTerminalHostView
     private let dividerOverlayView = SplitDividerOverlayView(frame: .zero)
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
@@ -796,8 +753,15 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    init(window: NSWindow, syncLayout: Bool = true) {
+    /// Creates a terminal portal using the window's injected tool-sidebar placement.
+    init(
+        window: NSWindow,
+        syncLayout: Bool = true,
+        toolSidebarPosition: ToolSidebarPosition = .right
+    ) {
         self.window = window
+        hostView = WindowTerminalHostView(frame: .zero)
+        hostView.toolSidebarPosition = toolSidebarPosition
         super.init()
         hostView.wantsLayer = true
         hostView.layer?.masksToBounds = true
@@ -2351,6 +2315,8 @@ final class WindowTerminalPortal: NSObject {
 
 @MainActor
 enum TerminalWindowPortalRegistry {
+    // Objective-C association keys require a stable address; this byte is an immutable identity token.
+    private static var toolSidebarPositionAssociationKey: UInt8 = 0
 #if DEBUG
     static var isPointerDragActiveForTesting = false
 #endif
@@ -2547,7 +2513,15 @@ enum TerminalWindowPortalRegistry {
             return existing
         }
 
-        let portal = WindowTerminalPortal(window: window, syncLayout: syncLayout)
+        let storedPosition = (objc_getAssociatedObject(
+            window,
+            &toolSidebarPositionAssociationKey
+        ) as? String).flatMap(ToolSidebarPosition.init(rawValue:)) ?? .right
+        let portal = WindowTerminalPortal(
+            window: window,
+            syncLayout: syncLayout,
+            toolSidebarPosition: storedPosition
+        )
         objc_setAssociatedObject(window, &cmuxWindowTerminalPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
         portalsByWindowId[ObjectIdentifier(window)] = portal
         installWindowCloseObserverIfNeeded(for: window)
@@ -2561,6 +2535,17 @@ enum TerminalWindowPortalRegistry {
             return existing
         }
         return portalsByWindowId[ObjectIdentifier(window)]
+    }
+
+    /// Stores placement for future portal creation and updates an existing terminal portal.
+    static func setToolSidebarPosition(_ position: ToolSidebarPosition, for window: NSWindow) {
+        objc_setAssociatedObject(
+            window,
+            &toolSidebarPositionAssociationKey,
+            position.rawValue,
+            .OBJC_ASSOCIATION_COPY_NONATOMIC
+        )
+        existingPortal(for: window)?.hostView.toolSidebarPosition = position
     }
 
     static func bind(

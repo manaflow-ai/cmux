@@ -1898,7 +1898,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},
-            modeBarLeadingPadding: ToolSidebarModeBarLayoutPolicy.defaultLeadingPadding
+            modeBarLeadingPadding: 4
         )
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.frame = window.contentRect(forFrameRect: window.frame)
