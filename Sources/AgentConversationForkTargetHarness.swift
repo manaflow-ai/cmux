@@ -60,8 +60,8 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .current:
             nil
         case .claude, .codex, .grok, .opencode, .omp, .campfire, .pi, .amp,
-             .cursor, .gemini, .antigravity, .codebuddy, .factory, .qoder,
-             .kimi:
+             .cursor, .gemini, .antigravity, .copilot, .codebuddy, .factory,
+             .qoder, .kimi:
             "\(execPrefix)\(executable)"
         case .kiro:
             // The cmux profile is optional and installed separately. Preserve
@@ -76,8 +76,6 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
             }
         case .hermesAgent:
             "\(execPrefix)\(executable) chat --tui"
-        case .copilot:
-            "\(execPrefix)\(executable) --interactive"
         }
         guard let interactiveCommand else { return nil }
         let launchCommand = executableBinding?.shellCommand(
