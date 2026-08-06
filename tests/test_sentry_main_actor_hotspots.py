@@ -152,3 +152,20 @@ def test_portal_geometry_sync_defers_layout_to_appkit():
     assert ".layoutSubtreeIfNeeded()" not in synchronization
     assert "installedContainerView?.needsLayout = true" in synchronization
     assert "installedReferenceView?.needsLayout = true" in synchronization
+
+
+def test_closed_panel_history_uses_read_only_terminal_capture():
+    close_history = source_slice(
+        "Sources/Workspace.swift",
+        "private func closedPanelHistoryEntry(",
+        "private func consumeCloseHistoryEligibility",
+    )
+    session_snapshot = source_slice(
+        "Sources/Workspace.swift",
+        "private func sessionPanelSnapshot(",
+        "private func terminalSnapshotScrollback(",
+    )
+
+    assert "allowVTExport: false" in close_history
+    assert "allowTerminalVTExport: Bool = true" in session_snapshot
+    assert "allowVTExport: allowTerminalVTExport" in session_snapshot
