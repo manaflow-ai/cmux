@@ -91,15 +91,32 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_group_publish_file="$cmux_ssh_auth_group_dir/identity.new"
           cmux_ssh_auth_group_cancel_file="$cmux_ssh_auth_group_dir/cancel"
           cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_group_dir/processes"
+          cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_group_dir/processes.stopped"
           cmux_ssh_auth_owned_processes="$cmux_ssh_auth_group_dir/owned"
           cmux_ssh_auth_next_owned_processes="$cmux_ssh_auth_group_dir/owned.next"
           cmux_ssh_auth_owned_groups="$cmux_ssh_auth_group_dir/groups"
+          cmux_ssh_auth_next_owned_groups="$cmux_ssh_auth_group_dir/groups.next"
+          cmux_ssh_auth_resume_groups="$cmux_ssh_auth_group_dir/groups.resume"
+          cmux_ssh_auth_frozen_processes="$cmux_ssh_auth_group_dir/frozen"
+          cmux_ssh_auth_individual_processes="$cmux_ssh_auth_group_dir/individuals"
+          cmux_ssh_auth_ordered_processes="$cmux_ssh_auth_group_dir/ordered"
           cmux_ssh_auth_remove_cancel=0
+          cmux_ssh_auth_cleanup_started=0
+          cmux_ssh_auth_cleanup_complete=0
           cmux_ssh_auth_group_state_cleanup() {
+            if [ "$cmux_ssh_auth_cleanup_started" = 1 ] && \
+              [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
+              cmux_ssh_auth_force_owned_processes >/dev/null 2>&1 || \
+                cmux_ssh_auth_force_frozen_processes
+            fi
             /bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_anchor_fifo" \
               "$cmux_ssh_auth_group_publish_file" "$cmux_ssh_auth_process_snapshot" \
+              "$cmux_ssh_auth_poststop_snapshot" \
               "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_next_owned_processes" \
-              "$cmux_ssh_auth_owned_groups" 2>/dev/null || true
+              "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_next_owned_groups" \
+              "$cmux_ssh_auth_resume_groups" "$cmux_ssh_auth_frozen_processes" \
+              "$cmux_ssh_auth_individual_processes" "$cmux_ssh_auth_ordered_processes" \
+              2>/dev/null || true
             if [ "$cmux_ssh_auth_remove_cancel" = 1 ]; then
               /bin/rm -f -- "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || true
             fi
@@ -141,14 +158,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           cmux_ssh_auth_remove_cancel=1
           : > "$cmux_ssh_auth_owned_processes" || exit 0
+          : > "$cmux_ssh_auth_frozen_processes" || exit 0
+          cmux_ssh_auth_cleanup_started=1
           cmux_ssh_auth_freeze_attempt=0
           while [ "$cmux_ssh_auth_freeze_attempt" -lt 4 ]; do
-            cmux_ssh_auth_take_process_snapshot || exit 0
+            cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || exit 0
             cmux_ssh_auth_expand_owned_processes || exit 0
             cmux_ssh_auth_freeze_owned_processes || exit 0
             cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
           done
-          cmux_ssh_auth_force_owned_processes
+          cmux_ssh_auth_force_owned_processes || exit 0
+          cmux_ssh_auth_cleanup_complete=1
         )
 
         cmux_ssh_terminate_auth_process_tree() (

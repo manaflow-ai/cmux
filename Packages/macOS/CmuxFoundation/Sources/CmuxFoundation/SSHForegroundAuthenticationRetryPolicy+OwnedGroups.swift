@@ -3,7 +3,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
         #"""
         cmux_ssh_auth_take_process_snapshot() {
           /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= \
-            > "$cmux_ssh_auth_process_snapshot" 2>/dev/null
+            > "$1" 2>/dev/null
         }
 
         cmux_ssh_auth_expand_owned_processes() {
@@ -44,9 +44,47 @@ extension SSHForegroundAuthenticationRetryPolicy {
                   cmux_started[cmux_pid], cmux_state[cmux_pid]
               }
             }
-          ' "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_process_snapshot" | \
-            /usr/bin/sort -n -k1,1 > "$cmux_ssh_auth_next_owned_processes"
+          ' "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_process_snapshot" \
+            > "$cmux_ssh_auth_next_owned_processes" || return 1
+          /usr/bin/sort -n -k1,1 -o "$cmux_ssh_auth_next_owned_processes" \
+            "$cmux_ssh_auth_next_owned_processes" || return 1
           /bin/mv -f -- "$cmux_ssh_auth_next_owned_processes" "$cmux_ssh_auth_owned_processes"
+        }
+
+        cmux_ssh_auth_order_children_first() {
+          /usr/bin/awk '
+            {
+              cmux_record[$1] = $0
+              cmux_parent[$1] = $2
+              cmux_next_sibling[$1] = cmux_first_child[$2]
+              cmux_first_child[$2] = $1
+            }
+            END {
+              for (cmux_pid in cmux_record) {
+                if (!(cmux_parent[cmux_pid] in cmux_record)) {
+                  cmux_depth[cmux_pid] = 0
+                  cmux_queue[++cmux_queue_tail] = cmux_pid
+                }
+              }
+              cmux_queue_head = 1
+              while (cmux_queue_head <= cmux_queue_tail) {
+                cmux_parent_pid = cmux_queue[cmux_queue_head++]
+                cmux_child_pid = cmux_first_child[cmux_parent_pid]
+                while (cmux_child_pid != "") {
+                  if (!(cmux_child_pid in cmux_visited)) {
+                    cmux_visited[cmux_child_pid] = 1
+                    cmux_depth[cmux_child_pid] = cmux_depth[cmux_parent_pid] + 1
+                    cmux_queue[++cmux_queue_tail] = cmux_child_pid
+                  }
+                  cmux_child_pid = cmux_next_sibling[cmux_child_pid]
+                }
+              }
+              for (cmux_pid in cmux_record) {
+                print cmux_depth[cmux_pid] + 0, cmux_record[cmux_pid]
+              }
+            }
+          ' "$1" > "$2" || return 1
+          /usr/bin/sort -k1,1nr -k2,2nr -o "$2" "$2"
         }
 
         cmux_ssh_auth_select_exclusive_groups() {
@@ -58,22 +96,75 @@ extension SSHForegroundAuthenticationRetryPolicy {
             }
             NF >= 9 && $4 !~ /Z/ {
               cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
-              if ($3 in cmux_candidate &&
+              if ($3 in cmux_candidate) {
+                cmux_seen[$3] = 1
+                if (!(($1 SUBSEP $2 SUBSEP $3 SUBSEP cmux_started) in cmux_owned)) {
+                  cmux_mixed[$3] = 1
+                }
+              }
+            }
+            END {
+              for (cmux_group in cmux_candidate) {
+                if (cmux_group in cmux_seen && !(cmux_group in cmux_mixed)) print cmux_group
+              }
+            }
+          ' "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_process_snapshot" \
+            > "$cmux_ssh_auth_next_owned_groups" || return 1
+          /usr/bin/sort -un -o "$cmux_ssh_auth_next_owned_groups" \
+            "$cmux_ssh_auth_next_owned_groups" || return 1
+          /bin/mv -f -- "$cmux_ssh_auth_next_owned_groups" "$cmux_ssh_auth_owned_groups"
+        }
+
+        cmux_ssh_auth_revalidate_stopped_groups() {
+          /usr/bin/awk '
+            FILENAME == ARGV[1] {
+              cmux_owned[$1 SUBSEP $2 SUBSEP $3 SUBSEP $4] = 1
+              next
+            }
+            FILENAME == ARGV[2] {
+              cmux_candidate[$1] = 1
+              next
+            }
+            NF >= 9 && $4 !~ /Z/ && $3 in cmux_candidate {
+              cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+              cmux_seen[$3] = 1
+              if ($4 !~ /T/ ||
                   !(($1 SUBSEP $2 SUBSEP $3 SUBSEP cmux_started) in cmux_owned)) {
                 cmux_mixed[$3] = 1
               }
             }
             END {
               for (cmux_group in cmux_candidate) {
-                if (!(cmux_group in cmux_mixed)) print cmux_group
+                if (cmux_group in cmux_seen && !(cmux_group in cmux_mixed)) print cmux_group
               }
             }
-          ' "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_process_snapshot" | \
-            /usr/bin/sort -un > "$cmux_ssh_auth_owned_groups"
+          ' "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_owned_groups" \
+            "$cmux_ssh_auth_poststop_snapshot" > "$cmux_ssh_auth_next_owned_groups" || return 1
+          /usr/bin/sort -un -o "$cmux_ssh_auth_next_owned_groups" \
+            "$cmux_ssh_auth_next_owned_groups" || return 1
+
+          /usr/bin/awk '
+            FILENAME == ARGV[1] { cmux_valid[$1] = 1; next }
+            FILENAME == ARGV[2] { cmux_candidate[$1] = 1; next }
+            END {
+              for (cmux_group in cmux_candidate) {
+                if (!(cmux_group in cmux_valid)) print cmux_group
+              }
+            }
+          ' "$cmux_ssh_auth_next_owned_groups" "$cmux_ssh_auth_owned_groups" \
+            > "$cmux_ssh_auth_resume_groups" || return 1
+          while IFS= read -r cmux_ssh_auth_group; do
+            case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
+            /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+          done < "$cmux_ssh_auth_resume_groups"
+
+          /bin/mv -f -- "$cmux_ssh_auth_next_owned_groups" "$cmux_ssh_auth_owned_groups"
         }
 
         cmux_ssh_auth_freeze_owned_processes() {
           cmux_ssh_auth_select_exclusive_groups || return 1
+          /bin/cat "$cmux_ssh_auth_owned_processes" >> "$cmux_ssh_auth_frozen_processes" || return 1
+
           while IFS= read -r cmux_ssh_auth_group; do
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
             /bin/kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
@@ -81,15 +172,36 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
           /usr/bin/awk '
             FILENAME == ARGV[1] { cmux_exclusive[$1] = 1; next }
-            !($3 in cmux_exclusive) { print $1 }
-          ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" | \
-            while IFS= read -r cmux_ssh_auth_pid; do
-              case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
-              /bin/kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            done
+            !($3 in cmux_exclusive) { print }
+          ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
+            > "$cmux_ssh_auth_individual_processes" || return 1
+          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_individual_processes" \
+            "$cmux_ssh_auth_ordered_processes" || return 1
+          while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
+            cmux_ssh_auth_started cmux_ssh_auth_state; do
+            case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
+              *[!A-Za-z0-9_:]*|:*|*:) continue ;;
+            esac
+            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" != "$cmux_ssh_auth_expected_identity" ]; then
+              continue
+            fi
+            /bin/kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
+            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" != "$cmux_ssh_auth_expected_identity" ]; then
+              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            fi
+          done < "$cmux_ssh_auth_ordered_processes"
+
+          cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_poststop_snapshot" || return 1
+          cmux_ssh_auth_revalidate_stopped_groups || return 1
         }
 
         cmux_ssh_auth_force_owned_processes() {
+          cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
+          cmux_ssh_auth_expand_owned_processes || return 1
+          cmux_ssh_auth_select_exclusive_groups || return 1
+          /bin/cat "$cmux_ssh_auth_owned_processes" >> "$cmux_ssh_auth_frozen_processes" || return 1
+
           while IFS= read -r cmux_ssh_auth_group; do
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
             /bin/kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
@@ -97,12 +209,43 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
           /usr/bin/awk '
             FILENAME == ARGV[1] { cmux_exclusive[$1] = 1; next }
-            !($3 in cmux_exclusive) { print $1 }
-          ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" | \
-            while IFS= read -r cmux_ssh_auth_pid; do
-              case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
-              /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            done
+            !($3 in cmux_exclusive) { print }
+          ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
+            > "$cmux_ssh_auth_individual_processes" || return 1
+          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_individual_processes" \
+            "$cmux_ssh_auth_ordered_processes" || return 1
+          while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
+            cmux_ssh_auth_started cmux_ssh_auth_state; do
+            case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
+              *[!A-Za-z0-9_:]*|:*|*:) continue ;;
+            esac
+            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" = "$cmux_ssh_auth_expected_identity" ]; then
+              /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
+                /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            else
+              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            fi
+          done < "$cmux_ssh_auth_ordered_processes"
+        }
+
+        cmux_ssh_auth_force_frozen_processes() {
+          if [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then return 0; fi
+          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_frozen_processes" \
+            "$cmux_ssh_auth_ordered_processes" || return 1
+          while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
+            cmux_ssh_auth_started cmux_ssh_auth_state; do
+            case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
+              *[!A-Za-z0-9_:]*|:*|*:) continue ;;
+            esac
+            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" = "$cmux_ssh_auth_expected_identity" ]; then
+              /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
+                /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            else
+              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
+            fi
+          done < "$cmux_ssh_auth_ordered_processes"
         }
         """#
     }
