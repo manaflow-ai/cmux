@@ -3979,8 +3979,12 @@ final class WindowTerminalHostViewTests: XCTestCase {
             x: dividerPointInHost.x + terminalSideOverlapWidth,
             y: dividerPointInHost.y
         )
+        let resizeBandEvent = makeMouseDownEvent(
+            at: host.convert(resizeBandPoint, to: nil),
+            window: window
+        )
         XCTAssertNil(
-            host.hitTest(resizeBandPoint),
+            host.performHitTest(at: resizeBandPoint, currentEvent: resizeBandEvent),
             "The narrow terminal-side overlap should still pass through to the sidebar resizer"
         )
 
@@ -3988,8 +3992,12 @@ final class WindowTerminalHostViewTests: XCTestCase {
             x: dividerPointInHost.x + terminalSideOverlapWidth + 1,
             y: dividerPointInHost.y
         )
+        let textSelectionEvent = makeMouseDownEvent(
+            at: host.convert(textSelectionPoint, to: nil),
+            window: window
+        )
         assertHitFallsInsideHostedTerminal(
-            host.hitTest(textSelectionPoint),
+            host.performHitTest(at: textSelectionPoint, currentEvent: textSelectionEvent),
             hostedView: hostedView,
             message: "Once the pointer moves past the reduced terminal-side overlap, terminal content should win hit-testing"
         )

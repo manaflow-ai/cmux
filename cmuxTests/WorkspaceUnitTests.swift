@@ -43,6 +43,33 @@ func makeTemporaryBrowserProfile(named prefix: String) throws -> BrowserProfileD
     )
 }
 
+@MainActor
+@discardableResult
+private func waitForWorkspaceConditionSuspending(
+    timeout: TimeInterval = 3.0,
+    pollInterval: TimeInterval = 0.05,
+    file: StaticString = #filePath,
+    line: UInt = #line,
+    _ condition: @MainActor () -> Bool
+) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(timeout))
+    while true {
+        if condition() {
+            return true
+        }
+        guard clock.now < deadline else {
+            XCTFail("Timed out waiting for condition", file: file, line: line)
+            return false
+        }
+        do {
+            try await clock.sleep(for: .seconds(pollInterval))
+        } catch {
+            return condition()
+        }
+    }
+}
+
 final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     func testLightModeUsesConfiguredSelectedWorkspaceBackgroundColor() {
         guard let color = sidebarSelectedWorkspaceBackgroundNSColor(for: .light).usingColorSpace(.sRGB) else {
@@ -3603,23 +3630,21 @@ final class WorkspaceCreationPlacementTests: XCTestCase {
 
 @MainActor
 final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
-    private final class UnsafeConfigSnapshotTabManager: TabManager {
-        private var injectedConfig: CmuxSurfaceConfigTemplate?
+    private final class InjectedFontLineageTabManager: TabManager {
+        private var injectedFontSizeLineage: TerminalFontSizeLineage?
         var capturedConfigTemplate: CmuxSurfaceConfigTemplate?
 
-        func installInjectedConfig(fontSize: Float) {
-            var config = CmuxSurfaceConfigTemplate()
-            config.fontSize = fontSize
-            config.workingDirectory = "/tmp/cmux-workspace-snapshot"
-            config.command = "echo snapshot"
-            config.environmentVariables = ["CMUX_INHERITED_ENV": "1"]
-            injectedConfig = config
+        func installInjectedFontSizeLineage(fontSize: Float) {
+            injectedFontSizeLineage = TerminalFontSizeLineage(
+                basePoints: fontSize,
+                isExplicitOverride: true
+            )
         }
 
-        override func inheritedTerminalConfigForNewWorkspace(
+        override func inheritedTerminalFontSizeLineageForNewWorkspace(
             workspace: Workspace?
-        ) -> CmuxSurfaceConfigTemplate? {
-            injectedConfig ?? super.inheritedTerminalConfigForNewWorkspace(workspace: workspace)
+        ) -> TerminalFontSizeLineage? {
+            injectedFontSizeLineage ?? super.inheritedTerminalFontSizeLineageForNewWorkspace(workspace: workspace)
         }
 
         override func makeWorkspaceForCreation(
@@ -3658,9 +3683,9 @@ final class WorkspaceCreationConfigSanitizationTests: XCTestCase {
         }
     }
 
-    func testAddWorkspacePassesSanitizedInheritedConfigTemplate() {
-        let manager = UnsafeConfigSnapshotTabManager()
-        manager.installInjectedConfig(fontSize: 19)
+    func testAddWorkspaceBuildsSanitizedConfigFromInheritedFontLineage() {
+        let manager = InjectedFontLineageTabManager()
+        manager.installInjectedFontSizeLineage(fontSize: 19)
 
         _ = manager.addWorkspace()
 
@@ -6296,8 +6321,13 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             ),
             autoConnect: false
         )
-        workspace.currentDirectory = "/Users/cmux/fallback repo"
         let sourcePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.updateRemotePanelDirectoryWithMetadata(
+                panelId: sourcePanelId,
+                directory: "/Users/cmux/fallback repo"
+            )
+        )
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .codex,
             sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
@@ -6546,7 +6576,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         XCTAssertEqual(launch.workingDirectory, "/Users/cmux/fallback repo")
         XCTAssertNil(launch.terminalWorkingDirectory)
-        XCTAssertEqual(launch.initialTerminalCommand, "ssh -tt cmux-macmini")
+        XCTAssertEqual(launch.initialTerminalCommand, "/usr/bin/ssh -tt cmux-macmini")
         XCTAssertEqual(
             launch.initialTerminalInput,
             "cd -- '/Users/cmux/fallback repo' 2>/dev/null || [ ! -d '/Users/cmux/fallback repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
@@ -6813,7 +6843,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.isDirty), [false, true])
     }
 
-    func testUpdatingFocusedPanelGitBranchWithSameStateDoesNotRepublishWorkspace() {
+    func testUpdatingFocusedPanelGitBranchDoesNotRepublishWorkspace() {
         let workspace = Workspace()
         guard let panelId = workspace.focusedPanelId else {
             XCTFail("Expected initial focused panel")
@@ -6827,20 +6857,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         defer { cancellable.cancel() }
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
-        let baselinePublishCount = publishCount
-
-        XCTAssertGreaterThan(
-            baselinePublishCount,
-            0,
-            "Expected the first focused branch update to publish workspace changes"
-        )
+        XCTAssertEqual(publishCount, 0, "Git metadata should invalidate sidebar rows without rebuilding Workspace views")
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
 
         XCTAssertEqual(
             publishCount,
-            baselinePublishCount,
-            "Expected identical focused branch refreshes to avoid extra workspace publishes"
+            0,
+            "Identical git metadata refreshes should not rebuild Workspace views"
         )
     }
 
@@ -7350,7 +7374,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() throws {
+    func testForkConversationContextMenuDefaultActionWorksForCodexSnapshot() async throws {
         // Parity coverage with the Claude path: Codex sessions are also `.supportedWithoutProbe`
         // and should reach the default right-split path through the context-menu dispatcher.
         let defaults = UserDefaults.standard
@@ -7384,6 +7408,12 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
+        let didCreateSplit = await waitForWorkspaceConditionSuspending {
+            workspace.bonsplitController.allPaneIds.count == 2
+                && workspace.focusedPanelId != sourcePanelId
+        }
+        XCTAssertTrue(didCreateSplit)
+
         let forkPanelId = try XCTUnwrap(workspace.focusedPanelId)
         XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new split")
         let forkPanel = try XCTUnwrap(workspace.terminalPanel(for: forkPanelId))
@@ -7401,7 +7431,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(try paneId(in: split.second), forkPaneUUID)
     }
 
-    func testForkConversationContextMenuNewTabActionCreatesSiblingTab() throws {
+    func testForkConversationContextMenuNewTabActionCreatesSiblingTab() async throws {
         // Drive the same code path the bonsplit context menu triggers, end-to-end,
         // to lock in that the menu wiring stays connected.
         let workspace = Workspace()
@@ -7420,6 +7450,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             inPane: sourcePaneId
         )
 
+        let didCreateSiblingTab = await waitForWorkspaceConditionSuspending {
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count == 2
+        }
+        XCTAssertTrue(didCreateSiblingTab)
+
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
             2,
@@ -7432,7 +7467,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
     }
 
-    func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() throws {
+    func testForkConversationContextMenuPrimaryActionUsesConfiguredDefault() async throws {
         let defaults = UserDefaults.standard
         let previousValue = defaults.object(forKey: AgentConversationForkDefaultSettings.key)
         defer {
@@ -7460,6 +7495,11 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             for: anchorTab,
             inPane: sourcePaneId
         )
+
+        let didUseConfiguredDefault = await waitForWorkspaceConditionSuspending {
+            workspace.bonsplitController.tabs(inPane: sourcePaneId).count == 2
+        }
+        XCTAssertTrue(didUseConfiguredDefault)
 
         XCTAssertEqual(
             workspace.bonsplitController.tabs(inPane: sourcePaneId).count,
