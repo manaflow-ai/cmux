@@ -18,7 +18,7 @@ struct EventCursorPersistenceTests {
         )
 
         for sequence in 1 ..< 128 {
-            try persistence.record(sequence, now: start)
+            try persistence.record(Int64(sequence), now: start)
         }
         #expect(persistedSequences.isEmpty)
 
