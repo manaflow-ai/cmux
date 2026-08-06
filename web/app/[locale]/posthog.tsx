@@ -83,7 +83,7 @@ function PageviewTracker() {
         });
         if (controller.signal.aborted || currentGeneration !== generation) return;
         if (!response.ok) {
-          if (gateWhilePending) recoverAsAnonymous();
+          recoverAsAnonymous();
           return;
         }
         const payload = await response.json() as {
@@ -99,7 +99,7 @@ function PageviewTracker() {
             typeof payload.user?.id !== "string"
             || (plan !== "free" && plan !== "pro" && plan !== "team")
           ) {
-            if (gateWhilePending) recoverAsAnonymous();
+            recoverAsAnonymous();
             return;
           }
           identity = { id: payload.user.id, plan };
@@ -114,7 +114,7 @@ function PageviewTracker() {
           currentGeneration === generation
           && (!controller.signal.aborted || timedOut)
         ) {
-          if (gateWhilePending) recoverAsAnonymous();
+          recoverAsAnonymous();
         }
       } finally {
         window.clearTimeout(timeoutId);
