@@ -2,12 +2,12 @@ import Foundation
 import Testing
 
 #if canImport(cmux_DEV)
-@testable import cmux_DEV
+    @testable import cmux_DEV
 #elseif canImport(cmux)
-@testable import cmux
+    @testable import cmux
 #endif
 
-@Suite struct EventCursorPersistenceTests {
+struct EventCursorPersistenceTests {
     @Test func burstWritesAreBatchedAndFinalSequenceFlushes() throws {
         var persistedSequences: [Int64] = []
         let start = ContinuousClock().now
