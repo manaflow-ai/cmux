@@ -4931,10 +4931,13 @@ mod tests {
             reconnect: ReconnectPolicy {
                 initial_delay: Duration::from_millis(10),
                 maximum_delay: Duration::from_millis(10),
-                attempt_timeout: instrumented_test_timeout(Duration::from_millis(50)),
+                // This fixture injects carrier EOF directly and asserts prompt
+                // shutdown during SSH bootstrap. Give setup handshakes their
+                // own budget and keep heartbeat timing out of that invariant.
+                attempt_timeout: instrumented_test_timeout(Duration::from_secs(1)),
                 full_jitter: false,
-                heartbeat_interval: Some(instrumented_test_timeout(Duration::from_millis(10))),
-                heartbeat_timeout: instrumented_test_timeout(Duration::from_millis(10)),
+                heartbeat_interval: None,
+                heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
