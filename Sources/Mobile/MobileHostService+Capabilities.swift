@@ -55,6 +55,7 @@ extension MobileHostService {
             MobileBrowserStreamCapability.identifier,
             MobileBrowserStreamCapability.viewportIdentifier,
             MobileBrowserStreamCapability.dialogIdentifier,
+            MobileBrowserStreamCapability.createIdentifier,
             MobileSimulatorStreamCapability.current.identifier,
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,

@@ -21,7 +21,9 @@ const context = {
 describe("coderouter hosted entitlement", () => {
   test("validates an existing principal-scoped route session cheaply", async () => {
     const authenticate = async (token: string) =>
-      token === "crt_valid" ? { teamId: "team_1" } : null;
+      token === "crt_valid"
+        ? { teamId: "team_1", stackUserId: "stack-user-1" }
+        : null;
     const GET = makeCoderouterSessionGetHandler(authenticate);
 
     const valid = await GET(new Request(

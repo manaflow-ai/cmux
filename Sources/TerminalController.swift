@@ -2512,6 +2512,7 @@ class TerminalController {
             "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.browser.list",
+            "mobile.browser.create",
             "mobile.browser.stream.start",
             "mobile.browser.stream.stop",
             "mobile.browser.viewport",

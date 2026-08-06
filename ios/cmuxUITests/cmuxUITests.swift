@@ -47,14 +47,15 @@ final class cmuxUITests: XCTestCase {
     /// durable progress key to `welcome`; advancing to Connect writes the real
     /// `.connect` milestone. The default connection scene must describe
     /// same-account automatic discovery without presenting QR as the primary
-    /// path. The first two product scenes use production-app screenshots, with
-    /// the notification scene showing the shipped chronological feed. The
+    /// path. The first product scene uses the shipped workspace-list capture,
+    /// while the notification scene shows the shipped chronological feed. The
     /// connection scene keeps its live connection-state illustration. Relaunching
     /// after the simulated search finishes must resume at Connect and expose QR
     /// as an explicit fallback.
     @MainActor
     func testOnboardingScenesNotificationFeedResumeAndScannerFallback() throws {
         let app = XCUIApplication()
+        XCUIDevice.shared.orientation = .portrait
         let baseArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         let progressOverride = [
             "-dev.cmux.mobile.onboarding.redesign.progress.v1",
@@ -68,7 +69,10 @@ final class cmuxUITests: XCTestCase {
             "CMUX_UITEST_SCANNER_PREVIEW": "1",
         ]
         app.launch()
-        defer { app.terminate() }
+        defer {
+            app.terminate()
+            XCUIDevice.shared.orientation = .portrait
+        }
 
         func element(_ identifier: String) -> XCUIElement {
             app.descendants(matching: .any)[identifier]
@@ -92,24 +96,34 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(footer.waitForExistence(timeout: 4))
         XCTAssertTrue(pageViewport.waitForExistence(timeout: 4))
 
-        let initialHeaderFrame = header.frame
-        let initialProgressFrame = progress.frame
-        let initialFooterFrame = footer.frame
+        var referenceHeaderFrame = header.frame
+        var referenceProgressFrame = progress.frame
+        var referenceFooterFrame = footer.frame
+
+        func recordChromeReferenceFrames() {
+            referenceHeaderFrame = header.frame
+            referenceProgressFrame = progress.frame
+            referenceFooterFrame = footer.frame
+        }
 
         func assertStableChrome(
             includeFooter: Bool = true,
             file: StaticString = #filePath,
             line: UInt = #line
         ) {
-            XCTAssertEqual(header.frame.minX, initialHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.minY, initialHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.width, initialHeaderFrame.width, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(header.frame.height, initialHeaderFrame.height, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midX, initialProgressFrame.midX, accuracy: 0.5, file: file, line: line)
-            XCTAssertEqual(progress.frame.midY, initialProgressFrame.midY, accuracy: 0.5, file: file, line: line)
+            let appFrame = app.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(appFrame.contains(header.frame), file: file, line: line)
+            XCTAssertTrue(appFrame.contains(progress.frame), file: file, line: line)
+            XCTAssertEqual(header.frame.minX, referenceHeaderFrame.minX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.minY, referenceHeaderFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.width, referenceHeaderFrame.width, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(header.frame.height, referenceHeaderFrame.height, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midX, referenceProgressFrame.midX, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(progress.frame.midY, referenceProgressFrame.midY, accuracy: 0.5, file: file, line: line)
             if includeFooter {
-                XCTAssertEqual(footer.frame.minY, initialFooterFrame.minY, accuracy: 0.5, file: file, line: line)
-                XCTAssertEqual(footer.frame.maxY, initialFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
+                XCTAssertTrue(appFrame.contains(footer.frame), file: file, line: line)
+                XCTAssertEqual(footer.frame.minY, referenceFooterFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(footer.frame.maxY, referenceFooterFrame.maxY, accuracy: 0.5, file: file, line: line)
             }
         }
 
@@ -123,8 +137,76 @@ final class cmuxUITests: XCTestCase {
             XCTAssertTrue(page.frame.intersects(app.frame), file: file, line: line)
         }
 
+        func assertPageContentFitsWithoutScrolling(
+            title: XCUIElement,
+            visual: XCUIElement,
+            additionalContent: [XCUIElement] = [],
+            includeFooter: Bool = true,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            XCTAssertTrue(title.exists, file: file, line: line)
+            XCTAssertTrue(visual.exists, file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(element.exists, file: file, line: line)
+            }
+
+            let viewportFrame = pageViewport.frame.insetBy(dx: -0.5, dy: -0.5)
+            XCTAssertTrue(viewportFrame.contains(title.frame), file: file, line: line)
+            XCTAssertTrue(viewportFrame.contains(visual.frame), file: file, line: line)
+            for element in additionalContent {
+                XCTAssertTrue(viewportFrame.contains(element.frame), file: file, line: line)
+            }
+
+            let initialTitleFrame = title.frame
+            let initialVisualFrame = visual.frame
+            let initialAdditionalFrames = additionalContent.map(\.frame)
+            visual.swipeUp()
+
+            func waitForOriginalFrame(
+                _ element: XCUIElement,
+                originalFrame: CGRect
+            ) {
+                let settledFrame = waitForFrame(of: element, timeout: 2) { frame in
+                    abs(frame.minX - originalFrame.minX) <= 0.5
+                        && abs(frame.minY - originalFrame.minY) <= 0.5
+                        && abs(frame.maxX - originalFrame.maxX) <= 0.5
+                        && abs(frame.maxY - originalFrame.maxY) <= 0.5
+                }
+                XCTAssertNotNil(
+                    settledFrame,
+                    "Onboarding content did not return to its original frame after a vertical swipe",
+                    file: file,
+                    line: line
+                )
+            }
+
+            waitForOriginalFrame(title, originalFrame: initialTitleFrame)
+            waitForOriginalFrame(visual, originalFrame: initialVisualFrame)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                waitForOriginalFrame(element, originalFrame: initialFrame)
+            }
+
+            XCTAssertEqual(title.frame.minY, initialTitleFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(title.frame.maxY, initialTitleFrame.maxY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.minY, initialVisualFrame.minY, accuracy: 0.5, file: file, line: line)
+            XCTAssertEqual(visual.frame.maxY, initialVisualFrame.maxY, accuracy: 0.5, file: file, line: line)
+            for (element, initialFrame) in zip(additionalContent, initialAdditionalFrames) {
+                XCTAssertEqual(element.frame.minY, initialFrame.minY, accuracy: 0.5, file: file, line: line)
+                XCTAssertEqual(element.frame.maxY, initialFrame.maxY, accuracy: 0.5, file: file, line: line)
+            }
+            assertStableChrome(includeFooter: includeFooter, file: file, line: line)
+        }
+
         capture("onboarding-01-agents")
-        XCTAssertTrue(element("MobileOnboardingScreenshot-workspaces").exists)
+        let agentsTitle = app.staticTexts["Your agents keep working on your Mac"]
+        let agentsBody = app.staticTexts["Track every workspace from your phone."]
+        let agentsScreenshot = element("MobileOnboardingScreenshot-workspaces")
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
+        )
 
         let primaryButton = app.buttons["MobileOnboardingPrimaryButton"]
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
@@ -141,9 +223,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(notificationsBody.exists)
         XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
         XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
-        XCTAssertTrue(element("MobileOnboardingScreenshot-notifications").exists)
+        let notificationsScreenshot = element("MobileOnboardingScreenshot-notifications")
+        XCTAssertTrue(notificationsScreenshot.exists)
         XCTAssertTrue(primaryButton.exists)
         assertStableChrome()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
+        )
         capture("onboarding-02-notifications")
 
         let backButton = app.buttons["MobileOnboardingBackButton"]
@@ -175,6 +263,14 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
         XCTAssertFalse(app.buttons["Use QR Code Instead"].exists)
         assertStableChrome(includeFooter: false)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [app.staticTexts[
+                "Use the same cmux account on both devices. Your Mac connects automatically."
+            ]],
+            includeFooter: false
+        )
         capture("onboarding-03-connect")
 
         // Drop only the launch-domain override. The application-domain value
@@ -205,10 +301,26 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
         XCTAssertTrue(automaticMethod.isSelected)
         XCTAssertFalse(tailscaleMethod.isSelected)
-        capture("onboarding-04-resumed-connect")
 
         let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
         XCTAssertTrue(qrFallbackButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(qrFallbackButton.frame))
+        XCTAssertTrue(qrFallbackButton.isHittable)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                app.staticTexts[
+                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                ],
+                element("MobileOnboardingConnectionMethodPicker"),
+            ],
+            includeFooter: true
+        )
+        capture("onboarding-04-resumed-connect")
+
         qrFallbackButton.tap()
 
         let scannerPreview = element("MobilePairingScannerPreview")
@@ -227,6 +339,53 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+
+        app.terminate()
+        XCUIDevice.shared.orientation = .landscapeRight
+        app.launchArguments = baseArguments + progressOverride
+        app.launchEnvironment["CMUX_UITEST_ONBOARDING_CONNECTION_FALLBACK"] = "1"
+        app.launch()
+
+        assertPageVisible(agentsScene, timeout: 8)
+        XCTAssertNotNil(waitForFrame(of: pageViewport, timeout: 4) { frame in
+            frame.width > frame.height
+        })
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: agentsTitle,
+            visual: agentsScreenshot,
+            additionalContent: [agentsBody]
+        )
+        capture("onboarding-07-agents-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(notificationsScene)
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Every agent alert, in one place"],
+            visual: notificationsScreenshot,
+            additionalContent: [notificationsBody]
+        )
+        capture("onboarding-08-notifications-compact-height")
+
+        primaryButton.tap()
+        assertPageVisible(connectScene)
+        let compactFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(compactFallbackButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(footer.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
+        XCTAssertTrue(app.frame.insetBy(dx: -0.5, dy: -0.5).contains(compactFallbackButton.frame))
+        XCTAssertTrue(compactFallbackButton.isHittable)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: app.staticTexts["Your Mac connects automatically"],
+            visual: element("MobileOnboardingConnectionPreview"),
+            additionalContent: [
+                app.staticTexts[
+                    "Use the same cmux account on both devices. Your Mac connects automatically."
+                ],
+                element("MobileOnboardingConnectionMethodPicker"),
+            ]
+        )
+        capture("onboarding-09-connect-compact-height")
     }
 
     @MainActor
@@ -356,6 +515,33 @@ final class cmuxUITests: XCTestCase {
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "workspace-mac-picker-computer-copy"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    func testWorkspaceGroupsStayVisibleForAllComputersAcrossMultipleMacs() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "8",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_GROUPS": "2",
+        ])
+        defer { app.terminate() }
+
+        XCTAssertTrue(app.staticTexts["All Computers"].waitForExistence(timeout: 8))
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-0"
+            ].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "MobileWorkspaceGroupHeader-seed-group-1"
+            ].waitForExistence(timeout: 3)
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "workspace-groups-all-computers-multiple-macs"
         attachment.lifetime = .keepAlways
         add(attachment)
     }
@@ -1583,7 +1769,7 @@ final class cmuxUITests: XCTestCase {
         let approvalTitle = app.staticTexts["Codex needs approval"]
         let approvalWorkspace = app.staticTexts["cmux iOS"]
         let approvalBody = app.staticTexts[
-            "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
+            "The feed screen is implemented. Review the navigation and approve the final interaction pass."
         ]
         let approvalRow = app.descendants(matching: .any)["MobileNotificationFeedRow-studio-codex-approval"]
         XCTAssertTrue(approvalTitle.waitForExistence(timeout: 3))

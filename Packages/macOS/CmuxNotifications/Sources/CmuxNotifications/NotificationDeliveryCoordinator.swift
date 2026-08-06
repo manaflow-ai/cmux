@@ -21,6 +21,10 @@ public final class NotificationDeliveryCoordinator {
     private let terminalIdentifiers: TerminalNotificationDeliveryIdentifiers
     private let actionTitles: NotificationDeliveryActionTitles
 
+    /// The in-flight category installation, retained so reconfiguration can
+    /// cancel and replace a previous install instead of racing it.
+    @ObservationIgnored private var categoryInstallationTask: Task<Void, Never>?
+
     /// Creates a notification delivery coordinator with all OS, terminal, Feed,
     /// and activation side effects supplied through injected seams.
     public init(
@@ -39,11 +43,21 @@ public final class NotificationDeliveryCoordinator {
         self.actionTitles = actionTitles
     }
 
-    /// Installs every terminal and Feed notification category, then assigns the
-    /// `UNUserNotificationCenter` delegate.
+    /// Assigns the `UNUserNotificationCenter` delegate, then installs every
+    /// terminal and Feed notification category.
+    ///
+    /// The delegate is installed synchronously so launch-time notification
+    /// responses are never dropped. Category installation is fire-and-forget
+    /// through the bounded ``UserNotificationCenterConfiguring`` boundary: it
+    /// can touch the notification daemon over XPC, so a wedged daemon must
+    /// degrade to missing categories rather than a blocked main actor.
     public func configureUserNotifications(delegate: any UNUserNotificationCenterDelegate) {
-        center.setNotificationCategories(notificationCategories())
         center.setDelegate(delegate)
+        let categories = notificationCategories()
+        categoryInstallationTask?.cancel()
+        categoryInstallationTask = Task { [center] in
+            _ = await center.setNotificationCategories(categories)
+        }
     }
 
     /// Presentation options for a notification delivered while the app is in
