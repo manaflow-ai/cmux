@@ -396,6 +396,10 @@ jobs:
           test "$status" -ne 0
           grep -F "Windows SSH carrier was rejected" <<<"$output"
 
+      - name: Verify native Windows ConPTY terminal
+        shell: bash
+        run: cmux-tui/scripts/smoke-windows-native.sh cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
       - name: Stage binary
         shell: bash
         run: |
