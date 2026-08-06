@@ -51,6 +51,48 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func transferredTranscriptReachesHarnessInputWithoutAppearingInHarnessArguments() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake grok", isDirectory: false)
+        let argumentsLog = directory.appendingPathComponent("arguments.log", isDirectory: false)
+        let inputLog = directory.appendingPathComponent("input.log", isDirectory: false)
+        let script = """
+        #!/bin/zsh
+        /usr/bin/printf '%s\n' "$@" > "$CMUX_ARGUMENTS_LOG"
+        IFS= read -r first_message
+        /usr/bin/printf '%s' "$first_message" > "$CMUX_INPUT_LOG"
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let message = "User: preserve this private transfer"
+        let command = try #require(AgentConversationForkTargetHarness.grok.startupCommand(
+            handoffMessage: message,
+            executablePath: executable.path
+        ))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_ARGUMENTS_LOG": argumentsLog.path,
+            "CMUX_INPUT_LOG": inputLog.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(String(decoding: try Data(contentsOf: argumentsLog), as: UTF8.self) == "\n")
+        #expect(String(decoding: try Data(contentsOf: inputLog), as: UTF8.self) == message)
+    }
+
+    @Test
     func hermesTransferSeedsThenResumesInteractiveSession() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

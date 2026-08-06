@@ -200,11 +200,7 @@ struct AgentConversationTransferSourceTests {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("custom claude")
-        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: executable.path
-        )
+        try writeVersionExecutable(executable, output: "2.1.223 (Claude Code)")
 
         let targets = AgentConversationForkTargetDiscoverer(
             environment: ["HOME": root.path, "PATH": ""],
@@ -228,11 +224,7 @@ struct AgentConversationTransferSourceTests {
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
         let executable = bin.appendingPathComponent("cbc")
-        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: executable.path
-        )
+        try writeVersionExecutable(executable, output: "CodeBuddy 1.2.3")
 
         let targets = AgentConversationForkTargetDiscoverer(
             environment: ["HOME": root.path, "PATH": bin.path],
@@ -247,6 +239,28 @@ struct AgentConversationTransferSourceTests {
         #expect(target.harness == .codebuddy)
         #expect(target.executablePath == executable.path)
         #expect(target.runtimeSearchPath?.split(separator: ":").first == Substring(bin.path))
+    }
+
+    @Test
+    func installedTargetDiscoveryRejectsExecutableAliasWithoutHarnessIdentity() throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("cbc")
+        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let targets = AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": root.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        #expect(targets.isEmpty)
     }
 
     @Test(arguments: ["qodercli", "kimi"])
@@ -293,11 +307,7 @@ struct AgentConversationTransferSourceTests {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let executable = root.appendingPathComponent("codex")
-        #expect(FileManager.default.createFile(atPath: executable.path, contents: Data()))
-        try FileManager.default.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: executable.path
-        )
+        try writeVersionExecutable(executable, output: "codex-cli 0.146.1")
         let discoverer = AgentConversationForkTargetDiscoverer(
             environment: ["HOME": root.path, "PATH": root.path],
             defaultHomeDirectory: root.path,
@@ -449,6 +459,30 @@ struct AgentConversationTransferSourceTests {
         #expect(legacySnapshot.sessionIDProvenance == nil)
         #expect(!AgentConversationSource(
             snapshot: legacySnapshot
+        ).hasDeterministicTranscriptSource)
+    }
+
+    @Test
+    func inferredHermesSessionIdentityIsNotTransferable() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "heuristic-hermes-session",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes",
+                executablePath: "/opt/homebrew/bin/hermes",
+                arguments: ["/opt/homebrew/bin/hermes"],
+                workingDirectory: nil,
+                environment: ["HERMES_HOME": directory.path],
+                capturedAt: 123,
+                source: "process"
+            ),
+            sessionIDProvenance: .inferredLatestSessionFile
+        )
+
+        #expect(!AgentConversationSource(
+            snapshot: snapshot
         ).hasDeterministicTranscriptSource)
     }
 
@@ -690,6 +724,22 @@ struct AgentConversationTransferSourceTests {
             .appendingPathComponent("cmux-conversation-transfer-source-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func writeVersionExecutable(_ url: URL, output: String) throws {
+        let script = """
+        #!/bin/zsh
+        if [[ "${1:-}" == "--version" ]]; then
+          /usr/bin/printf '%s\\n' \(TerminalStartupShellQuoting.singleQuoted(output))
+          exit 0
+        fi
+        exit 2
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: url.path
+        )
     }
 
     private func makeHermesStateDatabase(
