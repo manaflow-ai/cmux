@@ -605,6 +605,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-natural-cleanup-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
         let releaseMarker = root.appendingPathComponent("release")
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         let groupFile = groupDirectory.appendingPathComponent("identity")
         let groupRecord = root.appendingPathComponent("group-record")
@@ -612,14 +614,30 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
 
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
+            /usr/bin/nohup /bin/sh "$CMUX_TEST_LEAF_SCRIPT" </dev/null >/dev/null 2>&1 &
+            cmux_test_leaf_attempt=0
+            while [ ! -s "$CMUX_TEST_LEAF_PID" ] && [ "$cmux_test_leaf_attempt" -lt 300 ]; do
+              /bin/sleep 0.01
+              cmux_test_leaf_attempt=$((cmux_test_leaf_attempt + 1))
+            done
+            test -s "$CMUX_TEST_LEAF_PID" || exit 95
             : > "$CMUX_TEST_READY_MARKER"
             while [ ! -f "$CMUX_TEST_RELEASE_MARKER" ]; do /bin/sleep 0.01; done
             """
         )
         let command = """
+        \(policy.processTreeTerminationShellFunction())
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
@@ -633,6 +651,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" "$CMUX_TEST_GROUP_RECORD" || exit 96
         : > "$CMUX_TEST_RELEASE_MARKER"
         wait "$cmux_test_auth_root"
+        cmux_ssh_terminate_owned_auth_group
         """
 
         let process = Process()
@@ -641,6 +660,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_RELEASE_MARKER": releaseMarker.path,
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
             "CMUX_TEST_GROUP_RECORD": groupRecord.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
         ]) { _, override in override }
@@ -653,12 +674,77 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try process.run()
         try waitForExit(process, stderrCapture: stderrCapture)
 
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(leafPID, SIGKILL) }
+        let exitDeadline = Date.now.addingTimeInterval(1)
+        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
         let groupID = try #require(processGroupID(in: groupRecord))
         defer { Darwin.kill(-groupID, SIGKILL) }
         #expect(process.terminationStatus == 0)
+        #expect(Darwin.kill(leafPID, 0) != 0)
         #expect(Darwin.kill(-groupID, 0) != 0)
         #expect(!fileManager.fileExists(atPath: groupFile.path))
         #expect(!fileManager.fileExists(atPath: groupDirectory.path))
+    }
+
+    @Test func reaperStopsAfterBoundedFailuresAndPreservesState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-bounded-reaper-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() {
+          printf x >> "$CMUX_TEST_REAPER_CALLS"
+          return 1
+        }
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+        cmux_test_reaper_pid=$!
+        ( /bin/sleep 5; /bin/kill -KILL "$cmux_test_reaper_pid" 2>/dev/null || true ) &
+        cmux_test_watchdog_pid=$!
+        wait "$cmux_test_reaper_pid"
+        cmux_test_reaper_status=$?
+        /bin/kill -KILL "$cmux_test_watchdog_pid" 2>/dev/null || true
+        wait "$cmux_test_watchdog_pid" 2>/dev/null || true
+        test "$cmux_test_reaper_status" -eq 0 || exit 95
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 3 || exit 94
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 93
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" || exit 92
+        test ! -d "$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock" || exit 91
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_REAPER_CALLS": callsFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
     }
 
     @Test(arguments: [("HUP", Int32(129)), ("INT", Int32(130)), ("TERM", Int32(143))])
