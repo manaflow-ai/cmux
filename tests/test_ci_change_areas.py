@@ -720,14 +720,19 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     assert block.index(step) < block.index("- name: Run unit tests")
 
 
-def test_app_host_tests_inject_swift_testing_serialization_into_the_test_host() -> None:
+def test_app_host_tests_configure_swift_testing_serialization_in_the_xcode_scheme() -> None:
     block = workflow_job_block("app-host-unit-tests")
     job_configuration = block.split("    steps:", maxsplit=1)[0]
+    scheme = (
+        ROOT / "cmux.xcodeproj" / "xcshareddata" / "xcschemes" / "cmux-unit.xcscheme"
+    ).read_text()
 
     assert (
-        'TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"'
-        in job_configuration
+        '<EnvironmentVariable key="SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH" '
+        'value="1" isEnabled="YES"/>'
+        in scheme
     )
+    assert "TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH" not in job_configuration
     assert '\n      SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"' not in job_configuration
 
 
