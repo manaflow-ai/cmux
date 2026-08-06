@@ -34,6 +34,9 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
+        let directAuthenticationSignalCleanup = reauthenticates
+            ? "case \"$cmux_ssh_attach_status\" in 129|130|143) cmux_ssh_terminate_owned_auth_group ;; esac"
+            : ":"
         var lines = [
             "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
@@ -67,7 +70,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "    cmux_ssh_attach_auth_pid=$!",
             "    cmux_ssh_attach_auth_launching=0",
             "    if [ -n \"${cmux_ssh_attach_pending_signal:-}\" ]; then cmux_ssh_attach_signal_exit \"$cmux_ssh_attach_pending_signal\" \"${cmux_ssh_attach_pending_signal_name:-TERM}\"; fi",
-            "    wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_file",
+            "    wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; cmux_ssh_attach_auth_pid=; \(directAuthenticationSignalCleanup); cmux_ssh_attach_remove_auth_group_file",
             "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; cmux_ssh_attach_auth_retry=0; else case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_auth_retry=$((cmux_ssh_attach_auth_retry + 1)); if [ \"$cmux_ssh_attach_auth_retry\" -ge \"$cmux_ssh_attach_auth_retry_limit\" ]; then exit 255; fi ;; \(authPolicy.unclassifiedFailureExitStatus)) exit 255 ;; *) exit \"$cmux_ssh_attach_status\" ;; esac; fi",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
