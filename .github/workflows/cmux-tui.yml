@@ -133,6 +133,15 @@ jobs:
                 # scheduler starvation and wall-clock timeout races.
                 test_args+=(--test-threads=1)
                 ;;
+              terminal_host_recovery-*)
+                # Valgrind instruments this client harness but not the hidden
+                # terminal-host child it launches. The normal-speed child can
+                # fill the socket while the instrumented reader is descheduled,
+                # correctly triggering the production stalled-client timeout
+                # mid-frame. Normal Linux and macOS CI retain this ordering test;
+                # every other recovery case remains under Valgrind.
+                test_args+=(--skip exit_follows_all_final_pty_bytes_on_the_live_stream)
+                ;;
               relay_wss_diagnostic-*)
                 # ring's AES-GCM backend exposes initialized output through a
                 # partially initialized SIMD buffer. Valgrind reports its
