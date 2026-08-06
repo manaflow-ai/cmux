@@ -571,6 +571,9 @@ where
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut submitted = 0;
     for (index, item) in items.iter().cloned().enumerate() {
+        if Instant::now() >= deadline {
+            break;
+        }
         let sender = sender.clone();
         let operation = operation.clone();
         let result = Arc::new(Mutex::new(None));
