@@ -118,7 +118,7 @@ CMUX_TUI_CONFIG=examples/resource-columns.prototype.json cargo run -p cmux-tui -
 
 Every machine has a unique nonempty `id`, a nonempty display `name`, an optional `subtitle`, and one transport. The id `current` is reserved for the automatically inserted local session.
 
-SSH machine targets currently require macOS or Linux because the remote daemon uses Unix PTYs and sockets. A native Windows OpenSSH target reports the WSL 2 prerequisite instead of attempting a Unix command in `cmd.exe`. Install a Linux distribution under WSL 2 and expose that Linux environment through its own SSH alias before attaching it as a machine.
+SSH machine targets support macOS, Linux, and native x86_64 Windows OpenSSH hosts. Native Windows terminals use ConPTY and do not require WSL. Packaged distributions carry a matching Windows companion and install it under `%LOCALAPPDATA%\cmux\bin` on first connection. An unpublished build must set `CMUX_TUI_WINDOWS_REMOTE_BINARY` to its exact matching Windows executable. The remote mux currently lives for the SSH carrier lifetime, so quitting the frontend ends its Windows PTYs; durable reconnect after a complete carrier loss is future work.
 
 | Machine key | Applies to | Type | Default | Effect |
 | --- | --- | --- | --- | --- |

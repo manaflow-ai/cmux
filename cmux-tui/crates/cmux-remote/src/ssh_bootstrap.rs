@@ -478,6 +478,12 @@ impl SshBootstrapper {
                 "remote state directory is not shell-safe".into(),
             ));
         }
+        // Native Windows currently owns its mux inside the SSH carrier
+        // process. There is no resident daemon to stop before launching the
+        // newly installed binary.
+        if matches!(target.shell, SshRemoteShell::WindowsCmd) {
+            return Ok(());
+        }
         let output = match target.shell {
             SshRemoteShell::Posix => match state_dir {
                 Some(state_dir) => {
@@ -496,15 +502,7 @@ impl SshBootstrapper {
                         .await?
                 }
             },
-            SshRemoteShell::WindowsCmd => {
-                let mut command = format!("\"{}\" remote-stop --session {session}", target.binary);
-                if let Some(state_dir) = state_dir {
-                    command.push_str(" --state-dir \"");
-                    command.push_str(state_dir);
-                    command.push('"');
-                }
-                self.run_remote([command.as_str()]).await?
-            }
+            SshRemoteShell::WindowsCmd => unreachable!("Windows returned before remote stop"),
         };
         if output.status != 0 {
             return Err(BootstrapError::Remote {
@@ -983,6 +981,19 @@ mod tests {
         assert_eq!(resolved.outcome, BootstrapOutcome::AlreadyInstalled);
         assert_eq!(resolved.target.shell, SshRemoteShell::WindowsCmd);
         assert_eq!(resolved.target.binary, WINDOWS_REMOTE_BINARY);
+    }
+
+    #[tokio::test]
+    async fn carrier_scoped_windows_target_has_no_daemon_to_stop() {
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = "this-ssh-must-not-run".into();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        bootstrap.stop_daemon_target(&target, "main", None).await.unwrap();
     }
 
     #[test]
