@@ -29,13 +29,25 @@ export function syncStackAnalyticsIdentity(
     if (previousUserId && previousUserId !== identity.id) {
       posthog.reset();
     }
-    posthog.identify(identity.id, {
-      stack_user_id: identity.id,
-      authentication_provider: "stack",
-      billing_plan: identity.plan,
-      is_pro: identity.plan !== "free",
-    });
-    storage.setItem(STACK_IDENTITY_STORAGE_KEY, identity.id);
+    try {
+      // Persist first so a failed marker write cannot leave an authenticated
+      // PostHog identity that later logout handling is unable to reset.
+      storage.setItem(STACK_IDENTITY_STORAGE_KEY, identity.id);
+      posthog.identify(identity.id, {
+        stack_user_id: identity.id,
+        authentication_provider: "stack",
+        billing_plan: identity.plan,
+        is_pro: identity.plan !== "free",
+      });
+    } catch (error) {
+      posthog.reset();
+      try {
+        storage.removeItem(STACK_IDENTITY_STORAGE_KEY);
+      } catch {
+        // The reset is the privacy boundary; storage cleanup is best-effort.
+      }
+      throw error;
+    }
     return;
   }
 

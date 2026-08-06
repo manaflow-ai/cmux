@@ -79,4 +79,23 @@ describe("Stack PostHog identity bridge", () => {
       expect.objectContaining({ billing_plan: "team", is_pro: true }),
     );
   });
+
+  test("resets if the authenticated identity marker cannot be persisted", () => {
+    const h = harness();
+    const storage = {
+      ...h.storage,
+      setItem: () => {
+        throw new Error("storage unavailable");
+      },
+    };
+
+    expect(() => syncStackAnalyticsIdentity(
+      h,
+      storage,
+      { id: "stack-user-1", plan: "pro" },
+    )).toThrow("storage unavailable");
+
+    expect(h.identify).not.toHaveBeenCalled();
+    expect(h.reset).toHaveBeenCalledTimes(1);
+  });
 });

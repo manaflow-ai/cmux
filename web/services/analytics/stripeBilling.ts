@@ -64,15 +64,11 @@ function mappedBillingEvent(
     stripe_event_type: event.type,
     billing_scope: subject.scope,
     is_active: subject.isActive,
+    billing_status: subject.status,
   };
 
   if (subject.scope === "user") {
     common.stack_user_id = subject.stackUserId;
-    common.$set = {
-      stack_user_id: subject.stackUserId,
-      billing_plan: subject.isActive === false ? "free" : "pro",
-      is_pro: subject.isActive !== false,
-    };
   } else {
     common.stack_team_id = subject.stackTeamId;
     common.$groups = { stack_team: subject.stackTeamId };
@@ -85,7 +81,8 @@ function mappedBillingEvent(
       const customerId = stringId(session.customer);
       return {
         name: "cmux_billing_checkout_completed",
-        properties: billingProperties(common, subject, customerId, {
+        properties: {
+          ...common,
           plan: session.metadata?.plan ?? null,
           billing_interval: session.metadata?.billingInterval ?? null,
           amount_total: session.amount_total,
@@ -94,7 +91,7 @@ function mappedBillingEvent(
           stripe_checkout_session_id: session.id,
           stripe_subscription_id: stringId(session.subscription),
           stripe_customer_id: customerId,
-        }),
+        },
       };
     }
     case "customer.subscription.created":
@@ -104,14 +101,15 @@ function mappedBillingEvent(
       const customerId = stringId(subscription.customer);
       return {
         name: `cmux_billing_subscription_${subscriptionEventAction(event.type)}`,
-        properties: billingProperties(common, subject, customerId, {
+        properties: {
+          ...common,
           plan: subscription.metadata?.plan ?? null,
           billing_interval: subscription.metadata?.billingInterval ?? null,
           subscription_status: subscription.status,
           cancel_at_period_end: subscription.cancel_at_period_end,
           stripe_subscription_id: subscription.id,
           stripe_customer_id: customerId,
-        }),
+        },
       };
     }
     case "invoice.paid":
@@ -122,37 +120,20 @@ function mappedBillingEvent(
         name: event.type === "invoice.paid"
           ? "cmux_billing_invoice_paid"
           : "cmux_billing_invoice_payment_failed",
-        properties: billingProperties(common, subject, customerId, {
+        properties: {
+          ...common,
           amount_due: invoice.amount_due,
           amount_paid: invoice.amount_paid,
           currency: invoice.currency,
           billing_reason: invoice.billing_reason,
           stripe_invoice_id: invoice.id,
           stripe_customer_id: customerId,
-        }),
+        },
       };
     }
     default:
       return null;
   }
-}
-
-function billingProperties(
-  common: Record<string, unknown>,
-  subject: StripeBillingAnalyticsSubject,
-  stripeCustomerId: string | null,
-  eventProperties: Record<string, unknown>,
-): Record<string, unknown> {
-  if (subject.scope !== "user") return { ...common, ...eventProperties };
-  return {
-    ...common,
-    ...eventProperties,
-    $set: {
-      ...(common.$set as Record<string, unknown>),
-      billing_status: subject.status ?? null,
-      stripe_customer_id: stripeCustomerId,
-    },
-  };
 }
 
 function subjectDistinctId(subject: StripeBillingAnalyticsSubject): string {

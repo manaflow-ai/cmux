@@ -49,17 +49,13 @@ describe("Stripe billing analytics", () => {
       plan: "pro",
       billing_interval: "month",
       amount_total: 3000,
-      $set: {
-        stack_user_id: "stack-user-1",
-        billing_plan: "pro",
-        billing_status: "active",
-        is_pro: true,
-        stripe_customer_id: "cus_1",
-      },
+      is_active: true,
+      billing_status: "active",
+      stripe_customer_id: "cus_1",
     });
   });
 
-  test("maps subscription cancellation into an inactive person property", async () => {
+  test("maps subscription cancellation into immutable event properties", async () => {
     let capturedInit: RequestInit | undefined;
     const postHogFetch = (async (_input: string | URL | Request, init?: RequestInit) => {
       capturedInit = init;
@@ -92,11 +88,12 @@ describe("Stripe billing analytics", () => {
 
     const payload = JSON.parse(String(capturedInit?.body));
     expect(payload.event).toBe("cmux_billing_subscription_deleted");
-    expect(payload.properties.$set).toMatchObject({
-      billing_plan: "free",
+    expect(payload.properties).toMatchObject({
+      is_active: false,
       billing_status: "canceled",
-      is_pro: false,
+      stripe_customer_id: "cus_1",
     });
+    expect(payload.properties.$set).toBeUndefined();
   });
 
   test("does not make billing fail when PostHog is unavailable", async () => {
