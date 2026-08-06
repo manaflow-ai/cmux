@@ -178,6 +178,20 @@ def test_media_playback_message_handler_uses_webkit_ui_actor_directly():
     assert "onReport(report)" in handler
 
 
+def test_sentry_assignment_scrubber_checks_delimiters_before_materializing_utf8():
+    scanner = source_slice(
+        "Packages/Shared/CmuxSentryTelemetry/Sources/CmuxSentryScrubbing/SentryScrubber.swift",
+        "private func redactSensitiveAssignments(in text: String)",
+        "\n    }\n}",
+    )
+
+    assert "let utf8 = text.utf8" in scanner
+    delimiter_guard = scanner.index("guard utf8.contains(0x3A) || utf8.contains(0x3D)")
+    fallback_copy = scanner.find("Array(utf8)")
+    assert "Array(text.utf8)" not in scanner
+    assert fallback_copy == -1 or delimiter_guard < fallback_copy
+
+
 def test_file_explorer_reconciliation_uses_linear_depth_queue():
     reconciliation = source_slice(
         "Sources/FileExplorerView.swift",

@@ -176,6 +176,60 @@ struct BrowserControlServiceEvaluationScriptTests {
     }
 
     @MainActor
+    @Test("top-level undefined omits the value property before WebKit bridging")
+    func topLevelUndefinedEnvelopeOmitsValueProperty() throws {
+        let (context, envelope) = try evaluateRaw("undefined")
+        context.setObject(envelope, forKeyedSubscript: "__cmuxTestResult" as NSString)
+        context.setObject(
+            service.evalEnvelope.valueKey,
+            forKeyedSubscript: "__cmuxTestValueKey" as NSString
+        )
+
+        let hasValueProperty = context.evaluateScript(
+            "Object.prototype.hasOwnProperty.call(__cmuxTestResult, __cmuxTestValueKey)"
+        )
+        #expect(hasValueProperty?.toBool() == false)
+    }
+
+    @MainActor
+    @Test("top-level undefined crosses the real WebKit result bridge without a value")
+    func topLevelUndefinedIsBridgeSafe() async throws {
+        let webView = WKWebView()
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserEvaluationScriptNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString("<!doctype html><title>bridge test</title>", baseURL: nil)
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+
+        let body = service.evaluationScript(
+            script: "undefined",
+            useEval: true,
+            frameSelector: nil
+        )
+        let rawValue = try await webView.callAsyncJavaScript(
+            body,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let envelope = try #require(rawValue as? [String: Any])
+
+        #expect(envelope[service.evalEnvelope.typeKey] as? String == service.evalEnvelope.typeUndefined)
+        #expect(envelope[service.evalEnvelope.valueKey] == nil)
+        switch service.resolveEvaluationEnvelope(envelope) {
+        case .undefined:
+            break
+        default:
+            Issue.record("Expected a top-level undefined browser-eval resolution")
+        }
+        _ = navigationDelegate
+    }
+
+    @MainActor
     @Test("nested undefined values cross the real WebKit result bridge as null")
     func nestedUndefinedValuesAreBridgeSafe() async throws {
         let webView = WKWebView()
@@ -339,6 +393,22 @@ struct BrowserControlServiceEvaluationScriptTests {
         frameSelector: String? = nil,
         documentSetup: String = "var document = {};"
     ) throws -> [String: Any] {
+        let (context, result) = try evaluateRaw(
+            script,
+            frameSelector: frameSelector,
+            documentSetup: documentSetup
+        )
+        context.setObject(result, forKeyedSubscript: "__cmuxTestResult" as NSString)
+        let json = try #require(context.evaluateScript("JSON.stringify(__cmuxTestResult)")?.toString())
+        let data = try #require(json.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
+
+    private func evaluateRaw(
+        _ script: String,
+        frameSelector: String? = nil,
+        documentSetup: String = "var document = {};"
+    ) throws -> (JSContext, JSValue) {
         let context = try #require(JSContext())
         var exceptionMessage: String?
         context.exceptionHandler = { _, exception in
@@ -365,9 +435,6 @@ struct BrowserControlServiceEvaluationScriptTests {
         #expect(exceptionMessage == nil)
         #expect(rejectionMessage == nil)
         let result = try #require(resolved)
-        context.setObject(result, forKeyedSubscript: "__cmuxTestResult" as NSString)
-        let json = try #require(context.evaluateScript("JSON.stringify(__cmuxTestResult)")?.toString())
-        let data = try #require(json.data(using: .utf8))
-        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return (context, result)
     }
 }
