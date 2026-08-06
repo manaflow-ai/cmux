@@ -286,6 +286,10 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
 
+      - name: Verify Windows owner carrier handshake
+        working-directory: cmux-tui
+        run: cargo test -p cmux-remote --target x86_64-pc-windows-gnu --locked daemon::tests::windows_local_carrier_completes_authenticated_handshake -- --exact --nocapture
+
       - name: Verify Windows remote owner lifecycle
         working-directory: cmux-tui
         run: cargo test -p cmux-tui --target x86_64-pc-windows-gnu --locked --test windows_remote_owner -- --nocapture

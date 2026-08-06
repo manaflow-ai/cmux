@@ -1941,6 +1941,215 @@ mod tests {
         CarrierEvidence, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     };
 
+    #[cfg(windows)]
+    struct WindowsLocalClientLink {
+        maximum: usize,
+        reader: Arc<StdMutex<uds_windows::UnixStream>>,
+        writer: Arc<StdMutex<Option<uds_windows::UnixStream>>>,
+        shutdown: StdMutex<Option<uds_windows::UnixStream>>,
+    }
+
+    #[cfg(windows)]
+    impl WindowsLocalClientLink {
+        fn new(stream: uds_windows::UnixStream, maximum: usize) -> io::Result<Self> {
+            Ok(Self {
+                maximum,
+                reader: Arc::new(StdMutex::new(stream.try_clone()?)),
+                writer: Arc::new(StdMutex::new(Some(stream.try_clone()?))),
+                shutdown: StdMutex::new(Some(stream)),
+            })
+        }
+
+        fn shutdown_now(&self) {
+            if let Some(stream) =
+                self.shutdown.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+            {
+                let _ = stream.shutdown(Shutdown::Both);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    impl Drop for WindowsLocalClientLink {
+        fn drop(&mut self) {
+            self.shutdown_now();
+        }
+    }
+
+    #[cfg(windows)]
+    #[async_trait]
+    impl FrameLink for WindowsLocalClientLink {
+        fn description(&self) -> &str {
+            "windows-local-test-client"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            self.maximum
+        }
+
+        async fn send(&self, frame: Bytes) -> Result<(), LinkError> {
+            use std::io::Write as _;
+
+            if frame.len() > self.maximum {
+                return Err(LinkError::FrameTooLarge {
+                    actual: frame.len(),
+                    maximum: self.maximum,
+                });
+            }
+            let length = u32::try_from(frame.len()).map_err(|_| LinkError::FrameTooLarge {
+                actual: frame.len(),
+                maximum: u32::MAX as usize,
+            })?;
+            let writer = self.writer.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut writer = writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let writer = writer.as_mut().ok_or(LinkError::Closed)?;
+                writer.write_all(&length.to_be_bytes()).map_err(windows_test_link_error)?;
+                writer.write_all(&frame).map_err(windows_test_link_error)?;
+                writer.flush().map_err(windows_test_link_error)
+            })
+            .await
+            .map_err(|error| LinkError::Transport(format!("Windows send worker failed: {error}")))?
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            use std::io::Read as _;
+
+            let reader = self.reader.clone();
+            let maximum = self.maximum;
+            tokio::task::spawn_blocking(move || {
+                let mut reader = reader.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut length = [0_u8; 4];
+                match reader.read_exact(&mut length) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == io::ErrorKind::UnexpectedEof => return Ok(None),
+                    Err(error) => return Err(windows_test_link_error(error)),
+                }
+                let length = u32::from_be_bytes(length) as usize;
+                if length > maximum {
+                    return Err(LinkError::FrameTooLarge { actual: length, maximum });
+                }
+                let mut frame = vec![0_u8; length];
+                reader.read_exact(&mut frame).map_err(windows_test_link_error)?;
+                Ok(Some(Bytes::from(frame)))
+            })
+            .await
+            .map_err(|error| {
+                LinkError::Transport(format!("Windows receive worker failed: {error}"))
+            })?
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.shutdown_now();
+            Ok(())
+        }
+    }
+
+    #[cfg(windows)]
+    fn windows_test_link_error(error: io::Error) -> LinkError {
+        if matches!(
+            error.kind(),
+            io::ErrorKind::BrokenPipe
+                | io::ErrorKind::ConnectionAborted
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::NotConnected
+                | io::ErrorKind::UnexpectedEof
+        ) {
+            LinkError::Closed
+        } else {
+            LinkError::Transport(error.to_string())
+        }
+    }
+
+    #[cfg(windows)]
+    struct WindowsLocalClientGroup {
+        path: PathBuf,
+        evidence: CarrierEvidence,
+    }
+
+    #[cfg(windows)]
+    #[async_trait]
+    impl LinkGroup for WindowsLocalClientGroup {
+        fn description(&self) -> &str {
+            "windows-local-test-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            let path = self.path.clone();
+            let stream =
+                tokio::task::spawn_blocking(move || uds_windows::UnixStream::connect(path))
+                    .await
+                    .map_err(|error| {
+                        ProviderError::Transport(format!("Windows connect worker failed: {error}"))
+                    })?
+                    .map_err(|error| ProviderError::Transport(error.to_string()))?;
+            let link = WindowsLocalClientLink::new(stream, 128 * 1024)
+                .map_err(|error| ProviderError::Transport(error.to_string()))?;
+            Ok(Box::new(link))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            Ok(())
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn windows_local_carrier_completes_authenticated_handshake() {
+        let directory = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let auth =
+            AuthDatabase::load_or_create(state.path(), "windows-local-handshake", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let socket = directory.path().join("link.sock");
+        let server = serve_windows_local(daemon, &socket, 128 * 1024).await.unwrap();
+        let group = Arc::new(WindowsLocalClientGroup {
+            path: socket,
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let config = ClientConnectionConfig {
+            identity: StaticIdentity::generate().unwrap(),
+            expected_daemon: None,
+            auth: ClientAuthMode::Carrier,
+            device_name: "windows-local-client".into(),
+            session: SessionId([87; 16]),
+            lane_policy: LanePolicy::Single,
+            limits: SessionLimits::default(),
+            reconnect: ReconnectPolicy { heartbeat_interval: None, ..ReconnectPolicy::default() },
+        };
+
+        let connected =
+            tokio::time::timeout(Duration::from_secs(3), ClientConnection::connect(group, config))
+                .await;
+        let client = match connected {
+            Ok(Ok(client)) => client,
+            Ok(Err(error)) => {
+                server.shutdown().unwrap();
+                panic!("Windows local carrier handshake failed: {error}");
+            }
+            Err(_) => {
+                server.shutdown().unwrap();
+                panic!("Windows local carrier handshake timed out after 3s");
+            }
+        };
+        let server_connection = tokio::time::timeout(Duration::from_secs(1), accepted.recv())
+            .await
+            .expect("Windows daemon never published its accepted session")
+            .expect("Windows daemon acceptance stream closed");
+
+        client.close().await.unwrap();
+        drop(server_connection);
+        server.shutdown().unwrap();
+    }
+
     struct PreludeProbeLink {
         reads: Arc<AtomicUsize>,
     }
