@@ -92,13 +92,13 @@ Protocol v6 attach streams are ordered as `vt-state -> (resized | output | color
 
 Protocol v7 render attach streams are ordered as `render-state -> (render-delta | scroll-changed)* -> detached`. The initial state snapshot and render tap are registered under one terminal lock, matching the byte stream's no-gap/no-duplication guarantee. `render-delta` frames coalesce damage but preserve authoritative state order. See [`render.md`](render.md#stream-ordering).
 
-When a terminal resource exits, its final render state and every live tab
-placement remain addressable until `terminal.close` tombstones the resource.
-A terminal with several placements emits `surface-exited` once for each legacy
-surface ID so existing per-placement subscribers invalidate every view.
-Browser surfaces and unregistered compatibility PTYs are reaped on exit.
-Consumers must inspect the tree and terminal registry rather than treating
-every exit event as placement removal.
+When a terminal resource exits, the mux atomically records its durable exit
+receipt and detaches every live tab placement. A terminal with several
+placements emits `surface-exited` once for each former legacy surface ID so
+existing per-placement subscribers invalidate every view. The receipt remains
+addressable through the terminal registry until `terminal.close` tombstones
+it, but no placement or live runtime remains. Browser surfaces and
+unregistered compatibility PTYs are also reaped on exit.
 
 ## Subscribe Events
 
@@ -608,9 +608,10 @@ object{event:"surface-exited",surface:Id}
 ```
 
 Meaning: A PTY child exited or a browser surface was closed. A session-owned
-terminal retains its final output, history, and tab placements until explicit
-`terminal.close`; a projected terminal emits this event for every placement.
-Browsers and unregistered compatibility PTYs are already reaped from the tree.
+terminal retains a durable exit receipt until explicit `terminal.close`, while
+every placement and its live runtime are already removed. A projected terminal
+emits this event for each former placement. Browsers and unregistered
+compatibility PTYs are also already reaped from the tree.
 
 Example:
 
