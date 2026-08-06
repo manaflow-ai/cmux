@@ -69,7 +69,7 @@ import {
 } from "../../../services/vms/errors";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
-import { createConfiguredHostedSubrouterClient } from "../../../services/subrouter/runtimeClient";
+import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
 import {
   createLegacySubrouterRetirementClient,
   legacySubrouterRetirementConfig,
@@ -196,7 +196,7 @@ export async function DELETE(request: Request): Promise<Response> {
       await markAccountDeletionTombstoneCompleted(userId);
       return jsonResponse({ ok: true, destroyedVms: 0 }, 200);
     }
-    const hostedSubrouter = createConfiguredHostedSubrouterClient();
+    const hostedSubrouter = createHostedSubrouterClient();
     // Validate required production configuration before metadata, billing,
     // access, VM, vault, or tenant cleanup can mutate the account. Pass the
     // validated snapshot to the later request so environment changes cannot
@@ -532,7 +532,7 @@ async function deleteHostedSubrouterTenantsForAccount(input: {
   readonly accessToken: string;
   readonly teamIds: readonly string[];
   readonly completedTeamIds: readonly string[];
-  readonly client: ReturnType<typeof createConfiguredHostedSubrouterClient>;
+  readonly client: ReturnType<typeof createHostedSubrouterClient>;
   readonly beforeDeletion: () => void;
 }): Promise<{ readonly complete: boolean }> {
   const completed = new Set(input.completedTeamIds);
