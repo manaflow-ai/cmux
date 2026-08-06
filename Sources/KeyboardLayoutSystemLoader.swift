@@ -2,12 +2,30 @@ import AppKit
 import Carbon
 import Foundation
 
+protocol KeyboardInputSourceReading: Sendable {
+    func currentInputSource() -> TISInputSource?
+    func currentASCIICapableInputSource() -> TISInputSource?
+}
+
+/// The platform boundary for retained TIS input-source reads.
+struct SystemKeyboardInputSourceReader: KeyboardInputSourceReading {
+    func currentInputSource() -> TISInputSource? {
+        TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
+    }
+
+    func currentASCIICapableInputSource() -> TISInputSource? {
+        TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
+    }
+}
+
 struct KeyboardLayoutSystemLoader: Sendable {
+    private let inputSourceReader: any KeyboardInputSourceReading
     private let keyCodes: [UInt16]
     private let shortcutModifierFlags: [NSEvent.ModifierFlags]
     private let textInputModifierFlags: [NSEvent.ModifierFlags]
 
     init(
+        inputSourceReader: any KeyboardInputSourceReading,
         keyCodes: [UInt16] = Array(UInt16(0)...UInt16(127)),
         shortcutModifierFlags: [NSEvent.ModifierFlags] = [
             [], .shift, .command, [.shift, .command],
@@ -16,16 +34,17 @@ struct KeyboardLayoutSystemLoader: Sendable {
             [], .shift, .option, [.shift, .option],
         ]
     ) {
+        self.inputSourceReader = inputSourceReader
         self.keyCodes = keyCodes
         self.shortcutModifierFlags = shortcutModifierFlags
         self.textInputModifierFlags = textInputModifierFlags
     }
 
     func loadCurrentSnapshot() -> KeyboardLayoutSnapshot? {
-        guard let currentSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
+        guard let currentSource = inputSourceReader.currentInputSource() else {
             return nil
         }
-        let asciiSource = TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
+        let asciiSource = inputSourceReader.currentASCIICapableInputSource()
         let currentShortcutCharacters = translatedCharacters(
             from: currentSource,
             modifierFlags: shortcutModifierFlags,
@@ -81,7 +100,7 @@ struct KeyboardLayoutSystemLoader: Sendable {
             .takeUnretainedValue() as String
     }
 
-    func translatedCharacters(
+    private func translatedCharacters(
         from source: TISInputSource,
         modifierFlags: [NSEvent.ModifierFlags],
         mode: KeyboardLayoutModifierTranslationMode,

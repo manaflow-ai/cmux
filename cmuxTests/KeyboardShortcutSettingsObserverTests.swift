@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 import Foundation
 import Testing
 
@@ -248,6 +249,14 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "q")
     }
 
+    @Test func keyboardLayoutLoaderUsesInjectedInputSourceReader() {
+        let loader = KeyboardLayoutSystemLoader(
+            inputSourceReader: EmptyKeyboardInputSourceReader()
+        )
+
+        #expect(loader.loadCurrentSnapshot() == nil)
+    }
+
     @Test func keyboardLayoutRefreshStormDropsStaleResultAndCoalescesReloads() async {
         let loader = SequencedKeyboardLayoutSnapshotLoader()
         let cache = KeyboardLayoutSnapshotCache(
@@ -378,6 +387,16 @@ private final class ShortcutProviderState: @unchecked Sendable {
         guard action == .globalSearch else { return .unbound }
         storedGlobalSearchLookupCount += 1
         return storedConfiguredShortcut
+    }
+}
+
+private struct EmptyKeyboardInputSourceReader: KeyboardInputSourceReading {
+    func currentInputSource() -> TISInputSource? {
+        nil
+    }
+
+    func currentASCIICapableInputSource() -> TISInputSource? {
+        nil
     }
 }
 

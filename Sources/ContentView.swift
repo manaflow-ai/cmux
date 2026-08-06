@@ -1758,6 +1758,7 @@ struct ContentView: View {
             updateViewModel: updateViewModel,
             tabManager: tabManager,
             cmuxConfigStore: cmuxConfigStore,
+            cmuxConfigRevision: cmuxConfigStore.configRevision,
             fileExplorerState: fileExplorerState,
             featureFlags: featureFlags,
             isPresented: sidebarState.isVisible,
@@ -10572,6 +10573,7 @@ struct VerticalTabsSidebar: View, Equatable {
             && lhs.updateViewModel === rhs.updateViewModel
             && lhs.tabManager === rhs.tabManager
             && lhs.cmuxConfigStore === rhs.cmuxConfigStore
+            && lhs.cmuxConfigRevision == rhs.cmuxConfigRevision
             && lhs.fileExplorerState === rhs.fileExplorerState
             && lhs.featureFlags === rhs.featureFlags
             && lhs.sidebarUnread === rhs.sidebarUnread
@@ -10586,6 +10588,7 @@ struct VerticalTabsSidebar: View, Equatable {
     var updateViewModel: UpdateStateModel
     let tabManager: TabManager
     let cmuxConfigStore: CmuxConfigStore
+    let cmuxConfigRevision: UInt64
     // `SidebarFooter` owns this observation. A file-explorer width update must
     // not rebuild the O(workspaces) projection at this composition boundary.
     var fileExplorerState: FileExplorerState
@@ -11026,7 +11029,8 @@ struct VerticalTabsSidebar: View, Equatable {
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
             tabManager: tabManager,
-            cmuxConfigStore: cmuxConfigStore
+            cmuxConfigStore: cmuxConfigStore,
+            cmuxConfigRevision: cmuxConfigRevision
         )
         .equatable()
         let sidebarContent: AnyView = rendersDefaultWorkspaceSidebar
@@ -12144,7 +12148,9 @@ extension DefaultWorkspaceSidebarView {
         var changed = false
         for workspaceId in workspaceIds {
             guard let workspace = workspaceById[workspaceId] else {
-                changed = next.removeValue(forKey: workspaceId) != nil || changed
+                if !usesAppKitSidebarList {
+                    changed = next.removeValue(forKey: workspaceId) != nil || changed
+                }
                 continue
             }
             let snapshot = makeWorkspaceSnapshot(
@@ -12157,6 +12163,7 @@ extension DefaultWorkspaceSidebarView {
                     continue
                 }
                 appKitRowSnapshotCache.store(snapshot, for: workspaceId)
+                continue
             }
             guard next[workspaceId] != snapshot else { continue }
             next[workspaceId] = snapshot

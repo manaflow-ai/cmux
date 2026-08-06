@@ -71,6 +71,7 @@ final class SidebarLazyLayoutScaleTests {
                 updateViewModel: updateViewModel,
                 tabManager: tabManager,
                 cmuxConfigStore: configStore,
+                cmuxConfigRevision: configStore.configRevision,
                 fileExplorerState: fileExplorerState,
                 featureFlags: featureFlags,
                 sidebarUnread: unread,
@@ -220,11 +221,13 @@ final class SidebarLazyLayoutScaleTests {
         let unread = SidebarUnreadModel()
         let fileExplorerState = FileExplorerState()
         let counter = RowBodyCounter()
+        let cmuxConfigStore = CmuxConfigStore()
 
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
             tabManager: tabManager,
-            cmuxConfigStore: CmuxConfigStore(),
+            cmuxConfigStore: cmuxConfigStore,
+            cmuxConfigRevision: cmuxConfigStore.configRevision,
             fileExplorerState: fileExplorerState,
             featureFlags: featureFlags,
             sidebarUnread: unread,
@@ -245,7 +248,7 @@ final class SidebarLazyLayoutScaleTests {
         )
         .frame(width: 280)
         .environmentObject(tabManager)
-        .environmentObject(CmuxConfigStore())
+        .environmentObject(cmuxConfigStore)
         .environmentObject(TerminalNotificationStore.shared)
         .environmentObject(SidebarState())
         .environmentObject(SidebarSelectionState())

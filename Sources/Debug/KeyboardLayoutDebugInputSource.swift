@@ -24,6 +24,18 @@ extension KeyboardLayout {
 private struct KeyboardLayoutDebugInputSource {
     private let source: TISInputSource
 
+    private struct InputSourceReader: KeyboardInputSourceReading, @unchecked Sendable {
+        let source: TISInputSource
+
+        func currentInputSource() -> TISInputSource? {
+            source
+        }
+
+        func currentASCIICapableInputSource() -> TISInputSource? {
+            nil
+        }
+    }
+
     init?(inputSourceID: String) {
         let filter = [
             kTISPropertyInputSourceID as String: inputSourceID,
@@ -40,16 +52,16 @@ private struct KeyboardLayoutDebugInputSource {
         forKeyCode keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
-        let characters = KeyboardLayoutSystemLoader(keyCodes: [keyCode]).translatedCharacters(
-            from: source,
-            modifierFlags: [modifierFlags],
-            mode: .textInput,
-            lowercased: false
+        let snapshot = KeyboardLayoutSystemLoader(
+            inputSourceReader: InputSourceReader(source: source),
+            keyCodes: [keyCode],
+            shortcutModifierFlags: [],
+            textInputModifierFlags: [modifierFlags]
+        ).loadCurrentSnapshot()
+        return snapshot?.textInputCharacter(
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags
         )
-        return characters[KeyboardLayoutSnapshot.Key(
-            keyCode: keyCode,
-            modifierFlags: modifierFlags.intersection([.shift, .option])
-        )]
     }
 }
 #endif

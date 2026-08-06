@@ -38,6 +38,7 @@ struct DefaultWorkspaceSidebarView: View, Equatable {
     @Binding var lastSidebarSelectionIndex: Int?
     let tabManager: TabManager
     let cmuxConfigStore: CmuxConfigStore
+    let cmuxConfigRevision: UInt64
 #if DEBUG
     @Environment(\.sidebarLazyContractProbe) var sidebarLazyContractProbe
 #endif
@@ -47,6 +48,7 @@ struct DefaultWorkspaceSidebarView: View, Equatable {
         lhs.renderContext.identity == rhs.renderContext.identity
             && lhs.tabManager === rhs.tabManager
             && lhs.cmuxConfigStore === rhs.cmuxConfigStore
+            && lhs.cmuxConfigRevision == rhs.cmuxConfigRevision
             && lhs.isPresented == rhs.isPresented
             && lhs.usesAppKitSidebarList == rhs.usesAppKitSidebarList
             && lhs.sidebarUnread === rhs.sidebarUnread

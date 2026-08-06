@@ -12,7 +12,9 @@ enum KeyboardLayout {
     #endif
 
     @MainActor private static var inputSourceObserver: NSObjectProtocol?
-    private nonisolated static let systemLoader = KeyboardLayoutSystemLoader()
+    private nonisolated static let systemLoader = KeyboardLayoutSystemLoader(
+        inputSourceReader: SystemKeyboardInputSourceReader()
+    )
     @MainActor private static let snapshotCache = KeyboardLayoutSnapshotCache(
         initialSnapshot: .usBootstrap,
         loader: systemLoader.loadCurrentSnapshot
