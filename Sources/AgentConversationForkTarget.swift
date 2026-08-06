@@ -56,10 +56,22 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
     }
 
     func startupCommand(handoffMessage: String) -> String? {
-        harness.startupCommand(
+        let executableBinding: AgentConversationForkExecutableBinding?
+        if let executableIdentity {
+            guard let binding = AgentConversationForkExecutableBinding(
+                identity: executableIdentity
+            ) else {
+                return nil
+            }
+            executableBinding = binding
+        } else {
+            executableBinding = nil
+        }
+        return harness.startupCommand(
             handoffMessage: handoffMessage,
-            executablePath: executablePath,
-            runtimeSearchPath: runtimeSearchPath
+            executablePath: executableBinding?.boundPath ?? executablePath,
+            runtimeSearchPath: runtimeSearchPath,
+            executableBinding: executableBinding
         )
     }
 

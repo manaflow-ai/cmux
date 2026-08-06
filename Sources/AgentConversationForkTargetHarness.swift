@@ -45,31 +45,36 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
     func startupCommand(
         handoffMessage: String,
         executablePath: String? = nil,
-        runtimeSearchPath: String? = nil
+        runtimeSearchPath: String? = nil,
+        executableBinding: AgentConversationForkExecutableBinding? = nil
     ) -> String? {
         let executable = startupExecutableInvocation(
             executablePath: executablePath,
             runtimeSearchPath: runtimeSearchPath
         )
+        let execPrefix = executableBinding == nil ? "exec " : ""
         let interactiveCommand: String? = switch self {
         case .current:
             nil
         case .claude, .codex, .grok, .opencode, .omp, .campfire, .pi, .amp,
              .cursor, .gemini, .antigravity, .codebuddy, .factory, .kimi:
-            "exec \(executable)"
+            "\(execPrefix)\(executable)"
         case .kiro:
             // The cmux profile is optional and installed separately. Preserve
             // interactive transfer for a plain Kiro installation while using
             // hooks whenever that profile is available at launch time.
-            "if [[ -f \"${KIRO_HOME:-${HOME:-}/.kiro}/agents/cmux.json\" ]]; then exec \(executable) chat --agent cmux; else exec \(executable) chat; fi"
+            "if [[ -f \"${KIRO_HOME:-${HOME:-}/.kiro}/agents/cmux.json\" ]]; then \(execPrefix)\(executable) chat --agent cmux; else \(execPrefix)\(executable) chat; fi"
         case .hermesAgent:
-            "exec \(executable) chat --tui"
+            "\(execPrefix)\(executable) chat --tui"
         case .copilot:
-            "exec \(executable) --interactive"
+            "\(execPrefix)\(executable) --interactive"
         }
         guard let interactiveCommand else { return nil }
+        let launchCommand = executableBinding?.shellCommand(
+            running: interactiveCommand
+        ) ?? interactiveCommand
         return AgentConversationForkFirstMessageAdapter.startupCommand(
-            interactiveCommand: interactiveCommand,
+            interactiveCommand: launchCommand,
             firstMessage: handoffMessage,
             readinessPattern: firstMessageReadinessPattern
         )
@@ -83,9 +88,9 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .current:
             ""
         case .claude:
-            "(auto|manual).*mode on"
+            "(accept edits|plan|auto|manual|bypass permissions).*(mode )?on"
         case .codex:
-            "Context [0-9]+% left"
+            "Context [0-9]+% left|[0-9]+% context left"
         case .grok:
             "Grok Build"
         case .opencode:

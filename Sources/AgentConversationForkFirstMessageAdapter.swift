@@ -18,7 +18,7 @@ struct AgentConversationForkFirstMessageAdapter {
         let encodedBlockingPromptPattern = hexEncoded(blockingPromptPattern)
         let confirmationPrompt = String(
             localized: "forkConversation.transfer.confirmation",
-            defaultValue: "cmux: Press Control-] to send the transferred conversation to this prompt, or Control-X to continue without it."
+            defaultValue: "cmux: When the harness input is ready, press Control-] to send the transferred conversation, or Control-X to continue without it."
         )
         let encodedConfirmationPrompt = hexEncoded(confirmationPrompt)
         return """
@@ -34,6 +34,7 @@ struct AgentConversationForkFirstMessageAdapter {
         set cmux_confirmation_pending 0
         set cmux_user_eof 0
         set cmux_ready_timer ""
+        set cmux_fallback_timer ""
         set cmux_deadline_timer ""
 
         proc cmux_cancel_confirmation {} {
@@ -45,10 +46,19 @@ struct AgentConversationForkFirstMessageAdapter {
           set cmux_confirmation_pending 0
         }
 
+        proc cmux_cancel_fallback {} {
+          global cmux_fallback_timer
+          if {$cmux_fallback_timer ne ""} {
+            after cancel $cmux_fallback_timer
+            set cmux_fallback_timer ""
+          }
+        }
+
         proc cmux_abandon_submission {} {
           global cmux_abandoned cmux_deadline_timer cmux_sent
           if {$cmux_sent || $cmux_abandoned} { return }
           cmux_cancel_confirmation
+          cmux_cancel_fallback
           set cmux_abandoned 1
           if {$cmux_deadline_timer ne ""} {
             after cancel $cmux_deadline_timer
@@ -58,9 +68,10 @@ struct AgentConversationForkFirstMessageAdapter {
 
         proc cmux_request_confirmation {} {
           global cmux_abandoned cmux_confirmation_pending cmux_confirmation_prompt
-          global cmux_ready_timer cmux_sent cmux_user_eof
-          set cmux_ready_timer ""
+          global cmux_sent cmux_user_eof
           if {$cmux_sent || $cmux_abandoned || $cmux_confirmation_pending} { return }
+          cmux_cancel_confirmation
+          cmux_cancel_fallback
           if {$cmux_user_eof} {
             cmux_abandon_submission
             return
@@ -71,9 +82,10 @@ struct AgentConversationForkFirstMessageAdapter {
 
         proc cmux_submit_message {} {
           global cmux_abandoned cmux_confirmation_pending cmux_deadline_timer
-          global cmux_message cmux_ready_timer cmux_sent spawn_id
+          global cmux_message cmux_sent spawn_id
           if {$cmux_sent || $cmux_abandoned || !$cmux_confirmation_pending} { return }
           cmux_cancel_confirmation
+          cmux_cancel_fallback
           set cmux_sent 1
           if {$cmux_deadline_timer ne ""} {
             after cancel $cmux_deadline_timer
@@ -91,16 +103,29 @@ struct AgentConversationForkFirstMessageAdapter {
           set cmux_ready_timer [after 750 cmux_request_confirmation]
         }
 
+        proc cmux_schedule_fallback {} {
+          global cmux_abandoned cmux_confirmation_pending cmux_fallback_timer cmux_sent
+          if {$cmux_sent || $cmux_abandoned || $cmux_confirmation_pending} { return }
+          cmux_cancel_fallback
+          set cmux_fallback_timer [after 2500 cmux_request_confirmation]
+        }
+
+        proc cmux_blocking_prompt {} {
+          cmux_cancel_confirmation
+          cmux_schedule_fallback
+        }
+
         proc cmux_deadline_reached {} {
           cmux_abandon_submission
         }
 
         spawn -noecho /bin/zsh -lc $cmux_command
+        cmux_schedule_fallback
         if {[catch {stty -g}]} {
           set timeout 300
           while {!$cmux_sent && !$cmux_abandoned} {
             expect {
-              -i $spawn_id -re $cmux_blocking_pattern { cmux_cancel_confirmation }
+              -i $spawn_id -re $cmux_blocking_pattern { cmux_blocking_prompt }
               -i $spawn_id -re $cmux_readiness_pattern { cmux_schedule_confirmation }
               -i $user_spawn_id "\\035" {
                 if {$cmux_confirmation_pending} { cmux_submit_message }
@@ -135,7 +160,7 @@ struct AgentConversationForkFirstMessageAdapter {
               }
             }
             -o
-            -nobuffer -re $cmux_blocking_pattern { cmux_cancel_confirmation }
+            -nobuffer -re $cmux_blocking_pattern { cmux_blocking_prompt }
             -nobuffer -re $cmux_readiness_pattern { cmux_schedule_confirmation }
           }
         }

@@ -100,6 +100,11 @@ struct AgentConversationForkRequest: Equatable, Sendable {
         guard validatedTarget.executableIdentityIsCurrent() else {
             throw AgentConversationForkRequestError.targetExecutableChanged
         }
-        return validatedTarget.startupCommand(handoffMessage: handoffMessage)
+        guard let startupCommand = validatedTarget.startupCommand(
+            handoffMessage: handoffMessage
+        ) else {
+            throw AgentConversationForkRequestError.targetExecutableUnverified
+        }
+        return startupCommand
     }
 }
