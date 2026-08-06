@@ -1113,6 +1113,20 @@ html { scroll-behavior: smooth; }
     return href + fragSuffix;
   }
 
+  // Default visible text for a wiki link with no explicit `|Label`, matching
+  // Obsidian: `[[Note#Heading]]` reads as `Note › Heading`, `[[#Heading]]` as
+  // just `Heading`, and a plain `[[Note]]` (or `[[folder/Note]]`) unchanged.
+  function wikiLinkDefaultLabel(target) {
+    var t = String(target == null ? '' : target).trim();
+    var hashIdx = t.indexOf('#');
+    if (hashIdx < 0) { return t; }
+    var notePart = t.slice(0, hashIdx).trim();
+    var headingPart = t.slice(hashIdx + 1).trim();
+    if (!notePart) { return headingPart; }
+    if (!headingPart) { return notePart; }
+    return notePart + ' › ' + headingPart;
+  }
+
   var wikiLinkExtension = {
     name: 'wikiLink',
     level: 'inline',
@@ -1127,7 +1141,8 @@ html { scroll-behavior: smooth; }
       var inner = match[1];
       var pipe = inner.indexOf('|');
       var target = (pipe >= 0 ? inner.slice(0, pipe) : inner).trim();
-      var label = (pipe >= 0 ? inner.slice(pipe + 1) : inner).trim();
+      var explicitLabel = pipe >= 0 ? inner.slice(pipe + 1).trim() : '';
+      var label = explicitLabel || wikiLinkDefaultLabel(target);
       if (!target && !label) { return undefined; }
       return {
         type: 'wikiLink',

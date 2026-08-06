@@ -58,13 +58,16 @@ final class MarkdownWikiLinkRenderingTests {
                 "Guide.md#getting-started",
                 "#section-two"
             ])
+            // With no explicit `|Label`, a `#heading` fragment reads Obsidian-style
+            // ("Note › Heading", or just the heading for a same-doc `[[#Section]]`)
+            // rather than exposing the raw `#slug` in the visible text.
             #expect(snapshot.anchorTexts == [
                 "Note",
                 "Display Text",
                 "folder/Deep Note",
                 "image.png",
-                "Guide#Getting Started",
-                "#Section Two"
+                "Guide › Getting Started",
+                "Section Two"
             ])
             // The bare-note anchor points at a real markdown path, so the
             // shell's file-link machinery tags it as an openable candidate.
