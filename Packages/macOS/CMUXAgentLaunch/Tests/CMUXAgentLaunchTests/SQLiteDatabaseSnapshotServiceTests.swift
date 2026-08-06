@@ -276,6 +276,55 @@ struct SQLiteDatabaseSnapshotServiceTests {
         #expect(!FileManager.default.fileExists(atPath: destination.path))
     }
 
+    @Test("Prunes abandoned same-volume bindings and releases their hard links")
+    func prunesAbandonedSameVolumeBindings() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let abandonedDirectory = root.appendingPathComponent(
+            ".cmux-sqlite-source-abandoned",
+            isDirectory: true
+        )
+        let abandonedDatabase = abandonedDirectory.appendingPathComponent(
+            "source.db",
+            isDirectory: false
+        )
+        let lease = abandonedDirectory.appendingPathComponent(
+            ".cmux-binding-lease",
+            isDirectory: false
+        )
+        try makeDatabase(at: source)
+        try FileManager.default.createDirectory(
+            at: abandonedDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try #require(Darwin.link(source.path, abandonedDatabase.path) == 0)
+        try Data().write(to: lease, options: .withoutOverwriting)
+        try FileManager.default.setAttributes(
+            [
+                .posixPermissions: 0o600,
+                .modificationDate: Date(timeIntervalSince1970: 1),
+            ],
+            ofItemAtPath: lease.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1)],
+            ofItemAtPath: abandonedDirectory.path
+        )
+
+        SQLiteDatabaseSnapshotService().removeAbandonedSourceBindingDirectories(
+            in: root
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: abandonedDirectory.path))
+        var sourceMetadata = stat()
+        try #require(Darwin.lstat(source.path, &sourceMetadata) == 0)
+        #expect(sourceMetadata.st_nlink == 1)
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
