@@ -2,6 +2,7 @@
 """Guard app-host XCTest against persistent console-user configuration."""
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -12,6 +13,13 @@ WORKFLOW = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
 CONSOLE_WRAPPER = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(
     encoding="utf-8"
 )
+APP_HOST_WRAPPER = (ROOT / "scripts/ci/run-app-host-xcodebuild.sh").read_text(
+    encoding="utf-8"
+)
+UNIT_SCHEME_PATH = (
+    ROOT / "cmux.xcodeproj/xcshareddata/xcschemes/cmux-unit.xcscheme"
+)
+PROJECT = (ROOT / "cmux.xcodeproj/project.pbxproj").read_text(encoding="utf-8")
 
 
 def require(text: str, needle: str, context: str) -> None:
@@ -99,7 +107,58 @@ def main() -> int:
         "console-session Unix home preservation",
     )
 
-    print("PASS: app-host XCTest uses isolated Apple state and preserved toolchains")
+    scheme_root = ET.parse(UNIT_SCHEME_PATH).getroot()
+    test_action = scheme_root.find("TestAction")
+    if test_action is None:
+        raise SystemExit("FAIL: cmux-unit scheme has no TestAction")
+    environment_variables = test_action.find("EnvironmentVariables")
+    if environment_variables is None:
+        raise SystemExit("FAIL: cmux-unit TestAction has no environment variables")
+    scheme_environment = {
+        item.get("key"): item.get("value")
+        for item in environment_variables.findall("EnvironmentVariable")
+        if item.get("isEnabled") == "YES"
+    }
+    expected_scheme_environment = {
+        "HOME": "$(CMUX_APP_HOST_HOME)",
+        "CFFIXED_USER_HOME": "$(CMUX_APP_HOST_HOME)",
+        "XDG_CONFIG_HOME": "$(CMUX_APP_HOST_XDG_CONFIG_HOME)",
+        "CMUX_APP_HOST_EXPECTED_HOME": "$(CMUX_APP_HOST_HOME)",
+        "CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME": (
+            "$(CMUX_APP_HOST_XDG_CONFIG_HOME)"
+        ),
+    }
+    for key, value in expected_scheme_environment.items():
+        if scheme_environment.get(key) != value:
+            raise SystemExit(
+                f"FAIL: cmux-unit TestAction must set {key}={value}"
+            )
+
+    for context, needle in {
+        "app-host HOME build-setting default": 'CMUX_APP_HOST_HOME = "$(HOME)";',
+        "app-host XDG build-setting default": (
+            'CMUX_APP_HOST_XDG_CONFIG_HOME = "$(XDG_CONFIG_HOME)";'
+        ),
+    }.items():
+        if PROJECT.count(needle) < 2:
+            raise SystemExit(
+                f"FAIL: Debug and Release app targets need {context}: {needle}"
+            )
+
+    for context, needle in {
+        "app-host HOME xcodebuild override": (
+            '"CMUX_APP_HOST_HOME=$CFFIXED_USER_HOME"'
+        ),
+        "app-host XDG xcodebuild override": (
+            '"CMUX_APP_HOST_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"'
+        ),
+        "Ghostty app-support path validation": (
+            "validate_app_host_config_paths"
+        ),
+    }.items():
+        require(APP_HOST_WRAPPER, needle, context)
+
+    print("PASS: app-host XCTest receives an isolated launch home")
     return 0
 
 
