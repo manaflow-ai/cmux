@@ -462,6 +462,7 @@ extension CmuxSettingsFileStore {
         "sidebar.notificationMessageLineLimit",
         "sidebar.showBranchDirectory",
         "sidebar.showLastInteractionInsteadOfPath",
+        "sidebar.lastInteractionTimestampStyle",
         "sidebar.showPullRequests",
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",

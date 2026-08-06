@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import Testing
 @testable import cmux_DEV
@@ -53,13 +54,38 @@ struct SidebarLastInteractionTimestampTests {
         )
     }
 
+    @Test func absoluteShortLabelDistinguishesSecondsWithinTheSameMinute() {
+        // The real-world case: two prompts submitted seconds apart (a
+        // copy-paste relay) both bucket to "now" under the relative style —
+        // the absolute short label must still tell them apart.
+        let base = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        let oneSecondLater = base.addingTimeInterval(1)
+        #expect(SidebarLastInteractionTimeFormatter.label(from: base, to: oneSecondLater) == "now")
+        #expect(SidebarLastInteractionTimeFormatter.label(from: oneSecondLater, to: oneSecondLater) == "now")
+        #expect(
+            SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: base)
+                != SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: oneSecondLater)
+        )
+    }
+
+    @Test func absoluteShortLabelOmitsTheDate() {
+        let base = Date(timeIntervalSinceReferenceDate: 700_000_000)
+        let sameTimeOfDayNextDay = base.addingTimeInterval(86400)
+        #expect(
+            SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: base)
+                == SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: sameTimeOfDayNextDay)
+        )
+    }
+
     // MARK: Row cell
 
     private static func makeSettings(
-        showLastInteraction: Bool
+        showLastInteraction: Bool,
+        style: SidebarLastInteractionTimestampStyle = .relative
     ) -> SidebarTabItemSettingsSnapshot {
         let defaults = UserDefaults(suiteName: "SidebarLastInteractionTimestampTests.\(UUID().uuidString)")!
         defaults.set(showLastInteraction, forKey: "sidebarShowLastInteractionInsteadOfPath")
+        defaults.set(style.rawValue, forKey: "sidebarLastInteractionTimestampStyle")
         return SidebarTabItemSettingsSnapshot(defaults: defaults)
     }
 
@@ -186,5 +212,55 @@ struct SidebarLastInteractionTimestampTests {
         let texts = Self.renderedTexts(model: model)
         #expect(texts.contains("~/claude"))
         #expect(!texts.contains("12m"))
+    }
+
+    @Test func relativeStyleIsTheDefaultAndStaysIntact() {
+        // sidebar.lastInteractionTimestampStyle defaults to "relative", so a
+        // settings snapshot that never sets it renders exactly like before
+        // this setting existed.
+        let defaults = UserDefaults(suiteName: "SidebarLastInteractionTimestampTests.\(UUID().uuidString)")!
+        defaults.set(true, forKey: "sidebarShowLastInteractionInsteadOfPath")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.branchDirectory.lastInteractionTimestampStyle == .relative)
+        let model = Self.makeModel(
+            settings: settings,
+            lastInteractionAt: Date().addingTimeInterval(-12 * 60)
+        )
+        let texts = Self.renderedTexts(model: model)
+        #expect(texts.contains("12m"))
+    }
+
+    @Test func absoluteStyleSwapsThePathLineForTheStaticTimeLabel() {
+        let interactionDate = Date().addingTimeInterval(-12 * 60)
+        let settings = Self.makeSettings(showLastInteraction: true, style: .absolute)
+        let model = Self.makeModel(settings: settings, lastInteractionAt: interactionDate)
+        let texts = Self.renderedTexts(model: model)
+        #expect(texts.contains(SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: interactionDate)))
+        #expect(!texts.contains("12m"))
+        #expect(!texts.contains("~/claude"))
+    }
+
+    @Test func absoluteStyleDistinguishesRowsSubmittedSecondsApart() {
+        // The motivating case: a relay of prompts within the same minute is
+        // indistinguishable under .relative (both bucket to "now") but must
+        // stay ordered under .absolute.
+        let settings = Self.makeSettings(showLastInteraction: true, style: .absolute)
+        let first = Date()
+        let second = first.addingTimeInterval(1)
+        let firstTexts = Self.renderedTexts(model: Self.makeModel(settings: settings, lastInteractionAt: first))
+        let secondTexts = Self.renderedTexts(model: Self.makeModel(settings: settings, lastInteractionAt: second))
+        #expect(firstTexts.contains(SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: first)))
+        #expect(secondTexts.contains(SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: second)))
+        #expect(
+            SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: first)
+                != SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: second)
+        )
+    }
+
+    @Test func absoluteStyleWithoutAnySubmittedPromptKeepsThePath() {
+        let settings = Self.makeSettings(showLastInteraction: true, style: .absolute)
+        let model = Self.makeModel(settings: settings, lastInteractionAt: nil)
+        let texts = Self.renderedTexts(model: model)
+        #expect(texts.contains("~/claude"))
     }
 }

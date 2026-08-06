@@ -20,6 +20,7 @@ public struct SidebarSection: View {
     @State var notificationMessageLineLimit: DefaultsValueModel<Int>
     @State private var showBranchDir: DefaultsValueModel<Bool>
     @State private var showLastInteraction: DefaultsValueModel<Bool>
+    @State private var lastInteractionTimestampStyle: DefaultsValueModel<SidebarLastInteractionTimestampStyle>
     @State private var showPR: DefaultsValueModel<Bool>
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
@@ -50,6 +51,7 @@ public struct SidebarSection: View {
         _notificationMessageLineLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.notificationMessageLineLimit))
         _showBranchDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showBranchDirectory))
         _showLastInteraction = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showLastInteractionInsteadOfPath))
+        _lastInteractionTimestampStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.lastInteractionTimestampStyle))
         _showPR = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPullRequests))
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
@@ -85,6 +87,7 @@ public struct SidebarSection: View {
             stackBranchDir,
             pathLastOnly, showNotification, notificationMessageLineLimit, showBranchDir,
             showLastInteraction,
+            lastInteractionTimestampStyle,
             showPR,
             watchGit,
             prClickable,
@@ -375,6 +378,26 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
+                configurationReview: .json("sidebar.lastInteractionTimestampStyle"),
+                String(localized: "settings.app.lastInteractionTimestampStyle", defaultValue: "Last Interaction Timestamp Style"),
+                subtitle: String(localized: "settings.app.lastInteractionTimestampStyle.subtitle", defaultValue: "Show a ticking relative time, or a fixed time-of-day with seconds so same-minute prompts can still be ordered.")
+            ) {
+                Picker("", selection: Binding(
+                    get: { lastInteractionTimestampStyle.current },
+                    set: { lastInteractionTimestampStyle.set($0) }
+                )) {
+                    ForEach(SidebarLastInteractionTimestampStyle.allCases, id: \.self) { style in
+                        Text(lastInteractionTimestampStyleLabel(style)).tag(style)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+            .disabled(hideAll.current || !showBranchDir.current || !showLastInteraction.current)
+            SettingsCardDivider()
+
+            SettingsCardRow(
                 configurationReview: .json("sidebar.showPullRequests"),
                 String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"),
                 subtitle: String(localized: "settings.app.showPullRequests.subtitle", defaultValue: "Display review items (PR/MR/etc.) with status and number.")
@@ -497,6 +520,15 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+        }
+    }
+
+    private func lastInteractionTimestampStyleLabel(_ style: SidebarLastInteractionTimestampStyle) -> String {
+        switch style {
+        case .relative:
+            String(localized: "settings.app.lastInteractionTimestampStyle.relative", defaultValue: "Relative")
+        case .absolute:
+            String(localized: "settings.app.lastInteractionTimestampStyle.absolute", defaultValue: "Absolute")
         }
     }
 

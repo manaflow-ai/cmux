@@ -1054,6 +1054,12 @@
           "default": false,
           "description": "Replace the branch/directory line on workspace rows with a relative time since the last submitted prompt. Rows with no submitted prompt yet keep the branch/directory line."
         },
+        "lastInteractionTimestampStyle": {
+          "type": "string",
+          "enum": ["relative", "absolute"],
+          "default": "relative",
+          "description": "How showLastInteractionInsteadOfPath renders the timestamp: relative (ticking now/12m/3h/2d bucket) or absolute (static time-of-day with seconds, e.g. 15:47:12)."
+        },
         "showPullRequests": {
           "type": "boolean",
           "default": true,

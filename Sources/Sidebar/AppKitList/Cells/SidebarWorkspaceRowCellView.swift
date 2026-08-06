@@ -815,15 +815,26 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             // Last-interaction mode replaces the whole branch/directory
             // section with one relative-time line; workspaces that never had
             // a submitted prompt keep the branch/directory presentation below.
-            let now = Date()
-            lines.append(.init(
-                branch: nil,
-                directoryCandidates: [SidebarLastInteractionTimeFormatter.label(from: lastInteractionAt, to: now)],
-                stacked: false
-            ))
-            scheduleLastInteractionRelabel(
-                at: SidebarLastInteractionTimeFormatter.nextTransitionDate(from: lastInteractionAt, after: now)
-            )
+            switch settings.branchDirectory.lastInteractionTimestampStyle {
+            case .relative:
+                let now = Date()
+                lines.append(.init(
+                    branch: nil,
+                    directoryCandidates: [SidebarLastInteractionTimeFormatter.label(from: lastInteractionAt, to: now)],
+                    stacked: false
+                ))
+                scheduleLastInteractionRelabel(
+                    at: SidebarLastInteractionTimeFormatter.nextTransitionDate(from: lastInteractionAt, after: now)
+                )
+            case .absolute:
+                // Static label: the interaction date never changes, so
+                // (unlike .relative) no refresh timer is scheduled.
+                lines.append(.init(
+                    branch: nil,
+                    directoryCandidates: [SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: lastInteractionAt)],
+                    stacked: false
+                ))
+            }
         } else if showsSection {
             if settings.branchDirectory.branchLayout == .vertical {
                 for line in snapshot.branchDirectoryLines {

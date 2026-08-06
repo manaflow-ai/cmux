@@ -151609,6 +151609,74 @@
         }
       }
     },
+    "settings.app.lastInteractionTimestampStyle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last Interaction Timestamp Style"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終操作タイムスタンプの形式"
+          }
+        }
+      }
+    },
+    "settings.app.lastInteractionTimestampStyle.absolute": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Absolute"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "絶対時刻"
+          }
+        }
+      }
+    },
+    "settings.app.lastInteractionTimestampStyle.relative": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relative"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相対時間"
+          }
+        }
+      }
+    },
+    "settings.app.lastInteractionTimestampStyle.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a ticking relative time, or a fixed time-of-day with seconds so same-minute prompts can still be ordered."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刻々と変化する相対時間か、同じ分内のプロンプトでも順序がわかるよう秒単位まで含む固定の時刻を表示します。"
+          }
+        }
+      }
+    },
     "settings.app.loadingSpinnerPosition": {
       "extractionState": "manual",
       "localizations": {
@@ -182923,6 +182991,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.language locale l10n localization translation japanese english ja en nihongo restart 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 語言 地區設定 在地化 翻譯 日文 英文 重新啟動 App"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.last-interaction-timestamp-style": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.lastInteractionTimestampStyle relative absolute timestamp seconds ordering workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sidebar.lastInteractionTimestampStyle 相対時間 絶対時刻 タイムスタンプ 秒 順序 ワークスペース"
           }
         }
       }

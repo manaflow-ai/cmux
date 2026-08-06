@@ -52,4 +52,13 @@ enum SidebarLastInteractionTimeFormatter {
     static func absoluteLabel(for interactionDate: Date) -> String {
         interactionDate.formatted(date: .abbreviated, time: .standard)
     }
+
+    /// Short absolute-time row label for
+    /// `sidebar.lastInteractionTimestampStyle == .absolute`: time-of-day
+    /// only, with seconds, no date. Unlike `label(from:to:)` this never
+    /// changes for a fixed interaction date, so renderers using this style
+    /// need no refresh timer.
+    static func absoluteShortLabel(for interactionDate: Date) -> String {
+        interactionDate.formatted(date: .omitted, time: .standard)
+    }
 }

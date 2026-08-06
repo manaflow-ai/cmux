@@ -88,6 +88,17 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowLastInteractionInsteadOfPath"
     )
 
+    /// How the last-interaction label renders the timestamp
+    /// (`sidebar.lastInteractionTimestampStyle`): the terse ticking relative
+    /// bucket ("now/12m/3h/2d") or a static absolute time-of-day with
+    /// seconds. Only takes effect when `showLastInteractionInsteadOfPath` is
+    /// on. Defaults to `relative` — the shipped upstream behavior.
+    public let lastInteractionTimestampStyle = DefaultsKey<SidebarLastInteractionTimestampStyle>(
+        id: "sidebar.lastInteractionTimestampStyle",
+        defaultValue: .relative,
+        userDefaultsKey: "sidebarLastInteractionTimestampStyle"
+    )
+
     public let showPullRequests = DefaultsKey<Bool>(
         id: "sidebar.showPullRequests",
         defaultValue: true,

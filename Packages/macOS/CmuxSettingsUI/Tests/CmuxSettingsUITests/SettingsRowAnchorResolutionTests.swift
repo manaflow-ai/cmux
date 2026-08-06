@@ -102,6 +102,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.showBranchDirectory",
         "sidebar.showCustomMetadata",
         "sidebar.showLastInteractionInsteadOfPath",
+        "sidebar.lastInteractionTimestampStyle",
         "sidebar.showLog",
         "sidebar.showNotificationMessage",
         "sidebar.notificationMessageLineLimit",

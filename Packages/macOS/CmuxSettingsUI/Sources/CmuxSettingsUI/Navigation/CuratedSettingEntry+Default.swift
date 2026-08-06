@@ -200,6 +200,14 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["sidebar.notificationBadgePosition"],
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
+            .init(
+                section: .sidebarAppearance,
+                id: "last-interaction-timestamp-style",
+                title: String(localized: "settings.app.lastInteractionTimestampStyle", defaultValue: "Last Interaction Timestamp Style"),
+                detailText: String(localized: "settings.app.lastInteractionTimestampStyle.subtitle", defaultValue: "Show a ticking relative time, or a fixed time-of-day with seconds so same-minute prompts can still be ordered."),
+                paths: ["sidebar.lastInteractionTimestampStyle"],
+                synonyms: "sidebar.lastInteractionTimestampStyle relative absolute timestamp seconds ordering"
+            ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 

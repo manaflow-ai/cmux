@@ -150,7 +150,8 @@ Replaces the branch/directory line on sidebar workspace rows with a relative "ti
 ```json
 {
   "sidebar": {
-    "showLastInteractionInsteadOfPath": true
+    "showLastInteractionInsteadOfPath": true,
+    "lastInteractionTimestampStyle": "relative"
   }
 }
 ```
@@ -159,6 +160,7 @@ Replaces the branch/directory line on sidebar workspace rows with a relative "ti
 - Workspaces where you have not submitted a prompt yet keep the branch/directory line, so a fresh workspace still shows where it lives.
 - Requires `sidebar.showBranchDirectory` (the line it replaces): when that is off — or `sidebar.hideAllDetails` is on — nothing is shown, matching today's behavior.
 - Toggle it from **Settings > Sidebar > Show Last Interaction Instead of Path**.
+- `lastInteractionTimestampStyle`: `relative` (default; the ticking "now/12m/3h/2d" bucket above) or `absolute` — a static time-of-day with seconds (e.g. `15:47:12`), so two prompts submitted within the same minute can still be ordered right on the row without hovering for the tooltip. Unlike `relative`, an `absolute` label never ticks — it is fixed once painted. Toggle it from **Settings > Sidebar > Last Interaction Timestamp Style**.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
 
