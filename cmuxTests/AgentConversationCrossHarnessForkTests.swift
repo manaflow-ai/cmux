@@ -1469,6 +1469,113 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func postExportEvidenceDoesNotReuseScanStartedDuringExport() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let originalSnapshot = try makeCodexSnapshot(
+            in: fixture,
+            sessionID: "original-session"
+        )
+        let replacementDirectory = fixture.appendingPathComponent(
+            "replacement",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: replacementDirectory,
+            withIntermediateDirectories: true
+        )
+        let replacementSnapshot = try makeCodexSnapshot(
+            in: replacementDirectory,
+            sessionID: "replacement-session"
+        )
+        let transcriptGate = SuspendingTranscriptGate()
+        let exportService = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                SuspendingSourceAdapter(gate: transcriptGate),
+            ])
+        )
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(
+            originalSnapshot,
+            panelId: sourcePanelID
+        )
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspace.id,
+            panelId: sourcePanelID
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let scanDuringExportStarted = DispatchSemaphore(value: 0)
+        let releaseScanDuringExport = DispatchSemaphore(value: 0)
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    defer { count += 1 }
+                    return count
+                }
+                let snapshot = invocation < 2
+                    ? originalSnapshot
+                    : replacementSnapshot
+                if invocation == 1 {
+                    scanDuringExportStarted.signal()
+                    _ = releaseScanDuringExport.wait(timeout: .now() + 2)
+                }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: fixture.path,
+                    fileManager: .default,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        let forkTask = Task { @MainActor in
+            await workspace.forkAgentConversation(
+                fromPanelId: sourcePanelID,
+                snapshot: originalSnapshot,
+                request: .init(targetHarness: .claude, destination: .right),
+                exportService: exportService,
+                liveAgentIndex: liveAgentIndex
+            )
+        }
+        await transcriptGate.waitUntilReadStarts()
+        let overlappingScan = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferSnapshot(
+                workspaceId: workspace.id,
+                panelId: sourcePanelID
+            )
+        }
+        let overlappingScanStarted = await Task.detached {
+            scanDuringExportStarted.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(overlappingScanStarted)
+        await transcriptGate.finishRead()
+        try await Task.sleep(for: .milliseconds(100))
+        releaseScanDuringExport.signal()
+
+        #expect(await overlappingScan.value?.sessionId == originalSnapshot.sessionId)
+        #expect(await forkTask.value == false)
+        #expect(loadCount.withLock { $0 } == 3)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+    }
+
+    @Test
     func freshTransferSnapshotRejectsCrossWorkspacePanelAlias() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
@@ -1639,6 +1746,72 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(await forkTask.value == false)
         #expect(workspace.bonsplitController.allPaneIds.count == 1)
         #expect(launcherScripts(in: launcherDirectory) == launcherURLsBefore)
+    }
+
+    @Test
+    func closingUnstartedDestinationRemovesPrivateLauncher() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelID,
+            root: fixture
+        )
+
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelID,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .right),
+            liveAgentIndex: liveAgentIndex,
+            launcherTemporaryDirectory: fixture
+        )
+        let destinationPanelID = try #require(workspace.focusedPanelId)
+        let destinationPanel = try #require(workspace.terminalPanel(for: destinationPanelID))
+        let launcher = try launcherScript(from: destinationPanel.surface.initialInput)
+
+        #expect(didFork)
+        #expect(FileManager.default.fileExists(atPath: launcher.url.path))
+        #expect(workspace.closePanel(destinationPanelID, force: true))
+        #expect(!FileManager.default.fileExists(atPath: launcher.url.path))
+    }
+
+    @Test
+    func expiredConversationTransferLauncherIsPrunedByNextSensitiveWrite() throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "sensitive-launcher"
+        )
+        let firstInput = try #require(snapshot.preparedCustomStartupInput(
+            command: "printf first-sensitive-transfer",
+            temporaryDirectory: fixture
+        ))
+        let firstLauncher = try launcherScript(from: firstInput.text)
+        let launcherDirectory = firstLauncher.url.deletingLastPathComponent()
+        let markerURL = launcherDirectory.appendingPathComponent(".last-prune")
+        let now = Date()
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-(11 * 60))],
+            ofItemAtPath: firstLauncher.url.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-(6 * 60))],
+            ofItemAtPath: markerURL.path
+        )
+
+        let secondInput = try #require(snapshot.preparedCustomStartupInput(
+            command: "printf second-sensitive-transfer",
+            temporaryDirectory: fixture
+        ))
+        defer { secondInput.removeLauncherScript() }
+
+        #expect(!FileManager.default.fileExists(atPath: firstLauncher.url.path))
     }
 
     @Test
