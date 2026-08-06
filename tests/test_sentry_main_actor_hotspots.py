@@ -30,3 +30,14 @@ def test_port_publication_delivery_is_materialized_before_the_main_actor_drain()
 
     assert "Array(batch.agentPublicationsByWorkspace.values)" not in drain
     assert "PortScanPublicationDeliveryBatch" in buffer
+
+
+def test_omnibar_update_skips_redundant_placeholder_field_editor_work():
+    update = source_slice(
+        "Sources/Panels/BrowserPanelView.swift",
+        "func updateNSView(_ nsView: OmnibarNativeTextField",
+        "if nsView.font?.pointSize != fontSize",
+    )
+
+    assert "if nsView.placeholderString != placeholder" in update
+    assert "nsView.placeholderString = placeholder" in update
