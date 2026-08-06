@@ -922,7 +922,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
-    @Test func concurrentReaperLaunchKeepsFreshUnpublishedLockOwnedByCreator() throws {
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func concurrentReaperLaunchKeepsFreshUnpublishedLockOwnedByCreator(
+        shellPath: String
+    ) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-reaper-publication-\(UUID().uuidString)", isDirectory: true)
@@ -991,15 +994,19 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test "$cmux_test_launch_count" -eq 1 || exit 95
         """
 
-        let result = try runShellCommand(command, environment: [
-            "CMUX_TEST_FIRST_IDENTITY_GATE": root.appendingPathComponent("first-gate").path,
-            "CMUX_TEST_FIRST_READY": root.appendingPathComponent("first-ready").path,
-            "CMUX_TEST_FIRST_RESULT": root.appendingPathComponent("first-result").path,
-            "CMUX_TEST_RELEASE_FIRST": root.appendingPathComponent("release-first").path,
-            "CMUX_TEST_SECOND_RESULT": root.appendingPathComponent("second-result").path,
-            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
-            "TMPDIR": root.path,
-        ])
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FIRST_IDENTITY_GATE": root.appendingPathComponent("first-gate").path,
+                "CMUX_TEST_FIRST_READY": root.appendingPathComponent("first-ready").path,
+                "CMUX_TEST_FIRST_RESULT": root.appendingPathComponent("first-result").path,
+                "CMUX_TEST_RELEASE_FIRST": root.appendingPathComponent("release-first").path,
+                "CMUX_TEST_SECOND_RESULT": root.appendingPathComponent("second-result").path,
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
@@ -2019,12 +2026,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
     private func runShellCommand(
         _ command: String,
-        environment overrides: [String: String] = [:]
+        environment overrides: [String: String] = [:],
+        shellPath: String = "/bin/sh"
     ) throws -> (status: Int32, standardError: String) {
         let process = Process()
         let stderrCapture = try makeStandardErrorCapture()
         defer { removeStandardErrorCapture(stderrCapture) }
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.executableURL = URL(fileURLWithPath: shellPath)
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging(overrides) { _, override in
             override

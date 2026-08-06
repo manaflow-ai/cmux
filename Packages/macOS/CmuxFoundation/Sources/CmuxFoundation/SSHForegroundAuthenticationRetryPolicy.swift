@@ -327,9 +327,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
           case "$cmux_ssh_auth_reaper_caller_group" in ''|*[!0-9]*) return 0 ;; esac
           cmux_ssh_auth_reaper_lock="$cmux_ssh_auth_reaper_group_dir/reaper.lock"
+          # Serialize the mkdir-to-publisher transition under the durable
+          # recovery lock. A second launcher must not classify the creator's
+          # fresh, still-empty directory as stale before ownership is published.
+          cmux_ssh_auth_recovery_lock || return 0
           if ! /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null; then
-            cmux_ssh_auth_reclaim_stale_reaper_lock "$cmux_ssh_auth_reaper_lock" || return 0
-            /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || return 0
+            cmux_ssh_auth_reclaim_stale_reaper_lock "$cmux_ssh_auth_reaper_lock" || {
+              cmux_ssh_auth_recovery_unlock
+              return 0
+            }
+            /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || {
+              cmux_ssh_auth_recovery_unlock
+              return 0
+            }
           fi
           cmux_ssh_auth_reaper_publisher_identity=$(cmux_ssh_auth_identity "$$")
           if [ -z "$cmux_ssh_auth_reaper_publisher_identity" ] || ! \
@@ -339,8 +349,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null; then
             /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
             return 0
           fi
+          cmux_ssh_auth_recovery_unlock
           printf 'cleanup-pending\n' \
             > "$cmux_ssh_auth_reaper_group_dir/reaper.failed.new" 2>/dev/null || {
               /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true
