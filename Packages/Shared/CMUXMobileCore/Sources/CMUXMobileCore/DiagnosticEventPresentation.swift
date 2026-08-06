@@ -148,6 +148,10 @@ public struct DiagnosticEventPresentation: Sendable {
         case .runtimeReconfigured: localized("diagnostics.session.runtimeReconfigured", defaultValue: "Runtime reconfigured")
         case .explicitlyInvalidated: localized("diagnostics.session.explicitlyInvalidated", defaultValue: "Explicitly invalidated")
         case .allPathsClosed: localized("diagnostics.session.allPathsClosed", defaultValue: "All paths closed")
+        case .retirementStarted: localized("diagnostics.session.retirementStarted", defaultValue: "Retirement started")
+        case .parentCloseAcknowledged: localized("diagnostics.session.parentCloseAcknowledged", defaultValue: "Parent close acknowledged")
+        case .postCloseCleanupCompleted: localized("diagnostics.session.postCloseCleanupCompleted", defaultValue: "Post-close cleanup completed")
+        case .replacementDialStarted: localized("diagnostics.session.replacementDialStarted", defaultValue: "Replacement dial started")
         }
     }
 

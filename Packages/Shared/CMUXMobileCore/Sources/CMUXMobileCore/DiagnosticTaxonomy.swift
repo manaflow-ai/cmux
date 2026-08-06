@@ -208,6 +208,14 @@ public enum DiagnosticSessionLifecycleKind: Int, Sendable, Codable, CaseIterable
     case explicitlyInvalidated = 10
     /// Every usable transport path disappeared from an admitted session.
     case allPathsClosed = 11
+    /// A session generation stopped accepting new work.
+    case retirementStarted = 12
+    /// Local parent-connection close returned before ownership handoff.
+    case parentCloseAcknowledged = 13
+    /// Child handles, watchers, attribution, and diagnostics finished cleanup.
+    case postCloseCleanupCompleted = 14
+    /// A peer generation began discovery, dialing, and admission.
+    case replacementDialStarted = 15
 }
 
 /// Which component produced a diagnostic report.

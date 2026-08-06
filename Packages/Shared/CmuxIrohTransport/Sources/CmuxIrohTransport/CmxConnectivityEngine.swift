@@ -25,7 +25,6 @@ public actor CmxConnectivityEngine {
     private let authority: (any CmxConnectivityAuthorityServing)?
     private let installRouteSnapshot: RouteSnapshotInstaller?
     private let diagnosticLog: DiagnosticLog?
-    private let clock: any CmxIrohRelayClock
     private var desiredActive = false
     private var lifecycleRevision: UInt64 = 0
     private var endpointGeneration: UInt64?
@@ -58,8 +57,7 @@ public actor CmxConnectivityEngine {
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
-        diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         supervisor = CmxIrohEndpointSupervisor(
@@ -71,7 +69,6 @@ public actor CmxConnectivityEngine {
         self.authority = authority
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
-        self.clock = clock
     }
 
     /// Creates a stopped endpoint-only engine for a host acceptor.
@@ -89,7 +86,6 @@ public actor CmxConnectivityEngine {
         authority = nil
         installRouteSnapshot = nil
         diagnosticLog = nil
-        clock = CmxIrohSystemRelayClock()
     }
 
     init(
@@ -98,8 +94,7 @@ public actor CmxConnectivityEngine {
         protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
-        diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         self.supervisor = supervisor
@@ -108,7 +103,6 @@ public actor CmxConnectivityEngine {
         self.authority = authority
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
-        self.clock = clock
     }
 
     /// Returns the current immutable UI-safe state.
@@ -519,10 +513,9 @@ public actor CmxConnectivityEngine {
         let supervisor = supervisor
         let protocolConfiguration = protocolConfiguration
         let diagnosticLog = diagnosticLog
-        let clock = clock
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
-            buildSession: { request in
+            buildRetirableSession: { request, retirement in
                 let endpoint = try await supervisor.activeEndpoint()
                 let context = try await contextProvider.context(for: request)
                 let session = try CmxIrohClientSession(
@@ -541,6 +534,7 @@ public actor CmxConnectivityEngine {
                     protocolConfiguration: protocolConfiguration
                 )
                 do {
+                    try await retirement.register(session)
                     try await session.connect()
                     return session
                 } catch {
@@ -551,8 +545,7 @@ public actor CmxConnectivityEngine {
             handleSnapshot: { [weak self] snapshot in
                 await self?.peerDidChange(snapshot)
             },
-            diagnosticLog: diagnosticLog,
-            clock: clock
+            diagnosticLog: diagnosticLog
         )
         peers[peerID] = peer
         orderedPeerIDs.append(peerID)
