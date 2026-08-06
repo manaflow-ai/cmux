@@ -1,5 +1,6 @@
 import CmuxConversationTransfer
 import CMUXAgentLaunch
+import Dispatch
 import Foundation
 import os
 import SQLite3
@@ -426,6 +427,40 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(turns.contains { $0.text.contains("Opening request") })
         #expect(turns.contains { $0.text.contains("LATEST-DIALOGUE-MARKER") })
         #expect(!turns.contains { $0.role == .tool })
+    }
+
+    @Test
+    func transferRetentionPreservesTheTailOfLongLatestDialogue() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let transcript = fixture.appendingPathComponent("long-latest-dialogue.jsonl")
+        let latestMarker = "LATEST-LONG-TURN-MARKER"
+        let records: [[String: Any]] = [
+            ["role": "user", "content": "Opening request"],
+            [
+                "role": "assistant",
+                "content": String(repeating: "x", count: 45_000) + latestMarker,
+            ],
+        ]
+        let transcriptData = try records.map {
+            try JSONSerialization.data(withJSONObject: $0)
+        }.reduce(into: Data()) { data, record in
+            if !data.isEmpty { data.append(0x0a) }
+            data.append(record)
+        }
+        try transcriptData.write(to: transcript)
+
+        let turns = try await SessionTranscriptLoader.load(source: .init(
+            agent: .registered(RegisteredSessionAgent(id: "generic")),
+            sessionId: "long-latest-dialogue",
+            fileURL: transcript,
+            retention: .transferOpeningUserAndLatest(
+                turnLimit: 1_000,
+                textByteLimit: 64 * 1_024
+            )
+        ))
+
+        #expect(turns.contains { $0.text.contains(latestMarker) })
     }
 
     @Test
@@ -907,6 +942,130 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func freshTransferSnapshotRejectsCrossWorkspacePanelAlias() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let requestedWorkspaceId = UUID()
+        let indexedWorkspaceId = UUID()
+        let panelId = UUID()
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: indexedWorkspaceId,
+            panelId: panelId,
+            root: fixture
+        )
+
+        let freshSnapshot = await liveAgentIndex.freshConversationTransferSnapshot(
+            workspaceId: requestedWorkspaceId,
+            panelId: panelId
+        )
+
+        #expect(freshSnapshot == nil)
+    }
+
+    @Test
+    func crossHarnessForkPerformsOneFreshIndexScan() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelId,
+            root: fixture,
+            onLoad: {
+                loadCount.withLock { $0 += 1 }
+            }
+        )
+
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelId,
+            snapshot: snapshot,
+            request: .init(targetHarness: .claude, destination: .right),
+            liveAgentIndex: liveAgentIndex
+        )
+
+        #expect(didFork)
+        #expect(loadCount.withLock { $0 } == 1)
+    }
+
+    @Test
+    func concurrentFreshTransferSnapshotsCoalesceIndexScan() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                panelKey: (
+                    snapshot: snapshot,
+                    updatedAt: 42,
+                    processIDs: [],
+                    agentProcessIDs: [],
+                    sessionIDSource: .explicit
+                ),
+            ]
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let loadStarted = DispatchSemaphore(value: 0)
+        let releaseLoad = DispatchSemaphore(value: 0)
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                loadCount.withLock { $0 += 1 }
+                loadStarted.signal()
+                _ = releaseLoad.wait(timeout: .now() + 2)
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        let first = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferSnapshot(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+        }
+        let firstLoadStarted = await Task.detached {
+            loadStarted.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(firstLoadStarted)
+        let second = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferSnapshot(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+        }
+        for _ in 0..<20 {
+            await Task.yield()
+        }
+        releaseLoad.signal()
+        releaseLoad.signal()
+
+        #expect(await first.value?.sessionId == snapshot.sessionId)
+        #expect(await second.value?.sessionId == snapshot.sessionId)
+        #expect(loadCount.withLock { $0 } == 1)
+    }
+
+    @Test
     func cancelledCrossHarnessForkRemovesPrivateLauncher() async throws {
         let sessionID = "cancel-\(UUID().uuidString)"
         let snapshot = SessionRestorableAgentSnapshot(
@@ -1153,7 +1312,8 @@ struct AgentConversationCrossHarnessForkTests {
         snapshot: SessionRestorableAgentSnapshot,
         workspaceId: UUID,
         panelId: UUID,
-        root: URL
+        root: URL,
+        onLoad: @escaping @Sendable () -> Void = {}
     ) -> SharedLiveAgentIndex {
         let panelKey = RestorableAgentSessionIndex.PanelKey(
             workspaceId: workspaceId,
@@ -1161,6 +1321,7 @@ struct AgentConversationCrossHarnessForkTests {
         )
         return SharedLiveAgentIndex(
             indexLoader: {
+                onLoad()
                 let index = RestorableAgentSessionIndex.load(
                     homeDirectory: root.path,
                     fileManager: .default,
