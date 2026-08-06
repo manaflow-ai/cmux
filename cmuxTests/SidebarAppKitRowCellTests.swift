@@ -612,9 +612,9 @@ struct SidebarAppKitRowCellTests {
         )
     }
 
-    /// The metadata markdown blocks render through the same
-    /// `SidebarRowPalette.attributed` path as the description, so they carried
-    /// the same AppKit link-color override.
+    /// The metadata markdown blocks render through the same row-owned text
+    /// configuration as the description, so they carried the same AppKit
+    /// link-color override.
     @Test(arguments: [true, false])
     func metadataMarkdownBlockLinkIsRowOwnedInBothSelectionStates(_ isActive: Bool) throws {
         let url = try #require(URL(string: "https://cmux.com"))

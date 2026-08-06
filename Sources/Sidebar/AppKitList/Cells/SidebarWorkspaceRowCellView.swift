@@ -478,7 +478,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
-                descriptionView.attributedStringValue = SidebarRowPalette.attributed(
+                descriptionView.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
                     color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95),
@@ -763,7 +763,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let view = markdownBlocks[index]
             let display = block.markdown.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
             if let rendered = SidebarMetadataMarkdownRenderer.rendered(display) {
-                view.attributedStringValue = SidebarRowPalette.attributed(
+                view.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10)),
                     color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor,

@@ -228,6 +228,13 @@ final class SidebarRowProgressView: NSView {
     }
 }
 
+extension NSAttributedString.Key {
+    /// Row-owned replacement for `.link`. AppKit gives no way to override the
+    /// color it paints `.link` runs in, so the sidebar carries the destination
+    /// here and styles the run itself.
+    static let sidebarRowLink = NSAttributedString.Key("com.cmux.sidebarRowLink")
+}
+
 /// One wrapping/truncating text line (or block) with measured height.
 @MainActor
 final class SidebarRowTextView: NSTextField {
@@ -262,6 +269,22 @@ final class SidebarRowTextView: NSTextField {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Applies the row palette to rendered Markdown while retaining ownership
+    /// of link rendering and activation instead of delegating either to AppKit.
+    func configureAttributedText(
+        _ source: AttributedString,
+        font: NSFont,
+        color: NSColor,
+        linkColor: NSColor
+    ) {
+        let mutable = NSMutableAttributedString(attributedString: NSAttributedString(source))
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        mutable.addAttribute(.font, value: font, range: fullRange)
+        mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
+        applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
+        attributedStringValue = mutable
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -333,9 +356,42 @@ final class SidebarRowTextView: NSTextField {
 
         let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
         guard characterIndex < attributedStringValue.length else { return nil }
-        return Self.linkURL(
+        return webURL(
             from: attributedStringValue.attribute(.sidebarRowLink, at: characterIndex, effectiveRange: nil)
         )
+    }
+
+    /// Moves every web `.link` run onto `.sidebarRowLink` so AppKit stops
+    /// painting it, then styles the run explicitly (row-derived color plus an
+    /// underline so it still reads as a link in both states). Non-web links are
+    /// dropped, matching the metadata URL contract enforced elsewhere.
+    private func applyRowOwnedLinkStyling(
+        to mutable: NSMutableAttributedString,
+        linkColor: NSColor
+    ) {
+        let fullRange = NSRange(location: 0, length: mutable.length)
+        guard fullRange.length > 0 else { return }
+        var runs: [(url: URL?, range: NSRange)] = []
+        mutable.enumerateAttribute(.link, in: fullRange) { value, range, _ in
+            guard value != nil else { return }
+            runs.append((webURL(from: value), range))
+        }
+        for run in runs {
+            mutable.removeAttribute(.link, range: run.range)
+            guard let url = run.url else {
+                mutable.removeAttribute(.underlineStyle, range: run.range)
+                continue
+            }
+            mutable.addAttributes(
+                [
+                    .sidebarRowLink: url,
+                    .foregroundColor: linkColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue,
+                    .underlineColor: linkColor,
+                ],
+                range: run.range
+            )
+        }
     }
 
     private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {
@@ -369,7 +425,21 @@ final class SidebarRowTextView: NSTextField {
         return layout
     }
 
-    private static func linkURL(from value: Any?) -> URL? {
-        SidebarRowWebLink.url(from: value)
+    /// Matches the control-socket metadata URL contract in
+    /// `upsertSidebarMetadata`: only HTTP(S) destinations are actionable.
+    private func webURL(from value: Any?) -> URL? {
+        let resolved: URL?
+        switch value {
+        case let candidate as URL:
+            resolved = candidate
+        case let candidate as NSURL:
+            resolved = candidate as URL
+        case let candidate as String:
+            resolved = URL(string: candidate)
+        default:
+            resolved = nil
+        }
+        guard let resolved, let scheme = resolved.scheme?.lowercased() else { return nil }
+        return scheme == "http" || scheme == "https" ? resolved : nil
     }
 }
