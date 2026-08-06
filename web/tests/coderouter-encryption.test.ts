@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import {
   decryptCredential,
   encryptCredential,
+  coalescingCredentialsProvider,
   type CredentialKeyService,
   type EncryptedCredential,
 } from "../services/coderouter/encryption";
@@ -67,24 +68,56 @@ describe("coderouter credential envelope encryption", () => {
   });
 
   test("does not include provider secrets in KMS failures", async () => {
-    const denied: CredentialKeyService = {
-      async generateDataKey() {
-        throw new Error("KMS access denied");
-      },
-      async decryptDataKey() {
-        throw new Error("KMS access denied");
-      },
-    };
-    let message = "";
-    try {
-      await encrypt(denied);
-    } catch (error) {
-      message = error instanceof Error ? error.message : String(error);
+    for (const failure of [
+      "KMS access denied",
+      "KMS request timed out",
+      "KMS throttling exception",
+    ]) {
+      const unavailable: CredentialKeyService = {
+        async generateDataKey() {
+          throw new Error(failure);
+        },
+        async decryptDataKey() {
+          throw new Error(failure);
+        },
+      };
+      let message = "";
+      try {
+        await encrypt(unavailable);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toContain(failure);
+      expect(message).not.toContain(credential.accessToken);
+      expect(message).not.toContain(credential.refreshToken);
+      expect(message).not.toContain(credential.idToken);
     }
-    expect(message).toContain("KMS access denied");
-    expect(message).not.toContain(credential.accessToken);
-    expect(message).not.toContain(credential.refreshToken);
-    expect(message).not.toContain(credential.idToken);
+  });
+});
+
+describe("coderouter Vercel OIDC credentials", () => {
+  test("coalesces parallel AWS role exchanges and refreshes before expiry", async () => {
+    let calls = 0;
+    let now = 1_000;
+    const provider = coalescingCredentialsProvider(async () => {
+      calls++;
+      await Promise.resolve();
+      return {
+        accessKeyId: `access-${calls}`,
+        secretAccessKey: "secret",
+        expiration: new Date(now + 10 * 60 * 1_000),
+      };
+    }, () => now);
+    const first = await Promise.all([provider(), provider(), provider()]);
+    expect(calls).toBe(1);
+    expect(first.map((value) => value.accessKeyId)).toEqual([
+      "access-1",
+      "access-1",
+      "access-1",
+    ]);
+    now += 6 * 60 * 1_000;
+    expect((await provider()).accessKeyId).toBe("access-2");
+    expect(calls).toBe(2);
   });
 });
 

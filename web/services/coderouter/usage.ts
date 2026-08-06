@@ -5,6 +5,8 @@ import {
   markAccountCooldown,
 } from "./repository";
 import { freshCredential } from "./refresh";
+import { fetchProviderRead } from "./providerFetch";
+import { reportCoderouterFailure } from "./observability";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const USAGE_CACHE_MS = 15_000;
@@ -51,15 +53,19 @@ export async function accountsWithUsage(teamId: string) {
 }
 
 async function loadAccountsWithUsage(teamId: string) {
+  const startedAt = performance.now();
   // Account metadata and encrypted envelopes are independent RDS reads.
+  const rdsStartedAt = performance.now();
   const [accounts, credentials] = await Promise.all([
     listAccounts(teamId),
     listEncryptedCredentials(teamId),
   ]);
+  const rdsMs = performance.now() - rdsStartedAt;
   const credentialsByAccount = new Map(
     credentials.map((credential) => [credential.accountId, credential]),
   );
-  return await Promise.all(accounts.map(async (account) => {
+  const providerStartedAt = performance.now();
+  const withUsage = await Promise.all(accounts.map(async (account) => {
     if (account.provider !== "codex" || account.state !== "active") {
       return account;
     }
@@ -71,7 +77,7 @@ async function loadAccountsWithUsage(teamId: string) {
         known: credentialsByAccount.get(account.id),
       });
       if (credential.provider !== "codex") return account;
-      const response = await fetch(CODEX_USAGE_URL, {
+      const response = await fetchProviderRead(() => fetch(CODEX_USAGE_URL, {
         headers: {
           authorization: `Bearer ${credential.accessToken}`,
           "chatgpt-account-id": credential.accountId,
@@ -79,8 +85,13 @@ async function loadAccountsWithUsage(teamId: string) {
         },
         cache: "no-store",
         signal: AbortSignal.timeout(5_000),
-      });
+      }));
       if (!response.ok) {
+        reportCoderouterFailure(
+          response.status === 429 ? "provider_rate_limit" : "provider_usage",
+          new Error("provider usage request failed"),
+          { provider: account.provider, status: response.status },
+        );
         return { ...account, usageError: `HTTP ${response.status}` };
       }
       const usage: unknown = await response.json();
@@ -89,10 +100,24 @@ async function loadAccountsWithUsage(teamId: string) {
         await markAccountCooldown(account.id, cooldownMs);
       }
       return { ...account, usage };
-    } catch {
+    } catch (error) {
+      reportCoderouterFailure("provider_usage", error, {
+        provider: account.provider,
+      });
       return { ...account, usageError: "unavailable" };
     }
   }));
+  return {
+    accounts: withUsage,
+    usageAsOf: new Date().toISOString(),
+    usageGeneratedAtMs: Date.now(),
+    cacheMaxAgeSeconds: USAGE_CACHE_MS / 1_000,
+    timing: {
+      rdsMs,
+      providerMs: performance.now() - providerStartedAt,
+      totalMs: performance.now() - startedAt,
+    },
+  };
 }
 
 function usageCooldown(value: unknown): number | null {

@@ -4,6 +4,8 @@ import {
   selectAccountForRequest,
 } from "./repository";
 import { freshCredential } from "./refresh";
+import { fetchProviderRead } from "./providerFetch";
+import { reportCoderouterFailure } from "./observability";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
@@ -70,6 +72,10 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
       }
     }
     if (upstream.status === 429) {
+      reportCoderouterFailure("provider_rate_limit", new Error("rate limited"), {
+        provider: "codex",
+        status: 429,
+      });
       await markAccountCooldown(account.id, rateLimitDelay(upstream.headers));
       continue;
     }
@@ -95,59 +101,81 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
   });
 }
 
-export async function proxyCodexModels(request: Request): Promise<Response> {
-  const token = bearerToken(request);
-  if (!token) return jsonError("unauthorized", 401);
-  const identity = await authenticateRouteToken(token);
-  if (!identity) return jsonError("unauthorized", 401);
+type CodexModelsDependencies = {
+  readonly authenticate: typeof authenticateRouteToken;
+  readonly select: typeof selectAccountForRequest;
+  readonly credential: typeof freshCredential;
+  readonly cooldown: typeof markAccountCooldown;
+  readonly providerRead: typeof fetchProviderRead;
+};
 
-  const attempted: string[] = [];
-  let upstream: Response | null = null;
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const account = await selectAccountForRequest(
-      identity.teamId,
-      "codex",
-      attempted,
-    );
-    if (!account) break;
-    attempted.push(account.id);
-    let credential;
-    try {
-      credential = await freshCredential({
-        teamId: identity.teamId,
-        accountId: account.id,
-        expectedRevision: account.vaultRevision,
-      });
-    } catch {
-      continue;
+export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
+  return async (request: Request): Promise<Response> => {
+    const token = bearerToken(request);
+    if (!token) return jsonError("unauthorized", 401);
+    const identity = await dependencies.authenticate(token);
+    if (!identity) return jsonError("unauthorized", 401);
+
+    const attempted: string[] = [];
+    let upstream: Response | null = null;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const account = await dependencies.select(
+        identity.teamId,
+        "codex",
+        attempted,
+      );
+      if (!account) break;
+      attempted.push(account.id);
+      let credential;
+      try {
+        credential = await dependencies.credential({
+          teamId: identity.teamId,
+          accountId: account.id,
+          expectedRevision: account.vaultRevision,
+        });
+      } catch {
+        continue;
+      }
+      if (credential.provider !== "codex") continue;
+      const upstreamUrl = new URL(CODEX_MODELS_UPSTREAM);
+      upstreamUrl.search = new URL(request.url).search;
+      upstream = await dependencies.providerRead(() => fetch(upstreamUrl, {
+        headers: {
+          authorization: `Bearer ${credential.accessToken}`,
+          "chatgpt-account-id": credential.accountId,
+          originator: "codex_cli_rs",
+          "user-agent": request.headers.get("user-agent") ?? "coderouter",
+        },
+        cache: "no-store",
+      }));
+      if (upstream.status === 429) {
+        reportCoderouterFailure("provider_rate_limit", new Error("rate limited"), {
+          provider: "codex",
+          status: 429,
+        });
+        await dependencies.cooldown(account.id, rateLimitDelay(upstream.headers));
+        continue;
+      }
+      break;
     }
-    if (credential.provider !== "codex") continue;
-    const upstreamUrl = new URL(CODEX_MODELS_UPSTREAM);
-    upstreamUrl.search = new URL(request.url).search;
-    upstream = await fetch(upstreamUrl, {
+    if (!upstream) return jsonError("no_usable_account", 503);
+    return new Response(upstream.body, {
+      status: upstream.status,
       headers: {
-        authorization: `Bearer ${credential.accessToken}`,
-        "chatgpt-account-id": credential.accountId,
-        originator: "codex_cli_rs",
-        "user-agent": request.headers.get("user-agent") ?? "coderouter",
+        "cache-control": "no-store",
+        "content-type": upstream.headers.get("content-type") ?? "application/json",
       },
-      cache: "no-store",
     });
-    if (upstream.status === 429) {
-      await markAccountCooldown(account.id, rateLimitDelay(upstream.headers));
-      continue;
-    }
-    break;
-  }
-  if (!upstream) return jsonError("no_usable_account", 503);
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: {
-      "cache-control": "no-store",
-      "content-type": upstream.headers.get("content-type") ?? "application/json",
-    },
-  });
+  };
 }
+
+export const proxyCodexModels = createCodexModelsProxy({
+  authenticate: authenticateRouteToken,
+  select: selectAccountForRequest,
+  credential: freshCredential,
+  cooldown: markAccountCooldown,
+  providerRead: fetchProviderRead,
+});
 
 async function sendCodex(
   request: Request,
