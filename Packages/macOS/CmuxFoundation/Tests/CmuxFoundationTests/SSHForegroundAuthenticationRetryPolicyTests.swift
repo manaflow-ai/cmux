@@ -422,7 +422,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             elapsed < 3,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
-        #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
+        let survivingProcessIDs = processIDs.filter { Darwin.kill($0, 0) == 0 }
+        #expect(
+            survivingProcessIDs.isEmpty,
+            "Foreground authentication cleanup left descendants alive: \(survivingProcessIDs)"
+        )
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
