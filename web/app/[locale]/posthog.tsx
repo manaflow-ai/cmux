@@ -1,6 +1,7 @@
 "use client";
 
 import { PostHogProvider as PHProvider } from "posthog-js/react";
+import type { CaptureResult } from "posthog-js";
 import { useUser } from "@stackframe/stack";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useLayoutEffect, useRef, Suspense } from "react";
@@ -17,6 +18,7 @@ function PageviewTracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const lastCapturedUrl = useRef<string | null>(null);
+  const pendingCaptures = useRef<CaptureResult[]>([]);
 
   useLayoutEffect(() => {
     if (!pathname || !posthog) return;
@@ -25,15 +27,46 @@ function PageviewTracker() {
     let generation = 0;
     let pageviewPending = true;
     const identityStorage = {
-      getItem: (key: string) =>
-        window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key),
+      getItem: (key: string) => {
+        try {
+          const sessionValue = window.sessionStorage.getItem(key);
+          if (sessionValue) return sessionValue;
+        } catch {
+          // Try the independent persistent store below.
+        }
+        try {
+          return window.localStorage.getItem(key);
+        } catch {
+          return null;
+        }
+      },
       setItem: (key: string, value: string) => {
-        window.sessionStorage.setItem(key, value);
-        window.localStorage.setItem(key, value);
+        let persisted = false;
+        try {
+          window.sessionStorage.setItem(key, value);
+          persisted = true;
+        } catch {
+          // Try the independent persistent store below.
+        }
+        try {
+          window.localStorage.setItem(key, value);
+          persisted = true;
+        } catch {
+          // One successful store is sufficient for logout recovery.
+        }
+        if (!persisted) throw new Error("Analytics identity storage unavailable");
       },
       removeItem: (key: string) => {
-        window.sessionStorage.removeItem(key);
-        window.localStorage.removeItem(key);
+        try {
+          window.sessionStorage.removeItem(key);
+        } catch {
+          // Best-effort after PostHog has already reset.
+        }
+        try {
+          window.localStorage.removeItem(key);
+        } catch {
+          // Best-effort after PostHog has already reset.
+        }
       },
     };
     const capturePageview = () => {
@@ -52,13 +85,34 @@ function PageviewTracker() {
       pageviewPending = false;
       capturePageview();
     };
+    const bufferCapture = (capture: CaptureResult | null) => {
+      if (capture && pendingCaptures.current.length < 100) {
+        pendingCaptures.current.push(capture);
+      }
+      return null;
+    };
+    const flushBufferedCaptures = () => {
+      const captures = pendingCaptures.current.splice(0);
+      for (const capture of captures) {
+        const properties = { ...capture.properties };
+        delete properties.distinct_id;
+        delete properties.$device_id;
+        posthog.capture(capture.event, properties, {
+          $set: capture.$set,
+          $set_once: capture.$set_once,
+          $unset: capture.$unset,
+          timestamp: capture.timestamp,
+        });
+      }
+    };
     const recoverAsAnonymous = () => {
       clearUnresolvedIdentity();
       posthog.set_config({ before_send: (event) => event });
+      flushBufferedCaptures();
       finishPendingPageview();
     };
 
-    const resolveIdentity = async (gateWhilePending: boolean) => {
+    const resolveIdentity = async () => {
       const currentGeneration = ++generation;
       activeController?.abort();
       const controller = new AbortController();
@@ -68,12 +122,10 @@ function PageviewTracker() {
         timedOut = true;
         controller.abort();
       }, 5_000);
-      if (gateWhilePending) {
-        // Auth changes close the gate immediately. Passive focus/online
-        // refreshes keep an already-resolved identity live until they prove it
-        // changed, so routine refocuses do not discard user events.
-        posthog.set_config({ before_send: () => null });
-      }
+      // Buffer events until the server-confirmed identity is known. Replaying
+      // after reset/identify prevents stale attribution without losing routine
+      // focus and visibility captures.
+      posthog.set_config({ before_send: bufferCapture });
 
       try {
         const response = await fetch("/api/analytics/identity", {
@@ -106,6 +158,7 @@ function PageviewTracker() {
         }
         posthog.set_config({ before_send: (event) => event });
         syncStackAnalyticsIdentity(posthog, identityStorage, identity);
+        flushBufferedCaptures();
         finishPendingPageview();
       } catch {
         // Fail closed: an unresolved auth state must not attribute this route
@@ -124,18 +177,18 @@ function PageviewTracker() {
 
     const revalidateVisibleIdentity = () => {
       if (document.visibilityState === "visible" && !activeController) {
-        void resolveIdentity(false);
+        void resolveIdentity();
       }
     };
     const revalidateCrossTabIdentity = (event: StorageEvent) => {
-      if (event.key === STACK_IDENTITY_STORAGE_KEY) void resolveIdentity(true);
+      if (event.key === STACK_IDENTITY_STORAGE_KEY) void resolveIdentity();
     };
-    const revalidateStackAuthIdentity = () => void resolveIdentity(true);
+    const revalidateStackAuthIdentity = () => void resolveIdentity();
 
     // Route changes cover normal sign-in/sign-out redirects. Focus,
     // visibility, online, and storage events cover session expiry, account
     // changes without navigation, and changes made in another tab.
-    void resolveIdentity(true);
+    void resolveIdentity();
     window.addEventListener("focus", revalidateVisibleIdentity);
     window.addEventListener("online", revalidateVisibleIdentity);
     window.addEventListener("storage", revalidateCrossTabIdentity);
