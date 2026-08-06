@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ci_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/ci/app-host-isolation.sh
+source "$ci_script_dir/app-host-isolation.sh"
+
 if [ "$#" -eq 0 ]; then
   echo "usage: $0 <xcodebuild args...>" >&2
   exit 2
@@ -37,18 +41,17 @@ fi
 app_host_test_runner_environment=()
 app_host_home=""
 if [ -n "${CFFIXED_USER_HOME:-}" ]; then
-  if [ -z "${XDG_CONFIG_HOME:-}" ]; then
-    echo "FAIL: CFFIXED_USER_HOME requires XDG_CONFIG_HOME for app-host isolation" >&2
-    exit 1
-  fi
-  app_host_home="$CFFIXED_USER_HOME"
+  cmux_resolve_app_host_isolation \
+    "$CFFIXED_USER_HOME" "${XDG_CONFIG_HOME:-}" || exit 1
+  app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
+  app_host_xdg_config_home="$CMUX_RESOLVED_APP_HOST_XDG_CONFIG_HOME"
   app_host_test_runner_environment+=(
-    "TEST_RUNNER_HOME=$CFFIXED_USER_HOME"
-    "TEST_RUNNER_CFFIXED_USER_HOME=$CFFIXED_USER_HOME"
-    "TEST_RUNNER_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+    "TEST_RUNNER_HOME=$app_host_home"
+    "TEST_RUNNER_CFFIXED_USER_HOME=$app_host_home"
+    "TEST_RUNNER_XDG_CONFIG_HOME=$app_host_xdg_config_home"
     "TEST_RUNNER_CMUX_APP_HOST_ISOLATION_REQUIRED=1"
-    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$CFFIXED_USER_HOME"
-    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$app_host_home"
+    "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$app_host_xdg_config_home"
   )
   unset CFFIXED_USER_HOME XDG_CONFIG_HOME
 fi

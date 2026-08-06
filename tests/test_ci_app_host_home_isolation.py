@@ -16,6 +16,9 @@ CONSOLE_WRAPPER = (ROOT / "scripts/ci/run-in-console-session.sh").read_text(
 APP_HOST_WRAPPER = (ROOT / "scripts/ci/run-app-host-xcodebuild.sh").read_text(
     encoding="utf-8"
 )
+APP_HOST_ISOLATION = (ROOT / "scripts/ci/app-host-isolation.sh").read_text(
+    encoding="utf-8"
+)
 UNIT_SCHEME = (
     ROOT / "cmux.xcodeproj/xcshareddata/xcschemes/cmux-unit.xcscheme"
 ).read_text(encoding="utf-8")
@@ -28,6 +31,9 @@ TEST_RUNNER_ENVIRONMENT_KEYS = (
     "CMUX_APP_HOST_EXPECTED_HOME",
     "CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME",
 )
+FORBIDDEN_SCHEME_ENVIRONMENT_KEYS = {
+    f"TEST_RUNNER_{key}" for key in TEST_RUNNER_ENVIRONMENT_KEYS
+}
 
 
 def require(text: str, needle: str, context: str) -> None:
@@ -44,7 +50,7 @@ def scheme_environment_override_keys(scheme: str) -> set[str]:
     return {
         key
         for element in root.iter("EnvironmentVariable")
-        if (key := element.get("key")) in TEST_RUNNER_ENVIRONMENT_KEYS
+        if (key := element.get("key")) in FORBIDDEN_SCHEME_ENVIRONMENT_KEYS
     }
 
 
@@ -164,24 +170,39 @@ def main() -> int:
         'sudo -n chmod -R u+rwX,go-rwx "$app_host_home"',
         "console-user app-host permissions",
     )
+    require(
+        CONSOLE_WRAPPER,
+        'source "$ci_script_dir/app-host-isolation.sh"',
+        "console-session isolation path validation",
+    )
+    require(
+        APP_HOST_WRAPPER,
+        'source "$ci_script_dir/app-host-isolation.sh"',
+        "app-host wrapper isolation path validation",
+    )
+    require(
+        APP_HOST_ISOLATION,
+        'expected_xdg_config_home="${resolved_home%/}/.config"',
+        "canonical XDG isolation boundary",
+    )
 
     require_no_test_runner_scheme_overrides(UNIT_SCHEME)
 
     for context, needle in {
         "app-host HOME test-runner redirect": (
-            '"TEST_RUNNER_HOME=$CFFIXED_USER_HOME"'
+            '"TEST_RUNNER_HOME=$app_host_home"'
         ),
         "app-host Core Foundation test-runner redirect": (
-            '"TEST_RUNNER_CFFIXED_USER_HOME=$CFFIXED_USER_HOME"'
+            '"TEST_RUNNER_CFFIXED_USER_HOME=$app_host_home"'
         ),
         "app-host XDG test-runner redirect": (
-            '"TEST_RUNNER_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"'
+            '"TEST_RUNNER_XDG_CONFIG_HOME=$app_host_xdg_config_home"'
         ),
         "app-host expected HOME marker": (
-            '"TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$CFFIXED_USER_HOME"'
+            '"TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$app_host_home"'
         ),
         "app-host expected XDG marker": (
-            '"TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$XDG_CONFIG_HOME"'
+            '"TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$app_host_xdg_config_home"'
         ),
         "Ghostty app-support path validation": (
             "validate_app_host_config_paths"

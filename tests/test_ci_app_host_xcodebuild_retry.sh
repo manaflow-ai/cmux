@@ -42,6 +42,8 @@ ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcodebuil
 APP_HOST_HOME="$TMP_DIR/app-host-home"
 APP_HOST_XDG_CONFIG_HOME="$APP_HOST_HOME/.config"
 mkdir -p "$APP_HOST_XDG_CONFIG_HOME"
+RESOLVED_APP_HOST_HOME="$(cd "$APP_HOST_HOME" && pwd -P)"
+RESOLVED_APP_HOST_XDG_CONFIG_HOME="$(cd "$APP_HOST_XDG_CONFIG_HOME" && pwd -P)"
 
 set +e
 PATH="$TMP_DIR:$PATH" \
@@ -97,8 +99,8 @@ if [ "$isolated_parent_count" -ne 0 ]; then
 fi
 
 isolated_runner_count="$(awk -F '|' \
-  -v home="$APP_HOST_HOME" \
-  -v xdg="$APP_HOST_XDG_CONFIG_HOME" '
+  -v home="$RESOLVED_APP_HOST_HOME" \
+  -v xdg="$RESOLVED_APP_HOST_XDG_CONFIG_HOME" '
   $1 == home && $2 == home && $3 == xdg && $4 == "1" && $5 == home && $6 == xdg {
     count += 1
   }

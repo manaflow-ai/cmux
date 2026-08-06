@@ -22,6 +22,10 @@
 # automation-mode setup used by the ui-regressions job.
 set -euo pipefail
 
+ci_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/ci/app-host-isolation.sh
+source "$ci_script_dir/app-host-isolation.sh"
+
 if [ "$#" -eq 0 ]; then
   echo "usage: $0 <command> [args...]" >&2
   exit 2
@@ -38,16 +42,16 @@ prepare_app_host_home_for_console_user() {
   local console_user="$1"
   [ -n "${CFFIXED_USER_HOME:-}" ] || return 0
 
+  cmux_resolve_app_host_isolation \
+    "$CFFIXED_USER_HOME" "${XDG_CONFIG_HOME:-}" || return 1
+
   if [ -z "${RUNNER_TEMP:-}" ]; then
     echo "FAIL: app-host isolation requires a runner temporary directory" >&2
     return 1
   fi
 
   local app_host_home runner_temp
-  app_host_home="$(cd "$CFFIXED_USER_HOME" 2>/dev/null && pwd -P)" || {
-    echo "FAIL: app-host isolation directory is unavailable" >&2
-    return 1
-  }
+  app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
   runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
     echo "FAIL: runner temporary directory is unavailable" >&2
     return 1
