@@ -30,6 +30,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "reaper.failed.new",
         "recovery.recent",
         "recovery.recent.new",
+        "orphaned",
+        "orphaned.new",
     ]
 
     static let reaperLockStateFileNames = [
@@ -236,6 +238,55 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           /bin/rmdir "$cmux_ssh_auth_stale_lock" 2>/dev/null
         }
 
+        cmux_ssh_auth_group_anchor_is_live() {
+          cmux_ssh_auth_anchor_group_dir="$1"
+          cmux_ssh_auth_anchor_record=$(/bin/cat -- \
+            "$cmux_ssh_auth_anchor_group_dir/identity" 2>/dev/null || true)
+          cmux_ssh_auth_anchor_pid=${cmux_ssh_auth_anchor_record%%|*}
+          cmux_ssh_auth_anchor_remainder=${cmux_ssh_auth_anchor_record#*|}
+          cmux_ssh_auth_anchor_group=${cmux_ssh_auth_anchor_remainder%%|*}
+          cmux_ssh_auth_anchor_started=${cmux_ssh_auth_anchor_remainder#*|}
+          case "$cmux_ssh_auth_anchor_pid" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_anchor_group" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_anchor_started" in ''|*[!A-Za-z0-9_:]*) return 1 ;; esac
+          cmux_ssh_auth_anchor_identity=$(cmux_ssh_auth_identity \
+            "$cmux_ssh_auth_anchor_pid")
+          cmux_ssh_auth_anchor_observed_remainder=${cmux_ssh_auth_anchor_identity#*|}
+          cmux_ssh_auth_anchor_observed_group=${cmux_ssh_auth_anchor_observed_remainder%%|*}
+          cmux_ssh_auth_anchor_observed_started=${cmux_ssh_auth_anchor_observed_remainder#*|}
+          [ "$cmux_ssh_auth_anchor_observed_group" = "$cmux_ssh_auth_anchor_group" ] && \
+            [ "$cmux_ssh_auth_anchor_observed_started" = "$cmux_ssh_auth_anchor_started" ]
+        }
+
+        cmux_ssh_auth_group_orphan_retention_expired() {
+          # Never signal an unverifiable PID or process group: it may have been
+          # reused. Quarantine the bounded ownership record from the first
+          # confirmed publisher-and-anchor absence, then reclaim it after one day.
+          cmux_ssh_auth_orphan_group_dir="$1"
+          cmux_ssh_auth_orphan_now=$(/bin/date +%s 2>/dev/null || true)
+          cmux_ssh_auth_orphaned_at=$(/bin/cat -- \
+            "$cmux_ssh_auth_orphan_group_dir/orphaned" 2>/dev/null || true)
+          case "$cmux_ssh_auth_orphan_now" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_orphaned_at" in ''|*[!0-9]*)
+            cmux_ssh_auth_orphaned_at=
+            ;;
+          esac
+          if [ "${#cmux_ssh_auth_orphaned_at}" -gt 12 ]; then
+            cmux_ssh_auth_orphaned_at=
+          elif [ -n "$cmux_ssh_auth_orphaned_at" ] && \
+            [ "$cmux_ssh_auth_orphaned_at" -gt "$cmux_ssh_auth_orphan_now" ]; then
+            cmux_ssh_auth_orphaned_at=
+          fi
+          if [ -z "$cmux_ssh_auth_orphaned_at" ]; then
+            (umask 077; printf '%s\n' "$cmux_ssh_auth_orphan_now" \
+              > "$cmux_ssh_auth_orphan_group_dir/orphaned.new") 2>/dev/null && \
+              /bin/mv -f -- "$cmux_ssh_auth_orphan_group_dir/orphaned.new" \
+                "$cmux_ssh_auth_orphan_group_dir/orphaned" 2>/dev/null || true
+            return 1
+          fi
+          [ $((cmux_ssh_auth_orphan_now - cmux_ssh_auth_orphaned_at)) -ge 86400 ]
+        }
+
         cmux_ssh_launch_owned_auth_group_reaper() {
           CMUX_SSH_AUTH_REAPER_LAUNCHED=0
           cmux_ssh_auth_reaper_group_dir="$1"
@@ -321,6 +372,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
             if [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+              \#(groupStateFileRemovalShellCommand(includingCancellationMarker: true))
               /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
             fi
           ) </dev/null >/dev/null 2>&1 &
@@ -348,17 +400,37 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         cmux_ssh_resume_failed_auth_group_reapers() {
           cmux_ssh_auth_recovery_root="${TMPDIR:-/tmp}"
           cmux_ssh_auth_recovery_count=0
+          cmux_ssh_auth_recovery_expected_dir_identity="$(/usr/bin/id -u):700"
           for cmux_ssh_auth_recovery_group_dir in \
             "$cmux_ssh_auth_recovery_root"/cmux-ssh-auth-group.*; do
             if [ ! -d "$cmux_ssh_auth_recovery_group_dir" ] || \
               [ ! -s "$cmux_ssh_auth_recovery_group_dir/identity" ]; then continue; fi
+            cmux_ssh_auth_recovery_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
+              "$cmux_ssh_auth_recovery_group_dir" 2>/dev/null || true)
+            if [ "$cmux_ssh_auth_recovery_observed_dir_identity" != \
+              "$cmux_ssh_auth_recovery_expected_dir_identity" ]; then continue; fi
             if [ "$cmux_ssh_auth_recovery_group_dir" = \
               "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then continue; fi
+            if cmux_ssh_auth_group_publisher_is_live \
+              "$cmux_ssh_auth_recovery_group_dir"; then
+              /bin/rm -f -- "$cmux_ssh_auth_recovery_group_dir/orphaned" \
+                "$cmux_ssh_auth_recovery_group_dir/orphaned.new" 2>/dev/null || true
+              continue
+            fi
+            if cmux_ssh_auth_group_anchor_is_live \
+              "$cmux_ssh_auth_recovery_group_dir"; then
+              /bin/rm -f -- "$cmux_ssh_auth_recovery_group_dir/orphaned" \
+                "$cmux_ssh_auth_recovery_group_dir/orphaned.new" 2>/dev/null || true
+            elif cmux_ssh_auth_group_orphan_retention_expired \
+              "$cmux_ssh_auth_recovery_group_dir"; then
+              (CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_recovery_group_dir"
+                \#(processGroupStateRemovalShellCommand())
+                /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true)
+              continue
+            fi
             if [ -e "$cmux_ssh_auth_recovery_group_dir/recovery.recent" ]; then
               continue
             fi
-            if cmux_ssh_auth_group_publisher_is_live \
-              "$cmux_ssh_auth_recovery_group_dir"; then continue; fi
             cmux_ssh_launch_owned_auth_group_reaper "$cmux_ssh_auth_recovery_group_dir"
             if [ "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" != 1 ]; then continue; fi
             cmux_ssh_auth_recovery_count=$((cmux_ssh_auth_recovery_count + 1))
@@ -369,7 +441,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ "$cmux_ssh_auth_recovery_count" -ge 8 ]; then break; fi
           done
           if [ "$cmux_ssh_auth_recovery_count" -lt 8 ]; then
-            cmux_ssh_auth_recovery_expected_dir_identity="$(/usr/bin/id -u):700"
             for cmux_ssh_auth_recovery_group_dir in \
               "$cmux_ssh_auth_recovery_root"/cmux-ssh-auth-group.*; do
               if [ ! -d "$cmux_ssh_auth_recovery_group_dir" ]; then continue; fi
