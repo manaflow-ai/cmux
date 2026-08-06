@@ -25,7 +25,7 @@ struct MacComputerRow: View {
     let computer: MacComputerSnapshot
     /// Changes whether this computer appears on the current iPhone. When `nil`,
     /// the visibility switch is omitted.
-    var setVisible: (@MainActor (Bool) async -> Void)? = nil
+    var setVisible: ((Bool) -> Void)? = nil
     var style: Style = .computers
     /// Reconnect action for `.reconnect` rows; tapping the row calls this with
     /// the device id instead of navigating.

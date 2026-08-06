@@ -4,19 +4,13 @@ import SwiftUI
 
 /// A row-local switch for whether one computer appears on this iPhone.
 ///
-/// The pending value moves immediately with the user's gesture while the
-/// durable hide marker updates. If the mutation cannot be applied, the switch
-/// returns to the authoritative value supplied by the parent row.
+/// The owning row performs the asynchronous mutation. This leaf view only
+/// reports the requested value and renders the authoritative row state.
 struct ComputerVisibilityToggle: View {
     let computerID: String
     let computerName: String
     let isVisible: Bool
-    let setVisible: @MainActor (Bool) async -> Void
-
-    @State private var pendingValue: Bool?
-    @State private var isMutating = false
-
-    private var displayedValue: Bool { pendingValue ?? isVisible }
+    let setVisible: (Bool) -> Void
 
     var body: some View {
         Toggle(
@@ -25,12 +19,11 @@ struct ComputerVisibilityToggle: View {
                 defaultValue: "Show this computer on this iPhone"
             ),
             isOn: Binding(
-                get: { displayedValue },
-                set: beginMutation
+                get: { isVisible },
+                set: setVisible
             )
         )
         .labelsHidden()
-        .disabled(isMutating)
         .accessibilityLabel(
             String(
                 format: L10n.string(
@@ -41,21 +34,6 @@ struct ComputerVisibilityToggle: View {
             )
         )
         .accessibilityIdentifier("MobileComputerVisibilityToggle-\(computerID)")
-        .onChange(of: isVisible) { _, newValue in
-            guard !isMutating else { return }
-            pendingValue = newValue
-        }
-    }
-
-    private func beginMutation(_ newValue: Bool) {
-        guard !isMutating, newValue != displayedValue else { return }
-        pendingValue = newValue
-        isMutating = true
-        Task { @MainActor in
-            await setVisible(newValue)
-            pendingValue = nil
-            isMutating = false
-        }
     }
 }
 #endif

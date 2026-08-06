@@ -13,7 +13,7 @@ import SwiftUI
 /// No first tap commits the revoke; the dialog's `.destructive` button does.
 struct HiddenComputerRow: View {
     let computer: MobileHiddenComputer
-    let setVisible: @MainActor (Bool) async -> Void
+    let setVisible: (Bool) -> Void
     /// Revokes this Mac's binding for the account (via the store, which resolves
     /// the binding id from a fresh discovery). Presenting any failure feedback is
     /// the caller's job so the row stays a pure snapshot.
@@ -176,7 +176,7 @@ struct ComputerVisibilityRows: View {
                 computer: computer,
                 setVisible: { visible in
                     guard !visible else { return }
-                    await hide(computer)
+                    Task { await hide(computer) }
                 },
                 style: style,
                 connect: { _ in connect(computer) },
@@ -188,7 +188,7 @@ struct ComputerVisibilityRows: View {
                 computer: computer,
                 setVisible: { visible in
                     guard visible else { return }
-                    await unhide(computer)
+                    Task { await unhide(computer) }
                 },
                 forget: forgetAction(for: computer)
             )
