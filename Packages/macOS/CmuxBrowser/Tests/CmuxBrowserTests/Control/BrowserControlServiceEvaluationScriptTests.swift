@@ -212,6 +212,59 @@ struct BrowserControlServiceEvaluationScriptTests {
         _ = navigationDelegate
     }
 
+    @MainActor
+    @Test("a selected frame owns the complete JavaScript global realm")
+    func selectedFrameOwnsCompleteGlobalRealm() async throws {
+        let webView = WKWebView()
+        let (loaded, loadedContinuation) = AsyncStream<Void>.makeStream()
+        let navigationDelegate = BrowserEvaluationScriptNavigationDelegate {
+            loadedContinuation.yield()
+            loadedContinuation.finish()
+        }
+        webView.navigationDelegate = navigationDelegate
+        webView.loadHTMLString("<!doctype html><title>top-title</title>", baseURL: nil)
+        var loadedIterator = loaded.makeAsyncIterator()
+        _ = await loadedIterator.next()
+
+        _ = try await webView.callAsyncJavaScript(
+            """
+            window.__cmuxRealmMarker = 'top';
+            window.__cmuxFrameOnly = 'top-global';
+            const frame = document.createElement('iframe');
+            frame.id = 'selected-frame';
+            document.body.appendChild(frame);
+            frame.contentDocument.title = 'frame-title';
+            frame.contentWindow.__cmuxRealmMarker = 'frame';
+            frame.contentWindow.__cmuxFrameOnly = 'frame-global';
+            frame.contentWindow.location.hash = 'frame';
+            return true;
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+
+        let body = service.evaluationScript(
+            script: "({marker: window.__cmuxRealmMarker, frameOnly: __cmuxFrameOnly, href: location.href, title: document.title})",
+            useEval: true,
+            frameSelector: "#selected-frame"
+        )
+        let rawValue = try await webView.callAsyncJavaScript(
+            body,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let envelope = try #require(rawValue as? [String: Any])
+        let value = try #require(envelope[service.evalEnvelope.valueKey] as? [String: Any])
+
+        #expect(value["marker"] as? String == "frame")
+        #expect(value["frameOnly"] as? String == "frame-global")
+        #expect((value["href"] as? String)?.hasSuffix("#frame") == true)
+        #expect(value["title"] as? String == "frame-title")
+        _ = navigationDelegate
+    }
+
     @Test("custom prototypes are copied without invoking serialization hooks")
     func customPrototypeIsCopiedAsPlainObject() throws {
         let envelope = try evaluate(
