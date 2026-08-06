@@ -848,6 +848,7 @@ struct AgentConversationCrossHarnessForkTests {
             panelId: sourcePanelId,
             root: FileManager.default.temporaryDirectory
         )
+        _ = await liveAgentIndex.indexRefreshingNow()
 
         let forkTask = Task { @MainActor in
             await workspace.forkAgentConversation(

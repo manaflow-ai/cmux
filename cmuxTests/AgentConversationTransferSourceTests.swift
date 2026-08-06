@@ -101,6 +101,8 @@ struct AgentConversationTransferSourceTests {
     func advertisedHarnessChoiceFallsBackWhenNativeProbeIsRejected() async throws {
         let home = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
+        let database = home.appendingPathComponent("opencode.db")
+        try Data().write(to: database)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "rejected-native-session",
@@ -113,7 +115,10 @@ struct AgentConversationTransferSourceTests {
                     "rejected-native-session",
                 ],
                 workingDirectory: nil,
-                environment: ["HOME": home.path]
+                environment: [
+                    "HOME": home.path,
+                    OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey: database.path,
+                ]
             )
         )
         let workspace = Workspace()
@@ -157,6 +162,8 @@ struct AgentConversationTransferSourceTests {
     func actionableTargetsOfferSameHarnessWhenNativeProbeIsUnavailable() throws {
         let home = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: home) }
+        let database = home.appendingPathComponent("opencode.db")
+        try Data().write(to: database)
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .opencode,
             sessionId: "context-menu-transfer-session",
@@ -169,7 +176,10 @@ struct AgentConversationTransferSourceTests {
                     "context-menu-transfer-session",
                 ],
                 workingDirectory: nil,
-                environment: ["HOME": home.path]
+                environment: [
+                    "HOME": home.path,
+                    OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey: database.path,
+                ]
             )
         )
         let workspace = Workspace()
