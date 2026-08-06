@@ -6,6 +6,10 @@ import Testing
 
 @Suite("SQLiteDatabaseSnapshotService")
 struct SQLiteDatabaseSnapshotServiceTests {
+    private enum SnapshotFixtureError: Error {
+        case interrupted
+    }
+
     @Test(
         "Rejects FIFO sources without blocking in SQLite open",
         .timeLimit(.minutes(1))
@@ -248,8 +252,4 @@ struct SQLiteDatabaseSnapshotServiceTests {
             throw SQLiteDatabaseSnapshotError.sqlite("fixture setup failed")
         }
     }
-}
-
-private enum SnapshotFixtureError: Error {
-    case interrupted
 }
