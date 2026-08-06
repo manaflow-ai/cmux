@@ -12,6 +12,7 @@ use crate::config::{self, Config};
 
 const DEFAULT_API_URL: &str = "https://coderouter.dev";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const RETRYABLE_READ_STATUS: &[u16] = &[408, 425, 500, 502, 503, 504];
 // OpenAI's model catalog hides all current models from very old client
 // versions. This is a protocol compatibility version, not coderouter's version.
 const CODEX_MODEL_CATALOG_CLIENT_VERSION: &str = "0.146.0";
@@ -240,10 +241,10 @@ fn complete_login(
 
 fn load_public_config(client: &Client, api_url: &str) -> Result<PublicConfig, Error> {
     let public: PublicConfig = response_json(
-        client
-            .get(format!("{api_url}/api/cli/config"))
-            .send()
-            .map_err(network_error("load coderouter configuration"))?,
+        send_safe_read(
+            client.get(format!("{api_url}/api/cli/config")),
+            "load coderouter configuration",
+        )?,
         "load coderouter configuration",
     )?;
     if public.version < 3 {
@@ -308,19 +309,17 @@ pub fn refreshed_config() -> Result<Config, Error> {
 }
 
 pub fn ensure_route_config() -> Result<Config, Error> {
-    let current = config::load()?;
-    if !current.logged_in() {
-        return Err(Error::Usage("not signed in; run `cr login`".into()));
-    }
+    let current = current_route_config()?;
     let client = client(REQUEST_TIMEOUT)?;
-    let response = client
-        .get(format!(
-            "{}/api/coderouter/session",
-            current.api_url.trim_end_matches('/')
-        ))
-        .bearer_auth(&current.route_token)
-        .send()
-        .map_err(network_error("validate coderouter route session"))?;
+    let response = send_safe_read(
+        client
+            .get(format!(
+                "{}/api/coderouter/session",
+                current.api_url.trim_end_matches('/')
+            ))
+            .bearer_auth(&current.route_token),
+        "validate coderouter route session",
+    )?;
     if response.status().is_success() {
         return Ok(current);
     }
@@ -333,6 +332,18 @@ pub fn ensure_route_config() -> Result<Config, Error> {
             .map(|_| current);
     }
 
+    renew_route_config(&client)
+}
+
+fn current_route_config() -> Result<Config, Error> {
+    let current = config::load()?;
+    if !current.logged_in() {
+        return Err(Error::Usage("not signed in; run `cr login`".into()));
+    }
+    Ok(current)
+}
+
+fn renew_route_config(client: &Client) -> Result<Config, Error> {
     let mut current = refreshed_config()?;
     let public = load_public_config(&client, &current.api_url)?;
     let route: RouteSession = response_json(
@@ -349,16 +360,55 @@ pub fn ensure_route_config() -> Result<Config, Error> {
 }
 
 pub fn accounts() -> Result<Value, Error> {
-    let current = ensure_route_config()?;
-    response_json(
-        client(REQUEST_TIMEOUT)?
+    let client = client(REQUEST_TIMEOUT)?;
+    let current = current_route_config()?;
+    // Validation and status are independent reads. Run them together so
+    // revocation stays fail-closed without adding a serial preflight.
+    let (validation, response) = thread::scope(|scope| {
+        let validation_client = client.clone();
+        let validation_current = current.clone();
+        let validation =
+            scope.spawn(move || validate_route_response(&validation_client, &validation_current));
+        let accounts = list_accounts_response(&client, &current);
+        (
+            validation.join().expect("route validation thread"),
+            accounts,
+        )
+    });
+    let validation = validation?;
+    let mut response = response?;
+    if validation.status().as_u16() == 401 || response.status().as_u16() == 401 {
+        let current = renew_route_config(&client)?;
+        response = list_accounts_response(&client, &current)?;
+    } else if !validation.status().is_success()
+        && !matches!(validation.status().as_u16(), 404 | 405)
+    {
+        return response_json::<Value>(validation, "validate coderouter route session")
+            .and_then(|_| response_json(response, "list coderouter accounts"));
+    }
+    response_json(response, "list coderouter accounts")
+}
+
+fn validate_route_response(client: &Client, current: &Config) -> Result<Response, Error> {
+    send_safe_read(
+        client
+            .get(format!(
+                "{}/api/coderouter/session",
+                current.api_url.trim_end_matches('/')
+            ))
+            .bearer_auth(&current.route_token),
+        "validate coderouter route session",
+    )
+}
+
+fn list_accounts_response(client: &Client, current: &Config) -> Result<Response, Error> {
+    send_safe_read(
+        client
             .get(format!(
                 "{}/api/coderouter/accounts",
                 current.api_url.trim_end_matches('/')
             ))
-            .bearer_auth(&current.route_token)
-            .send()
-            .map_err(network_error("list coderouter accounts"))?,
+            .bearer_auth(&current.route_token),
         "list coderouter accounts",
     )
 }
@@ -366,15 +416,16 @@ pub fn accounts() -> Result<Value, Error> {
 pub fn codex_models() -> Result<Vec<CodexModel>, Error> {
     let current = ensure_route_config()?;
     let value: Value = response_json(
-        client(REQUEST_TIMEOUT)?
-            .get(format!(
-                "{}/models?client_version={}",
-                current.openai_base_url.trim_end_matches('/'),
-                CODEX_MODEL_CATALOG_CLIENT_VERSION,
-            ))
-            .bearer_auth(&current.route_token)
-            .send()
-            .map_err(network_error("load coderouter models"))?,
+        send_safe_read(
+            client(REQUEST_TIMEOUT)?
+                .get(format!(
+                    "{}/models?client_version={}",
+                    current.openai_base_url.trim_end_matches('/'),
+                    CODEX_MODEL_CATALOG_CLIENT_VERSION,
+                ))
+                .bearer_auth(&current.route_token),
+            "load coderouter models",
+        )?,
         "load coderouter models",
     )?;
     let models = value
@@ -451,14 +502,15 @@ pub fn upload_credential(credential: &Value) -> Result<Value, Error> {
 pub fn opencode_config() -> Result<OpenCodeConfig, Error> {
     let current = ensure_route_config()?;
     let value: Value = response_json(
-        client(REQUEST_TIMEOUT)?
-            .get(format!(
-                "{}/api/coderouter/opencode/config",
-                current.api_url.trim_end_matches('/')
-            ))
-            .bearer_auth(&current.route_token)
-            .send()
-            .map_err(network_error("load OpenCode provider catalog"))?,
+        send_safe_read(
+            client(REQUEST_TIMEOUT)?
+                .get(format!(
+                    "{}/api/coderouter/opencode/config",
+                    current.api_url.trim_end_matches('/')
+                ))
+                .bearer_auth(&current.route_token),
+            "load OpenCode provider catalog",
+        )?,
         "load OpenCode provider catalog",
     )?;
     let models = value
@@ -606,12 +658,14 @@ fn stack_json<T: serde::de::DeserializeOwned>(
     if let Some(value) = body {
         request = request.json(&value);
     }
-    response_json(
+    let response = if method == "GET" {
+        send_safe_read(request, "request coderouter session")?
+    } else {
         request
             .send()
-            .map_err(network_error("request coderouter session"))?,
-        "request coderouter session",
-    )
+            .map_err(network_error("request coderouter session"))?
+    };
+    response_json(response, "request coderouter session")
 }
 
 fn select_team(teams: Vec<StackTeam>, access_token: &str) -> Result<StackTeam, Error> {
@@ -684,6 +738,28 @@ fn client(timeout: Duration) -> Result<Client, Error> {
         .map_err(|error| Error::Backend(error.to_string()))
 }
 
+fn send_safe_read(
+    request: reqwest::blocking::RequestBuilder,
+    action: &'static str,
+) -> Result<Response, Error> {
+    let retry = request.try_clone();
+    match request.send() {
+        Ok(response)
+            if RETRYABLE_READ_STATUS.contains(&response.status().as_u16()) && retry.is_some() =>
+        {
+            retry
+                .expect("checked retry request")
+                .send()
+                .map_err(network_error(action))
+        }
+        Ok(response) => Ok(response),
+        Err(first) => match retry {
+            Some(retry) => retry.send().map_err(network_error(action)),
+            None => Err(network_error(action)(first)),
+        },
+    }
+}
+
 fn response_json<T: serde::de::DeserializeOwned>(
     response: Response,
     action: &str,
@@ -691,29 +767,43 @@ fn response_json<T: serde::de::DeserializeOwned>(
     let status = response.status();
     if !status.is_success() {
         let body = response.text().unwrap_or_default();
-        if status.as_u16() == 402
-            && serde_json::from_str::<Value>(&body)
-                .ok()
-                .and_then(|value| {
-                    value
-                        .get("error")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                })
-                .as_deref()
-                == Some("pro_required")
-        {
+        let parsed = serde_json::from_str::<Value>(&body).ok();
+        let code = parsed
+            .as_ref()
+            .and_then(|value| value.get("error"))
+            .and_then(Value::as_str);
+        if status.as_u16() == 402 && code == Some("pro_required") {
             return Err(Error::Usage(
                 "hosted coderouter requires cmux Pro; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`".into(),
             ));
         }
+        let server_message = parsed
+            .as_ref()
+            .and_then(|value| value.get("message"))
+            .and_then(Value::as_str)
+            .filter(|message| !message.trim().is_empty() && message.len() <= 500)
+            .map(scrub_server_message);
+        let guidance = match status.as_u16() {
+            400 => server_message.unwrap_or_else(|| {
+                format!("{action} rejected the request; verify the supplied code or input")
+            }),
+            401 => format!(
+                "{action}: your authorization expired or was revoked; run `cr login` and retry"
+            ),
+            403 => format!("{action}: your account does not have permission for this team"),
+            404 => format!(
+                "{action}: coderouter endpoint not found; verify `cr login --server <URL>` and update `cr`"
+            ),
+            409 => format!("{action}: another update won the race; refresh with `cr` and retry"),
+            429 => format!("{action}: temporarily rate limited; retry shortly"),
+            500..=599 => server_message.unwrap_or_else(|| {
+                format!("{action}: coderouter is temporarily unavailable; retry shortly")
+            }),
+            _ => server_message.unwrap_or_else(|| format!("{action}: request failed ({status})")),
+        };
         return Err(Error::Backend(format!(
-            "{action}: HTTP {status}{}",
-            if body.trim().is_empty() {
-                String::new()
-            } else {
-                format!(": {}", body.trim())
-            }
+            "{guidance} [HTTP {}]",
+            status.as_u16(),
         )));
     }
     response
@@ -722,5 +812,34 @@ fn response_json<T: serde::de::DeserializeOwned>(
 }
 
 fn network_error(action: &'static str) -> impl FnOnce(reqwest::Error) -> Error {
-    move |error| Error::Backend(format!("{action}: {error}"))
+    move |error| {
+        let detail = if error.is_timeout() {
+            "timed out; check your connection and retry"
+        } else if error.is_connect() {
+            "could not connect; check DNS, your network, and the configured server"
+        } else if error.is_request() {
+            "could not send the request; check your network and retry"
+        } else {
+            "network request failed; retry shortly"
+        };
+        Error::Backend(format!("{action}: {detail}"))
+    }
+}
+
+fn scrub_server_message(message: &str) -> String {
+    message
+        .split_whitespace()
+        .map(|word| {
+            if word.starts_with("crt_")
+                || word.starts_with("srt_")
+                || word.starts_with("sk-")
+                || word.starts_with("eyJ")
+            {
+                "[redacted]"
+            } else {
+                word
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

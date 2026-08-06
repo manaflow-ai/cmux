@@ -59,8 +59,12 @@ fn naked_executes_codex_without_coderouter_routing_environment() {
 fn codex_routes_directly_to_vercel_without_a_daemon() {
     use std::os::unix::fs::PermissionsExt;
 
+    let server = MockServer::start(1, |path| match path {
+        "/api/coderouter/session" => json!({}),
+        _ => panic!("unexpected path {path}"),
+    });
     let root = TempDir::new().unwrap();
-    write_config(&root, "https://coderouter.dev");
+    write_config(&root, &server.base_url);
     let codex = root.path().join("codex");
     fs::write(
         &codex,
@@ -82,7 +86,7 @@ fn codex_routes_directly_to_vercel_without_a_daemon() {
         .success()
         .stdout(
             predicate::str::contains("model_provider=\"coderouter\"")
-                .and(predicate::str::contains("https://coderouter.dev/v1"))
+                .and(predicate::str::contains(format!("{}/v1", server.base_url)))
                 .and(predicate::str::contains("token=route-secret")),
         );
 }
@@ -256,7 +260,7 @@ fn bare_command_lists_vercel_accounts_without_debug_timing() {
 
 #[test]
 fn revoked_route_token_is_renewed_without_browser_login() {
-    let server = MockServer::start_status(5, |path| match path {
+    let server = MockServer::start_status(6, |path| match path {
         "/api/coderouter/session" => (401, json!({ "error": "unauthorized" })),
         "/stack/auth/oauth/token" => (
             200,
