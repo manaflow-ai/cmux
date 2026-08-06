@@ -515,9 +515,12 @@ fn add_agent_topology(
 ) {
     let scope = [
         ("root_agent_session_id", "session"),
+        // A session scopes the whole agent tree while provider agent IDs
+        // identify nodes inside it. Keeping that distinction stable also
+        // lets later child events reveal an explicit root-session alias.
+        ("agent_session_id", "session"),
         ("native_root_agent_id", "agent"),
         ("parent_agent_session_id", "session"),
-        ("agent_session_id", "session"),
         ("transcript_path", "transcript"),
     ]
     .into_iter()
