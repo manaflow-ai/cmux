@@ -4,7 +4,7 @@
 const PORT = Number(process.env.CMUX_AGENT_UI_PORT ?? 7739);
 const providersToTest = Bun.argv.slice(2).length
   ? Bun.argv.slice(2)
-  : ["claude", "codex", "opencode", "pi", "gemini"];
+  : ["claude", "codex", "opencode", "pi", "gemini", "minimax"];
 
 const TIMEOUT_MS = Number(process.env.E2E_TIMEOUT_MS ?? 180_000);
 
