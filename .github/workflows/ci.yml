@@ -562,17 +562,18 @@ jobs:
           set -euo pipefail
           APP_HOST_KEY="$(printf '%s' "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${{ matrix.shard }}" | shasum -a 256 | cut -c1-12)"
           APP_HOST_HOME="${RUNNER_TEMP}/ah-${APP_HOST_KEY}"
+          APP_HOST_CONFIG_SENTINEL="$APP_HOST_HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+          echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
           rm -rf "$APP_HOST_HOME"
           mkdir -p \
             "$APP_HOST_HOME/.config/cmux" \
             "$APP_HOST_HOME/.config/ghostty" \
-            "$APP_HOST_HOME/Library/Application Support" \
+            "$APP_HOST_HOME/Library/Application Support/com.mitchellh.ghostty" \
             "$APP_HOST_HOME/Library/Caches" \
             "$APP_HOST_HOME/Library/Logs/DiagnosticReports" \
             "$APP_HOST_HOME/Library/Preferences"
+          printf '# cmux CI app-host isolation sentinel\n' > "$APP_HOST_CONFIG_SENTINEL"
           chmod -R u+rwX,go-rwx "$APP_HOST_HOME"
-          echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
-          echo "CMUX_APP_HOST_XDG_CONFIG_HOME=$APP_HOST_HOME/.config" >> "$GITHUB_ENV"
           echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"
           echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"
 

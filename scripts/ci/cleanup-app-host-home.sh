@@ -12,6 +12,9 @@ fi
 
 app_host_home_input="${CMUX_APP_HOST_HOME:-}"
 app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-}"
+if [ -n "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ]; then
+  app_host_xdg_config_home_input="${app_host_home_input%/}/.config"
+fi
 
 # The setup step may fail before publishing either neutral path. In that case it
 # created no discoverable target, so there is nothing safe to remove.

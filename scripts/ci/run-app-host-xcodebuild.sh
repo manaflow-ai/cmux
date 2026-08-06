@@ -42,6 +42,9 @@ app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
 app_host_home=""
 app_host_home_input="${CMUX_APP_HOST_HOME:-}"
 app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-}"
+if [ -n "$app_host_home_input" ] && [ -z "$app_host_xdg_config_home_input" ]; then
+  app_host_xdg_config_home_input="${app_host_home_input%/}/.config"
+fi
 if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ]; then
   if [ -z "$app_host_home_input" ] || [ -z "$app_host_xdg_config_home_input" ]; then
     echo "FAIL: required app-host isolation environment is incomplete" >&2
@@ -103,6 +106,7 @@ kill_stale_app_host() {
 
 validate_app_host_config_paths() {
   local log_path="$1"
+  local require_evidence="$2"
   [ -n "$app_host_home" ] || return 0
 
   if [ ! -r "$log_path" ]; then
@@ -110,32 +114,48 @@ validate_app_host_config_paths() {
     return 1
   fi
 
+  local expected_config_path
+  expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
   local matches scan_status line reported_path
-  if matches="$(grep -E '\[(config|default)\].*path=' "$log_path")"; then
+  if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
   else
     scan_status=$?
   fi
 
   if [ "$scan_status" -eq 1 ]; then
-    return 0
+    matches=""
   fi
   if [ "$scan_status" -gt 1 ]; then
     echo "FAIL: app-host configuration log could not be scanned" >&2
     return 1
   fi
 
-  while IFS= read -r line; do
-    reported_path="${line#*path=}"
-    case "$reported_path" in
-      "$app_host_home"|"${app_host_home%/}/"*) ;;
-      *)
-        echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
-        echo "$line" >&2
-        return 1
-        ;;
-    esac
-  done <<< "$matches"
+  if [ -n "$matches" ]; then
+    while IFS= read -r line; do
+      reported_path="${line#*path=}"
+      case "$reported_path" in
+        "$app_host_home"|"${app_host_home%/}/"*) ;;
+        *)
+          echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
+          echo "$line" >&2
+          return 1
+          ;;
+      esac
+    done <<< "$matches"
+  fi
+
+  if [ "$require_evidence" = "1" ]; then
+    if ! grep -Fq \
+      "[default] reading configuration file path=$expected_config_path" \
+      "$log_path" \
+      && ! grep -Fq \
+        "[config] reading configuration file path=$expected_config_path" \
+        "$log_path"; then
+      echo "FAIL: app-host configuration evidence is missing" >&2
+      return 1
+    fi
+  fi
 }
 
 attempt=1
@@ -157,7 +177,12 @@ while [ "$attempt" -le "$max_attempts" ]; do
   status=$?
   set -e
 
-  if ! validate_app_host_config_paths "$log_path"; then
+  require_config_evidence=0
+  if [ "$status" -eq 0 ]; then
+    require_config_evidence=1
+  fi
+  if ! validate_app_host_config_paths \
+    "$log_path" "$require_config_evidence"; then
     exit 1
   fi
 

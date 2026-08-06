@@ -49,6 +49,7 @@ prepare_app_host_home_for_console_user() {
   local console_user="$1"
   local cleanup_requested="$2"
   [ -n "${CMUX_APP_HOST_HOME:-}" ] || return 0
+  local app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-${CMUX_APP_HOST_HOME%/}/.config}"
 
   if [ -z "${RUNNER_TEMP:-}" ]; then
     echo "FAIL: app-host isolation requires a runner temporary directory" >&2
@@ -71,7 +72,7 @@ prepare_app_host_home_for_console_user() {
     return 1
   }
   if [ "$cleanup_requested" != "1" ]; then
-    app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "${CMUX_APP_HOST_XDG_CONFIG_HOME:-}")" || {
+    app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_xdg_config_home_input")" || {
       echo "FAIL: app-host XDG configuration directory is unavailable" >&2
       return 1
     }
