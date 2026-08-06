@@ -1,4 +1,5 @@
 import Foundation
+import CmuxMobileShellModel
 
 /// Serializes the two automatic connection sources that can run during app
 /// startup: an explicitly injected attach URL and restoration of a saved Mac.
@@ -18,6 +19,12 @@ final class MobileStartupConnectionCoordinator {
 
     struct Attempt: Equatable, Sendable {
         fileprivate let id: UUID
+    }
+
+    struct InjectedAttachCompletion: Equatable, Sendable {
+        let attempt: Attempt
+        let result: MobilePairingURLConnectionResult
+        let shouldReconnectStoredMac: Bool
     }
 
     private enum Owner: Equatable {
@@ -41,6 +48,40 @@ final class MobileStartupConnectionCoordinator {
         return attempt
     }
 
+    func connectInjectedAttach(
+        _ attempt: Attempt,
+        attachURL: String,
+        connect: @MainActor @Sendable (String) async -> MobilePairingURLConnectionResult
+    ) async -> InjectedAttachCompletion? {
+        guard owner == .injectedAttach(attempt),
+              !Task.isCancelled else {
+            return nil
+        }
+        let result = await connect(attachURL)
+        guard owner == .injectedAttach(attempt),
+              !Task.isCancelled else {
+            return nil
+        }
+        let outcome: InjectedAttachOutcome =
+            switch result {
+            case .connected:
+                .connected
+            case .needsUserApproval:
+                .awaitingUserApproval
+            case .failed, .superseded:
+                .failed
+            }
+        let shouldReconnectStoredMac = finishInjectedAttach(
+            attempt,
+            outcome: outcome
+        )
+        return InjectedAttachCompletion(
+            attempt: attempt,
+            result: result,
+            shouldReconnectStoredMac: shouldReconnectStoredMac
+        )
+    }
+
     /// Completes an explicit launch attach.
     ///
     /// - Returns: Whether startup should fall back to the saved Mac.
@@ -60,11 +101,23 @@ final class MobileStartupConnectionCoordinator {
         }
     }
 
-    /// Releases an in-flight explicit attach immediately. Late completion for
-    /// the cancelled attempt is ignored by ``finishInjectedAttach(_:outcome:)``.
+    /// Releases an in-flight explicit attach immediately. Retryable releases
+    /// keep a DEBUG launch attach URL available after transient SwiftUI
+    /// teardown, while terminal failures fall through to stored-Mac reconnect.
+    /// Late completion for the cancelled attempt is ignored by
+    /// ``finishInjectedAttach(_:outcome:)``.
     @discardableResult
-    func cancelInjectedAttach(_ attempt: Attempt) -> Bool {
-        finishInjectedAttach(attempt, outcome: .failed)
+    func cancelInjectedAttach(
+        _ attempt: Attempt,
+        retryLaunchRoute: Bool = false
+    ) -> Bool {
+        guard owner == .injectedAttach(attempt) else { return false }
+        if retryLaunchRoute {
+            owner = .unclaimed
+            return false
+        }
+        owner = .injectedAttachFailed
+        return true
     }
 
     func claimStoredReconnect() -> Attempt? {
