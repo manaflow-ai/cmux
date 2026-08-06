@@ -387,9 +387,16 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         metadata: stat
     ) -> Bool {
         var fileSystemMetadata = statfs()
-        if Darwin.statfs(path, &fileSystemMetadata) == 0,
-           fileSystemMetadata.f_flags & UInt32(MNT_RDONLY) != 0 {
-            return true
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+        )
+        if descriptor >= 0 {
+            defer { _ = Darwin.close(descriptor) }
+            if Darwin.fstatfs(descriptor, &fileSystemMetadata) == 0,
+               fileSystemMetadata.f_flags & UInt32(MNT_RDONLY) != 0 {
+                return true
+            }
         }
 
         let effectiveUserID = Darwin.geteuid()
