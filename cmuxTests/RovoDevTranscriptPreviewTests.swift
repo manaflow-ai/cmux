@@ -50,6 +50,56 @@ struct RovoDevTranscriptPreviewTests {
     }
 
     @Test
+    func dialogueOnlyExcludesNestedToolContentFromRoleBasedMessages() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovodev-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let contextURL = tempDir.appendingPathComponent("session_context.json")
+        let context = """
+        {
+          "messages": [
+            {
+              "role": "user",
+              "content": [{ "type": "input_text", "text": "Keep dialogue only" }]
+            },
+            {
+              "role": "assistant",
+              "content": [
+                { "type": "output_text", "text": "Visible before tools" },
+                { "type": "tool_result", "content": "PRIVATE-TOOL-RESULT" },
+                {
+                  "type": "function_call",
+                  "name": "read_secret",
+                  "arguments": { "path": "PRIVATE-FUNCTION-ARGUMENT" }
+                },
+                { "part_kind": "tool_result", "content": "PRIVATE-PART-RESULT" },
+                { "type": "output_text", "text": "Visible after tools" }
+              ]
+            }
+          ]
+        }
+        """
+        try context.write(to: contextURL, atomically: true, encoding: .utf8)
+
+        let loadedTurns = try RovoDevTranscriptPreview.load(
+            from: contextURL,
+            limit: 10,
+            dialogueOnly: true
+        )
+        let turns = try #require(loadedTurns)
+
+        #expect(turns == [
+            RovoDevTranscriptPreviewTurn(role: "user", text: "Keep dialogue only"),
+            RovoDevTranscriptPreviewTurn(
+                role: "assistant",
+                text: "Visible before tools\n\nVisible after tools"
+            ),
+        ])
+    }
+
+    @Test
     func readsRovoDevMessageHistoryParts() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-rovodev-preview-\(UUID().uuidString)", isDirectory: true)
