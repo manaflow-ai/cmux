@@ -554,21 +554,21 @@ fn stream_commands_validate_and_print_typed_stream_envelopes() {
         let stream_id = request["params"]["stream_id"].clone();
         for envelope in [
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request_id,
                 "ok": true,
                 "result": {"stream_id": stream_id}
             }),
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_item",
                 "stream_id": stream_id,
                 "sequence": "0",
                 "item": {"kind": "output", "text": "ready"}
             }),
             json!({
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "stream_end",
                 "stream_id": stream_id,
                 "reason": "completed"
@@ -873,14 +873,14 @@ fn fake_resource_cli_with_mode(
             let id = request["id"].clone();
             let response = match reply {
                 FakeReply::Success(result) => json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": id,
                     "ok": true,
                     "result": result
                 }),
                 FakeReply::Failure(error) => json!({
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": id,
                     "ok": false,

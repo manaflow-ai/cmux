@@ -32,6 +32,10 @@ const ECHO_TIMEOUT: Duration = Duration::from_secs(5);
 const TEST_TIMEOUT: Duration = Duration::from_secs(90);
 const P95_BOUND: Duration = Duration::from_millis(250);
 const P99_BOUND: Duration = Duration::from_secs(1);
+const VALGRIND_ECHO_TIMEOUT: Duration = Duration::from_secs(30);
+const VALGRIND_TEST_TIMEOUT: Duration = Duration::from_secs(600);
+const VALGRIND_P95_BOUND: Duration = Duration::from_secs(10);
+const VALGRIND_P99_BOUND: Duration = Duration::from_secs(20);
 const _: () = {
     assert!(BULK_FRAME_COUNT == ECHO_COUNT * BULK_FRAMES_PER_ECHO);
     assert!(RECEIVER_FENCE_FRAMES_PER_ECHO < BULK_FRAMES_PER_ECHO);
@@ -67,9 +71,44 @@ struct EchoFenceReport {
     client_received_daemon_bulk: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LatencyBudget {
+    echo_timeout: Duration,
+    test_timeout: Duration,
+    p95: Duration,
+    p99: Duration,
+}
+
+impl LatencyBudget {
+    fn current() -> Self {
+        Self::for_valgrind(
+            std::env::var("CMUX_TEST_PERF_INSTRUMENTED").as_deref() == Ok("valgrind"),
+        )
+    }
+
+    const fn for_valgrind(instrumented: bool) -> Self {
+        if instrumented {
+            Self {
+                echo_timeout: VALGRIND_ECHO_TIMEOUT,
+                test_timeout: VALGRIND_TEST_TIMEOUT,
+                p95: VALGRIND_P95_BOUND,
+                p99: VALGRIND_P99_BOUND,
+            }
+        } else {
+            Self {
+                echo_timeout: ECHO_TIMEOUT,
+                test_timeout: TEST_TIMEOUT,
+                p95: P95_BOUND,
+                p99: P99_BOUND,
+            }
+        }
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() {
-    tokio::time::timeout(TEST_TIMEOUT, async {
+    let budget = LatencyBudget::current();
+    tokio::time::timeout(budget.test_timeout, async {
         let state = tempdir().unwrap();
         let auth = AuthDatabase::load_or_create(state.path(), "latency-e2e", false).unwrap();
         let (daemon, mut accepted) = RemoteDaemon::new(auth.clone(), SessionLimits::default());
@@ -171,7 +210,7 @@ async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() 
                 tokio::join!(client_epoch_tx.send(index), server_epoch_tx.send(index),);
             client_credit.expect("client Bulk producer stopped before its epoch credit");
             server_credit.expect("server Bulk producer stopped before its epoch credit");
-            let echoed = tokio::time::timeout(ECHO_TIMEOUT, echo_rx.recv())
+            let echoed = tokio::time::timeout(budget.echo_timeout, echo_rx.recv())
                 .await
                 .expect("Interactive echo exceeded the finite fairness bound")
                 .expect("Interactive echo receiver stopped");
@@ -209,22 +248,22 @@ async fn interactive_echo_stays_responsive_during_bidirectional_bulk_transfer() 
 
         let metrics = latency_metrics(latencies);
         assert!(
-            metrics.p95 < P95_BOUND,
+            metrics.p95 < budget.p95,
             "Interactive p95 {:?} exceeded conservative {:?} bound",
             metrics.p95,
-            P95_BOUND,
+            budget.p95,
         );
         assert!(
-            metrics.p99 < P99_BOUND,
+            metrics.p99 < budget.p99,
             "Interactive p99 {:?} exceeded conservative {:?} bound",
             metrics.p99,
-            P99_BOUND,
+            budget.p99,
         );
         assert!(
-            metrics.max < ECHO_TIMEOUT,
+            metrics.max < budget.echo_timeout,
             "Interactive max {:?} exceeded finite {:?} bound",
             metrics.max,
-            ECHO_TIMEOUT,
+            budget.echo_timeout,
         );
 
         let transfer_started = client_bulk.started.min(server_bulk.started);
@@ -498,4 +537,26 @@ fn latency_metrics(mut samples: Vec<Duration>) -> LatencyMetrics {
 fn percentile(sorted: &[Duration], percentile: usize) -> Duration {
     let rank = (sorted.len() * percentile).div_ceil(100);
     sorted[rank.saturating_sub(1)]
+}
+
+#[test]
+fn valgrind_budget_is_explicit_and_normal_budget_stays_strict() {
+    assert_eq!(
+        LatencyBudget::for_valgrind(false),
+        LatencyBudget {
+            echo_timeout: ECHO_TIMEOUT,
+            test_timeout: TEST_TIMEOUT,
+            p95: P95_BOUND,
+            p99: P99_BOUND,
+        }
+    );
+    assert_eq!(
+        LatencyBudget::for_valgrind(true),
+        LatencyBudget {
+            echo_timeout: VALGRIND_ECHO_TIMEOUT,
+            test_timeout: VALGRIND_TEST_TIMEOUT,
+            p95: VALGRIND_P95_BOUND,
+            p99: VALGRIND_P99_BOUND,
+        }
+    );
 }
