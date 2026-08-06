@@ -156,7 +156,7 @@ fn pi_uses_an_ephemeral_coderouter_provider() {
     let pi = root.path().join("pi");
     fs::write(
         &pi,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nextension=\"$2\"\ngrep -q 'openai-responses' \"$extension\"\ngrep -q 'delete process.env.CODEROUTER_ROUTE_TOKEN' \"$extension\"\n! grep -q 'route-secret' \"$extension\"\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$*\"\nextension=\"$2\"\ngrep -q 'openai-codex-responses' \"$extension\"\ngrep -q 'x-coderouter-route-token' \"$extension\"\ngrep -q 'delete process.env.CODEROUTER_ROUTE_TOKEN' \"$extension\"\n! grep -q 'route-secret' \"$extension\"\n",
     )
     .unwrap();
     fs::set_permissions(&pi, fs::Permissions::from_mode(0o755)).unwrap();

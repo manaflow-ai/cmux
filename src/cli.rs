@@ -158,7 +158,7 @@ fn pi_provider_extension(
     let models = serde_json::to_string(&model_values)
         .map_err(|error| Error::Backend(format!("encode Pi model catalog: {error}")))?;
     Ok(format!(
-        "export default function (pi) {{\n  const routeToken = process.env.CODEROUTER_ROUTE_TOKEN;\n  delete process.env.CODEROUTER_ROUTE_TOKEN;\n  if (!routeToken) throw new Error(\"coderouter route token is missing\");\n  pi.registerProvider(\"coderouter\", {{\n    name: \"coderouter\",\n    baseUrl: {base},\n    apiKey: routeToken,\n    authHeader: true,\n    api: \"openai-responses\",\n    models: {models}\n  }});\n}}\n"
+        "import {{ streamSimpleOpenAICodexResponses as streamCodex }} from \"@earendil-works/pi-ai\";\n\nexport default function (pi) {{\n  const routeToken = process.env.CODEROUTER_ROUTE_TOKEN;\n  delete process.env.CODEROUTER_ROUTE_TOKEN;\n  if (!routeToken) throw new Error(\"coderouter route token is missing\");\n  const localAuthToken = \"e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature\";\n  pi.registerProvider(\"coderouter\", {{\n    name: \"coderouter\",\n    baseUrl: {base},\n    apiKey: localAuthToken,\n    authHeader: true,\n    headers: {{ \"x-coderouter-route-token\": routeToken }},\n    api: \"openai-codex-responses\",\n    streamSimple: (model, context, options) => streamCodex(model, context, {{ ...options, transport: \"sse\" }}),\n    models: {models}\n  }});\n}}\n"
     ))
 }
 
@@ -587,7 +587,9 @@ mod tests {
             }],
         )
         .unwrap();
-        assert!(extension.contains("openai-responses"));
+        assert!(extension.contains("openai-codex-responses"));
+        assert!(extension.contains("x-coderouter-route-token"));
+        assert!(extension.contains("transport: \"sse\""));
         assert!(extension.contains("delete process.env.CODEROUTER_ROUTE_TOKEN"));
         assert!(extension.contains("gpt-test"));
         assert!(!extension.contains("crt_example"));
