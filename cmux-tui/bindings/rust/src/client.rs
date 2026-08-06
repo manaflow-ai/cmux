@@ -669,12 +669,13 @@ mod tests {
 
     #[test]
     fn close_handle_unblocks_a_reader() {
-        let (path, server) = spawn_stream_server("close", |mut stream| {
+        let (release_server_tx, release_server_rx) = std::sync::mpsc::channel();
+        let (path, server) = spawn_stream_server("close", move |mut stream| {
             let mut request = String::new();
             BufReader::new(stream.try_clone().unwrap()).read_line(&mut request).unwrap();
             let id = serde_json::from_str::<Value>(&request).unwrap()["id"].clone();
             writeln!(stream, "{}", serde_json::json!({"id": id, "ok": true, "data": {}})).unwrap();
-            thread::sleep(Duration::from_millis(100));
+            release_server_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         });
         let mut client = CmuxClient::connect(
             ClientConfig::from_socket_path(&path).with_timeout(Duration::from_secs(5)),
@@ -689,15 +690,21 @@ mod tests {
         }));
         let stream = client.execute_stream(metadata, &serde_json::json!({})).unwrap();
         let closer = stream.closer();
+        let (reader_started_tx, reader_started_rx) = std::sync::mpsc::channel();
+        let (reader_result_tx, reader_result_rx) = std::sync::mpsc::channel();
         let reader = thread::spawn(move || {
             let mut stream = stream;
-            stream.recv()
+            reader_started_tx.send(()).unwrap();
+            reader_result_tx.send(stream.recv()).unwrap();
         });
-        thread::sleep(Duration::from_millis(30));
+        reader_started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         closer.close();
-        assert!(matches!(reader.join().unwrap(), Err(CmuxError::Closed)));
+        let result = reader_result_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        release_server_tx.send(()).unwrap();
+        reader.join().unwrap();
         server.join().unwrap();
         let _ = std::fs::remove_file(path);
+        assert!(matches!(result, Err(CmuxError::Closed)));
     }
 
     #[test]
