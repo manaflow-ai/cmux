@@ -108,10 +108,12 @@ extension SSHForegroundAuthenticationRetryPolicy {
             {
               cmux_record[$1] = $0
               cmux_parent[$1] = $2
-              cmux_next_sibling[$1] = cmux_first_child[$2]
-              cmux_first_child[$2] = $1
             }
             END {
+              for (cmux_pid in cmux_record) {
+                cmux_next_sibling[cmux_pid] = cmux_first_child[cmux_parent[cmux_pid]]
+                cmux_first_child[cmux_parent[cmux_pid]] = cmux_pid
+              }
               for (cmux_pid in cmux_record) {
                 if (!(cmux_parent[cmux_pid] in cmux_record)) {
                   cmux_depth[cmux_pid] = 0
