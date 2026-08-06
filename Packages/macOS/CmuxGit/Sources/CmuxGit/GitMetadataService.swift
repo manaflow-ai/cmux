@@ -33,19 +33,23 @@ import Foundation
 public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
+    private let repositoryLinkCache: GitRepositoryLinkCache
 
     /// Creates a git-metadata service.
     public init() {
         self.fileStatusReader = SystemGitFileStatusReader()
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        self.repositoryLinkCache = GitRepositoryLinkCache()
     }
 
     init(
         fileStatusReader: any GitFileStatusReading,
-        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache(),
+        repositoryLinkCache: GitRepositoryLinkCache = GitRepositoryLinkCache()
     ) {
         self.fileStatusReader = fileStatusReader
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
+        self.repositoryLinkCache = repositoryLinkCache
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -84,6 +88,7 @@ public struct GitMetadataService: Sendable {
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
+        let repositoryLink = await gitRepositoryLink(repository: repository)
         return GitWorkspaceMetadata(
             isRepository: true,
             branch: Self.gitBranchName(repository: repository),
@@ -91,10 +96,26 @@ public struct GitMetadataService: Sendable {
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
             headSignature: Self.gitHeadSignature(repository: repository),
-            repositoryLink: Self.gitRemoteVOutput(repository: repository).flatMap {
-                Self.repositoryLink(fromGitRemoteVOutput: $0)
-            }
+            repositoryLink: repositoryLink
         )
+    }
+
+    nonisolated func gitRepositoryLink(repository: ResolvedGitRepository) async -> GitRepositoryLink? {
+        if let cached = await repositoryLinkCache.cachedLink(
+            repository: repository,
+            fileStatusReader: fileStatusReader
+        ) {
+            return cached
+        }
+        let output = Self.gitRemoteVOutput(repository: repository)
+        let link = output.flatMap { Self.repositoryLink(fromGitRemoteVOutput: $0) }
+        await repositoryLinkCache.store(
+            link: link,
+            repository: repository,
+            configURLs: Self.gitConfigURLs(repository: repository),
+            fileStatusReader: fileStatusReader
+        )
+        return link
     }
 
     nonisolated func gitTrackedChangesSnapshot(

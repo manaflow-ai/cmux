@@ -153,7 +153,7 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
         #expect(emitted.last == [:])
     }
 
-    @Test func repositoryLinkChangesSeedUpdatesAndClearsImmutableState() async {
+    @Test func repositoryLinkStateStoresAndPublishes() {
         let model = makeModel()
         let panelID = UUID()
         let link = SidebarRepositoryLinkState(
@@ -161,18 +161,30 @@ private struct FixedLogLimitProvider: SidebarLogEntryLimitProviding {
             displayName: "manaflow-ai/cmux",
             url: URL(string: "https://github.com/manaflow-ai/cmux")!
         )
-        var changes = model.repositoryLinkChanges().makeAsyncIterator()
-        let initialChange: Void? = await changes.next()
-        #expect(initialChange != nil)
+        var workspaceLinks: [SidebarRepositoryLinkState?] = []
+        var panelLinks: [[UUID: SidebarRepositoryLinkState]] = []
+        var cancellables: Set<AnyCancellable> = []
+        model.repositoryLinkPublisher
+            .sink { workspaceLinks.append($0) }
+            .store(in: &cancellables)
+        model.panelRepositoryLinksPublisher
+            .sink { panelLinks.append($0) }
+            .store(in: &cancellables)
+        #expect(workspaceLinks == [nil])
+        #expect(panelLinks == [[:]])
 
+        model.updateRepositoryLink(link)
         model.updatePanelRepositoryLinks([panelID: link])
-        let updateChange: Void? = await changes.next()
-        #expect(updateChange != nil)
+        #expect(model.repositoryLink == link)
         #expect(model.panelRepositoryLinks == [panelID: link])
+        #expect(workspaceLinks == [nil, link])
+        #expect(panelLinks == [[:], [panelID: link]])
 
+        model.updateRepositoryLink(nil)
         model.updatePanelRepositoryLinks([:])
-        let clearChange: Void? = await changes.next()
-        #expect(clearChange != nil)
+        #expect(model.repositoryLink == nil)
         #expect(model.panelRepositoryLinks.isEmpty)
+        #expect(workspaceLinks == [nil, link, nil])
+        #expect(panelLinks == [[:], [panelID: link], [:]])
     }
 }

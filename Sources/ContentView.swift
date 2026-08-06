@@ -11215,13 +11215,6 @@ struct VerticalTabsSidebar: View, Equatable {
             guard isPresented else { return }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
         }
-        .sidebarRepositoryLinkObservations(
-            ids: renderContext.workspaceIds,
-            workspaces: renderContext.tabs
-        ) { workspaceId in
-            guard isPresented else { return }
-            scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
-        }
         .onAppear {
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
@@ -11852,7 +11845,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 NSWorkspace.shared.open(url)
                 return
             }
-            SidebarWorkspaceRowActions.repositoryAction(
+            SidebarWorkspaceRowActions.preferredBrowserOpenAction(
                 workspaceId: workspaceId,
                 openInWorkspace: { workspaceId, url in
                     tabManager?.openBrowser(
@@ -11998,12 +11991,6 @@ struct VerticalTabsSidebar: View, Equatable {
     private func extensionSidebarScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
         extensionSidebarScrollAreaContent(renderContext: renderContext)
             .sidebarProcessTitleObservations(ids: renderContext.workspaceIds, models: renderContext.tabs.map(\.sidebarProcessTitleObservation)) { refreshExtensionSidebarSnapshot() }
-            .sidebarRepositoryLinkObservations(
-                ids: renderContext.workspaceIds,
-                workspaces: renderContext.tabs
-            ) { _ in
-                refreshExtensionSidebarSnapshot()
-            }
             .onAppear { refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs) }
             .onChange(of: renderContext.workspaceIds) { _, _ in
                 refreshExtensionSidebarObservationPublishers(tabs: renderContext.tabs)
@@ -13945,7 +13932,7 @@ struct VerticalTabsSidebar: View, Equatable {
     ) {
         selectWorkspaceRow(workspace, index: index, modifiers: NSEvent.modifierFlags)
         if opensInCmuxBrowser {
-            SidebarWorkspaceRowActions.repositoryAction(
+            SidebarWorkspaceRowActions.preferredBrowserOpenAction(
                 workspaceId: workspace.id,
                 openInWorkspace: { workspaceId, url in
                     tabManager.openBrowser(

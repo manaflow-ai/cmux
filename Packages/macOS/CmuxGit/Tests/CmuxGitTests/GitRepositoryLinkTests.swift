@@ -141,4 +141,34 @@ import Testing
         #expect(metadata.repositoryLink?.displayName == "group/subgroup/repo")
         #expect(metadata.repositoryLink?.url.absoluteString == "https://gitlab.example.com/group/subgroup/repo")
     }
+
+    @Test func repositoryLinkCacheInvalidatesWhenConfigStatusChanges() async throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/first/repo.git
+        """)
+        let reader = CountingGitFileStatusReader()
+        let service = GitMetadataService(fileStatusReader: reader)
+        let configPath = fixture.gitDirectory.appendingPathComponent("config").path
+
+        let first = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(first.repositoryLink?.url.absoluteString == "https://github.com/first/repo")
+
+        try fixture.writeConfig("""
+        [remote "origin"]
+            url = https://github.com/second/repo.git
+        """)
+        let changedStatus = GitFileStatus(
+            mode: 0o100644,
+            size: 99,
+            mtimeSeconds: 123,
+            mtimeNanoseconds: 456
+        )
+        reader.overrideStatus(changedStatus, atPath: configPath)
+
+        let second = await service.workspaceMetadata(for: fixture.root.path)
+        #expect(second.repositoryLink?.url.absoluteString == "https://github.com/second/repo")
+    }
 }

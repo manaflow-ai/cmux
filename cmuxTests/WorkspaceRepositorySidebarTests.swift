@@ -101,13 +101,13 @@ struct WorkspaceRepositorySidebarTests {
     }
 
     @Test
-    func repositoryActionTargetsClickedWorkspaceBrowserBeforeFallback() throws {
+    func preferredBrowserOpenActionTargetsClickedWorkspaceBrowserBeforeFallback() throws {
         let clickedWorkspaceId = UUID()
         let url = try #require(URL(string: "https://github.com/manaflow-ai/cmux"))
         var acceptsBrowserOpen = true
         var routedWorkspaceIds: [UUID] = []
         var events: [String] = []
-        let action = SidebarWorkspaceRowActions.repositoryAction(
+        let action = SidebarWorkspaceRowActions.preferredBrowserOpenAction(
             workspaceId: clickedWorkspaceId,
             openInWorkspace: { workspaceId, destination in
                 routedWorkspaceIds.append(workspaceId)
