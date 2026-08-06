@@ -50,6 +50,21 @@ fi
 wait "$app_host_pid" 2>/dev/null || true
 app_host_pid=""
 
+MISSING_XDG_HOME="$RUNNER_TEMP_DIR/ah-aabbccddeeff"
+mkdir -p "$MISSING_XDG_HOME/.config"
+printf 'private\n' > "$MISSING_XDG_HOME/sentinel"
+rmdir "$MISSING_XDG_HOME/.config"
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+CFFIXED_USER_HOME="$MISSING_XDG_HOME" \
+XDG_CONFIG_HOME="$MISSING_XDG_HOME/.config" \
+  bash "$CLEANUP_SCRIPT"
+if [ -e "$MISSING_XDG_HOME" ]; then
+  echo "FAIL: cleanup must remove the home after its mutable XDG child disappears"
+  exit 1
+fi
+
 INVALID_HOME="$RUNNER_TEMP_DIR/not-an-app-host-home"
 mkdir -p "$INVALID_HOME/.config"
 printf 'keep\n' > "$INVALID_HOME/sentinel"
