@@ -2,8 +2,8 @@
 //!
 //! `uds_windows` exposes blocking streams. Keep those calls off Tokio workers
 //! and exchange bounded chunks through channels instead of re-entering the
-//! runtime with `Handle::block_on`. Dropping the adapter shuts down the socket,
-//! which releases both blocking workers.
+//! runtime with `Handle::block_on`. Dropping the adapter signals cancellation;
+//! finite socket I/O quanta ensure both blocking workers observe it.
 
 use std::io::{self, Read as _, Write as _};
 use std::net::Shutdown;
@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use bytes::Bytes;
 use tokio::io::{
@@ -22,6 +23,7 @@ use tokio::sync::mpsc;
 const BRIDGE_CHUNK_BYTES: usize = 64 * 1024;
 const BRIDGE_QUEUE_CHUNKS: usize = 4;
 const BRIDGE_BUFFER_BYTES: usize = BRIDGE_CHUNK_BYTES * BRIDGE_QUEUE_CHUNKS;
+const BRIDGE_IO_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub(crate) struct WindowsSocketBridge {
     inner: DuplexStream,
@@ -72,6 +74,8 @@ pub(crate) fn bridge(stream: uds_windows::UnixStream) -> io::Result<WindowsSocke
         io::Error::other(format!("Windows socket bridge requires a Tokio runtime: {error}"))
     })?;
     let socket_reader = stream.try_clone()?;
+    socket_reader.set_read_timeout(Some(BRIDGE_IO_TIMEOUT))?;
+    stream.set_write_timeout(Some(BRIDGE_IO_TIMEOUT))?;
     let reader_shutdown = stream.try_clone()?;
     let writer_shutdown = stream.try_clone()?;
     let bridge_shutdown = stream.try_clone()?;
@@ -114,6 +118,13 @@ fn read_socket(
                 }
             }
             Err(error) => {
+                if socket_timeout(&error) {
+                    if closing.load(Ordering::Acquire) {
+                        let _ = shutdown.shutdown(Shutdown::Both);
+                        return;
+                    }
+                    continue;
+                }
                 if !closing.swap(true, Ordering::AcqRel) {
                     report_failure("read", &error);
                 }
@@ -160,7 +171,34 @@ fn write_socket(
     closing: Arc<AtomicBool>,
 ) {
     while let Some(chunk) = source.blocking_recv() {
-        if let Err(error) = socket.write_all(&chunk).and_then(|()| socket.flush()) {
+        let mut offset = 0;
+        while offset < chunk.len() {
+            match socket.write(&chunk[offset..]) {
+                Ok(0) => {
+                    let error = io::Error::from(io::ErrorKind::WriteZero);
+                    if !closing.swap(true, Ordering::AcqRel) {
+                        report_failure("write", &error);
+                    }
+                    let _ = shutdown.shutdown(Shutdown::Both);
+                    return;
+                }
+                Ok(size) => offset += size,
+                Err(error) if socket_timeout(&error) => {
+                    if closing.load(Ordering::Acquire) {
+                        let _ = shutdown.shutdown(Shutdown::Both);
+                        return;
+                    }
+                }
+                Err(error) => {
+                    if !closing.swap(true, Ordering::AcqRel) {
+                        report_failure("write", &error);
+                    }
+                    let _ = shutdown.shutdown(Shutdown::Both);
+                    return;
+                }
+            }
+        }
+        if let Err(error) = socket.flush() {
             if !closing.swap(true, Ordering::AcqRel) {
                 report_failure("write", &error);
             }
@@ -170,6 +208,10 @@ fn write_socket(
     }
     closing.store(true, Ordering::Release);
     let _ = shutdown.shutdown(Shutdown::Both);
+}
+
+fn socket_timeout(error: &io::Error) -> bool {
+    matches!(error.kind(), io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock)
 }
 
 fn report_failure(direction: &str, error: &io::Error) {
