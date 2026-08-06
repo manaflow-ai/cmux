@@ -1225,9 +1225,10 @@ struct RestorableAgentSessionIndex: Sendable {
 
             for record in state.sessions.values {
                 if let restrictToPanelKey {
-                    guard UUID(uuidString: record.workspaceId)
-                            == restrictToPanelKey.workspaceId,
-                          UUID(uuidString: record.surfaceId)
+                    // Session restore can rotate the workspace UUID while
+                    // preserving the surface UUID. Keep every same-surface
+                    // record so the existing ambiguity checks remain intact.
+                    guard UUID(uuidString: record.surfaceId)
                             == restrictToPanelKey.panelId else {
                         continue
                     }
@@ -1505,6 +1506,11 @@ struct RestorableAgentSessionIndex: Sendable {
             }
         }
 
+        if let restrictToPanelKey {
+            resolved = resolved.filter { key, _ in
+                key == restrictToPanelKey
+            }
+        }
         return RestorableAgentSessionIndex(entriesByPanel: resolved)
     }
 
