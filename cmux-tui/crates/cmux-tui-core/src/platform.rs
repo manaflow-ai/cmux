@@ -617,6 +617,21 @@ pub fn restrict_file(path: &Path) -> std::io::Result<()> {
     restrict_permissions(path, 0o600)
 }
 
+/// Flush directory-entry changes where the platform exposes a supported
+/// directory handle. Windows rejects `std::fs::File::open` for directories;
+/// the files themselves are still flushed before their atomic rename.
+pub fn sync_directory(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::fs::File::open(path)?.sync_all()
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
 pub fn is_executable_file(path: &Path) -> bool {
     let Ok(meta) = std::fs::metadata(path) else { return false };
     if !meta.is_file() {

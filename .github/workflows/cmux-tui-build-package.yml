@@ -310,7 +310,7 @@ jobs:
 
   build-windows:
     name: build x86_64-pc-windows-gnu
-    if: inputs.include_windows
+    if: inputs.include_windows || inputs.package_npm || inputs.package_pypi
     runs-on: ${{ vars.WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 60
     permissions:
@@ -385,6 +385,17 @@ jobs:
           printf '%s\n' "$output"
           python -c 'import json,sys; probe=json.load(sys.stdin); assert probe["app"] == "cmux-tui"; assert probe["os"] == "windows"' <<<"$output"
 
+      - name: Verify native Windows remote state startup
+        shell: bash
+        run: |
+          set +e
+          output="$(cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -ne 0
+          grep -F "Windows SSH carrier was rejected" <<<"$output"
+
       - name: Stage binary
         shell: bash
         run: |
@@ -401,7 +412,9 @@ jobs:
 
   package:
     name: package distributions
-    needs: build
+    needs:
+      - build
+      - build-windows
     if: inputs.package_npm || inputs.package_pypi
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
@@ -448,6 +461,12 @@ jobs:
           name: cmux-tui-aarch64-unknown-linux-musl
           path: dist/binaries
 
+      - name: Download Windows companion binary
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist/binaries
+
       - name: Build npm package directories
         if: inputs.package_npm
         run: |
@@ -488,6 +507,9 @@ jobs:
           if deps != {name: version for name in platforms}:
               print(f"optionalDependencies mismatch: {deps}", file=sys.stderr)
               raise SystemExit(1)
+          companion = root / "cmux" / "bin" / "cmux-tui-x86_64-pc-windows-gnu.exe"
+          if not companion.is_file():
+              raise SystemExit(f"missing Windows companion: {companion}")
           for name, (os_name, cpu) in platforms.items():
               package_json = json.loads((root / name / "package.json").read_text())
               if package_json["version"] != version:
@@ -539,6 +561,8 @@ jobs:
           set -euo pipefail
           for wheel in dist/pypi-wheels/*.whl; do
             python3 -m zipfile -l "$wheel" >"/tmp/$(basename "$wheel").list"
+            grep -F "cmux_tui/bin/cmux-tui-x86_64-pc-windows-gnu.exe" \
+              "/tmp/$(basename "$wheel").list"
           done
           chmod +x dist/binaries/cmux-tui-x86_64-unknown-linux-musl
           dist/binaries/cmux-tui-x86_64-unknown-linux-musl --version >/tmp/cmux-tui-version.txt 2>&1 || \

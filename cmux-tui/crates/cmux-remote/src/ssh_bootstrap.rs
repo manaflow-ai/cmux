@@ -13,6 +13,7 @@ use crate::provider::{SshRemoteShell, SshRemoteTarget};
 
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
 pub const WINDOWS_REMOTE_BINARY: &str = r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe";
+pub const WINDOWS_COMPANION_FILENAME: &str = "cmux-tui-x86_64-pc-windows-gnu.exe";
 
 /// The version of the npm/PyPI distribution that contains this binary. Release
 /// workflows stamp it independently from the Rust crate's internal version.
@@ -59,7 +60,8 @@ impl SshBootstrapConfig {
             build_identity: BUILD_IDENTITY.into(),
             local_binary: std::env::current_exe().ok(),
             windows_local_binary: std::env::var_os("CMUX_TUI_WINDOWS_REMOTE_BINARY")
-                .map(PathBuf::from),
+                .map(PathBuf::from)
+                .or_else(bundled_windows_companion),
             auto_install: true,
             timeout: Duration::from_secs(60),
         }
@@ -90,6 +92,16 @@ impl SshBootstrapConfig {
         }
         Ok(())
     }
+}
+
+fn bundled_windows_companion() -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    bundled_windows_companion_for(&executable)
+}
+
+fn bundled_windows_companion_for(executable: &Path) -> Option<PathBuf> {
+    let candidate = executable.parent()?.join(WINDOWS_COMPANION_FILENAME);
+    candidate.is_file().then_some(candidate)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -277,22 +289,33 @@ impl SshBootstrapper {
         let source = self.config.windows_local_binary.as_deref().ok_or_else(|| {
             BootstrapError::WindowsBinaryUnavailable(self.config.package_version.clone())
         })?;
+        let expected_size = std::fs::metadata(source).map_err(BootstrapError::Io)?.len();
+        let upload_name = format!(".cmux-upload-{}.exe", uuid::Uuid::new_v4().simple());
+        let upload = self.run_scp(source, &upload_name).await?;
+        if upload.status != 0 {
+            return Err(BootstrapError::Install {
+                status: upload.status,
+                stderr: sanitize(&String::from_utf8_lossy(&upload.stderr)),
+            });
+        }
         let destination = powershell_single_quoted(&target.binary);
+        let upload_name = powershell_single_quoted(&upload_name);
         let script = format!(
-            "$destination=[Environment]::ExpandEnvironmentVariables('{destination}');\
+            "$source=[IO.Path]::Combine($HOME,'{upload_name}');\
+             $destination=[Environment]::ExpandEnvironmentVariables('{destination}');\
              $parent=[IO.Path]::GetDirectoryName($destination);\
              [IO.Directory]::CreateDirectory($parent)|Out-Null;\
-             $temporary=$destination+'.cmux-upload-'+[Guid]::NewGuid().ToString('N');\
-             try{{$inputStream=[Console]::OpenStandardInput();\
-             $outputStream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None);\
-             try{{$inputStream.CopyTo($outputStream);$outputStream.Flush()}}finally{{$outputStream.Dispose()}};\
-             Move-Item -LiteralPath $temporary -Destination $destination -Force}}\
-             finally{{if(Test-Path -LiteralPath $temporary){{Remove-Item -LiteralPath $temporary -Force}}}}"
+             try{{if((Get-Item -LiteralPath $source -ErrorAction Stop).Length -ne {expected_size})\
+             {{throw 'uploaded Windows companion has the wrong size'}};\
+             Move-Item -LiteralPath $source -Destination $destination -Force;\
+             if((Get-Item -LiteralPath $destination -ErrorAction Stop).Length -ne {expected_size})\
+             {{throw 'installed Windows companion has the wrong size'}}}}\
+             finally{{if(Test-Path -LiteralPath $source){{Remove-Item -LiteralPath $source -Force}}}}"
         );
         let encoded = powershell_encoded_command(&script);
         let command =
             format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}");
-        let output = self.run_remote_with_input(&command, source).await?;
+        let output = self.run_remote([command.as_str()]).await?;
         if output.status != 0 {
             return Err(BootstrapError::Install {
                 status: output.status,
@@ -310,6 +333,53 @@ impl SshBootstrapper {
             });
         }
         Ok(ResolvedBootstrap { outcome: BootstrapOutcome::Installed, target })
+    }
+
+    async fn run_scp(
+        &self,
+        source: &Path,
+        remote_filename: &str,
+    ) -> Result<RemoteOutput, BootstrapError> {
+        let mut command = Command::new(scp_binary_for(&self.config.ssh_binary));
+        command.arg("-q");
+        if let Some(port) = self.config.port {
+            command.arg("-P").arg(port.to_string());
+        }
+        let remote = format!("{}:{remote_filename}", self.config.destination);
+        command
+            .args(&self.config.extra_args)
+            .arg(source)
+            .arg(remote)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.kill_on_drop(true).spawn().map_err(BootstrapError::Io)?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            BootstrapError::Io(std::io::Error::other("SCP stdout pipe is unavailable"))
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            BootstrapError::Io(std::io::Error::other("SCP stderr pipe is unavailable"))
+        })?;
+        let completion = tokio::time::timeout(self.config.timeout, async {
+            tokio::try_join!(
+                read_bounded(stdout, "stdout"),
+                read_bounded(stderr, "stderr"),
+                async { child.wait().await.map_err(BootstrapError::Io) },
+            )
+        })
+        .await;
+        let (stdout, stderr, status) = match completion {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                terminate_and_reap(&mut child).await;
+                return Err(error);
+            }
+            Err(_) => {
+                terminate_and_reap(&mut child).await;
+                return Err(BootstrapError::Timeout);
+            }
+        };
+        Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
     }
 
     async fn install_local_binary(&self) -> Result<BootstrapOutcome, BootstrapError> {
@@ -653,6 +723,15 @@ fn powershell_encoded_command(script: &str) -> String {
     base64::engine::general_purpose::STANDARD.encode(utf16)
 }
 
+fn scp_binary_for(ssh_binary: &str) -> PathBuf {
+    let ssh = Path::new(ssh_binary);
+    match ssh.file_name().and_then(|name| name.to_str()) {
+        Some("ssh") => ssh.with_file_name("scp"),
+        Some("ssh.exe") => ssh.with_file_name("scp.exe"),
+        _ => PathBuf::from("scp"),
+    }
+}
+
 async fn read_bounded(
     mut reader: impl tokio::io::AsyncRead + Unpin,
     stream: &'static str,
@@ -855,6 +934,26 @@ mod tests {
         ));
         assert!(windows_missing_binary_error("The system cannot find the path specified."));
         assert!(!BootstrapError::WindowsShellDetected.is_retryable_carrier_failure());
+    }
+
+    #[test]
+    fn packaged_binary_discovers_its_windows_companion() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("cmux-tui");
+        let companion = directory.path().join(WINDOWS_COMPANION_FILENAME);
+        std::fs::write(&executable, b"host").unwrap();
+
+        assert_eq!(bundled_windows_companion_for(&executable), None);
+        std::fs::write(&companion, b"windows").unwrap();
+        assert_eq!(bundled_windows_companion_for(&executable), Some(companion));
+    }
+
+    #[test]
+    fn scp_binary_tracks_standard_ssh_installations() {
+        assert_eq!(scp_binary_for("ssh"), PathBuf::from("scp"));
+        assert_eq!(scp_binary_for("/opt/openssh/bin/ssh"), PathBuf::from("/opt/openssh/bin/scp"));
+        assert_eq!(scp_binary_for("ssh.exe"), PathBuf::from("scp.exe"));
+        assert_eq!(scp_binary_for("ssh-wrapper"), PathBuf::from("scp"));
     }
 
     #[cfg(unix)]

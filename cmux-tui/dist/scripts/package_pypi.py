@@ -19,6 +19,7 @@ VERSION_RE = re.compile(r"^(?:[0-9]+\.[0-9]+\.[0-9]+|[0-9]+\.[0-9]+\.[0-9]+\.dev
 DIST_NAME = "cmux"
 PACKAGE_NAME = "cmux_tui"
 ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+WINDOWS_COMPANION = "cmux-tui-x86_64-pc-windows-gnu.exe"
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,9 @@ def wheel_info(name: str, data: bytes, mode: int) -> tuple[zipfile.ZipInfo, byte
     return info, data, mode
 
 
-def wheel_bytes(version: str, tag: str, binary: bytes) -> list[tuple[str, bytes, int]]:
+def wheel_bytes(
+    version: str, tag: str, binary: bytes, windows_companion: bytes
+) -> list[tuple[str, bytes, int]]:
     dist_info = f"{DIST_NAME}-{version}.dist-info"
     return [
         (
@@ -114,6 +117,11 @@ def main() -> None:
             0o644,
         ),
         (f"{PACKAGE_NAME}/bin/cmux-tui", binary, 0o755),
+        (
+            f"{PACKAGE_NAME}/bin/{WINDOWS_COMPANION}",
+            windows_companion,
+            0o755,
+        ),
         (
             f"{dist_info}/WHEEL",
             text_bytes(
@@ -180,6 +188,10 @@ def main() -> None:
     if not binaries_dir.is_dir():
         raise SystemExit(f"--binaries-dir is not a directory: {binaries_dir}")
     out_dir.mkdir(parents=True, exist_ok=True)
+    windows_path = binaries_dir / WINDOWS_COMPANION
+    if not windows_path.is_file():
+        raise SystemExit(f"missing Windows companion: {windows_path}")
+    windows_companion = windows_path.read_bytes()
 
     for target in TARGETS:
         binary_path = binaries_dir / f"cmux-tui-{target.rust_target}"
@@ -193,7 +205,7 @@ def main() -> None:
                 wheel_path.unlink()
             write_wheel(
                 wheel_path,
-                wheel_bytes(args.version, platform_tag, binary),
+                wheel_bytes(args.version, platform_tag, binary, windows_companion),
                 args.version,
             )
 
