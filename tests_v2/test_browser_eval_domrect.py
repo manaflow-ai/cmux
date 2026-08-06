@@ -195,6 +195,56 @@ def main() -> int:
                 f"Expected cross-realm DOMRect dictionary: {cross_realm_result}",
             )
 
+            client._call(
+                "browser.eval",
+                {
+                    "surface_id": surface_id,
+                    "script": """
+                    (() => {
+                      window.__cmuxRealmMarker = 'top';
+                      window.__cmuxFrameOnly = 'top-global';
+                      const frame = document.createElement('iframe');
+                      frame.id = 'cmux-selected-frame';
+                      document.body.appendChild(frame);
+                      frame.contentDocument.title = 'frame-title';
+                      frame.contentWindow.__cmuxRealmMarker = 'frame';
+                      frame.contentWindow.__cmuxFrameOnly = 'frame-global';
+                      frame.contentWindow.location.hash = 'frame';
+                      return true;
+                    })()
+                    """,
+                },
+            )
+            client._call(
+                "browser.frame.select",
+                {"surface_id": surface_id, "selector": "#cmux-selected-frame"},
+            )
+            frame_realm_result = client._call(
+                "browser.eval",
+                {
+                    "surface_id": surface_id,
+                    "script": "({marker: window.__cmuxRealmMarker, frameOnly: __cmuxFrameOnly, href: location.href, title: document.title})",
+                },
+            ) or {}
+            frame_realm_value = _value(frame_realm_result) or {}
+            _must(
+                frame_realm_value.get("marker") == "frame",
+                f"Expected window to resolve in selected frame: {frame_realm_result}",
+            )
+            _must(
+                frame_realm_value.get("frameOnly") == "frame-global",
+                f"Expected frame global to resolve in selected frame: {frame_realm_result}",
+            )
+            _must(
+                str(frame_realm_value.get("href") or "").endswith("#frame"),
+                f"Expected location to resolve in selected frame: {frame_realm_result}",
+            )
+            _must(
+                frame_realm_value.get("title") == "frame-title",
+                f"Expected document to resolve in selected frame: {frame_realm_result}",
+            )
+            client._call("browser.frame.main", {"surface_id": surface_id})
+
             repeated_alias_result = client._call(
                 "browser.eval",
                 {
