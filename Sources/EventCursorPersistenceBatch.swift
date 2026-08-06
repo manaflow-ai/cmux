@@ -38,6 +38,14 @@ struct EventCursorPersistenceBatch {
         try flush(now: now)
     }
 
+    func pendingFlushDelay(now: ContinuousClock.Instant) -> TimeInterval? {
+        guard let batchStartedAt else { return nil }
+        let remaining = maximumDelay - batchStartedAt.duration(to: now)
+        guard remaining > .zero else { return 0 }
+        return Double(remaining.components.seconds)
+            + Double(remaining.components.attoseconds) / 1e18
+    }
+
     mutating func flush(now _: ContinuousClock.Instant) throws {
         guard let pendingSequence else { return }
         try write(pendingSequence)

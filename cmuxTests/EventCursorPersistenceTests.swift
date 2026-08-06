@@ -94,7 +94,7 @@ struct EventCursorPersistenceTests {
         #expect(persistedSequences == [128, 140])
     }
 
-    @Test func elapsedDelayFlushesPendingSequenceDuringHeartbeat() throws {
+    @Test func elapsedDelayExposesIdleWakeDeadlineAndFlushes() throws {
         var persistedSequences: [Int64] = []
         let start = ContinuousClock().now
         var persistence = EventCursorPersistenceBatch(
@@ -104,11 +104,17 @@ struct EventCursorPersistenceTests {
         )
 
         try persistence.record(41, now: start)
+        #expect(persistence.pendingFlushDelay(now: start) == 1)
         try persistence.flushIfDue(now: start.advanced(by: .milliseconds(999)))
         #expect(persistedSequences.isEmpty)
+        let remainingDelay = try #require(
+            persistence.pendingFlushDelay(now: start.advanced(by: .milliseconds(999)))
+        )
+        #expect(abs(remainingDelay - 0.001) < 0.000_001)
 
         try persistence.flushIfDue(now: start.advanced(by: .seconds(1)))
         #expect(persistedSequences == [41])
+        #expect(persistence.pendingFlushDelay(now: start.advanced(by: .seconds(1))) == nil)
     }
 
     @Test func failedWriteRemainsPendingForRetry() throws {

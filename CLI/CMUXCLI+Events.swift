@@ -104,7 +104,12 @@ extension CMUXCLI {
                 try client.streamV2(
                     method: "events.stream",
                     params: params,
-                    deadline: socketDeadline()
+                    deadline: socketDeadline(),
+                    idleHandler: {
+                        let now = budgetClock.now
+                        try cursorPersistence?.flushIfDue(now: now)
+                        return cursorPersistence?.pendingFlushDelay(now: now)
+                    }
                 ) { line in
                     guard !line.isEmpty else { return }
                     let frame = try parseEventStreamFrame(line)
@@ -140,8 +145,8 @@ extension CMUXCLI {
                             throw EventStreamLimitReached()
                         }
                     } else {
-                        // Heartbeats bound cursor durability even when event traffic pauses
-                        // before a batch reaches its count threshold.
+                        // Non-event frames opportunistically flush a due batch. The idle
+                        // handler enforces the deadline when no frame arrives.
                         try cursorPersistence?.flushIfDue(now: budgetClock.now)
                     }
                 }
