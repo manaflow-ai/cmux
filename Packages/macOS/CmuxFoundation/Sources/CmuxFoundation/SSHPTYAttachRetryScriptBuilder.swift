@@ -12,16 +12,23 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
     /// Builds shell lines that retry PTY attachment and optional foreground authentication.
     ///
     /// The surrounding script supplies `cmux_ssh_attach_foreground_auth` when
-    /// `reauthenticates` is true and installs `cmux_ssh_attach_signal_exit`
-    /// before these lines execute.
+    /// `reauthenticates` is true and supplies `cmux_ssh_attach_signal_exit`.
     ///
     /// - Parameters:
     ///   - command: Shell command that performs one PTY attachment attempt.
     ///   - reauthenticates: Whether status 255 requires foreground authentication before reattaching.
+    ///   - retryLoopSetupLines: Lines installed after cleanup helpers exist and before retry work starts.
     /// - Returns: macOS `/bin/sh` lines implementing the shared retry state machine.
-    public func lines(command: String, reauthenticates: Bool) -> [String] {
+    public func lines(
+        command: String,
+        reauthenticates: Bool,
+        retryLoopSetupLines: [String] = []
+    ) -> [String] {
         let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
         let authPolicy = SSHForegroundAuthenticationRetryPolicy()
+        let authGroupCleanupBody = authPolicy.authenticationGroupDirectoryCleanupShellBody(
+            terminatesPublishedGroup: reauthenticates
+        )
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         let initialReauthentication = reauthenticates ? 1 : 0
         let noProgressPolicy = SSHPTYAttachExitCode.noProgressShellPolicy()
@@ -52,17 +59,23 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "cmux_ssh_attach_auth_retry_limit=\(authPolicy.maximumConsecutiveTransientFailures)",
             "cmux_ssh_attach_reauth_required=\(initialReauthentication)",
             "cmux_ssh_attach_auth_launching=0",
+            "CMUX_SSH_AUTH_GROUP_DIR=",
+            "export CMUX_SSH_AUTH_GROUP_DIR",
+            "cmux_ssh_attach_remove_auth_group_dir() { \(authGroupCleanupBody) }",
         ])
         lines.append(contentsOf: backoffBuilder.stateInitializationLines)
+        lines.append(contentsOf: retryLoopSetupLines)
         lines.append(contentsOf: [
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
             "    cmux_ssh_attach_auth_launching=1",
+            "    CMUX_SSH_AUTH_GROUP_DIR=$(umask 077; /usr/bin/mktemp -d \"${TMPDIR:-/tmp}/cmux-ssh-auth-group.XXXXXX\") || exit 255",
+            "    export CMUX_SSH_AUTH_GROUP_DIR",
             "    ( cmux_ssh_attach_foreground_auth ) <&0 &",
             "    cmux_ssh_attach_auth_pid=$!",
             "    cmux_ssh_attach_auth_launching=0",
             "    if [ -n \"${cmux_ssh_attach_pending_signal:-}\" ]; then cmux_ssh_attach_signal_exit \"$cmux_ssh_attach_pending_signal\" \"${cmux_ssh_attach_pending_signal_name:-TERM}\"; fi",
-            "    wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; cmux_ssh_attach_auth_pid=",
+            "    wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_dir",
             "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; cmux_ssh_attach_auth_retry=0; else case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_auth_retry=$((cmux_ssh_attach_auth_retry + 1)); if [ \"$cmux_ssh_attach_auth_retry\" -ge \"$cmux_ssh_attach_auth_retry_limit\" ]; then exit 255; fi ;; \(authPolicy.unclassifiedFailureExitStatus)) exit 255 ;; *) exit \"$cmux_ssh_attach_status\" ;; esac; fi",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",

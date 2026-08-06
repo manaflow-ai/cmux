@@ -2012,6 +2012,34 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertLessThan(panel.webView.window?.frame.minX ?? 0, -9_000)
     }
 
+    @MainActor
+    func testBackgroundPreloadAttachesPresentationViewToWindowOwnedContentView() throws {
+        let frame = NSRect(x: -10_000, y: -10_000, width: 800, height: 600)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let windowOwnedContentView = try XCTUnwrap(window.contentView)
+        let presentationView = NSView(frame: frame)
+
+        let attachedContentView = try XCTUnwrap(
+            BrowserBackgroundPreloadHost.attach(presentationView, to: window)
+        )
+
+        XCTAssertTrue(attachedContentView === windowOwnedContentView)
+        XCTAssertTrue(window.contentView === windowOwnedContentView)
+        XCTAssertTrue(presentationView.superview === windowOwnedContentView)
+        XCTAssertTrue(presentationView.window === window)
+    }
+
     func testBackgroundInitialNavigationDoesNotExposeHiddenHostAsModalParent() {
         let panel = BrowserPanel(
             workspaceId: UUID(),

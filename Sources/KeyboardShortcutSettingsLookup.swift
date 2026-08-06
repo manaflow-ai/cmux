@@ -139,8 +139,9 @@ extension KeyboardShortcutSettings {
 }
 
 extension KeyboardShortcutSettings.Action {
-    func tooltip(_ base: String) -> String {
-        "\(base) (\(displayedShortcutString(for: KeyboardShortcutSettings.shortcut(for: self))))"
+    func tooltip(_ base: String, shortcut: StoredShortcut? = nil) -> String {
+        let resolvedShortcut = shortcut ?? KeyboardShortcutSettings.shortcut(for: self)
+        return "\(base) (\(displayedShortcutString(for: resolvedShortcut)))"
     }
 
     var usesNumberedDigitMatching: Bool {

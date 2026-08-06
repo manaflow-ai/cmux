@@ -45,6 +45,8 @@ private struct WorkspacePanelContentHostView: View {
     let workspace: Workspace
     let panel: any Panel
     let paneId: PaneID
+    let isWorkspaceVisible: Bool
+    let isWorkspaceInputActive: Bool
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
@@ -77,6 +79,24 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            browserPortalVisibilityResolver: { [weak workspace, weak panel] in
+                guard isWorkspaceVisible,
+                      let workspace,
+                      let panel,
+                      let livePanel = workspace.panels[panel.id],
+                      livePanel === panel,
+                      workspace.paneId(forPanelId: panel.id)?.id == paneId.id,
+                      let tabId = workspace.surfaceIdFromPanelId(panel.id) else {
+                    return false
+                }
+                let selectedTab = workspace.bonsplitController.selectedTab(inPane: paneId)
+                return WorkspacePanelVisibilityPolicy.panelVisibleInUI(
+                    isWorkspaceVisible: true,
+                    paneHasSelectedTab: selectedTab != nil,
+                    isSelectedInPane: selectedTab?.id == tabId,
+                    isFocused: isWorkspaceInputActive && workspace.focusedPanelId == panel.id
+                )
+            },
             terminalPaneOwnershipResolver: { [weak workspace, weak panel] in
                 guard let workspace,
                       let panel,
@@ -150,15 +170,6 @@ final class TmuxWorkspacePaneOverlayModel {
 
 /// View that renders a Workspace's content using BonsplitView
 struct WorkspaceContentView: View {
-    private struct DeferredThemeRefresh {
-        let reason: String
-        let backgroundOverride: NSColor?
-        let backgroundEventId: UInt64?
-        let backgroundSource: String?
-        let notificationPayloadHex: String?
-        let forceInitialApply: Bool
-    }
-
     @ObservedObject var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
@@ -179,7 +190,7 @@ struct WorkspaceContentView: View {
     ) -> Void)?
     @State private var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "stateInit")
     @State private var lastAppliedUsesHostLayerBackground = GhosttyApp.shared.usesHostLayerBackground
-    @State private var deferredThemeRefresh: DeferredThemeRefresh?
+    @State private var deferredThemeRefreshOwner = WorkspaceDeferredThemeRefreshOwner()
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 #if DEBUG
@@ -291,6 +302,8 @@ struct WorkspaceContentView: View {
                         workspace: workspace,
                         panel: panel,
                         paneId: paneId,
+                        isWorkspaceVisible: isWorkspaceVisible,
+                        isWorkspaceInputActive: isWorkspaceInputActive,
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
                         isVisibleInUI: isVisibleInUI,
@@ -584,8 +597,7 @@ struct WorkspaceContentView: View {
 
     private func flushDeferredThemeRefreshIfNeeded() {
         guard isWorkspaceVisible,
-              let deferredRefresh = deferredThemeRefresh else { return }
-        deferredThemeRefresh = nil
+              let deferredRefresh = deferredThemeRefreshOwner.takePending() else { return }
         refreshGhosttyAppearanceConfig(
             reason: deferredRefresh.reason,
             backgroundOverride: deferredRefresh.backgroundOverride,
@@ -609,8 +621,7 @@ struct WorkspaceContentView: View {
         forceInitialApply: Bool = false
     ) {
         guard isWorkspaceVisible else {
-            let existing = deferredThemeRefresh
-            deferredThemeRefresh = DeferredThemeRefresh(
+            deferredThemeRefreshOwner.record(WorkspaceDeferredThemeRefresh(
                 reason: reason,
                 backgroundOverride: backgroundOverride,
                 backgroundEventId: backgroundEventId,
@@ -618,11 +629,10 @@ struct WorkspaceContentView: View {
                 notificationPayloadHex: notificationPayloadHex,
                 forceInitialApply: forceInitialApply
                     || reason == "onAppear"
-                    || existing?.forceInitialApply == true
-            )
+            ))
             return
         }
-        deferredThemeRefresh = nil
+        deferredThemeRefreshOwner.clear()
 
         let previousSignature = Self.ghosttyAppearanceSignature(
             config,

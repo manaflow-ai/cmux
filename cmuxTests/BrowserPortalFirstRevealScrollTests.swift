@@ -105,6 +105,28 @@ struct BrowserPortalFirstRevealScrollTests {
         #expect(webView.browserPortalNeedsFirstSizedRevealNudge)
     }
 
+    @Test func macOS27BackgroundPreloadHostStaysOrderedOut() {
+        let window = NSWindow(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+
+        BrowserBackgroundPreloadHost.orderOnScreenIfSafe(
+            window,
+            operatingSystemVersion: OperatingSystemVersion(
+                majorVersion: 27,
+                minorVersion: 0,
+                patchVersion: 0
+            )
+        )
+
+        #expect(!window.isVisible)
+    }
+
     @Test func navigationStartedInVisibleSizedWindowDoesNotSetPendingFirstRevealNudge() throws {
         let fixture = makeWindowFixture()
         let webView = RecordingWebView(

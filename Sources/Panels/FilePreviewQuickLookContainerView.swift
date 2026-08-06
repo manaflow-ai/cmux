@@ -63,9 +63,9 @@ final class FilePreviewQuickLookContainerView: NSView {
             data: ["reason": reason]
         )
         previewView.previewItem = nil
-        // `shouldCloseWithWindow` transfers closure ownership to this host even
-        // when the preview has never entered a window.
-        previewView.close()
+        // `close()` asserts when Quick Look has already deactivated the view.
+        // Clearing the item and releasing the detached view lets Quick Look
+        // complete its own teardown without re-entering that state transition.
         previewView.removeFromSuperview()
         self.previewView = nil
     }

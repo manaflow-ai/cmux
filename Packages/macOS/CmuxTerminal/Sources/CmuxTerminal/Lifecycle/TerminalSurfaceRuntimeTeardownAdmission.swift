@@ -1,40 +1,24 @@
 import Foundation
 
-/// Main-actor admission state for one coordinator's bounded native-free slots.
+/// Main-actor admission state for bounded hibernation teardown reservations.
 @MainActor
 final class TerminalSurfaceRuntimeTeardownAdmission {
-    private var availableExecutionSlots: Set<Int>
-    private var executionSlotByReservationID: [UUID: Int] = [:]
+    private var reservationIDs: Set<UUID> = []
 
-    nonisolated init() {
-        availableExecutionSlots = Set(
-            0..<TerminalSurfaceRuntimeTeardownCoordinator
-                .maximumIsolatedHibernationTeardownCount
-        )
-    }
+    nonisolated init() {}
 
     func reserve() -> TerminalSurfaceRuntimeTeardownReservation? {
-        guard let executionSlot = availableExecutionSlots.min() else {
+        let maximumCount = TerminalSurfaceRuntimeTeardownCoordinator
+            .maximumHibernationTeardownCount
+        guard reservationIDs.count < maximumCount else {
             return nil
         }
         let reservation = TerminalSurfaceRuntimeTeardownReservation()
-        availableExecutionSlots.remove(executionSlot)
-        executionSlotByReservationID[reservation.id] = executionSlot
+        reservationIDs.insert(reservation.id)
         return reservation
     }
 
-    func executionSlot(
-        for reservation: TerminalSurfaceRuntimeTeardownReservation
-    ) -> Int? {
-        executionSlotByReservationID[reservation.id]
-    }
-
     func release(_ reservation: TerminalSurfaceRuntimeTeardownReservation) {
-        guard let executionSlot = executionSlotByReservationID.removeValue(
-            forKey: reservation.id
-        ) else {
-            return
-        }
-        availableExecutionSlots.insert(executionSlot)
+        _ = reservationIDs.remove(reservation.id)
     }
 }

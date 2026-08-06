@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -7022,10 +7022,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                         ],
                     ]
                 )
-            case "surface.send_text":
+            case "surface.respawn":
                 XCTAssertEqual(params["window_id"] as? String, windowId)
                 XCTAssertEqual(params["surface_id"] as? String, surfaceId)
-                XCTAssertEqual(params["text"] as? String, "echo fresh\n")
+                XCTAssertEqual(params["tmux_start_command"] as? String, "echo fresh")
+                let command = params["command"] as? String ?? ""
+                XCTAssertFalse(command.isEmpty, "surface.respawn should include its shell launch command")
+                XCTAssertTrue(command.contains("echo fresh"), command)
+                XCTAssertFalse(command.contains("window:2"), command)
                 return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceId])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
@@ -7049,7 +7053,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
-            ["window.list", "system.identify", "surface.send_text"]
+            ["window.list", "system.identify", "surface.respawn"]
         )
     }
 
@@ -7960,7 +7964,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testCodexPromptSubmitWithForeignCmuxEnvIgnoresStaleMappedSession() throws {
+    func testCodexPromptSubmitWithForeignCmuxEnvFallsBackToMappedSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-foreign-mapped")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -8040,9 +8044,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "{}\n")
+        let visibleMutationCommands = state.commands.filter {
+            $0.contains("set_status ") || $0.contains("notify_target_async") || $0.contains("clear_notifications")
+        }
+        XCTAssertTrue(
+            visibleMutationCommands.contains {
+                $0.contains("set_status codex Running")
+                    && $0.contains("--tab=\(selectedWorkspaceId)")
+                    && $0.contains("--panel=\(selectedSurfaceId)")
+            },
+            "A stale foreign cmux environment should fall back to the mapped session, saw \(state.commands)"
+        )
         XCTAssertFalse(
-            state.commands.contains { $0.contains("set_status codex Running") || $0.contains("notify_target_async") },
-            "Foreign cmux env must not reuse stale mapped sessions, saw \(state.commands)"
+            visibleMutationCommands.contains {
+                $0.contains("--tab=\(foreignWorkspaceId)") || $0.contains("--panel=\(foreignSurfaceId)")
+            },
+            "A stale foreign cmux environment must not receive visible mutations, saw \(state.commands)"
         )
     }
 

@@ -39,7 +39,9 @@ final class DockSplitStore: BonsplitDelegate {
     private let baseDirectoryProvider: () -> String?
     private let remoteBrowserSettingsProvider: () -> DockRemoteBrowserSettings
     private let browserAvailabilityProvider: () -> Bool
-    var panels: [UUID: any Panel] = [:]
+    var panels: [UUID: any Panel] = [:] {
+        willSet { AgentDeliveryTargetPublicationBus.publish() }
+    }
     var surfaceIdToPanelId: [TabID: UUID] = [:]
     private var lastTerminalFontSizeLineage: TerminalFontSizeLineage?
     weak var terminalFontSizeChangeCoordinator:

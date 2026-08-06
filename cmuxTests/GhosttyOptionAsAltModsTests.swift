@@ -20,7 +20,7 @@ import Testing
 /// `= left` the right Option can never compose characters (`…`, `@`, `ą`,
 /// `/`), and with `= right` the right Option is never treated as Alt.
 @MainActor
-@Suite struct GhosttyOptionAsAltModsTests {
+@Suite(.serialized) struct GhosttyOptionAsAltModsTests {
     // MARK: NSEvent flags -> libghostty mods side bits
 
     @Test func rightOptionCarriesAltAndAltRightSideBit() {
@@ -142,34 +142,34 @@ import Testing
 
     // MARK: Option composition per keyboard layout (issue #5993 acceptance)
 
-    @Test func usLayoutOptionSemicolonComposesEllipsis() throws {
-        try expectOptionComposes(
+    @Test func usLayoutOptionSemicolonComposesEllipsis() async throws {
+        try await expectOptionComposes(
             layoutID: "com.apple.keylayout.US",
             keyCode: UInt16(kVK_ANSI_Semicolon),
             expected: "…"
         )
     }
 
-    @Test func germanLayoutOptionLComposesAtSign() throws {
-        try expectOptionComposes(
+    @Test func germanLayoutOptionLComposesAtSign() async throws {
+        try await expectOptionComposes(
             layoutID: "com.apple.keylayout.German",
             keyCode: UInt16(kVK_ANSI_L),
             expected: "@"
         )
     }
 
-    @Test func polishProLayoutOptionAComposesAOgonek() throws {
-        try expectOptionComposes(
+    @Test func polishProLayoutOptionAComposesAOgonek() async throws {
+        try await expectOptionComposes(
             layoutID: "com.apple.keylayout.PolishPro",
             keyCode: UInt16(kVK_ANSI_A),
             expected: "ą"
         )
     }
 
-    @Test func canadianCSALayoutOptionComposesSlash() throws {
+    @Test func canadianCSALayoutOptionComposesSlash() async throws {
         // On Canadian-CSA the key at the ANSI-slash position types "é";
         // Option/AltGr must still produce "/" (issue #5025).
-        try expectOptionComposes(
+        try await expectOptionComposes(
             layoutID: "com.apple.keylayout.Canadian-CSA",
             keyCode: UInt16(kVK_ANSI_Slash),
             expected: "/"
@@ -180,9 +180,9 @@ import Testing
         layoutID: String,
         keyCode: UInt16,
         expected: String
-    ) throws {
+    ) async throws {
         let composed = try #require(
-            KeyboardLayout.textInputCharacter(
+            await KeyboardLayout.textInputCharacter(
                 forKeyCode: keyCode,
                 modifierFlags: .option,
                 inputSourceID: layoutID

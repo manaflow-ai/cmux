@@ -40,6 +40,86 @@ import Testing
     @Test func pathIdentityReportsMissingPath() {
         #expect(transport.pathIdentity(at: UnixSocketFixture.makeTempSocketPath()) == nil)
     }
+
+    @Test func retainedPathVerificationBoundsPreexistingConnectionDrain() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path, backlog: 128)
+        var clientFDs: [Int32] = []
+        defer {
+            for clientFD in clientFDs {
+                Darwin.close(clientFD)
+            }
+            Darwin.close(listenerFD)
+            Darwin.unlink(path)
+        }
+        for _ in 0..<65 {
+            clientFDs.append(try UnixSocketFixture.connectClient(to: path))
+        }
+
+        guard case .pending(let failure) = transport.verifyRetainedBoundPath(
+            at: path,
+            listenerSocket: listenerFD
+        ) else {
+            Issue.record("Expected a bounded retry after draining the maximum connection batch")
+            return
+        }
+        #expect(failure.stage == "verify_bound_path_drain")
+        #expect(failure.errnoCode == EAGAIN)
+    }
+
+    @Test func retainedPathVerificationBoundsInterruptedDrainAccepts() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let listenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.unlink(path)
+        }
+        let faults = TestSocketTransportFaultInjector(
+            repeatingFailuresByStage: ["verify_bound_path_drain_accept": EINTR]
+        )
+        let transport = SocketTransport(faultInjector: faults)
+
+        guard case .pending(let failure) = transport.verifyRetainedBoundPath(
+            at: path,
+            listenerSocket: listenerFD
+        ) else {
+            Issue.record("Expected a bounded retry after repeated interrupted accepts")
+            return
+        }
+        #expect(failure.stage == "verify_bound_path_drain")
+        #expect(failure.errnoCode == EINTR)
+        #expect(faults.invocationCount(for: "verify_bound_path_drain_accept") > 1)
+    }
+
+    @Test func retainedPathVerificationRejectsUncorrelatedQueuedConnectionAfterRebind() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let originalListenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        let queuedOriginalClientFD = try UnixSocketFixture.connectClient(to: path)
+        Darwin.unlink(path)
+        let replacementListenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(queuedOriginalClientFD)
+            Darwin.close(originalListenerFD)
+            Darwin.close(replacementListenerFD)
+            Darwin.unlink(path)
+        }
+        let replacementIdentity = try #require(transport.pathIdentity(at: path))
+        let faults = TestSocketTransportFaultInjector(
+            failuresByStage: ["verify_bound_path_drain_accept": [EAGAIN]]
+        )
+        let transport = SocketTransport(faultInjector: faults)
+
+        guard case .failed(let failure) = transport.verifyRetainedBoundPath(
+            at: path,
+            listenerSocket: originalListenerFD
+        ) else {
+            Issue.record("A connection unrelated to the verifier must not prove path ownership")
+            return
+        }
+        #expect(failure.stage == "verify_bound_path")
+        #expect(failure.errnoCode == ESTALE)
+        #expect(transport.pathIdentity(at: path) == replacementIdentity)
+    }
 }
 
 @Suite struct SocketTransportProbeTests {

@@ -17,7 +17,15 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// The window's workspaces in sidebar order.
     public var tabs: [Tab] = [] {
         willSet { host?.workspaceTabsWillChange(to: newValue) }
+        didSet { unobservedTabsSnapshot = tabs }
     }
+
+    /// Current workspace order without registering an Observation dependency.
+    ///
+    /// Composition owners that bridge this model through another observation
+    /// system use this snapshot to avoid accidentally observing both layers.
+    @ObservationIgnored
+    public private(set) var unobservedTabsSnapshot: [Tab] = []
 
     /// Named groupings of workspaces shown as collapsible sections in the
     /// sidebar. Group order in this array defines section order. Each member
@@ -30,7 +38,12 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
             )
             host?.workspaceGroupsWillChange(to: newValue)
         }
+        didSet { unobservedWorkspaceGroupsSnapshot = workspaceGroups }
     }
+
+    /// Current workspace groups without registering an Observation dependency.
+    @ObservationIgnored
+    public private(set) var unobservedWorkspaceGroupsSnapshot: [WorkspaceGroup] = []
 
     /// O(1) display-title lookup for group anchors in title-churn observers.
     @ObservationIgnored
@@ -39,8 +52,15 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// The selected workspace's id, if any.
     public var selectedTabId: UUID? {
         willSet { host?.selectedWorkspaceIdWillChange(to: newValue) }
-        didSet { host?.selectedWorkspaceIdDidChange(from: oldValue) }
+        didSet {
+            unobservedSelectedTabIdSnapshot = selectedTabId
+            host?.selectedWorkspaceIdDidChange(from: oldValue)
+        }
     }
+
+    /// Current selection without registering an Observation dependency.
+    @ObservationIgnored
+    public private(set) var unobservedSelectedTabIdSnapshot: UUID?
 
     @ObservationIgnored
     private weak var host: (any WorkspacesHosting<Tab>)?

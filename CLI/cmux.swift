@@ -1779,15 +1779,6 @@ final class SocketClient {
         let port: UInt16
     }
 
-    private struct SocketConnectError: Error, CustomStringConvertible {
-        let path: String
-        let errnoValue: Int32
-
-        var description: String {
-            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
-        }
-    }
-
     private struct RelayCredentials {
         let relayID: String
         let relayToken: Data
@@ -1796,6 +1787,7 @@ final class SocketClient {
     private let path: String
     private(set) var socketFD: Int32 = -1
     private var streamReadBuffer = Data()
+    private var streamLineSearchOffset = 0
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1961,6 +1953,7 @@ final class SocketClient {
             socketFD = -1
         }
         streamReadBuffer.removeAll(keepingCapacity: true)
+        streamLineSearchOffset = 0
         lastConfiguredReceiveTimeout = nil
     }
 
@@ -2185,14 +2178,14 @@ final class SocketClient {
 
         Darwin.close(socketFD)
         socketFD = -1
-        throw SocketConnectError(path: path, errnoValue: connectErrno)
+        throw CLISocketConnectError(path: path, errnoCode: connectErrno)
     }
 
     private static func shouldRetryConnect(_ error: Error) -> Bool {
-        guard let error = error as? SocketConnectError else {
+        guard let error = error as? CLISocketConnectError else {
             return false
         }
-        switch error.errnoValue {
+        switch error.errnoCode {
         case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
             return true
         default:
@@ -2981,7 +2974,11 @@ final class SocketClient {
             try configureReceiveTimeout(45)
         }
         while true {
-            if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
+            let searchStart = streamReadBuffer.index(
+                streamReadBuffer.startIndex,
+                offsetBy: min(streamLineSearchOffset, streamReadBuffer.count)
+            )
+            if let newlineIndex = streamReadBuffer[searchStart...].firstIndex(of: 0x0A) {
                 let lineByteCount = streamReadBuffer.distance(
                     from: streamReadBuffer.startIndex,
                     to: newlineIndex
@@ -2994,8 +2991,10 @@ final class SocketClient {
                     throw CLIError(message: "Invalid UTF-8 event stream frame")
                 }
                 streamReadBuffer.removeSubrange(...newlineIndex)
+                streamLineSearchOffset = 0
                 return line.trimmingCharacters(in: .whitespacesAndNewlines)
             }
+            streamLineSearchOffset = streamReadBuffer.count
             guard streamReadBuffer.count < maxBytes else {
                 throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
             }
@@ -31251,6 +31250,46 @@ export default CMUXSessionRestore;
                 telemetry: telemetry
             )
         }
+        func retryAmbientSessionStartTarget() -> (workspaceId: String, surfaceId: String)? {
+            guard hookWsFlag == nil,
+                  explicitSurfaceFlag == nil,
+                  let directWorkspaceArg = nonEmptyClaudeHookIdentifier(directWorkspaceArg),
+                  let directSurfaceArg = nonEmptyClaudeHookIdentifier(directSurfaceArg) else {
+                return nil
+            }
+            telemetry.breadcrumb("\(def.name)-hook.session-start.target-await")
+            let target = awaitAgentHookSessionStartTarget(
+                subcommand: subcommand,
+                workspaceId: directWorkspaceArg,
+                surfaceId: directSurfaceArg
+            ) { workspaceId, surfaceId in
+                guard let payload = try? client.sendV2(
+                    method: "agent.wait_for_delivery_target",
+                    params: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                    ],
+                    responseTimeout: 1.25
+                ),
+                      payload["source"] as? String == "surface",
+                      let resolvedWorkspaceId = normalizedHandleValue(
+                          payload["workspace_id"] as? String
+                      ),
+                      isUUID(resolvedWorkspaceId),
+                      let resolvedSurfaceId = normalizedHandleValue(
+                          payload["surface_id"] as? String
+                      ),
+                      isUUID(resolvedSurfaceId),
+                      resolvedSurfaceId.caseInsensitiveCompare(surfaceId) == .orderedSame else {
+                    return nil
+                }
+                return (resolvedWorkspaceId, resolvedSurfaceId)
+            }
+            if target != nil {
+                telemetry.breadcrumb("\(def.name)-hook.session-start.target-await-resolved")
+            }
+            return target
+        }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
             guard !hasUnusableDirectBinding else {
 #if DEBUG
@@ -31382,7 +31421,8 @@ export default CMUXSessionRestore;
         switch action {
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+            guard let target = resolveAgentHookTarget(mapped: mapped)
+                ?? retryAmbientSessionStartTarget() else {
                 reportTargetResolutionFailure()
                 didSendFeedTelemetry = true
                 print("{}")

@@ -36,19 +36,14 @@ extension SocketACLReloadRegressionTests {
 
         let authorizationGeneration = controller.socketServer.connectionAuthorizationGeneration
         if revokedBeforeHandling { controller.socketServer.reconfigure(accessMode: .automation) }
-        let yieldResult = controller.socketServer.connectionsContinuation.yield(
+        let delivered = controller.socketServer.deliverAcceptedConnection(
             ControlConnection(
                 socket: sockets.server,
                 peerProcessID: revokedBeforeHandling ? getpid() : 1,
                 authorizationGeneration: authorizationGeneration
             )
         )
-        if case .enqueued = yieldResult {
-            // Ownership transferred to TerminalController's connection consumer.
-        } else {
-            close(sockets.server)
-            Issue.record("Failed to enqueue the synthetic denied connection")
-        }
+        #expect(delivered, "Failed to deliver the synthetic denied connection")
 
         let response = try readLine(from: sockets.client)
         #expect(response == TerminalController.socketClientAccessDeniedResponse)
@@ -78,7 +73,7 @@ extension SocketACLReloadRegressionTests {
         )
 
         let authorization = controller.socketServer.acceptedConnectionAuthorization()
-        let yieldResult = controller.socketServer.connectionsContinuation.yield(
+        let delivered = controller.socketServer.deliverAcceptedConnection(
             ControlConnection(
                 socket: sockets.server,
                 peerProcessID: getpid(),
@@ -86,12 +81,7 @@ extension SocketACLReloadRegressionTests {
                 authorizationRevocationSignal: authorization.revocationSignal
             )
         )
-        if case .enqueued = yieldResult {
-            // Ownership transferred to TerminalController's connection consumer.
-        } else {
-            close(sockets.server)
-            Issue.record("Failed to enqueue the synthetic event-stream connection")
-        }
+        #expect(delivered, "Failed to deliver the synthetic event-stream connection")
 
         let acknowledgement = try readLine(from: sockets.client)
         let acknowledgementData = try #require(acknowledgement.data(using: .utf8))

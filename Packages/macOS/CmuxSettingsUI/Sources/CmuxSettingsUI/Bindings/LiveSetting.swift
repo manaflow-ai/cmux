@@ -1,6 +1,11 @@
 import CmuxSettings
 import SwiftUI
 
+/// Immutable catalog metadata shared by every wrapper instance. Constructing
+/// the full catalog for each transient SwiftUI view value allocates every key
+/// and JSON path even though a wrapper resolves only one key path.
+private let liveSettingCatalog = SettingCatalog()
+
 /// Property wrapper that binds a SwiftUI view to one catalog setting, holding
 /// the latest value in its own `@State` so it stays reactive in **any** host —
 /// including the main window's AppKit `NSHostingView`.
@@ -36,7 +41,10 @@ import SwiftUI
 public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     @Environment(\.settingsRuntime) private var runtime
     @State private var value: Value
-    @State private var driver = SettingReadDriver<Value>()
+    // SwiftUI recreates DynamicProperty values during diffing. Keep the
+    // heavyweight stream owner nil in discarded candidates and allocate it
+    // only after SwiftUI installs this wrapper's persistent State storage.
+    @State private var driver: SettingReadDriver<Value>?
 
     /// Builds the change stream for this key against a resolved runtime.
     private let makeStream: @Sendable (SettingsRuntime) -> AsyncStream<Value>
@@ -47,7 +55,7 @@ public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     ///
     /// - Parameter keyPath: Key path to the catalog's ``DefaultsKey`` for this value.
     public init(_ keyPath: KeyPath<SettingCatalog, DefaultsKey<Value>>) {
-        let key = SettingCatalog()[keyPath: keyPath]
+        let key = liveSettingCatalog[keyPath: keyPath]
         _value = State(initialValue: key.defaultValue)
         makeStream = { runtime in
             runtime.userDefaultsStore.values(for: key)
@@ -61,7 +69,7 @@ public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     ///
     /// - Parameter keyPath: Key path to the catalog's ``JSONKey`` for this value.
     public init(_ keyPath: KeyPath<SettingCatalog, JSONKey<Value>>) {
-        let key = SettingCatalog()[keyPath: keyPath]
+        let key = liveSettingCatalog[keyPath: keyPath]
         _value = State(initialValue: key.defaultValue)
         makeStream = { runtime in
             runtime.jsonStore.values(for: key)
@@ -82,7 +90,7 @@ public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     ///
     /// - Parameter keyPath: Key path to the catalog's ``SecretFileKey``.
     public init(_ keyPath: KeyPath<SettingCatalog, SecretFileKey>) where Value == String {
-        let key = SettingCatalog()[keyPath: keyPath]
+        let key = liveSettingCatalog[keyPath: keyPath]
         _value = State(initialValue: key.defaultValue)
         makeStream = { runtime in
             runtime.secretStore.values(for: key)
@@ -130,7 +138,15 @@ public struct LiveSetting<Value: SettingCodable>: DynamicProperty {
     /// executor check on every view update.
     public func update() {
         guard let runtime else { return }
+        let activeDriver: SettingReadDriver<Value>
+        if let driver {
+            activeDriver = driver
+        } else {
+            let newDriver = SettingReadDriver<Value>()
+            driver = newDriver
+            activeDriver = newDriver
+        }
         let binding = $value
-        driver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
+        activeDriver.activate({ makeStream(runtime) }) { binding.wrappedValue = $0 }
     }
 }

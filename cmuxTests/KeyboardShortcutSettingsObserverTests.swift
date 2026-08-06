@@ -1,3 +1,4 @@
+import AppKit
 import Carbon
 import Foundation
 import Testing
@@ -22,34 +23,34 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(observer.revision == expectedRevision)
     }
 
-    @Test func globalSearchShortcutUsesSnapshotAndReloadsAfterSettingsChange() {
+    @Test func globalSearchShortcutUsesSnapshotAndReloadsAfterSettingsChange() async {
         let notificationCenter = NotificationCenter()
-        var configuredShortcut = StoredShortcut(
-            key: "f",
-            command: true,
-            shift: false,
-            option: true,
-            control: false
+        let state = ShortcutProviderState(
+            configuredShortcut: StoredShortcut(
+                key: "f",
+                command: true,
+                shift: false,
+                option: true,
+                control: false
+            )
         )
-        var globalSearchLookupCount = 0
         let observer = KeyboardShortcutSettingsObserver(
             notificationCenter: notificationCenter,
-            distributedNotificationCenter: DistributedNotificationCenter(),
             shortcutProvider: { action in
-                guard action == .globalSearch else { return .unbound }
-                globalSearchLookupCount += 1
-                return configuredShortcut
+                state.shortcut(for: action)
             }
         )
+        observer.start()
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        let initialLookupCount = globalSearchLookupCount
+        #expect(observer.globalSearchShortcut == state.configuredShortcut)
+        let initialLookupCount = state.globalSearchLookupCount
         for _ in 0..<100 {
             _ = observer.globalSearchShortcut
         }
-        #expect(globalSearchLookupCount == initialLookupCount)
+        #expect(state.globalSearchLookupCount == initialLookupCount)
 
-        configuredShortcut = StoredShortcut(
+        state.configuredShortcut = StoredShortcut(
             key: "g",
             command: true,
             shift: true,
@@ -61,18 +62,38 @@ extension GlobalSearchShortcutBehaviorTests {
             name: KeyboardShortcutSettings.didChangeNotification,
             object: nil
         )
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        #expect(globalSearchLookupCount == initialLookupCount + 1)
+        #expect(observer.globalSearchShortcut == state.configuredShortcut)
+        #expect(state.globalSearchLookupCount == initialLookupCount + 1)
 
-        configuredShortcut = .unbound
+        state.configuredShortcut = .unbound
         notificationCenter.post(
             name: KeyboardShortcutSettings.didChangeNotification,
             object: nil
         )
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
         #expect(observer.globalSearchShortcut == .unbound)
-        #expect(globalSearchLookupCount == initialLookupCount + 2)
+        #expect(state.globalSearchLookupCount == initialLookupCount + 2)
+    }
+
+    @Test func detachedShortcutRefreshUsesPreparedKeyboardLayoutSnapshot() async {
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: NotificationCenter(),
+            shortcutProvider: { action in
+                _ = KeyboardLayout.shortcutCharacterProvider()(0, [])
+                return action.defaultShortcut
+            }
+        )
+
+        observer.start()
+        await observer.waitUntilShortcutSnapshotIsIdle()
+
+        #expect(
+            observer.globalSearchShortcut
+                == KeyboardShortcutSettings.Action.globalSearch.defaultShortcut
+        )
     }
 
     @Test func legacyMediaKeyGlobalSearchBindingFallsBackToDefault() throws {
@@ -109,28 +130,27 @@ extension GlobalSearchShortcutBehaviorTests {
         #expect(KeyboardShortcutSettings.shortcut(for: action) == action.defaultShortcut)
     }
 
-    @Test func inputSourceChangeRefreshesGlobalSearchSnapshot() async {
+    @Test func completedKeyboardLayoutChangeRefreshesGlobalSearchSnapshot() async {
         let notificationCenter = NotificationCenter()
-        let distributedNotificationCenter = DistributedNotificationCenter.default()
-        var configuredShortcut = StoredShortcut(
-            key: "f",
-            command: true,
-            shift: false,
-            option: true,
-            control: false
+        let state = ShortcutProviderState(
+            configuredShortcut: StoredShortcut(
+                key: "f",
+                command: true,
+                shift: false,
+                option: true,
+                control: false
+            )
         )
-        var globalSearchLookupCount = 0
         let observer = KeyboardShortcutSettingsObserver(
             notificationCenter: notificationCenter,
-            distributedNotificationCenter: distributedNotificationCenter,
             shortcutProvider: { action in
-                guard action == .globalSearch else { return .unbound }
-                globalSearchLookupCount += 1
-                return configuredShortcut
+                state.shortcut(for: action)
             }
         )
-        let initialLookupCount = globalSearchLookupCount
-        configuredShortcut = StoredShortcut(
+        observer.start()
+        await observer.waitUntilShortcutSnapshotIsIdle()
+        let initialLookupCount = state.globalSearchLookupCount
+        state.configuredShortcut = StoredShortcut(
             key: "g",
             command: true,
             shift: true,
@@ -138,22 +158,343 @@ extension GlobalSearchShortcutBehaviorTests {
             control: false
         )
 
-        distributedNotificationCenter.postNotificationName(
-            Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
-            object: nil,
-            userInfo: nil,
-            deliverImmediately: true
-        )
-        var yields = 0
-        while globalSearchLookupCount == initialLookupCount, yields < 1_000 {
-            await Task.yield()
-            yields += 1
-        }
+        notificationCenter.post(name: KeyboardLayout.didChangeNotification, object: nil)
+        await observer.waitUntilShortcutSnapshotIsIdle()
 
-        #expect(observer.globalSearchShortcut == configuredShortcut)
-        #expect(globalSearchLookupCount == initialLookupCount + 1)
-        #expect(observer.revision == 1)
+        #expect(observer.globalSearchShortcut == state.configuredShortcut)
+        #expect(state.globalSearchLookupCount == initialLookupCount + 1)
+        #expect(observer.revision >= 2)
     }
 
+    @Test func constructionAndPreStartNotificationsDoNotReadPersistence() async {
+        let notificationCenter = NotificationCenter()
+        let state = ShortcutProviderState(configuredShortcut: .unbound)
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: notificationCenter,
+            shortcutProvider: { action in
+                state.shortcut(for: action)
+            }
+        )
+
+        notificationCenter.post(
+            name: KeyboardShortcutSettings.didChangeNotification,
+            object: nil
+        )
+        notificationCenter.post(name: KeyboardLayout.didChangeNotification, object: nil)
+        await observer.waitUntilShortcutSnapshotIsIdle()
+
+        #expect(
+            state.globalSearchLookupCount == 0,
+            "Observer construction or pre-start notifications read shortcut persistence"
+        )
+
+        observer.start()
+        await observer.waitUntilShortcutSnapshotIsIdle()
+        #expect(state.globalSearchLookupCount == 1)
+    }
+
+    @Test func blockedShortcutProviderDoesNotBlockMainActorDuringObserverStartup() async {
+        let probe = BlockedShortcutProviderProbe()
+        Task.detached {
+            probe.waitUntilProviderStarts()
+            await probe.waitForMainActorHeartbeatOrDeadline()
+            probe.recordHeartbeatBeforeRelease()
+            probe.releaseProvider()
+        }
+
+        Task { @MainActor in
+            probe.recordMainActorHeartbeat()
+        }
+
+        let observer = KeyboardShortcutSettingsObserver(
+            notificationCenter: NotificationCenter(),
+            shortcutProvider: { action in
+                if action == .globalSearch {
+                    probe.blockProvider()
+                }
+                return action.defaultShortcut
+            }
+        )
+        observer.start()
+
+        await Task.yield()
+        await probe.waitUntilRecorded()
+
+        #expect(
+            probe.didHeartbeatBeforeProviderRelease,
+            "Shortcut persistence loading blocked the MainActor during observer startup"
+        )
+        _ = observer
+    }
+
+    @Test func blockedKeyboardLayoutLoaderKeepsMainActorResponsiveAndReplacesSnapshot() async {
+        let gate = DispatchSemaphore(value: 0)
+        let initial = KeyboardLayoutSnapshot.testFixture(id: "old", character: "a")
+        let replacement = KeyboardLayoutSnapshot.testFixture(id: "new", character: "q")
+        let cache = KeyboardLayoutSnapshotCache(initialSnapshot: initial) {
+            gate.wait()
+            return replacement
+        }
+
+        cache.requestRefresh()
+        await Task { @MainActor in }.value
+
+        #expect(cache.snapshot.inputSourceID == "old")
+        #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "a")
+
+        gate.signal()
+        await cache.waitUntilIdle()
+
+        #expect(cache.snapshot.inputSourceID == "new")
+        #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "q")
+    }
+
+    @Test func keyboardLayoutLoaderUsesInjectedInputSourceReader() {
+        let loader = KeyboardLayoutSystemLoader(
+            inputSourceReader: EmptyKeyboardInputSourceReader()
+        )
+
+        #expect(loader.loadCurrentSnapshot() == nil)
+    }
+
+    @Test func keyboardLayoutRefreshStormDropsStaleResultAndCoalescesReloads() async {
+        let loader = SequencedKeyboardLayoutSnapshotLoader()
+        let cache = KeyboardLayoutSnapshotCache(
+            initialSnapshot: .testFixture(id: "initial", character: "a"),
+            loader: loader.load
+        )
+
+        cache.requestRefresh()
+        for _ in 0..<100 {
+            cache.requestRefresh()
+        }
+        loader.releaseFirstLoad()
+        await cache.waitUntilIdle()
+
+        #expect(loader.loadCount == 2)
+        #expect(cache.snapshot.inputSourceID == "fresh")
+        #expect(cache.snapshot.shortcutCharacter(forKeyCode: 0, modifierFlags: []) == "f")
+    }
+
+    @Test func refreshRequestedByInstallHandlerRunsBeforeCacheBecomesIdle() async {
+        let harness = ReentrantSnapshotCacheHarness()
+
+        harness.cache.requestRefresh()
+        await harness.cache.waitUntilIdle()
+
+        #expect(harness.loader.loadCount == 2)
+        #expect(harness.cache.snapshot == 2)
+        #expect(harness.installedSnapshots == [1, 2])
+    }
+
+    }
+}
+
+private final class BlockedShortcutProviderProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let providerStarted = DispatchSemaphore(value: 0)
+    private let providerRelease = DispatchSemaphore(value: 0)
+    private var heartbeat = false
+    private var recordedHeartbeat: Bool?
+
+    var didHeartbeatBeforeProviderRelease: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedHeartbeat == true
+    }
+
+    func blockProvider() {
+        providerStarted.signal()
+        providerRelease.wait()
+    }
+
+    func waitUntilProviderStarts() {
+        providerStarted.wait()
+    }
+
+    func releaseProvider() {
+        providerRelease.signal()
+    }
+
+    func recordMainActorHeartbeat() {
+        lock.lock()
+        heartbeat = true
+        lock.unlock()
+    }
+
+    func recordHeartbeatBeforeRelease() {
+        lock.lock()
+        recordedHeartbeat = heartbeat
+        lock.unlock()
+    }
+
+    func waitForMainActorHeartbeatOrDeadline(timeout: Duration = .seconds(1)) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            lock.lock()
+            let didHeartbeat = heartbeat
+            lock.unlock()
+            if didHeartbeat { return }
+            await Task.yield()
+        }
+    }
+
+    func waitUntilRecorded() async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            lock.lock()
+            let didRecord = recordedHeartbeat != nil
+            lock.unlock()
+            if didRecord { return }
+            await Task.yield()
+        }
+    }
+}
+
+private final class ShortcutProviderState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedConfiguredShortcut: StoredShortcut
+    private var storedGlobalSearchLookupCount = 0
+
+    init(configuredShortcut: StoredShortcut) {
+        storedConfiguredShortcut = configuredShortcut
+    }
+
+    var configuredShortcut: StoredShortcut {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedConfiguredShortcut
+        }
+        set {
+            lock.lock()
+            storedConfiguredShortcut = newValue
+            lock.unlock()
+        }
+    }
+
+    var globalSearchLookupCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedGlobalSearchLookupCount
+    }
+
+    func shortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+        lock.lock()
+        defer { lock.unlock() }
+        guard action == .globalSearch else { return .unbound }
+        storedGlobalSearchLookupCount += 1
+        return storedConfiguredShortcut
+    }
+}
+
+private struct EmptyKeyboardInputSourceReader: KeyboardInputSourceReading {
+    func currentInputSource() -> TISInputSource? {
+        nil
+    }
+
+    func currentASCIICapableInputSource() -> TISInputSource? {
+        nil
+    }
+}
+
+@MainActor
+private final class ReentrantSnapshotCacheHarness {
+    let loader: IncrementingSnapshotLoader
+    let cache: GenerationCoalescingSnapshotCache<Int>
+    private let coordinator: ReentrantSnapshotRefreshCoordinator
+
+    var installedSnapshots: [Int] {
+        coordinator.installedSnapshots
+    }
+
+    init() {
+        let loader = IncrementingSnapshotLoader()
+        let coordinator = ReentrantSnapshotRefreshCoordinator()
+        let cache = GenerationCoalescingSnapshotCache<Int>(
+            initialSnapshot: 0,
+            loader: loader.load,
+            installHandler: { [weak coordinator] snapshot in
+                coordinator?.install(snapshot)
+            }
+        )
+        coordinator.cache = cache
+        self.loader = loader
+        self.cache = cache
+        self.coordinator = coordinator
+    }
+}
+
+@MainActor
+private final class ReentrantSnapshotRefreshCoordinator {
+    weak var cache: GenerationCoalescingSnapshotCache<Int>?
+    private(set) var installedSnapshots: [Int] = []
+
+    func install(_ snapshot: Int) {
+        installedSnapshots.append(snapshot)
+        if snapshot == 1 {
+            cache?.requestRefresh()
+        }
+    }
+}
+
+private final class IncrementingSnapshotLoader: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedLoadCount = 0
+
+    var loadCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLoadCount
+    }
+
+    func load() -> Int? {
+        lock.lock()
+        defer { lock.unlock() }
+        storedLoadCount += 1
+        return storedLoadCount
+    }
+}
+
+private extension KeyboardLayoutSnapshot {
+    static func testFixture(id: String, character: String) -> Self {
+        Self(
+            inputSourceID: id,
+            shortcutCharacters: [
+                .init(keyCode: 0, modifierFlags: []): character,
+            ],
+            textInputCharacters: [:]
+        )
+    }
+}
+
+private final class SequencedKeyboardLayoutSnapshotLoader: @unchecked Sendable {
+    private let lock = NSLock()
+    private let firstLoadGate = DispatchSemaphore(value: 0)
+    private var storedLoadCount = 0
+
+    var loadCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLoadCount
+    }
+
+    func releaseFirstLoad() {
+        firstLoadGate.signal()
+    }
+
+    func load() -> KeyboardLayoutSnapshot? {
+        lock.lock()
+        storedLoadCount += 1
+        let loadNumber = storedLoadCount
+        lock.unlock()
+
+        if loadNumber == 1 {
+            firstLoadGate.wait()
+            return .testFixture(id: "stale", character: "s")
+        }
+        return .testFixture(id: "fresh", character: "f")
     }
 }

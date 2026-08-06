@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettingsUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -18,6 +19,22 @@ import Testing
 enum SettingsWindowSharedStateSuites {}
 
 extension SettingsWindowSharedStateSuites {
+    @MainActor
+    static func waitUntil(
+        timeout: Duration = .seconds(2),
+        _ predicate: () -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if predicate() {
+                return true
+            }
+            await Task.yield()
+        }
+        return predicate()
+    }
+
     /// Unit coverage for ``SettingsWindowPresenter``'s AppKit-owned lifecycle
     /// (issue #7777) using an injected window factory. End-to-end coverage of the
     /// real factory path lives in `SettingsWindowOpenRegressionTests`.
@@ -84,7 +101,7 @@ extension SettingsWindowSharedStateSuites {
             }
         }
 
-        @Test func closingReleasesTheWindowContent() {
+        @Test func closingRetiresTheWholeWindowWithoutDismantlingContent() {
             withCleanSettingsWindows {
                 let presenter = SettingsWindowPresenter(windowFactory: { _ in makeFactoryWindow() })
 
@@ -94,9 +111,12 @@ extension SettingsWindowSharedStateSuites {
 
                 window?.close()
 
-                // The content tree is released with the window so a closed
-                // Settings cannot linger half-alive (#4964 / #5321 classes).
-                #expect(window?.contentViewController == nil)
+                // Retire the complete graph. Clearing hosted content from a
+                // willClose callback can race AppKit/SwiftUI teardown; the
+                // presenter instead drops identity and ownership so this
+                // externally-retained window remains internally consistent.
+                #expect(window?.identifier == nil)
+                #expect(window?.contentViewController != nil)
             }
         }
 
@@ -200,6 +220,154 @@ extension SettingsWindowSharedStateSuites {
                 // window regardless of notification-observer order.
                 #expect(window.isClosingSettingsWindow)
             }
+        }
+
+        @Test func repeatedOpenResizeToggleCloseDoesNotLeakOrWedge() async throws {
+            let defaults = UserDefaults.standard
+            let frameAutosaveKey =
+                "NSWindow Frame \(SettingsWindowPresenter.windowIdentifier)"
+            let previousFrameAutosaveValue = defaults.object(forKey: frameAutosaveKey)
+            closeSettingsWindows()
+            defer {
+                closeSettingsWindows()
+                if let previousFrameAutosaveValue {
+                    defaults.set(previousFrameAutosaveValue, forKey: frameAutosaveKey)
+                } else {
+                    defaults.removeObject(forKey: frameAutosaveKey)
+                }
+            }
+
+            let inset = SettingsWindowPresenter.visibleAreaInset
+            let referenceVisibleFrame = try #require(
+                (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+            )
+            let smallFactoryFrame = NSRect(x: 0, y: 0, width: 500, height: 300)
+            let largeFactoryFrame = NSRect(
+                x: referenceVisibleFrame.minX - 120,
+                y: referenceVisibleFrame.minY - 120,
+                width: referenceVisibleFrame.width * 2,
+                height: referenceVisibleFrame.height * 2
+            )
+            var requestedFactoryFrame = smallFactoryFrame
+            var expectedVisibleFrame = referenceVisibleFrame
+            var factoryCallCount = 0
+            let presenter = SettingsWindowPresenter(windowFactory: { _ in
+                factoryCallCount += 1
+                let window = makeFactoryWindow(contentRect: requestedFactoryFrame)
+                window.factoryToken = factoryCallCount
+                window.toolbar = window.sidebarToolbarController.makeToolbar()
+                return window
+            })
+            let toggleRecorder = SettingsLifecycleSidebarToggleRecorder()
+            defer { toggleRecorder.stopObserving() }
+            var seenFactoryTokens: Set<Int> = []
+            var expectedRestoredFrame: NSRect?
+
+            for cycle in 0..<100 {
+                let shouldRestorePreviousFrame = !cycle.isMultiple(of: 2)
+                if !shouldRestorePreviousFrame {
+                    defaults.removeObject(forKey: frameAutosaveKey)
+                    requestedFactoryFrame = cycle.isMultiple(of: 4)
+                        ? smallFactoryFrame
+                        : largeFactoryFrame
+                    expectedVisibleFrame = try #require(
+                        SettingsWindowPresenter.targetVisibleFrame(
+                            windowFrame: requestedFactoryFrame,
+                            screens: NSScreen.screens.map {
+                                (frame: $0.frame, visibleFrame: $0.visibleFrame)
+                            },
+                            mouseLocation: NSEvent.mouseLocation,
+                            fallbackVisibleFrame: (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+                        )
+                    )
+                }
+
+                #expect(presenter.show() == .presented)
+                #expect(await SettingsWindowSharedStateSuites.waitUntil { visibleSettingsWindows().count == 1 })
+
+                let retiredWindow = try autoreleasepool {
+                    let window = try #require(visibleSettingsWindow() as? TestSettingsWindow)
+                    let availableWidth = max(
+                        SettingsWindowPresenter.minimumSize.width,
+                        expectedVisibleFrame.width - 2 * inset
+                    )
+                    let availableHeight = max(
+                        SettingsWindowPresenter.minimumSize.height,
+                        expectedVisibleFrame.height - 2 * inset
+                    )
+                    #expect(window.factoryToken == cycle + 1)
+                    #expect(seenFactoryTokens.insert(window.factoryToken).inserted)
+                    #expect(window.contentViewController != nil || window.contentView != nil)
+                    #expect(window.frame.width >= SettingsWindowPresenter.minimumSize.width)
+                    #expect(window.frame.height >= SettingsWindowPresenter.minimumSize.height)
+                    #expect(window.frame.width <= availableWidth)
+                    #expect(window.frame.height <= availableHeight)
+                    #expect(window.frame.minX >= expectedVisibleFrame.minX + inset)
+                    #expect(window.frame.minY >= expectedVisibleFrame.minY + inset)
+                    #expect(window.frame.maxX <= expectedVisibleFrame.maxX - inset)
+                    #expect(window.frame.maxY <= expectedVisibleFrame.maxY - inset)
+                    if shouldRestorePreviousFrame {
+                        let restoredFrame = try #require(expectedRestoredFrame)
+                        #expect(abs(window.frame.minX - restoredFrame.minX) < 1)
+                        #expect(abs(window.frame.minY - restoredFrame.minY) < 1)
+                        #expect(abs(window.frame.width - restoredFrame.width) < 1)
+                        #expect(abs(window.frame.height - restoredFrame.height) < 1)
+                    }
+
+                    let resizedWidth = min(
+                        availableWidth,
+                        SettingsWindowPresenter.minimumSize.width + CGFloat(cycle % 7) * 20
+                    )
+                    let resizedHeight = min(
+                        availableHeight,
+                        SettingsWindowPresenter.minimumSize.height + CGFloat(cycle % 5) * 20
+                    )
+                    window.setFrame(
+                        NSRect(
+                            x: expectedVisibleFrame.midX - resizedWidth / 2,
+                            y: expectedVisibleFrame.midY - resizedHeight / 2,
+                            width: resizedWidth,
+                            height: resizedHeight
+                        ),
+                        display: false
+                    )
+                    #expect(window.frame.width == resizedWidth)
+                    #expect(window.frame.height == resizedHeight)
+                    window.saveFrame(usingName: SettingsWindowPresenter.windowIdentifier)
+                    expectedRestoredFrame = window.frame
+
+                    #expect(presenter.show() == .presented)
+                    #expect(visibleSettingsWindows().count == 1)
+                    #expect(visibleSettingsWindow() === window)
+
+                    let toggleItem = try #require(
+                        window.toolbar?.items.first {
+                            $0.itemIdentifier == SettingsSidebarToolbarController.toggleSidebarItemIdentifier
+                        }
+                    )
+                    let action = try #require(toggleItem.action)
+                    #expect(NSApp.sendAction(action, to: toggleItem.target, from: toggleItem))
+                    #expect(toggleRecorder.receivedCount == cycle + 1)
+
+                    let weakWindow = WeakSettingsWindowBox(window)
+                    window.close()
+                    #expect(window.identifier == nil)
+                    return weakWindow
+                }
+                #expect(await SettingsWindowSharedStateSuites.waitUntil {
+                    autoreleasepool {
+                        _ = RunLoop.main.run(
+                            mode: .default,
+                            before: Date(timeIntervalSinceNow: 0.001)
+                        )
+                    }
+                    return visibleSettingsWindows().isEmpty && retiredWindow.window == nil
+                })
+                #expect(retiredWindow.window == nil)
+            }
+
+            #expect(factoryCallCount == 100)
+            #expect(toggleRecorder.receivedCount == 100)
         }
 
         // MARK: - Geometry repair on show
@@ -470,7 +638,11 @@ extension SettingsWindowSharedStateSuites {
         // MARK: - Helpers
 
         private func visibleSettingsWindow() -> NSWindow? {
-            NSApp.windows.first {
+            visibleSettingsWindows().first
+        }
+
+        private func visibleSettingsWindows() -> [NSWindow] {
+            NSApp.windows.filter {
                 $0.identifier?.rawValue == SettingsWindowPresenter.windowIdentifier && $0.isVisible
             }
         }
@@ -511,6 +683,7 @@ private func makeFactoryWindow(
 
 @MainActor
 private final class TestSettingsWindow: SettingsHostWindow {
+    var factoryToken = 0
     var refusesToBecomeVisible = false
     var makeKeyAndOrderFrontCallCount = 0
 
@@ -580,6 +753,39 @@ private final class ReopenSettingsOnWillClose: NSObject {
     @objc
     private func windowWillClose(_ notification: Notification) {
         reopen()
+    }
+}
+
+@MainActor
+private final class SettingsLifecycleSidebarToggleRecorder: NSObject {
+    private(set) var receivedCount = 0
+
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didReceiveToggle(_:)),
+            name: SettingsWindowRoot.sidebarToggleRequestName,
+            object: nil
+        )
+    }
+
+    func stopObserving() {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc
+    private func didReceiveToggle(_ notification: Notification) {
+        receivedCount += 1
+    }
+}
+
+@MainActor
+private final class WeakSettingsWindowBox {
+    weak var window: NSWindow?
+
+    init(_ window: NSWindow) {
+        self.window = window
     }
 }
 #endif

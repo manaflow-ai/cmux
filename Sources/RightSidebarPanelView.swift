@@ -220,7 +220,9 @@ struct RightSidebarPanelView: View {
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 ForEach(modeBarItems) { item in
-                    let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
+                    let shortcut = item.shortcutAction.map {
+                        keyboardShortcutSettingsObserver.shortcut(for: $0)
+                    } ?? .unbound
                     ModeBarButton(
                         item: item,
                         isSelected: item.isSelected(
@@ -294,7 +296,7 @@ struct RightSidebarPanelView: View {
 
     private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
+        let shortcut = keyboardShortcutSettingsObserver.shortcut(for: .toggleRightSidebar)
         let showsShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,
@@ -316,7 +318,8 @@ struct RightSidebarPanelView: View {
             )
             .safeHelp(
                 KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
-                    String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
+                    String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar"),
+                    shortcut: shortcut
                 )
             )
             .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
@@ -348,7 +351,7 @@ struct RightSidebarPanelView: View {
     @ViewBuilder
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
+        let shortcut = keyboardShortcutSettingsObserver.shortcut(for: .focusRightSidebar)
         let showsFocusShortcutHint = ShortcutHintTitlebarPolicy.shouldShow(
             shortcut: shortcut,
             alwaysShowShortcutHints: alwaysShowShortcutHints,

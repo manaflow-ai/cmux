@@ -337,7 +337,6 @@ final class WindowBrowserHostView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        invalidateSplitDividerRegionCache()
         let regions = splitDividerRegions()
         let expansion = PortalSplitDividerRegion.dividerHitExpansion
         for region in regions {
@@ -3935,12 +3934,21 @@ enum BrowserWindowPortalRegistry {
     }
 
     /// Update visibleInUI/zPriority on an existing portal entry without rebinding.
-    /// Called when a bind is deferred because the new host is temporarily off-window.
-    static func updateEntryVisibility(for webView: WKWebView, visibleInUI: Bool, zPriority: Int) {
+    /// Returns whether the registry state changed so callers can synchronize presentation once.
+    @discardableResult
+    static func updateEntryVisibility(for webView: WKWebView, visibleInUI: Bool, zPriority: Int) -> Bool {
         let webViewId = ObjectIdentifier(webView)
         guard let windowId = webViewToWindowId[webViewId],
-              let portal = portalsByWindowId[windowId] else { return }
-        if portal.updateEntryVisibility(forWebViewId: webViewId, visibleInUI: visibleInUI, zPriority: zPriority) { postRegistryDidChange(for: webView) }
+              let portal = portalsByWindowId[windowId] else { return false }
+        let didChange = portal.updateEntryVisibility(
+            forWebViewId: webViewId,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority
+        )
+        if didChange {
+            postRegistryDidChange(for: webView)
+        }
+        return didChange
     }
 
     static func isWebView(_ webView: WKWebView, boundTo anchorView: NSView) -> Bool {

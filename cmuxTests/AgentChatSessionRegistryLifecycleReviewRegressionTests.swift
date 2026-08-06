@@ -2,6 +2,7 @@ import CMUXAgentLaunch
 import CmuxAgentChat
 import Foundation
 @preconcurrency import Network
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -193,7 +194,7 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     }
 
     @MainActor
-    @Test func endedSessionListabilityRetriesTransientMissingTranscriptAfterRetryWindow() throws {
+    @Test func endedSessionListabilityRetriesTransientMissingTranscriptAfterRetryWindow() async throws {
         let home = try temporaryHomeDirectory()
         var now = Date(timeIntervalSince1970: 260)
         let service = AgentChatTranscriptService(
@@ -220,7 +221,7 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             receivedAt: Date(timeIntervalSince1970: 260)
         ))
         let initiallyMissingRecord = try #require(service.sessionRecord(sessionID: sessionID))
-        #expect(!service.shouldListEndedSession(initiallyMissingRecord))
+        #expect(await service.shouldListEndedSession(initiallyMissingRecord) == false)
 
         try FileManager.default.createDirectory(
             at: transcriptURL.deletingLastPathComponent(),
@@ -230,12 +231,13 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
 
         let resolvedRecord = try #require(service.sessionRecord(sessionID: sessionID))
         now = Date(timeIntervalSince1970: 264)
-        #expect(!service.shouldListEndedSession(resolvedRecord))
+        #expect(await service.shouldListEndedSession(resolvedRecord) == false)
         now = Date(timeIntervalSince1970: 266)
-        #expect(service.shouldListEndedSession(resolvedRecord))
+        #expect(await service.shouldListEndedSession(resolvedRecord))
     }
 
-    @Test func endedListabilityCacheRefreshesExpiredMissingTranscript() throws {
+    @MainActor
+    @Test func endedListabilityCacheRefreshesExpiredMissingTranscript() async throws {
         let home = try temporaryHomeDirectory()
         let resolver = AgentChatTranscriptResolver(homeDirectory: home, environment: [:])
         let sessionID = "24ec0052-450c-4914-b1dd-2ee80d4bc84b"
@@ -256,13 +258,14 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             pid: nil,
             hookStoreSessionID: nil
         )
-        var cache = AgentChatEndedTranscriptListabilityCache()
+        let cache = AgentChatEndedTranscriptListabilityCache()
 
-        let initiallyListable = cache.shouldList(
+        let initiallyListable = await cache.shouldList(
             record,
-            resolver: resolver,
             now: Date(timeIntervalSince1970: 10)
-        )
+        ) {
+            await resolver.boundedTranscriptPath(for: record)
+        }
         #expect(!initiallyListable)
 
         try FileManager.default.createDirectory(
@@ -271,19 +274,56 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
         )
         try "{}\n".write(to: transcriptURL, atomically: true, encoding: .utf8)
 
-        let beforeRetryWindowListable = cache.shouldList(
+        let beforeRetryWindowListable = await cache.shouldList(
             record,
-            resolver: resolver,
             now: Date(timeIntervalSince1970: 14)
-        )
+        ) {
+            await resolver.boundedTranscriptPath(for: record)
+        }
         #expect(!beforeRetryWindowListable)
 
-        let eventuallyListable = cache.shouldList(
+        let eventuallyListable = await cache.shouldList(
             record,
-            resolver: resolver,
             now: Date(timeIntervalSince1970: 16)
-        )
+        ) {
+            await resolver.boundedTranscriptPath(for: record)
+        }
         #expect(eventuallyListable)
+    }
+
+    @MainActor
+    @Test func endedTranscriptExistenceChecksLeaveTheMainActor() async {
+        let probe = AgentChatTranscriptFileCheckProbe()
+        let resolver = AgentChatTranscriptResolver(
+            homeDirectory: FileManager.default.temporaryDirectory,
+            environment: [:],
+            fileExists: { path in probe.fileExists(atPath: path) }
+        )
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: resolver,
+            hasEventSubscribers: { true },
+            emitEventPayload: { _ in }
+        )
+        let sessionID = UUID().uuidString.lowercased()
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .sessionEnd,
+            source: "claude",
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            transcriptPath: "/tmp/cmux-missing-transcript-\(sessionID).jsonl",
+            cwd: "/tmp",
+            ppid: nil,
+            receivedAt: Date()
+        ))
+
+        for _ in 0..<1_000 where probe.snapshot.callCount == 0 {
+            await Task.yield()
+        }
+
+        #expect(probe.snapshot.callCount > 0)
+        #expect(probe.snapshot.sawMainThread == false)
     }
 
     @MainActor
@@ -328,7 +368,7 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
     }
 
     @MainActor
-    @Test func unlistableEndedSessionPushesRemovalInsteadOfEndedDescriptor() throws {
+    @Test func unlistableEndedSessionPushesRemovalInsteadOfEndedDescriptor() async throws {
         let home = try temporaryHomeDirectory()
         let coding = ChatWireCoding()
         var emitted: [ChatSessionEventFrame] = []
@@ -374,6 +414,13 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
             ppid: nil,
             receivedAt: Date(timeIntervalSince1970: 271)
         ))
+
+        for _ in 0..<1_000 where !emitted.contains(where: { frame in
+            guard case .sessionRemoved = frame.event else { return false }
+            return frame.sessionID == sessionID
+        }) {
+            await Task.yield()
+        }
 
         #expect(emitted.contains { frame in
             guard case .sessionRemoved = frame.event else { return false }
@@ -468,5 +515,23 @@ private actor AgentChatConcurrentFallbackResolutionProbe {
 
     func callCount() -> Int {
         calls
+    }
+}
+
+private final class AgentChatTranscriptFileCheckProbe: @unchecked Sendable {
+    private let state = OSAllocatedUnfairLock(
+        initialState: (callCount: 0, sawMainThread: false)
+    )
+
+    func fileExists(atPath _: String) -> Bool {
+        state.withLock { state in
+            state.callCount += 1
+            state.sawMainThread = state.sawMainThread || Thread.isMainThread
+        }
+        return false
+    }
+
+    var snapshot: (callCount: Int, sawMainThread: Bool) {
+        state.withLock { $0 }
     }
 }

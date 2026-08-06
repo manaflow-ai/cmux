@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
-    private let menu = NSMenu(title: "cmux")
+    let menu = NSMenu(title: "cmux")
     private let notificationStore: TerminalNotificationStore
     private let onShowGlobalSearch: (NSStatusBarButton, (() -> Void)?) -> Void
     private let onShowMainWindow: () -> Void
@@ -124,6 +124,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
         menu.addItem(MenuBarProfilingMenuItem.make())
         menu.addItem(notificationListSeparator)
+        for _ in 0..<NotificationMenuSnapshotBuilder.defaultInlineNotificationLimit {
+            let item = makeNotificationItem()
+            item.isHidden = true
+            menu.addItem(item)
+            notificationItems.append(item)
+        }
         notificationSectionSeparator.isHidden = true
         menu.addItem(notificationSectionSeparator)
 
@@ -228,33 +234,41 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 
     private func rebuildInlineNotificationItems(recentNotifications: [TerminalNotification]) {
-        for item in notificationItems {
-            menu.removeItem(item)
-        }
-        notificationItems.removeAll(keepingCapacity: true)
-
         notificationListSeparator.isHidden = recentNotifications.isEmpty
         notificationSectionSeparator.isHidden = recentNotifications.isEmpty
-        guard !recentNotifications.isEmpty else { return }
+        for (offset, item) in notificationItems.enumerated() {
+            guard offset < recentNotifications.count else {
+                item.isHidden = true
+                item.attributedTitle = NSAttributedString(string: "")
+                item.toolTip = nil
+                item.representedObject = nil
+                continue
+            }
 
-        let insertionIndex = menu.index(of: showNotificationsItem)
-        guard insertionIndex >= 0 else { return }
-
-        for (offset, notification) in recentNotifications.enumerated() {
-            let tabTitle = AppDelegate.shared?.tabTitle(for: notification.tabId)
-            let item = makeNotificationItem(notification: notification, tabTitle: tabTitle)
-            menu.insertItem(item, at: insertionIndex + offset)
-            notificationItems.append(item)
+            let notification = recentNotifications[offset]
+            configureNotificationItem(
+                item,
+                notification: notification,
+                tabTitle: AppDelegate.shared?.tabTitle(for: notification.tabId)
+            )
+            item.isHidden = false
         }
     }
 
-    private func makeNotificationItem(notification: TerminalNotification, tabTitle: String?) -> NSMenuItem {
+    private func makeNotificationItem() -> NSMenuItem {
         let item = NSMenuItem(title: "", action: #selector(openNotificationItemAction(_:)), keyEquivalent: "")
         item.target = self
+        return item
+    }
+
+    private func configureNotificationItem(
+        _ item: NSMenuItem,
+        notification: TerminalNotification,
+        tabTitle: String?
+    ) {
         item.attributedTitle = MenuBarNotificationLineFormatter.attributedTitle(notification: notification, tabTitle: tabTitle)
         item.toolTip = MenuBarNotificationLineFormatter.tooltip(notification: notification, tabTitle: tabTitle)
         item.representedObject = NotificationMenuItemPayload(notification: notification)
-        return item
     }
 
     @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
@@ -314,7 +328,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     }
 }
 
-private final class NotificationMenuItemPayload: NSObject {
+final class NotificationMenuItemPayload: NSObject {
     let notification: TerminalNotification
 
     init(notification: TerminalNotification) {
@@ -384,10 +398,14 @@ enum MenuBarBadgeLabelFormatter {
 enum MenuBarNotificationLineFormatter {
     static let defaultMaxMenuTextWidth: CGFloat = 280
     static let defaultMaxMenuTextLines = 3
+    private static let menuTimeFormatStyle = Date.FormatStyle(
+        date: .omitted,
+        time: .shortened
+    )
 
     static func plainTitle(notification: TerminalNotification, tabTitle: String?) -> String {
         let dot = notification.isRead ? "  " : "● "
-        let timeText = notification.createdAt.formatted(date: .omitted, time: .shortened)
+        let timeText = notification.createdAt.formatted(menuTimeFormatStyle)
         var lines: [String] = []
         lines.append("\(dot)\(notification.title)  \(timeText)")
 

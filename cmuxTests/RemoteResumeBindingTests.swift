@@ -1180,7 +1180,14 @@ struct RemoteResumeBindingTests {
     private func reserveRemoteRestoreSocket() -> String {
         TerminalController.shared.stop()
         let requestedPath = "/tmp/cmux-remote-resume-\(UUID().uuidString).sock"
-        return TerminalController.shared.reserveStartupSocketPath(requestedPath)
+        let reservedPath = TerminalController.shared.reserveStartupSocketPath(requestedPath)
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: reservedPath,
+            accessMode: .allowAll
+        )
+        #expect(TerminalController.shared.currentSocketPathForRemoteRestore() == reservedPath)
+        return reservedPath
     }
 
     private func cleanupRemoteRestoreSocket(_ path: String) {

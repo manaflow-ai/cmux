@@ -15,11 +15,12 @@ struct TerminalPanelView: View {
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
     @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
     private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
+    @AppStorage(TerminalScrollSpeedSettings.multiplierKey)
+    private var terminalScrollSpeedMultiplier = TerminalScrollSpeedSettings.defaultMultiplier
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
     private var storedSessionContentAlignment = SessionContentAlignment.center.rawValue
-    @State private var terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -111,6 +112,7 @@ struct TerminalPanelView: View {
                 searchState: panel.searchState,
                 reattachToken: panel.viewReattachToken,
                 sessionContentWidthPresentation: sessionContentWidthPresentation,
+                scrollSpeedMultiplier: terminalScrollSpeedMultiplier,
                 onFocus: { _ in
                     panel.terminalDidBecomeFocused()
                     onFocus()
@@ -138,7 +140,7 @@ struct TerminalPanelView: View {
                     terminalBackgroundColor: appearance.backgroundColor,
                     terminalForegroundColor: appearance.foregroundColor,
                     terminalFont: NSFont.monospacedSystemFont(
-                        ofSize: terminalFontSize,
+                        ofSize: appearance.fontSize,
                         weight: .regular
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
@@ -180,9 +182,6 @@ struct TerminalPanelView: View {
             }
         }
         .background(Color(nsColor: appearance.contentBackgroundColor))
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            terminalFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).fontSize
-        }
     }
 
     private var sessionContentWidthPresentation: SessionContentWidthPresentation {
@@ -423,6 +422,7 @@ private func terminalViewportFormat(_ value: CGFloat) -> String {
 struct PanelAppearance {
     let backgroundColor: NSColor
     let foregroundColor: NSColor
+    let fontSize: CGFloat
     let dividerColor: Color
     let unfocusedOverlayNSColor: NSColor
     let unfocusedOverlayOpacity: Double
@@ -430,6 +430,7 @@ struct PanelAppearance {
     init(
         backgroundColor: NSColor,
         foregroundColor: NSColor,
+        fontSize: CGFloat,
         dividerColor: Color,
         unfocusedOverlayNSColor: NSColor,
         unfocusedOverlayOpacity: Double,
@@ -437,6 +438,7 @@ struct PanelAppearance {
     ) {
         self.backgroundColor = backgroundColor
         self.foregroundColor = foregroundColor
+        self.fontSize = fontSize
         self.dividerColor = dividerColor
         self.unfocusedOverlayNSColor = unfocusedOverlayNSColor
         self.unfocusedOverlayOpacity = unfocusedOverlayOpacity
@@ -470,6 +472,7 @@ struct PanelAppearance {
                 preferred: config.foregroundColor,
                 on: backgroundColor
             ),
+            fontSize: config.fontSize,
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,

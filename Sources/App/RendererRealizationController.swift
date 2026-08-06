@@ -34,7 +34,8 @@ final class RendererRealizationController {
     private let notificationCenter: NotificationCenter
     private let surfaceProvider: () -> [any RendererRealizationSurface]
     private let surfaceLookup: (UUID) -> (any RendererRealizationSurface)?
-    private let settingsProvider: () -> RendererRealizationSettings.Values
+    private let initialSettings: RendererRealizationSettings.Values
+    private let settingsProvider: @Sendable () -> RendererRealizationSettings.Values
     private let nowProvider: () -> Date
     private let sleepFor: @MainActor (Duration) async throws -> Void
     private let visibilityCoalescingWindow: TimeInterval
@@ -50,6 +51,14 @@ final class RendererRealizationController {
     private var portalVisibilityObserver: NSObjectProtocol?
     private var portalVisibilityEvaluationTask: Task<Void, Never>?
     private var systemMemoryPressureRetryTask: Task<Void, Never>?
+    private lazy var settingsCache = GenerationCoalescingSnapshotCache(
+        initialSnapshot: initialSettings,
+        loader: settingsProvider,
+        installHandler: { [weak self] _ in
+            guard let self else { return }
+            self.evaluate(now: self.nowProvider())
+        }
+    )
 
     private convenience init() {
         self.init(
@@ -60,6 +69,7 @@ final class RendererRealizationController {
             surfaceLookup: { id in
                 GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: id)
             },
+            initialSettings: RendererRealizationSettings.defaultValues,
             settingsProvider: {
                 RendererRealizationSettings.values()
             },
@@ -78,7 +88,8 @@ final class RendererRealizationController {
         notificationCenter: NotificationCenter,
         surfaceProvider: @escaping () -> [any RendererRealizationSurface],
         surfaceLookup: @escaping (UUID) -> (any RendererRealizationSurface)?,
-        settingsProvider: @escaping () -> RendererRealizationSettings.Values,
+        initialSettings: RendererRealizationSettings.Values = RendererRealizationSettings.defaultValues,
+        settingsProvider: @escaping @Sendable () -> RendererRealizationSettings.Values,
         nowProvider: @escaping () -> Date,
         sleepFor: @escaping @MainActor (Duration) async throws -> Void,
         visibilityCoalescingWindow: TimeInterval = 0.016,
@@ -88,6 +99,7 @@ final class RendererRealizationController {
         self.notificationCenter = notificationCenter
         self.surfaceProvider = surfaceProvider
         self.surfaceLookup = surfaceLookup
+        self.initialSettings = initialSettings
         self.settingsProvider = settingsProvider
         self.nowProvider = nowProvider
         self.sleepFor = sleepFor
@@ -97,6 +109,7 @@ final class RendererRealizationController {
     }
 
     func start() {
+        settingsCache.requestRefresh()
         if settingsObserver == nil {
             // An immediate pass when the setting changes (command palette /
             // cmux.json post this). The always-on timer below is the safety net
@@ -107,9 +120,8 @@ final class RendererRealizationController {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    self.evaluate(now: self.nowProvider())
+                MainActor.assumeIsolated {
+                    self?.settingsCache.requestRefresh()
                 }
             }
         }
@@ -135,6 +147,7 @@ final class RendererRealizationController {
     }
 
     func stop() {
+        settingsCache.cancel()
         timer?.cancel()
         timer = nil
         cancelReclaimDeadlineTask()
@@ -154,10 +167,10 @@ final class RendererRealizationController {
 
     /// This coarse timer is a safety net for direct UserDefaults writes and
     /// failed-release retries. Normal reclamation is scheduled at the exact idle
-    /// deadline after a visibility transition. `evaluate` reads `enabled` fresh
-    /// each pass, so re-enabling through a write path without a notification
-    /// still takes effect without a relaunch. Disabled passes continue repairing
-    /// visible surfaces whose compatibility rebuild was not acknowledged.
+    /// deadline after a visibility transition. Each timer pass refreshes the
+    /// immutable settings snapshot off-main before evaluating. Disabled passes
+    /// continue repairing visible surfaces whose compatibility rebuild was not
+    /// acknowledged.
     private func ensureTimerRunning() {
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
@@ -165,7 +178,7 @@ final class RendererRealizationController {
         timer.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.evaluate(now: self.nowProvider())
+                self.settingsCache.requestRefresh()
             }
         }
         timer.resume()
@@ -261,7 +274,7 @@ final class RendererRealizationController {
             }
         }
 
-        let settings = settingsProvider()
+        let settings = settingsCache.snapshot
         guard settings.enabled else {
             cancelReclaimDeadlineTask()
             return .empty

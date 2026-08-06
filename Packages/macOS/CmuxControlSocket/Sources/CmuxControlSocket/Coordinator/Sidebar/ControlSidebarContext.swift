@@ -277,8 +277,8 @@ public protocol ControlSidebarContext: AnyObject {
     /// Focuses a surface by panel UUID (`focus_surface_by_panel`).
     func controlSidebarFocusSurfaceByPanel(panelID: UUID) -> Bool
 
-    /// Refreshes the `kind:N` handle registry from live app state (the legacy
-    /// `v2RefreshKnownRefs` pre-pass of `drag_surface_to_split`).
+    /// Refreshes the `kind:N` handle registry from live app state for the
+    /// legacy `drag_surface_to_split` command.
     func controlSidebarRefreshKnownRefs()
 
     /// Forwards a stable-ref `drag_surface_to_split` to the shared app-side

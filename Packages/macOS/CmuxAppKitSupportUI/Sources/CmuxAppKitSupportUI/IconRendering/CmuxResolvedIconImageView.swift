@@ -4,14 +4,20 @@ public import AppKit
 @MainActor
 public final class CmuxResolvedIconImageView: NSView {
     private let imageView = NSImageView(frame: .zero)
-    private let renderer = CmuxResolvedIconRenderer()
+    private let renderContext: CmuxResolvedIconRenderContext
     private var request: CmuxResolvedIconRequest?
-    private var renderKey: RenderKey?
-    private var lastVisibleRenderKey: RenderKey?
-    private var blankRenderKey: RenderKey?
+    private var renderKey: CmuxResolvedIconRenderKey?
+    private var lastVisibleRenderKey: CmuxResolvedIconRenderKey?
+    private var blankRenderKey: CmuxResolvedIconRenderKey?
 
     /// Creates the resolved icon view.
-    public override init(frame frameRect: NSRect) {
+    public override convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, renderContext: CmuxResolvedIconRenderContext())
+    }
+
+    /// Creates a resolved icon view backed by an explicit render owner.
+    public init(frame frameRect: NSRect, renderContext: CmuxResolvedIconRenderContext) {
+        self.renderContext = renderContext
         super.init(frame: frameRect)
         imageView.translatesAutoresizingMaskIntoConstraints = false
         imageView.imageScaling = .scaleProportionallyDown
@@ -57,10 +63,15 @@ public final class CmuxResolvedIconImageView: NSView {
             imageView.image = nil
             return
         }
-        let nextKey = RenderKey(request: request, appearance: effectiveAppearance)
-        guard force || renderKey != nextKey else { return }
+        let nextKey = CmuxResolvedIconRenderKey(request: request, appearance: effectiveAppearance)
+        guard force || renderKey?.shouldSkipRender(for: nextKey) != true else { return }
         guard force || blankRenderKey?.shouldSkipBlankRetry(for: nextKey) != true else { return }
-        switch renderer.render(for: request, appearance: effectiveAppearance) {
+        switch renderContext.render(
+            for: request,
+            appearance: effectiveAppearance,
+            renderKey: nextKey,
+            bypassCache: force
+        ) {
         case .success(let image):
             renderKey = nextKey
             lastVisibleRenderKey = nextKey
@@ -92,82 +103,5 @@ public final class CmuxResolvedIconImageView: NSView {
         imageView.setAccessibilityElement(true)
         imageView.setAccessibilityRole(.image)
         imageView.setAccessibilityLabel(description)
-    }
-
-    private struct RenderKey: Equatable {
-        private let source: SourceKey
-        private let canReuseRenderedImage: Bool
-        private let width: CGFloat
-        private let height: CGFloat
-        private let tint: NSColor?
-        private let symbolWeight: CGFloat
-        private let appearanceName: NSAppearance.Name
-        private let appearanceIdentity: ObjectIdentifier
-
-        init(request: CmuxResolvedIconRequest, appearance: NSAppearance) {
-            self.source = SourceKey(request.source)
-            self.canReuseRenderedImage = source.canReuseRenderedImage
-            self.width = request.size.width
-            self.height = request.size.height
-            self.tint = request.tintColor
-            self.symbolWeight = request.symbolWeight.rawValue
-            self.appearanceName = appearance.name
-            self.appearanceIdentity = ObjectIdentifier(appearance)
-        }
-
-        static func == (lhs: RenderKey, rhs: RenderKey) -> Bool {
-            lhs.canReuseRenderedImage && rhs.canReuseRenderedImage && lhs.matchesRequestAndAppearance(rhs)
-        }
-
-        func matchesRequestAndAppearance(_ other: RenderKey) -> Bool {
-            source == other.source &&
-                width == other.width &&
-                height == other.height &&
-                symbolWeight == other.symbolWeight &&
-                appearanceName == other.appearanceName &&
-                appearanceIdentity == other.appearanceIdentity &&
-                Self.colorsEqual(tint, other.tint)
-        }
-
-        func shouldSkipBlankRetry(for other: RenderKey) -> Bool {
-            canReuseRenderedImage && other.canReuseRenderedImage && matchesRequestAndAppearance(other)
-        }
-
-        private static func colorsEqual(_ lhs: NSColor?, _ rhs: NSColor?) -> Bool {
-            switch (lhs, rhs) {
-            case (.none, .none):
-                return true
-            case let (lhs?, rhs?):
-                return lhs.isEqual(rhs)
-            default:
-                return false
-            }
-        }
-
-        private enum SourceKey: Equatable {
-            case systemSymbol(name: String, accessibilityDescription: String?)
-            case asset(name: String, bundle: ObjectIdentifier)
-            case image(ObjectIdentifier)
-
-            init(_ source: CmuxResolvedIconSource) {
-                switch source {
-                case .systemSymbol(let name, let accessibilityDescription):
-                    self = .systemSymbol(name: name, accessibilityDescription: accessibilityDescription)
-                case .asset(let name, let bundle):
-                    self = .asset(name: name, bundle: ObjectIdentifier(bundle))
-                case .image(let image):
-                    self = .image(ObjectIdentifier(image))
-                }
-            }
-
-            var canReuseRenderedImage: Bool {
-                switch self {
-                case .systemSymbol, .asset:
-                    return true
-                case .image:
-                    return false
-                }
-            }
-        }
     }
 }

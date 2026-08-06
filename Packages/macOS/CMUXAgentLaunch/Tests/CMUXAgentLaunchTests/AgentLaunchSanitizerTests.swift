@@ -641,4 +641,20 @@ struct AgentLaunchSanitizerTests {
             ) == ["qoder", "--model", "best"]
         )
     }
+
+    @Test("Prewarms every sanitizer policy away from UI work")
+    func prewarmsEverySanitizerPolicyAwayFromUIWork() async {
+        let preparedPolicyCount = await Task.detached(priority: .utility) {
+            AgentLaunchPolicyPrewarmer().prewarmPolicies()
+        }.value
+
+        #expect(preparedPolicyCount == 17)
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["claude", "--model", "sonnet", "--resume", "old-session"],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == ["claude", "--model", "sonnet"]
+        )
+    }
 }

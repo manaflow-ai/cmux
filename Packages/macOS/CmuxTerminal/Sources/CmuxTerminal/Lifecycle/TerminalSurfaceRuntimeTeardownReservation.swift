@@ -1,6 +1,6 @@
 import Foundation
 
-/// Exclusive admission to one failure-isolated hibernation teardown slot.
+/// Admission to one pending hibernation teardown in the bounded batch.
 struct TerminalSurfaceRuntimeTeardownReservation: Equatable, Sendable {
     let id: UUID
 

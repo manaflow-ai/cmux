@@ -466,7 +466,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 pid: $0,
                 allowedPIDs: allowedPIDs,
                 rootPIDs: explicitRootPIDs,
-                visited: &visited
+                visited: &visited,
+                depth: 0
             )
         }
     }
@@ -626,28 +627,43 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
     }
 
+    /// A process list can contain a valid but adversarially deep parent chain.
+    /// Keep the diagnostic JSON well below Swift's call-stack limit. Aggregate
+    /// resource totals remain complete; only the nested presentation is capped.
+    private static let maxProcessTreePayloadDepth = 128
+
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,
         rootPIDs: Set<Int>,
-        visited: inout Set<Int>
+        visited: inout Set<Int>,
+        depth: Int
     ) -> [String: Any]? {
         guard visited.insert(pid).inserted,
               let process = processesByPID[pid] else {
             return nil
         }
 
-        let childNodes = (childrenByParentPID[pid] ?? [])
+        let childPIDs = (childrenByParentPID[pid] ?? [])
             .filter { allowedPIDs.contains($0) }
             .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap {
+
+        let childrenTruncated = depth + 1 >= Self.maxProcessTreePayloadDepth
+            && !childPIDs.isEmpty
+        let childNodes: [[String: Any]]
+        if childrenTruncated {
+            childNodes = []
+        } else {
+            childNodes = childPIDs.compactMap {
                 processTreeNode(
                     pid: $0,
                     allowedPIDs: allowedPIDs,
                     rootPIDs: rootPIDs,
-                    visited: &visited
+                    visited: &visited,
+                    depth: depth + 1
                 )
             }
+        }
 
         var payload: [String: Any] = [
             "kind": "process",
@@ -662,6 +678,9 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "resources": summary(for: [pid]).payload(),
             "children": childNodes
         ]
+        if childrenTruncated {
+            payload["children_truncated"] = true
+        }
         if let ttyDevice = process.ttyDevice {
             payload["tty_device"] = ttyDevice
         } else {

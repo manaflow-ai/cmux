@@ -1,5 +1,6 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 import CmuxFoundation
 import CmuxGit
 import CmuxSettings
@@ -12,6 +13,174 @@ import CmuxSidebar
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private func workspaceSidebarTestComment(
+    _ message: @autoclosure () -> String
+) -> Comment? {
+    let value = message()
+    return value.isEmpty ? nil : Comment(rawValue: value)
+}
+
+private func XCTAssertEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        let value1 = try expression1()
+        let value2 = try expression2()
+        #expect(
+            value1 == value2,
+            workspaceSidebarTestComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertTrue(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression(),
+            workspaceSidebarTestComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertFalse(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try !expression(),
+            workspaceSidebarTestComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression() == nil,
+            workspaceSidebarTestComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTAssertNotNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    do {
+        #expect(
+            try expression() != nil,
+            workspaceSidebarTestComment(message()),
+            sourceLocation: sourceLocation
+        )
+    } catch {
+        Issue.record(error, sourceLocation: sourceLocation)
+    }
+}
+
+private func XCTUnwrap<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) throws -> T {
+    let value = try expression()
+    return try #require(
+        value,
+        workspaceSidebarTestComment(message()),
+        sourceLocation: sourceLocation
+    )
+}
+
+private func XCTFail(
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line,
+    sourceLocation: SourceLocation = #_sourceLocation
+) {
+    Issue.record(
+        Comment(rawValue: message()),
+        sourceLocation: sourceLocation
+    )
+}
+
+private func expectation(
+    description: String
+) -> WorkspaceSidebarTestExpectation {
+    WorkspaceSidebarTestExpectation(description: description)
+}
+
+@MainActor
+private func wait(
+    for expectations: [WorkspaceSidebarTestExpectation],
+    timeout: TimeInterval
+) {
+    let deadline = Date(timeIntervalSinceNow: timeout)
+    while expectations.contains(where: { !$0.isFulfilled }),
+          Date() < deadline {
+        RunLoop.main.run(
+            mode: .default,
+            before: min(deadline, Date(timeIntervalSinceNow: 0.01))
+        )
+    }
+    for expectation in expectations where !expectation.isFulfilled {
+        XCTFail("Timed out waiting for \(expectation.description)")
+    }
+}
+
+@MainActor
+private func fulfillment(
+    of expectations: [WorkspaceSidebarTestExpectation],
+    timeout: TimeInterval
+) async {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(timeout))
+    while expectations.contains(where: { !$0.isFulfilled }),
+          clock.now < deadline {
+        await Task.yield()
+        try? await clock.sleep(for: .milliseconds(1))
+    }
+    for expectation in expectations where !expectation.isFulfilled {
+        XCTFail("Timed out waiting for \(expectation.description)")
+    }
+}
 
 /// A `CommandRunning` fake that routes each call through a closure, replacing the
 /// former `TabManager.commandRunnerForTesting` static hook.
@@ -30,15 +199,15 @@ private struct StubCommandRunner: CommandRunning {
 private final class BlockingRepositoryDiscovery: GitRepositoryDiscovering, @unchecked Sendable {
     private let lock = NSLock()
     private let releaseGate = DispatchSemaphore(value: 0)
-    private let startedExpectation: XCTestExpectation
-    private let finishedExpectation: XCTestExpectation
+    private let startedExpectation: WorkspaceSidebarTestExpectation
+    private let finishedExpectation: WorkspaceSidebarTestExpectation
     private var storedInvocationCount = 0
     private var storedReachedCleanupDeadline = false
     private var storedReleased = false
 
     init(
-        startedExpectation: XCTestExpectation,
-        finishedExpectation: XCTestExpectation
+        startedExpectation: WorkspaceSidebarTestExpectation,
+        finishedExpectation: WorkspaceSidebarTestExpectation
     ) {
         self.startedExpectation = startedExpectation
         self.finishedExpectation = finishedExpectation
@@ -91,6 +260,35 @@ private final class BlockingRepositoryDiscovery: GitRepositoryDiscovering, @unch
         lock.lock()
         defer { lock.unlock() }
         return storedReachedCleanupDeadline
+    }
+}
+
+private final class SidebarActivitySnapshotLoaderProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private let gate = DispatchSemaphore(value: 0)
+    private var storedReadCount = 0
+    private let result: SidebarGitActivitySnapshot
+
+    init(result: SidebarGitActivitySnapshot) {
+        self.result = result
+    }
+
+    var readCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedReadCount
+    }
+
+    func release() {
+        gate.signal()
+    }
+
+    func load() -> SidebarGitActivitySnapshot? {
+        lock.lock()
+        storedReadCount += 1
+        lock.unlock()
+        gate.wait()
+        return result
     }
 }
 
@@ -204,6 +402,7 @@ private final class LockTouchingGitRunner: CommandRunning, @unchecked Sendable {
 }
 
 @discardableResult
+@MainActor
 private func waitForCondition(
     timeout: TimeInterval = 3.0,
     pollInterval: TimeInterval = 0.05,
@@ -215,26 +414,14 @@ private func waitForCondition(
         return true
     }
 
-    let expectation = XCTestExpectation(description: "wait for condition")
     let deadline = Date().addingTimeInterval(timeout)
-
-    func poll() {
-        if condition() {
-            expectation.fulfill()
-            return
-        }
-        guard Date() < deadline else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + pollInterval) {
-            poll()
-        }
+    while !condition(), Date() < deadline {
+        RunLoop.main.run(
+            mode: .default,
+            before: min(deadline, Date(timeIntervalSinceNow: pollInterval))
+        )
     }
-
-    DispatchQueue.main.async {
-        poll()
-    }
-
-    let result = XCTWaiter().wait(for: [expectation], timeout: timeout + pollInterval + 0.1)
-    if result != .completed {
+    if !condition() {
         XCTFail("Timed out waiting for condition", file: file, line: line)
         return false
     }
@@ -506,7 +693,63 @@ private func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
 }
 
 @MainActor
-final class WorkspacePullRequestSidebarTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspacePullRequestSidebarTests {
+    @MainActor
+    @Test
+    func testSidebarActivitySnapshotStartsDisabledAndLoadsWithoutBlockingMainActor() async {
+        let loader = SidebarActivitySnapshotLoaderProbe(
+            result: SidebarGitActivitySnapshot(
+                gitMetadataActivity: .activePolling,
+                pullRequestActivity: .passiveReportsOnly
+            )
+        )
+        let cache = SidebarGitActivitySnapshotCache(
+            initialSnapshot: .disabled,
+            loader: loader.load
+        )
+
+        XCTAssertEqual(cache.snapshot, .disabled)
+        cache.requestRefresh()
+        let heartbeat = expectation(description: "MainActor heartbeat")
+        Task { @MainActor in
+            heartbeat.fulfill()
+        }
+        await fulfillment(of: [heartbeat], timeout: 10)
+
+        XCTAssertEqual(cache.snapshot, .disabled)
+        loader.release()
+        await cache.waitUntilIdle()
+
+        XCTAssertEqual(cache.snapshot.gitMetadataActivity, .activePolling)
+        XCTAssertEqual(cache.snapshot.pullRequestActivity, .passiveReportsOnly)
+        XCTAssertEqual(loader.readCount, 1)
+    }
+
+    @MainActor
+    @Test
+    func testSidebarActivityBurstReadsCachedSnapshotWithoutSettingsReadAmplification() async {
+        let loader = SidebarActivitySnapshotLoaderProbe(
+            result: SidebarGitActivitySnapshot(
+                gitMetadataActivity: .activePolling,
+                pullRequestActivity: .activePolling
+            )
+        )
+        let cache = SidebarGitActivitySnapshotCache(
+            initialSnapshot: .disabled,
+            loader: loader.load
+        )
+        cache.requestRefresh()
+        loader.release()
+        await cache.waitUntilIdle()
+
+        for _ in 0..<300 {
+            XCTAssertTrue(cache.snapshot.gitMetadataActivity.performsActivePolling)
+            XCTAssertTrue(cache.snapshot.pullRequestActivity.performsActivePolling)
+        }
+        XCTAssertEqual(loader.readCount, 1)
+    }
+    @Test
     func testSidebarPullRequestsIgnoreStaleWorkspaceLevelCacheWithoutPanelState() throws {
         let workspace = Workspace(title: "Test")
         let panelId = UUID()
@@ -524,6 +767,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
     }
 
+    @Test
     func testSidebarPullRequestsFilterBranchMismatchPerPanel() throws {
         let workspace = Workspace(title: "Test")
         let panelId = UUID()
@@ -541,6 +785,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
     }
 
+    @Test
     func testSidebarPullRequestsPreferBestStateAcrossPanels() throws {
         let workspace = Workspace(title: "Test")
         let firstPanelId = UUID()
@@ -579,7 +824,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() throws {
+    @Test
+    func testPullRequestRefreshRepositoryDiscoveryDoesNotBlockMainRunLoop() async throws {
         let defaults = UserDefaults.standard
         let sidebarSettings = SidebarCatalogSection()
         let hideAllDetailsKey = sidebarSettings.hideAllDetails.userDefaultsKey
@@ -608,6 +854,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         }
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         workspace.updatePanelDirectory(
@@ -622,7 +869,11 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         let pollService = PullRequestPollService(
             gitMetadataService: discovery,
-            probeService: manager.pullRequestProbeService
+            probeService: manager.pullRequestProbeService,
+            mobileHostDeferral: MobileHostDeferralPolicy(
+                deferralInterval: 0,
+                quietInterval: 0
+            )
         )
         pollService.attach(host: manager)
 
@@ -640,14 +891,10 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             mainRunLoopTurnCompleted.fulfill()
         }
 
-        let responsivenessResult = XCTWaiter().wait(
-            for: [discoveryStarted, mainRunLoopTurnCompleted],
+        await fulfillment(
+            of: [discoveryStarted, mainRunLoopTurnCompleted],
             timeout: 5
         )
-        guard responsivenessResult == .completed else {
-            XCTFail("Repository discovery did not start while the main run loop remained responsive")
-            return
-        }
         XCTAssertEqual(
             discovery.invocationCount,
             1,
@@ -659,13 +906,13 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         discovery.release()
-        XCTAssertEqual(
-            XCTWaiter().wait(for: [discoveryFinished], timeout: 5),
-            .completed,
-            "Repository discovery did not finish after the test released it"
+        await fulfillment(
+            of: [discoveryFinished],
+            timeout: 5
         )
     }
 
+    @Test
     func testNoIndexLockTouchDuringSidebarGitMetadataRefreshWindow() throws {
         let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-sidebar-index-lock-\(UUID().uuidString)",
@@ -705,9 +952,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             completedRefreshWindow.fulfill()
         }
 
-        let result = XCTWaiter().wait(for: [completedRefreshWindow], timeout: 92)
+        wait(for: [completedRefreshWindow], timeout: 92)
         refreshTimer.invalidate()
-        XCTAssertEqual(result, .completed)
         XCTAssertEqual(
             gitRunner.invocationCount,
             0,
@@ -725,8 +971,10 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testBranchOnlyGitReportDoesNotClearExistingDirtyState() throws {
+    @Test
+    func testBranchOnlyGitReportDoesNotClearExistingDirtyState() async throws {
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -751,8 +999,10 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testBranchOnlyGitReportClearsDirtyStateWhenBranchChanges() throws {
+    @Test
+    func testBranchOnlyGitReportClearsDirtyStateWhenBranchChanges() async throws {
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -777,7 +1027,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testTabScopedGitBranchUnknownStatusClearsDirtyWhenBranchChanges() throws {
+    @Test
+    func testTabScopedGitBranchUnknownStatusClearsDirtyWhenBranchChanges() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -786,6 +1037,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: true)
 
@@ -807,7 +1059,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testDisablingGitWatchClearsCachedPullRequestBadgesWhenPullRequestsAreShownByDefault() throws {
+    @Test
+    func testDisablingGitWatchClearsCachedPullRequestBadgesWhenPullRequestsAreShownByDefault() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -824,6 +1077,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2722"))
@@ -845,7 +1099,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertFalse(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]).isEmpty)
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.refreshSidebarGitMetadataSettingsAndWait()
 
         XCTAssertNil(workspace.gitBranch)
         XCTAssertNil(workspace.pullRequest)
@@ -901,7 +1155,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testHiddenPullRequestsDoNotSchedulePullRequestPollingFromBranchReports() throws {
+    @Test
+    func testHiddenPullRequestsDoNotSchedulePullRequestPollingFromBranchReports() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -914,6 +1169,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -931,7 +1187,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testHidingPullRequestSidebarPreservesPassiveReportsWithoutPolling() throws {
+    @Test
+    func testHidingPullRequestSidebarPreservesPassiveReportsWithoutPolling() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let previousShowPullRequests = defaults.object(forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
@@ -944,6 +1201,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         let url = try XCTUnwrap(URL(string: "https://github.com/manaflow-ai/cmux/pull/2746"))
@@ -964,7 +1222,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNotNil(workspace.panelPullRequests[panelId])
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.refreshSidebarGitMetadataSettingsAndWait()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2746)
@@ -990,7 +1248,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.showPullRequestsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.refreshSidebarGitMetadataSettingsAndWait()
 
         XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "issue-2746-rate-limit")
         XCTAssertEqual(workspace.panelPullRequests[panelId]?.number, 2747)
@@ -1001,7 +1259,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testReenablingGitWatchRestartsRefreshFromCurrentPanelDirectories() throws {
+    @Test
+    func testReenablingGitWatchRestartsRefreshFromCurrentPanelDirectories() async throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -1020,6 +1279,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         defaults.set(false, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1031,7 +1291,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNil(workspace.panelGitBranches[panelId])
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.refreshSidebarGitMetadataSettingsAndWait()
 
         XCTAssertTrue(
             waitForCondition {
@@ -1041,6 +1301,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testDetachedHeadRepositoryKeepsGitMetadataWatcherForLaterCheckout() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1105,7 +1366,8 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     // the batched throttle + this test is a deliberate follow-up if mobile-host
     // scale needs it.
 
-    func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() throws {
+    @Test
+    func testUnrelatedDefaultsChangeDoesNotRestartGitMetadataRefreshes() async throws {
         let defaults = UserDefaults.standard
         let unrelatedDefaultsKey = "cmux.tests.unrelated-defaults-\(UUID().uuidString)"
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1125,6 +1387,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
 
@@ -1136,7 +1399,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
 
         workspace.currentDirectory = workingDirectoryURL.path
         defaults.set(UUID().uuidString, forKey: unrelatedDefaultsKey)
-        manager.sidebarGitMetadataWatchSettingsDidChangeForTesting()
+        await manager.refreshSidebarGitMetadataSettingsAndWait()
 
         XCTAssertEqual(
             manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id),
@@ -1146,6 +1409,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertNil(workspace.panelGitBranches[panelId])
     }
 
+    @Test
     func testGitIndexVersionFourRefreshTracksIndexSignatureChanges() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1208,6 +1472,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testCleanIndexSignatureRebaselinesWhenIndexRewriteKeepsTrackedContentClean() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1280,6 +1545,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testIndexContentChangeAfterWorktreeDirtyRemainsDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1350,6 +1616,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testAssumeUnchangedGitIndexEntriesDoNotMarkModifiedWorktreeDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1423,6 +1690,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testGitIndexVersionFourRefreshDecodesMultiByteStripLengths() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1481,6 +1749,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testEmptyGitIndexRefreshTracksIndexSignatureChanges() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1545,6 +1814,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testSkipWorktreeGitIndexEntriesDoNotMarkSparseCheckoutDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1591,6 +1861,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testMissingGitlinkSubmoduleMarksSidebarDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1636,6 +1907,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testGitlinkIndexEntriesTrackSubmoduleCommitChanges() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1706,6 +1978,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
     // tests (RecursivePathWatcherTests) with an injected clock and no real waiting.
     // The tests below keep exercising the end-to-end refresh path through TabManager.
 
+    @Test
     func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
@@ -1762,6 +2035,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    @Test
     func testLargeTrackedFileSizeMatchesGitIndexTruncation() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)

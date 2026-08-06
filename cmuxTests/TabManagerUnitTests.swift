@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import CmuxCore
 import AppKit
 import SwiftUI
@@ -1188,7 +1188,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(backgroundWorkspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
     }
 
-    func testPeriodicWorkspaceGitMetadataRefreshUpdatesMainWorkspaceAfterCheckoutToFeatureBranch() throws {
+    func testPeriodicWorkspaceGitMetadataRefreshUpdatesMainWorkspaceAfterCheckoutToFeatureBranch() async throws {
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent("cmux-git-main-refresh-\(UUID().uuidString)")
         try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
@@ -1206,6 +1206,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["commit", "-m", "Initial commit"], in: repoURL)
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1224,11 +1225,10 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
-        XCTAssertTrue(
-            waitForCondition {
-                workspace.panelGitBranches[panelId]?.branch == "feature/sidebar-live-refresh"
-            }
-        )
+        let didRefreshBranch = await waitForConditionSuspending {
+            workspace.panelGitBranches[panelId]?.branch == "feature/sidebar-live-refresh"
+        }
+        XCTAssertTrue(didRefreshBranch)
         XCTAssertEqual(workspace.gitBranch?.branch, "feature/sidebar-live-refresh")
     }
 
@@ -1320,7 +1320,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
     // CmuxProcessTests.resolvesCommandViaFallbackDirectoryOutsidePath when the
     // command runner was extracted into the CmuxProcess package.
 
-    func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() throws {
+    func testPeriodicWorkspaceGitMetadataRefreshClearsStalePullRequestAfterBranchReset() async throws {
         let fileManager = FileManager.default
         let repoURL = fileManager.temporaryDirectory.appendingPathComponent("cmux-git-refresh-\(UUID().uuidString)")
         try fileManager.createDirectory(at: repoURL, withIntermediateDirectories: true)
@@ -1339,6 +1339,7 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         try runGit(["checkout", "-b", "feature/sidebar-pr"], in: repoURL)
 
         let manager = TabManager()
+        await manager.waitForSidebarGitActivitySnapshot()
         guard let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId else {
             XCTFail("Expected selected workspace with focused panel")
@@ -1364,12 +1365,11 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
 
         manager.refreshTrackedWorkspaceGitMetadataForTesting()
 
-        XCTAssertTrue(
-            waitForCondition {
-                workspace.panelGitBranches[panelId]?.branch == "main"
-                    && workspace.panelPullRequests[panelId] == nil
-            }
-        )
+        let didRefreshBranchAndPullRequest = await waitForConditionSuspending {
+            workspace.panelGitBranches[panelId]?.branch == "main"
+                && workspace.panelPullRequests[panelId] == nil
+        }
+        XCTAssertTrue(didRefreshBranchAndPullRequest)
         XCTAssertEqual(workspace.gitBranch?.branch, "main")
         XCTAssertNil(workspace.pullRequest)
         XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
@@ -2053,10 +2053,16 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         }
 
         guard let workspace = manager.selectedWorkspace,
-              let initialPanelId = workspace.focusedPanelId else {
+              let paneId = workspace.bonsplitController.focusedPaneId,
+              let initialPanelId = workspace.focusedPanelId,
+              let initialTerminalPanel = workspace.terminalPanel(for: initialPanelId),
+              let survivingPanel = workspace.newTerminalSurface(inPane: paneId, focus: false) else {
             XCTFail("Expected selected workspace and focused panel")
             return
         }
+        workspace.focusPanel(initialPanelId)
+        initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(false)
+        defer { initialTerminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(nil) }
 
         store.addNotification(
             tabId: workspace.id,
@@ -2071,6 +2077,8 @@ final class TabManagerCloseCurrentPanelTests: XCTestCase {
         drainMainQueue()
         drainMainQueue()
 
+        XCTAssertNil(workspace.panels[initialPanelId])
+        XCTAssertNotNil(workspace.panels[survivingPanel.id])
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: initialPanelId))
     }
 

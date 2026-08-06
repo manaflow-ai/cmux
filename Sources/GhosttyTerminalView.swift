@@ -210,10 +210,6 @@ private var terminalKeyTableIndicatorDefaultText: String {
     String(localized: "ghostty.key-table.indicator", defaultValue: "key table")
 }
 
-private var terminalKeyTableIndicatorAccessibilityLabel: String {
-    String(localized: "ghostty.key-table.icon.accessibility", defaultValue: "Key table")
-}
-
 private func terminalKeyTableIndicatorText(_ name: String) -> String {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     switch trimmed.lowercased() {
@@ -7536,6 +7532,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 #endif
 
+    func updateScrollSpeedMultiplier(_ multiplier: Double) {
+        scrollSpeedAccumulator.updateMultiplier(multiplier)
+    }
+
     override func scrollWheel(with event: NSEvent) {
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
         guard let surface = surface else { return }
@@ -8230,6 +8230,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
+    private let keyTableIndicatorAccessibilityLabel = String(
+        localized: "ghostty.key-table.icon.accessibility",
+        defaultValue: "Key table"
+    )
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
@@ -8578,7 +8582,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeIconView.image = NSImage(
             systemSymbolName: "keyboard.badge.ellipsis",
-            accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
+            accessibilityDescription: keyTableIndicatorAccessibilityLabel
         )
         keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -9008,7 +9012,10 @@ final class GhosttySurfaceScrollView: NSView {
     func setSessionContentWidthPresentation(_ presentation: SessionContentWidthPresentation) {
         guard sessionContentWidthPresentation != presentation else { return }
         sessionContentWidthPresentation = presentation
-        _ = synchronizeGeometryAndContent()
+        // This setter is called from representable and canvas update
+        // callbacks. Keep those callbacks mutation-only; the normal AppKit
+        // layout pass applies the new content frame before display.
+        needsLayout = true
     }
 
     private var sessionContentFrame: CGRect {
@@ -9271,10 +9278,12 @@ final class GhosttySurfaceScrollView: NSView {
     func attachSurface(_ terminalSurface: TerminalSurface) {
         if surfaceView.terminalSurface !== terminalSurface { setLinkHoverURL(nil) }
         surfaceView.attachSurface(terminalSurface)
-        // Preserve the bootstrap 800x600 surface until portal reattach churn
-        // has produced a real host size instead of a transient 1x1 placeholder.
-        guard bounds.width > 1, bounds.height > 1 else { return }
-        _ = synchronizeGeometryAndContent()
+        // SwiftUI calls this from updateNSView while its graph transaction is
+        // open. Forcing descendant AppKit layout there re-enters the window's
+        // layout engine and can starve every scene when a large workspace
+        // collection invalidates. Mark the host dirty and let AppKit reconcile
+        // on its normal layout pass instead.
+        needsLayout = true
         synchronizeCloudTerminalReconnectOverlay()
     }
 
@@ -9734,7 +9743,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
+        keyboardCopyModeBadgeIconView.setAccessibilityLabel(keyTableIndicatorAccessibilityLabel)
         keyboardCopyModeBadgeContainerView.isHidden = true
     }
 
@@ -12209,6 +12218,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var searchState: TerminalSurface.SearchState? = nil
     var reattachToken: UInt64 = 0
     var sessionContentWidthPresentation = SessionContentWidthPresentation.disabled
+    var scrollSpeedMultiplier = TerminalScrollSpeedSettings.defaultMultiplier
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
@@ -12393,6 +12403,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
+        hostedView.surfaceView.updateScrollSpeedMultiplier(scrollSpeedMultiplier)
         let coordinator = context.coordinator
         let previousDesiredIsActive = coordinator.desiredIsActive
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI

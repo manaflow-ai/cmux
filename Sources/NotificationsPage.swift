@@ -235,7 +235,12 @@ struct NotificationsPage: View {
             }
             .buttonStyle(.bordered)
             .keyboardShortcut(key, modifiers: jumpToUnreadShortcut.eventModifiers)
-            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
+            .safeHelp(
+                KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
+                    String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"),
+                    shortcut: jumpToUnreadShortcut
+                )
+            )
             .disabled(!hasUnreadNotifications)
         } else {
             Button(action: {
@@ -247,14 +252,18 @@ struct NotificationsPage: View {
                 }
             }
             .buttonStyle(.bordered)
-            .safeHelp(KeyboardShortcutSettings.Action.jumpToUnread.tooltip(String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread")))
+            .safeHelp(
+                KeyboardShortcutSettings.Action.jumpToUnread.tooltip(
+                    String(localized: "notifications.jumpToLatestUnread", defaultValue: "Jump to Latest Unread"),
+                    shortcut: jumpToUnreadShortcut
+                )
+            )
             .disabled(!hasUnreadNotifications)
         }
     }
 
     private var jumpToUnreadShortcut: StoredShortcut {
-        let _ = keyboardShortcutSettingsObserver.revision
-        return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
+        keyboardShortcutSettingsObserver.shortcut(for: .jumpToUnread)
     }
 
     private func tabTitle(for tabId: UUID, in tabTitles: [UUID: String]) -> String? {

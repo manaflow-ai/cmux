@@ -210,10 +210,11 @@ struct SidebarHiddenPresentationTests {
         var revealRowInputProjections = 0
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
             windowId: UUID(),
-            featureFlags: featureFlags
+            featureFlags: featureFlags,
+            appStorageDefaults: defaults
         )
-            .environmentObject(tabManager)
             .environmentObject(notificationStore)
             .environmentObject(sidebarState)
             .environmentObject(SidebarSelectionState())

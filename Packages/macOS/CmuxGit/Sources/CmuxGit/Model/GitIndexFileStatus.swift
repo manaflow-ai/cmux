@@ -1,7 +1,7 @@
 import Foundation
 
 /// The file status fields needed for git index dirty detection.
-struct GitFileStatus: Equatable, Sendable {
+struct GitIndexFileStatus: Equatable, Sendable {
     let mode: UInt32
     let size: Int64
     let mtimeSeconds: Int64

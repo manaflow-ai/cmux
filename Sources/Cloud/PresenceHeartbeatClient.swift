@@ -182,14 +182,10 @@ final class PresenceHeartbeatClient {
             + "/v1/presence/heartbeat"
         guard let url = comps.url else { return }
 
-        let bodyDict = Self.heartbeatBody(
-            deviceID: MobileHostIdentity.deviceID(),
-            tag: MobileHostIdentity.instanceTag(),
-            bundleID: Bundle.main.bundleIdentifier,
-            displayName: MobileHostIdentity.instanceDisplayName(),
+        guard let bodyData = await Self.encodedCurrentHeartbeatBody(
             routes: currentRoutes,
             stopping: stopping
-        )
+        ) else { return }
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -199,7 +195,7 @@ final class PresenceHeartbeatClient {
             req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         req.setValue("application/json", forHTTPHeaderField: "content-type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict, options: [])
+        req.httpBody = bodyData
 
         do {
             let (data, response) = try await session.data(for: req)
@@ -251,6 +247,73 @@ final class PresenceHeartbeatClient {
             bodyDict["stopping"] = true
         }
         return bodyDict
+    }
+
+    /// Builds and encodes the route snapshot away from the main actor. Presence
+    /// payloads can contain several nested route dictionaries, while the actor
+    /// itself only needs the immutable bytes used by URLSession.
+    nonisolated static func encodedHeartbeatBody(
+        deviceID: String,
+        tag: String,
+        bundleID: String?,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stopping: Bool,
+        now: Date = Date()
+    ) async -> Data? {
+        await Task.detached(priority: .utility) {
+            encodedHeartbeatBodyData(
+                deviceID: deviceID,
+                tag: tag,
+                bundleID: bundleID,
+                displayName: displayName,
+                routes: routes,
+                stopping: stopping,
+                now: now
+            )
+        }.value
+    }
+
+    /// Captures identity and encodes the heartbeat beyond the main actor.
+    /// Device identity can read UserDefaults, the filesystem, the environment,
+    /// and the host name, so it belongs in the same utility task as JSON work.
+    nonisolated static func encodedCurrentHeartbeatBody(
+        routes: [CmxAttachRoute],
+        stopping: Bool,
+        now: Date = Date()
+    ) async -> Data? {
+        await Task.detached(priority: .utility) {
+            encodedHeartbeatBodyData(
+                deviceID: MobileHostIdentity.deviceID(),
+                tag: MobileHostIdentity.instanceTag(),
+                bundleID: Bundle.main.bundleIdentifier,
+                displayName: MobileHostIdentity.instanceDisplayName(),
+                routes: routes,
+                stopping: stopping,
+                now: now
+            )
+        }.value
+    }
+
+    private nonisolated static func encodedHeartbeatBodyData(
+        deviceID: String,
+        tag: String,
+        bundleID: String?,
+        displayName: String?,
+        routes: [CmxAttachRoute],
+        stopping: Bool,
+        now: Date
+    ) -> Data? {
+        let body = heartbeatBody(
+            deviceID: deviceID,
+            tag: tag,
+            bundleID: bundleID,
+            displayName: displayName,
+            routes: routes,
+            stopping: stopping,
+            now: now
+        )
+        return try? JSONSerialization.data(withJSONObject: body, options: [])
     }
 
 }

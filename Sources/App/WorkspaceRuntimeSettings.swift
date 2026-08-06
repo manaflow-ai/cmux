@@ -14,7 +14,7 @@ enum WorkspaceTitlebarSettings {
 }
 enum WorkspacePresentationModeSettings {
     static let modeKey = "workspacePresentationMode"
-    enum Mode: String {
+    enum Mode: String, Sendable {
         case standard
         case minimal
     }
@@ -388,6 +388,14 @@ enum RendererRealizationSettings {
     static let defaultIdleSeconds = catalog.rendererRealizationIdleSeconds.defaultValue
     static let defaultMaxWarmRenderers = catalog.rendererRealizationMaxWarmRenderers.defaultValue
     static let didChangeNotification = Notification.Name("cmux.rendererRealizationSettingsDidChange")
+
+    static var defaultValues: Values {
+        Values(
+            enabled: defaultEnabled,
+            idleSeconds: defaultIdleSeconds,
+            maxWarmRenderers: defaultMaxWarmRenderers
+        )
+    }
 
     static func values(defaults: UserDefaults = .standard) -> Values {
         Values(

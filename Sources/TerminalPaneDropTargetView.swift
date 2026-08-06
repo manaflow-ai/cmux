@@ -500,6 +500,7 @@ struct PaneDropTargetRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: PaneDropTargetView, context: Context) {
+        guard nsView.dropContext != dropContext || nsView.hostedView != nil else { return }
         nsView.dropContext = dropContext
         nsView.hostedView = nil
         if dropContext == nil {

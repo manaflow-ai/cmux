@@ -23,7 +23,7 @@ final class PaneMemoryGuardrail {
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
 
-    /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
+    /// Supplies cached pane identities each tick without entering libghostty.
     @ObservationIgnored
     var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
 

@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Stores customizable keyboard shortcuts (definitions + persistence).
 enum KeyboardShortcutSettings {
-    static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
+    nonisolated static let didChangeNotification = Notification.Name("cmux.keyboardShortcutSettingsDidChange")
     static let actionUserInfoKey = "action"
     static let settingsFileDisplayPath = "~/.config/cmux/cmux.json"
     static var settingsFileStore: KeyboardShortcutSettingsFileStore = .appLive {
@@ -61,7 +61,7 @@ enum KeyboardShortcutSettings {
         case rejected(ShortcutRecordingRejection)
     }
 
-    enum Action: String, CaseIterable, Identifiable {
+    enum Action: String, CaseIterable, Identifiable, Sendable {
         // App / window
         case openSettings
         case reloadConfiguration
@@ -1236,8 +1236,8 @@ final class SystemWideHotkeyController {
         ) { [weak self] _ in
             self?.refreshRegistration()
         }
-        inputSourceObserver = DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name(rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String),
+        inputSourceObserver = NotificationCenter.default.addObserver(
+            forName: KeyboardLayout.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -1409,7 +1409,7 @@ final class SystemWideHotkeyController {
 
 }
 
-struct ShortcutStroke: Equatable, Hashable {
+struct ShortcutStroke: Equatable, Hashable, Sendable {
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)
         case rejected(KeyboardShortcutSettings.ShortcutRecordingRejection)
@@ -2009,7 +2009,7 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     func resolvedKeyCode(
-        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        layoutCharacterProvider: ((UInt16, NSEvent.ModifierFlags) -> String?)? = nil
     ) -> UInt16? {
         if let keyCode {
             return keyCode
@@ -2018,6 +2018,8 @@ struct ShortcutStroke: Equatable, Hashable {
         let shortcutKey = key.lowercased()
         let flags = modifierFlags
         let applyShiftNormalization = flags.contains(.shift)
+        let layoutCharacterProvider = layoutCharacterProvider
+            ?? KeyboardLayout.shortcutCharacterProvider()
 
         for candidateKeyCode in Self.supportedShortcutKeyCodes {
             let candidateCharacter = layoutCharacterProvider(candidateKeyCode, flags)
@@ -2048,7 +2050,7 @@ struct ShortcutStroke: Equatable, Hashable {
 }
 
 /// A keyboard shortcut that can be stored in UserDefaults
-struct StoredShortcut: Codable, Equatable, Hashable {
+struct StoredShortcut: Codable, Equatable, Hashable, Sendable {
     var key: String
     var command: Bool
     var shift: Bool

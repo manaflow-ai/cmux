@@ -213,3 +213,49 @@ public struct WorkspaceCustomizationStore {
         defaults.set(data, forKey: storageKey)
     }
 }
+
+/// Returns the private defaults suite used by one app identity's customization journal.
+///
+/// - Parameter bundleIdentifier: Bundle identifier that owns the journal.
+/// - Returns: A bundle-scoped defaults suite name.
+public nonisolated func workspaceCustomizationDefaultsSuiteName(
+    bundleIdentifier: String
+) -> String {
+    "\(bundleIdentifier).workspace-customizations"
+}
+
+/// Creates the defaults domain that owns customization recovery data.
+///
+/// Existing v2 and legacy records are copied once from the app's settings
+/// domain. The source remains intact for downgrade compatibility, while all
+/// subsequent journal writes stay in the isolated domain.
+///
+/// - Parameters:
+///   - source: Existing app settings domain used as the migration source.
+///   - bundleIdentifier: Bundle identifier that owns the isolated journal.
+/// - Returns: The isolated domain, or `source` when one cannot be created.
+@MainActor
+public func makeIsolatedWorkspaceCustomizationDefaults(
+    source: UserDefaults,
+    bundleIdentifier: String?
+) -> UserDefaults {
+    guard let bundleIdentifier = bundleIdentifier?
+        .trimmingCharacters(in: .whitespacesAndNewlines),
+          !bundleIdentifier.isEmpty,
+          let isolated = UserDefaults(
+              suiteName: workspaceCustomizationDefaultsSuiteName(
+                  bundleIdentifier: bundleIdentifier
+              )
+          ) else {
+        return source
+    }
+
+    for key in [
+        WorkspaceCustomizationStore.defaultStorageKey,
+        WorkspaceCustomizationStore.defaultLegacyStorageKey,
+    ] where isolated.object(forKey: key) == nil {
+        guard let value = source.object(forKey: key) else { continue }
+        isolated.set(value, forKey: key)
+    }
+    return isolated
+}

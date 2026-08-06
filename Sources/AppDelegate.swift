@@ -1046,6 +1046,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private var processDetectedSessionSaveGeneration: UInt64 = 0
+    private let sessionPersistenceRuntime: SessionPersistenceRuntime
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1176,7 +1177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    override init() {
+    override convenience init() {
+        self.init(sessionPersistenceRuntime: SessionPersistenceRuntime())
+    }
+
+    init(sessionPersistenceRuntime: SessionPersistenceRuntime) {
+        self.sessionPersistenceRuntime = sessionPersistenceRuntime
         let fileManager = FileManager.default
         let hangDirectory = fileManager.urls(
             for: .libraryDirectory,
@@ -1553,6 +1559,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             GlobalSearchCoordinator.shared.start()
             sentryStartMemoryContextRefresh()
         }
+        KeyboardLayout.start()
         SystemWideHotkeyController.shared.start()
         AgentHibernationController.shared.start()
         RendererRealizationController.shared.start()
@@ -2020,8 +2027,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func prepareForConfirmedAppTermination() {
+        cancelSessionPersistencePrewarm()
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         // The hard AppKit watchdog is armed immediately before the terminate
         // reply, after any owned asynchronous cleanup has finished. This keeps
@@ -2148,8 +2156,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Apple's promised-pasteboard observer can fire before this delegate
         // method, so the primary arm above is what bounds #6758; this only
         // widens coverage to other entrypoints.
+        cancelSessionPersistencePrewarm()
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
         terminationWatchdog.arm()
         sentryStopMemoryContextRefresh()
@@ -2187,8 +2196,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func persistSessionForUpdateRelaunch() {
+        cancelSessionPersistencePrewarm()
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
@@ -2233,6 +2243,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
+        prewarmProcessDetectedResumeIndexesForLifecycleSave()
         // Seed so the first display change after launch can restore geometry.
         lastAppliedConfigurationSignature = currentDisplayConfigurationSignature()
         lastVisibleFrameFitTopologySignature = MainWindowVisibleFrameFitCore()
@@ -3998,8 +4009,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.cancelSessionPersistencePrewarm()
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                _ = self.saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
         }
@@ -4013,7 +4025,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                    _ = self.saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                     ClosedItemHistoryStore.shared.flushPendingSaves()
                 } else {
                     self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
@@ -4075,6 +4087,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         lifecycleSnapshotObservers.append(screenParamsObserver)
+    }
+
+    private func prewarmProcessDetectedResumeIndexesForLifecycleSave() {
+        guard !isRunningUnderXCTest(ProcessInfo.processInfo.environment) else { return }
+        sessionPersistenceRuntime.prewarm()
+    }
+
+    private func cancelSessionPersistencePrewarm() {
+        sessionPersistenceRuntime.cancelPrewarm()
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -4373,7 +4394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let loadStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+        let resumeIndexes = await sessionPersistenceRuntime.refresh()
 #if DEBUG
         loadMs = (ProcessInfo.processInfo.systemUptime - loadStart) * 1000.0
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
@@ -4431,16 +4452,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+    private func saveSessionSnapshotUsingLastKnownProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        let savePlan = sessionPersistenceRuntime.urgentSavePlan()
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            restorableAgentIndex: savePlan.restorableAgentIndex,
+            surfaceResumeBindingIndex: savePlan.surfaceResumeBindingIndex
         )
     }
 
@@ -4451,9 +4472,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         Task { @MainActor [weak self] in
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-            guard let self,
-                  !self.isTerminatingApp,
+            guard let self else { return }
+            let resumeIndexes = await self.sessionPersistenceRuntime.refresh()
+            guard !self.isTerminatingApp,
                   self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,
@@ -8942,7 +8963,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
-                ?? WorkspaceCustomizationStore(defaults: .standard),
+                ?? WorkspaceCustomizationStore(
+                    defaults: makeIsolatedWorkspaceCustomizationDefaults(
+                        source: .standard,
+                        bundleIdentifier: Bundle.main.bundleIdentifier
+                    )
+                ),
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
         )
         tabManager.windowId = windowId
@@ -9013,6 +9039,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let root = ContentView(
             updateViewModel: updateViewModel,
+            tabManager: tabManager,
             windowId: windowId,
             titlebarControlsLayoutModel: titlebarControlsLayoutModel
         )
@@ -17346,6 +17373,16 @@ private extension NSApplication {
         ) {
             return
         }
+        let preferredWindow = event.window
+            ?? AppDelegate.shared?.shortcutRoutingActiveWindow
+            ?? keyWindow
+            ?? mainWindow
+        if preferredWindow?.cmuxRouteApplicationUndoRedoCommandEquivalent(event) == true {
+#if DEBUG
+            cmuxDebugLog("app.sendEvent routed undo/redo before AppKit menu dispatch")
+#endif
+            return
+        }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
             if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(
                 event,
@@ -17784,6 +17821,21 @@ private extension NSWindow {
             originalDispatchMs = (ProcessInfo.processInfo.systemUptime - originalDispatchStart) * 1000.0
         }
 #endif
+    }
+
+    func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+        guard event.cmuxIsUndoRedoCommandEquivalent else { return false }
+
+        let terminalView = firstResponder.cmuxTerminalKeyEquivalentOwningGhosttyView()
+        let webView = firstResponder.flatMap {
+            Self.cmuxOwningWebView(for: $0, in: self, event: event)
+        }
+        return cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
+            event,
+            terminalView: terminalView,
+            webView: webView,
+            browserWebKitKeyDownReentry: webView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
+        )
     }
 
     @objc func cmux_performKeyEquivalent(with event: NSEvent) -> Bool {

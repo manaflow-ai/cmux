@@ -101,6 +101,15 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate CLI event source guards
+        run: python3 tests/test_cli_event_source_guards.py
+
+      - name: Validate Browser WebAuthn credential reply safety
+        run: python3 tests/test_browser_webauthn_credential_reply_guard.py
+
+      - name: Validate debug mobile transport source ownership
+        run: python3 tests/test_debug_mobile_transport_source_ownership.py
+
       - name: Validate TUI npm package artifact transfer
         run: python3 tests/test_tui_npm_package_artifact.py
 

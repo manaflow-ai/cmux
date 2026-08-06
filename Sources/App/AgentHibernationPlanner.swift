@@ -24,7 +24,7 @@ enum AgentHibernationPlanner {
             excess = min(
                 liveRestorable.count,
                 TerminalSurfaceRuntimeTeardownCoordinator
-                    .maximumIsolatedHibernationTeardownCount
+                    .maximumHibernationTeardownCount
             )
         }
         guard excess > 0 else { return [] }

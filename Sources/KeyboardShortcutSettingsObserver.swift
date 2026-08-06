@@ -1,4 +1,3 @@
-import Carbon
 import Foundation
 import Observation
 
@@ -6,43 +5,72 @@ import Observation
 @MainActor
 @Observable
 final class KeyboardShortcutSettingsObserver {
-    typealias ShortcutProvider = (KeyboardShortcutSettings.Action) -> StoredShortcut
+    typealias ShortcutProvider = @Sendable (KeyboardShortcutSettings.Action) -> StoredShortcut
 
     static let shared = KeyboardShortcutSettingsObserver()
 
     private(set) var revision: UInt64 = 0
-    private(set) var globalSearchShortcut: StoredShortcut
-    let rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher
+    private(set) var shortcutSnapshot: KeyboardShortcutSnapshot
     private let notificationCenter: NotificationCenter
-    private let distributedNotificationCenter: DistributedNotificationCenter
     @ObservationIgnored
     private let shortcutProvider: ShortcutProvider
+    @ObservationIgnored
+    private var hasStartedPersistenceRefresh = false
+    @ObservationIgnored
+    private var cachedRightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher?
     @ObservationIgnored
     private var settingsObserver: NSObjectProtocol?
     @ObservationIgnored
     private var recorderObserver: NSObjectProtocol?
     @ObservationIgnored
     private var inputSourceObserver: NSObjectProtocol?
+    @ObservationIgnored
+    private lazy var snapshotCache = GenerationCoalescingSnapshotCache(
+        initialSnapshot: shortcutSnapshot,
+        preparingLoader: { [shortcutProvider] in
+            KeyboardLayout.prepareOffMainSnapshotOperation {
+                Optional(KeyboardShortcutSnapshot.load(using: shortcutProvider))
+            }
+        },
+        installHandler: { [weak self] replacement in
+            self?.install(replacement)
+        }
+    )
+
+    var globalSearchShortcut: StoredShortcut {
+        shortcut(for: .globalSearch)
+    }
+
+    var rightSidebarModeShortcutMatcher: RightSidebarModeShortcutMatcher {
+        if let cachedRightSidebarModeShortcutMatcher {
+            return cachedRightSidebarModeShortcutMatcher
+        }
+        let matcher = RightSidebarModeShortcutMatcher(
+            shortcutProvider: { [weak self] action in
+                self?.shortcut(for: action) ?? action.defaultShortcut
+            }
+        )
+        cachedRightSidebarModeShortcutMatcher = matcher
+        return matcher
+    }
 
     init(
         notificationCenter: NotificationCenter = .default,
-        distributedNotificationCenter: DistributedNotificationCenter = .default(),
-        shortcutProvider: @escaping ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
+        initialSnapshot: KeyboardShortcutSnapshot = .defaults,
+        shortcutProvider: @escaping ShortcutProvider = { action in
+            KeyboardShortcutSettings.shortcut(for: action)
+        }
     ) {
         self.notificationCenter = notificationCenter
-        self.distributedNotificationCenter = distributedNotificationCenter
         self.shortcutProvider = shortcutProvider
-        globalSearchShortcut = shortcutProvider(.globalSearch)
-        rightSidebarModeShortcutMatcher = RightSidebarModeShortcutMatcher(
-            shortcutProvider: shortcutProvider
-        )
+        shortcutSnapshot = initialSnapshot
         settingsObserver = notificationCenter.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
-                self?.reloadCachedShortcuts()
+                self?.requestShortcutRefresh()
             }
         }
         recorderObserver = notificationCenter.addObserver(
@@ -54,15 +82,13 @@ final class KeyboardShortcutSettingsObserver {
                 self?.revision &+= 1
             }
         }
-        inputSourceObserver = distributedNotificationCenter.addObserver(
-            forName: Notification.Name(
-                rawValue: kTISNotifySelectedKeyboardInputSourceChanged as String
-            ),
+        inputSourceObserver = notificationCenter.addObserver(
+            forName: KeyboardLayout.didChangeNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
             Self.deliverOnMainActor { [weak self] in
-                self?.reloadCachedShortcuts()
+                self?.requestShortcutRefresh()
             }
         }
     }
@@ -75,14 +101,37 @@ final class KeyboardShortcutSettingsObserver {
             notificationCenter.removeObserver(recorderObserver)
         }
         if let inputSourceObserver {
-            distributedNotificationCenter.removeObserver(inputSourceObserver)
+            notificationCenter.removeObserver(inputSourceObserver)
         }
     }
 
-    private func reloadCachedShortcuts() {
-        globalSearchShortcut = shortcutProvider(.globalSearch)
+    func shortcut(for action: KeyboardShortcutSettings.Action) -> StoredShortcut {
+        shortcutSnapshot.shortcut(for: action)
+    }
+
+    /// Activates persistence-backed snapshots after the settings store has
+    /// completed initialization. Construction stays inert so synchronous
+    /// settings notifications cannot create a startup initialization cycle.
+    func start() {
+        guard !hasStartedPersistenceRefresh else { return }
+        hasStartedPersistenceRefresh = true
+        snapshotCache.requestRefresh()
+    }
+
+    func waitUntilShortcutSnapshotIsIdle() async {
+        await snapshotCache.waitUntilIdle()
+    }
+
+    private func requestShortcutRefresh() {
         revision &+= 1
-        rightSidebarModeShortcutMatcher.reload()
+        guard hasStartedPersistenceRefresh else { return }
+        snapshotCache.requestRefresh()
+    }
+
+    private func install(_ replacement: KeyboardShortcutSnapshot) {
+        shortcutSnapshot = replacement
+        revision &+= 1
+        cachedRightSidebarModeShortcutMatcher?.reload()
     }
 
     /// Preserves synchronous delivery for main-thread settings mutations while

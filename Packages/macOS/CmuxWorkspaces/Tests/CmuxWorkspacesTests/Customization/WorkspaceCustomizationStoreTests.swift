@@ -73,6 +73,94 @@ struct WorkspaceCustomizationStoreTests {
         #expect(fixture.store.customization(for: thirdId)?.customTitle == .value("Third"))
     }
 
+    @Test("production journal is isolated from the global settings domain")
+    func isolatedJournalDomain() throws {
+        let sourceSuiteName = "WorkspaceCustomizationSource.\(UUID().uuidString)"
+        let bundleIdentifier = "com.cmuxterm.tests.\(UUID().uuidString)"
+        let journalSuiteName = workspaceCustomizationDefaultsSuiteName(
+            bundleIdentifier: bundleIdentifier
+        )
+        let sourceDefaults = try #require(UserDefaults(suiteName: sourceSuiteName))
+        sourceDefaults.removePersistentDomain(forName: sourceSuiteName)
+        UserDefaults.standard.removePersistentDomain(forName: journalSuiteName)
+        defer {
+            sourceDefaults.removePersistentDomain(forName: sourceSuiteName)
+            UserDefaults.standard.removePersistentDomain(forName: journalSuiteName)
+        }
+
+        let migratedId = UUID()
+        let sourceStore = WorkspaceCustomizationStore(defaults: sourceDefaults)
+        sourceStore.setCustomTitle("Migrated", for: migratedId)
+        let sourceSnapshot = try #require(
+            sourceDefaults.data(forKey: WorkspaceCustomizationStore.defaultStorageKey)
+        )
+
+        let journalDefaults = makeIsolatedWorkspaceCustomizationDefaults(
+            source: sourceDefaults,
+            bundleIdentifier: bundleIdentifier
+        )
+        let journalStore = WorkspaceCustomizationStore(defaults: journalDefaults)
+
+        #expect(journalDefaults !== sourceDefaults)
+        #expect(journalStore.customization(for: migratedId)?.customTitle == .value("Migrated"))
+
+        journalStore.setCustomTitle("New", for: UUID())
+
+        #expect(
+            sourceDefaults.data(forKey: WorkspaceCustomizationStore.defaultStorageKey) == sourceSnapshot,
+            "Journal mutations must not publish changes through the global settings domain."
+        )
+        #expect(
+            journalDefaults.data(forKey: WorkspaceCustomizationStore.defaultStorageKey) != sourceSnapshot
+        )
+    }
+
+    @Test("existing isolated journal wins over migrated settings data")
+    func isolatedJournalDoesNotRegressToSourceSnapshot() throws {
+        let sourceSuiteName = "WorkspaceCustomizationSource.\(UUID().uuidString)"
+        let bundleIdentifier = "com.cmuxterm.tests.\(UUID().uuidString)"
+        let journalSuiteName = workspaceCustomizationDefaultsSuiteName(
+            bundleIdentifier: bundleIdentifier
+        )
+        let sourceDefaults = try #require(UserDefaults(suiteName: sourceSuiteName))
+        let journalDefaults = try #require(UserDefaults(suiteName: journalSuiteName))
+        sourceDefaults.removePersistentDomain(forName: sourceSuiteName)
+        journalDefaults.removePersistentDomain(forName: journalSuiteName)
+        defer {
+            sourceDefaults.removePersistentDomain(forName: sourceSuiteName)
+            journalDefaults.removePersistentDomain(forName: journalSuiteName)
+        }
+
+        let stableId = UUID()
+        WorkspaceCustomizationStore(defaults: sourceDefaults)
+            .setCustomTitle("Stale", for: stableId)
+        WorkspaceCustomizationStore(defaults: journalDefaults)
+            .setCustomTitle("Current", for: stableId)
+
+        let resolvedDefaults = makeIsolatedWorkspaceCustomizationDefaults(
+            source: sourceDefaults,
+            bundleIdentifier: bundleIdentifier
+        )
+
+        #expect(
+            WorkspaceCustomizationStore(defaults: resolvedDefaults)
+                .customization(for: stableId)?.customTitle == .value("Current")
+        )
+    }
+
+    @Test("missing app identity preserves the source defaults domain")
+    func missingBundleIdentifierFallsBackToSource() throws {
+        let fixture = try makeFixture()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        #expect(
+            makeIsolatedWorkspaceCustomizationDefaults(
+                source: fixture.defaults,
+                bundleIdentifier: nil
+            ) === fixture.defaults
+        )
+    }
+
     @Test("legacy migration promotes only supplied unambiguous directory owners")
     func legacyMigration() throws {
         let fixture = try makeFixture()

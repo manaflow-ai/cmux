@@ -196,14 +196,14 @@ class TabManager: ObservableObject {
     private(set) var workspacesById: [UUID: Workspace] = [:]
 
     var tabs: [Workspace] {
-        get { workspaces.tabs }
+        get { workspaces.unobservedTabsSnapshot }
         set { workspaces.tabs = newValue }
     }
     /// Named groupings of workspaces shown as collapsible sections in the sidebar.
     /// Group order in this array defines section order in the sidebar.
     /// Each member workspace stores its `groupId` on the `Workspace` model.
     var workspaceGroups: [WorkspaceGroup] {
-        get { workspaces.workspaceGroups }
+        get { workspaces.unobservedWorkspaceGroupsSnapshot }
         set { workspaces.workspaceGroups = newValue }
     }
 
@@ -235,7 +235,7 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     static var nextPortOrdinal: Int = 0
     var selectedTabId: UUID? {
-        get { workspaces.selectedTabId }
+        get { workspaces.unobservedSelectedTabIdSnapshot }
         set { workspaces.selectedTabId = newValue }
     }
 
@@ -247,6 +247,7 @@ class TabManager: ObservableObject {
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        AgentDeliveryTargetPublicationBus.publish()
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
@@ -466,10 +467,23 @@ class TabManager: ObservableObject {
     /// GitHub transport state injected process-wide by the app composition root.
     /// The fallback initializer is retained for isolated `TabManager` tests.
     let pullRequestProbeService: PullRequestProbeService
+    private(set) lazy var sidebarGitActivitySnapshotCache: SidebarGitActivitySnapshotCache = {
+        let settings = self.settings
+        return SidebarGitActivitySnapshotCache(
+            initialSnapshot: .disabled,
+            loader: {
+                SidebarGitActivitySnapshot.load(settings: settings)
+            },
+            installHandler: { [weak self] _ in
+                self?.sidebarGitActivitySnapshotDidInstall()
+            }
+        )
+    }()
 
     init(
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
+        initialSurface: NewWorkspaceInitialSurface = .terminal,
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true,
         commandRunner: any CommandRunning = CommandRunner(),
@@ -564,6 +578,7 @@ class TabManager: ObservableObject {
             title: initialWorkspaceTitle,
             titleSource: .auto,
             workingDirectory: initialWorkingDirectory,
+            initialSurface: initialSurface,
             initialTerminalInput: initialTerminalInput,
             autoWelcomeIfNeeded: autoWelcomeIfNeeded
         )
@@ -638,6 +653,7 @@ class TabManager: ObservableObject {
                 self?.refreshWindowTitle()
             }
         })
+        sidebarGitActivitySnapshotCache.requestRefresh()
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -680,9 +696,13 @@ class TabManager: ObservableObject {
     // MARK: - Sidebar git/PR forwarders (subsystem extracted to CmuxSidebarGit)
 
     private func sidebarMetadataSettingsDidChange() {
+        sidebarGitActivitySnapshotCache.requestRefresh()
+        refreshRemotePortScanningEnablement()
+    }
+
+    private func sidebarGitActivitySnapshotDidInstall() {
         sidebarGitMetadataService.sidebarGitMetadataWatchSettingsDidChange()
         pullRequestProbing.sidebarPullRequestPollingSettingsDidChange()
-        refreshRemotePortScanningEnablement()
     }
 
     private func focusHistoryScopeSettingsDidChange() {
@@ -717,6 +737,15 @@ class TabManager: ObservableObject {
 
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
         sidebarMetadataSettingsDidChange()
+    }
+
+    func refreshSidebarGitMetadataSettingsAndWait() async {
+        sidebarMetadataSettingsDidChange()
+        await sidebarGitActivitySnapshotCache.waitUntilIdle()
+    }
+
+    func waitForSidebarGitActivitySnapshot() async {
+        await sidebarGitActivitySnapshotCache.waitUntilIdle()
     }
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {

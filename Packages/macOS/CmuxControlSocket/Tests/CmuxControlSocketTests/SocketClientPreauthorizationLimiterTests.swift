@@ -3,18 +3,18 @@ import Testing
 
 @Suite("Socket client preauthorization limiter")
 struct SocketClientPreauthorizationLimiterTests {
-    @Test func rejectsBeyondLimitUntilAClaimIsReleased() async {
+    @Test func rejectsBeyondLimitUntilAClaimIsReleased() {
         let limiter = SocketClientPreauthorizationLimiter(maximumConcurrentClaims: 2)
 
-        let first = await limiter.claim()
-        let second = await limiter.claim()
-        let rejected = await limiter.claim()
+        let first = limiter.claim()
+        let second = limiter.claim()
+        let rejected = limiter.claim()
         #expect(first)
         #expect(second)
         #expect(!rejected)
 
-        await limiter.release()
-        let replacement = await limiter.claim()
+        limiter.release()
+        let replacement = limiter.claim()
         #expect(replacement)
     }
 }

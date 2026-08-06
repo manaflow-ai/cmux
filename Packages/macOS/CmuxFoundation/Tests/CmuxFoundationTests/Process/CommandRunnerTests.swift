@@ -44,6 +44,26 @@ import Testing
         #expect(result.executionError == nil)
     }
 
+    @Test func appliesTheInjectedEnvironmentToTheChild() async {
+        let runner = CommandRunner(
+            environment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_COMMAND_RUNNER_TEST_VALUE": "expected",
+            ],
+            bundledBinPath: nil,
+            fallbackSearchDirectories: []
+        )
+
+        let output = await runner.runStandardOutput(
+            directory: tempDir,
+            executable: "sh",
+            arguments: ["-c", "printf '%s' \"$CMUX_COMMAND_RUNNER_TEST_VALUE\""],
+            timeout: 10
+        )
+
+        #expect(output == "expected")
+    }
+
     @Test func nonZeroExitMakesRunStandardOutputNil() async {
         let output = await runner.runStandardOutput(
             directory: tempDir,

@@ -182,8 +182,12 @@ struct cmuxApp: App {
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
         let defaults = UserDefaults.standard
+        let workspaceCustomizationDefaults = makeIsolatedWorkspaceCustomizationDefaults(
+            source: defaults,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
         let workspaceCustomizationStore = WorkspaceCustomizationStore(
-            defaults: defaults
+            defaults: workspaceCustomizationDefaults
         )
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
@@ -191,6 +195,8 @@ struct cmuxApp: App {
         )
         KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
         StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
+        KeyboardShortcutSettingsObserver.shared.start()
+        StartupBreadcrumbLog.append("app.init.keyboardShortcuts.observerStarted")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,

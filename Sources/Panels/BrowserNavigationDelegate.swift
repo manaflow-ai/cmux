@@ -10,15 +10,17 @@ import WebKit
         trustedOrigin: AuthEnvironment.appWebOrigin
     )
     private var shouldPrintAfterCurrentNavigationFinishes = false
-    var didStartProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
-    var didCommit: ((WKWebView, WKNavigation?) -> Void)?
-    var didFinish: ((WKWebView) -> Void)?
-    var didFailNavigation: ((WKWebView, String, String, WKNavigation?) -> Void)?
-    var didCancelProvisionalNavigation: ((WKWebView, WKNavigation?) -> Void)?
-    var didChooseMainFrameDownloadPolicy: ((WKWebView, WKNavigation?) -> Void)?
-    var didInterruptProvisionalNavigationByPolicy: ((WKWebView, WKNavigation?) -> Bool)?
-    var didCancelNavigationPolicy: ((WKWebView, PolicyCancellationKind) -> Void)?
-    var didBecomeDownload: ((WKWebView, Bool, UUID?) -> Void)?
+    // Preserve isolation in the callback values so WebKit's Objective-C delegate
+    // boundary never requires a runtime MainActor.assumeIsolated assertion.
+    var didStartProvisionalNavigation: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didCommit: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didFinish: (@MainActor (WKWebView) -> Void)?
+    var didFailNavigation: (@MainActor (WKWebView, String, String, WKNavigation?) -> Void)?
+    var didCancelProvisionalNavigation: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didChooseMainFrameDownloadPolicy: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didInterruptProvisionalNavigationByPolicy: (@MainActor (WKWebView, WKNavigation?) -> Bool)?
+    var didCancelNavigationPolicy: (@MainActor (WKWebView, PolicyCancellationKind) -> Void)?
+    var didBecomeDownload: (@MainActor (WKWebView, Bool, UUID?) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
     var openAppLinkInBrowserSplit: ((URL) -> Bool)?
@@ -30,10 +32,10 @@ import WebKit
     var handleDroppedFileNavigation: (([URL]) -> Bool)?
     var currentRestoreAttemptID: (() -> UUID?)?
     var terminalPolicyCancellationReporter: ((WKNavigationAction, WKWebView) -> () -> Void)?
-    var willReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?) -> Void)?
-    var didReplaceNavigationForUserAgentPolicy: ((WKWebView, WKNavigation?, WKNavigation?) -> Void)?
-    var didRenderPDFDocument: ((URL, Bool) -> Void)?
-    var didClearPDFDocument: (() -> Void)?
+    var willReplaceNavigationForUserAgentPolicy: (@MainActor (WKWebView, WKNavigation?) -> Void)?
+    var didReplaceNavigationForUserAgentPolicy: (@MainActor (WKWebView, WKNavigation?, WKNavigation?) -> Void)?
+    var didRenderPDFDocument: (@MainActor (URL, Bool) -> Void)?
+    var didClearPDFDocument: (@MainActor () -> Void)?
     /// Direct reference to the download delegate - must be set synchronously in didBecome callbacks.
     var downloadDelegate: WKDownloadDelegate?
     /// Last attempted navigation URL, used to preserve the omnibar URL after provisional failures.

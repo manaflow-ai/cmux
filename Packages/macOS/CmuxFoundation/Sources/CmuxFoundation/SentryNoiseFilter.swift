@@ -1,6 +1,7 @@
+import Darwin
 import Foundation
 
-/// Classifies Sentry-bound error text so expected, non-actionable transport
+/// Classifies Sentry-bound transport failures so expected, non-actionable
 /// disconnects can be dropped before capture or send.
 public struct SentryNoiseFilter: Sendable {
     public init() {}
@@ -13,8 +14,8 @@ public struct SentryNoiseFilter: Sendable {
     ///   - dataKeys: Structured context keys that can prove socket ownership.
     ///   - allowSandboxPolicyDenial: Whether a socket-connect `EPERM` has
     ///     trusted restricted-sandbox provenance. Pass
-    ///     ``CLISocketSentryPolicy/allowsSandboxPolicyDenial`` rather than
-    ///     inferring this from the error text.
+    ///     ``CLISocketSentryPolicy/shouldSuppressPolicyDenial(_:)`` rather
+    ///     than inferring this from the error text.
     /// - Returns: `true` when the failure is safe to omit from Sentry.
     public func isExpectedCLISocketTransportFailure(
         stage: String,
@@ -27,6 +28,36 @@ public struct SentryNoiseFilter: Sendable {
         }
         return isExpectedCLISocketTransportMessage(message) ||
             (allowSandboxPolicyDenial && isSocketConnectPolicyDenial(message))
+    }
+
+    /// Uses typed connection fields when available so user-visible error text
+    /// can stay sanitized without changing Sentry suppression semantics.
+    public func isExpectedCLISocketTransportFailure(
+        stage: String,
+        error: any Error,
+        dataKeys: Set<String> = [],
+        allowSandboxPolicyDenial: Bool = false
+    ) -> Bool {
+        if let connectError = error as? CLISocketConnectError {
+            guard isCLISocketTransportContext(stage: stage, dataKeys: dataKeys) else {
+                return false
+            }
+            switch connectError.errnoCode {
+            case ENOENT, ECONNREFUSED:
+                return true
+            case EPERM:
+                return allowSandboxPolicyDenial
+            default:
+                return false
+            }
+        }
+
+        return isExpectedCLISocketTransportFailure(
+            stage: stage,
+            message: String(describing: error),
+            dataKeys: dataKeys,
+            allowSandboxPolicyDenial: allowSandboxPolicyDenial
+        )
     }
 
     /// Returns `true` for expected CLI socket connect/write error messages that

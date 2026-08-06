@@ -1,11 +1,11 @@
 import AppKit
 
 final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
-    private let textBoxAttachment: TextBoxAttachment
+    private let attachmentGroup: TextBoxAttachmentGroup
     private let renderedImage: NSImage
 
-    init(attachment: TextBoxAttachment, image: NSImage) {
-        self.textBoxAttachment = attachment
+    init(attachmentGroup: TextBoxAttachmentGroup, image: NSImage) {
+        self.attachmentGroup = attachmentGroup
         self.renderedImage = image
         super.init(imageCell: image)
     }
@@ -48,7 +48,7 @@ final class TextBoxInlineAttachmentCell: NSTextAttachmentCell {
             height: drawnCellFrame.height
         )
         textView.handleInlineAttachmentCellClick(
-            attachment: textBoxAttachment,
+            attachment: attachmentGroup.primaryAttachment,
             characterIndex: charIndex,
             clickCount: event.clickCount,
             isCloseClick: closeRect.contains(clickPoint)

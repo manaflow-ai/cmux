@@ -1,7 +1,7 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
-import XCTest
+@preconcurrency import XCTest
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -26,6 +26,11 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         TerminalController.shared.stop()
         let requestedPath = "/tmp/cmux-restore-\(UUID().uuidString).sock"
         let reservedPath = TerminalController.shared.reserveStartupSocketPath(requestedPath)
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: reservedPath,
+            accessMode: .allowAll
+        )
         XCTAssertEqual(TerminalController.shared.currentSocketPathForRemoteRestore(), reservedPath)
         return reservedPath
     }
@@ -60,6 +65,37 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(restored.selectedTabId, restored.tabs[1].id)
         XCTAssertEqual(restored.tabs[0].customTitle, "First")
         XCTAssertEqual(restored.tabs[1].customTitle, "Second")
+    }
+
+    func testWorkspaceRestoreCoalescesPaneGeometryPublication() {
+        let panelIds = (0..<4).map { _ in UUID() }
+        var snapshot = Self.localWorkspaceSnapshot(
+            title: "Geometry Batch",
+            panelId: panelIds[0]
+        )
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: panelIds,
+            selectedPanelId: panelIds.last
+        ))
+        snapshot.panels = panelIds.map(Self.terminalPanelSnapshot(id:))
+        snapshot.focusedPanelId = panelIds.last
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        var notificationCount = 0
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspacePaneGeometryDidChange,
+            object: workspace,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(workspace.orderedPanelIds.count, panelIds.count)
+        XCTAssertEqual(notificationCount, 1)
     }
 
     func testRestoreSessionSnapshotPreservesPersistedWorkspaceIdsAndOrder() throws {
@@ -2286,7 +2322,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
         let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
-        remoteWorkspace.updatePanelDirectory(panelId: remotePanelId, directory: "/home/dev/project")
+        XCTAssertTrue(
+            remoteWorkspace.updateRemotePanelDirectoryWithMetadata(
+                panelId: remotePanelId,
+                directory: "/home/dev/project"
+            )
+        )
 
         let snapshotURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-session-restore-\(UUID().uuidString).json")
@@ -2336,7 +2377,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(restoredWorkspace.terminalPanel(for: restoredPanelId)?.requestedWorkingDirectory)
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -o ForwardAgent=yes -tt dev@example.com"
+            "/usr/bin/ssh -p 2222 -i \(expandedIdentityFile) -o StrictHostKeyChecking=accept-new -o ForwardAgent=yes -tt dev@example.com"
         )
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.agentSocketPath, restoredAgentSocketPath)
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"], restoredAgentSocketPath)
@@ -2388,7 +2429,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         XCTAssertEqual(
             restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
-            "ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
+            "/usr/bin/ssh -p 2222 -o ForwardAgent=yes -tt dev@example.com"
         )
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.agentSocketPath)
         XCTAssertNil(restoredWorkspace.remoteConfiguration?.sshTerminalStartupEnvironment?["SSH_AUTH_SOCK"])
@@ -3345,7 +3386,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("workspace.remote.foreground_auth_ready"), terminalStartupCommand)
-        XCTAssertEqual(terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+        XCTAssertEqual(terminalStartupCommand, "/usr/bin/ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
 
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = try XCTUnwrap(
@@ -3659,7 +3700,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(configuration.relayPort)
         XCTAssertNil(configuration.localSocketPath)
         XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
-        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+        XCTAssertEqual(configuration.terminalStartupCommand, "/usr/bin/ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
     func testSessionRemoteWorkspaceSnapshotRequiresLocalSocketPathForPTYRestore() throws {
@@ -3687,7 +3728,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(configuration.relayPort)
         XCTAssertNil(configuration.localSocketPath)
         XCTAssertFalse(configuration.terminalStartupCommand?.contains("ssh-pty-attach") == true)
-        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
+        XCTAssertEqual(configuration.terminalStartupCommand, "/usr/bin/ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com")
     }
 
     func testSessionRemoteWorkspaceSnapshotStripsTransientControlOptionsWhenPreservedRestoreFallsBack() throws {
@@ -3716,7 +3757,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.sshOptions, ["StrictHostKeyChecking=accept-new"])
         XCTAssertEqual(
             configuration.terminalStartupCommand,
-            "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+            "/usr/bin/ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com"
         )
     }
 
@@ -3774,7 +3815,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
 
         XCTAssertNil(configuration.port)
-        XCTAssertEqual(configuration.terminalStartupCommand, "ssh -tt dev@example.com")
+        XCTAssertEqual(configuration.terminalStartupCommand, "/usr/bin/ssh -tt dev@example.com")
     }
 
     /// Regression for https://github.com/manaflow-ai/cmux/issues/5931 — a restored

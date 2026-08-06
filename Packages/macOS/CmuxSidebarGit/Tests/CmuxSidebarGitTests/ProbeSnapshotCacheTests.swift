@@ -197,6 +197,61 @@ import CmuxGit
         #expect(service.workspaceGitSnapshotCacheGeneration(directory: directory) == nil)
     }
 
+    @Test func pendingWatcherRequestMovesBetweenPathGroupsAndStopsByProbeKey() throws {
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, firstPanelId) = host.addWorkspace(panelDirectory: "/tmp/repo-a")
+        let secondPanelId = UUID()
+        let firstKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: firstPanelId)
+        let secondKey = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: secondPanelId)
+        let firstPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: ["/tmp/repo-a/.git/index"])
+        let movedPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: ["/tmp/repo-a/.git/HEAD"])
+        let secondPathsKey = WorkspaceGitMetadataWatchedPathsKey(paths: ["/tmp/repo-b/.git/index"])
+        let firstRequest = WorkspaceGitMetadataWatcherDescriptorRequest(
+            generation: 1,
+            directory: "/tmp/repo-a"
+        )
+        let movedRequest = WorkspaceGitMetadataWatcherDescriptorRequest(
+            generation: 2,
+            directory: "/tmp/repo-a"
+        )
+        let secondRequest = WorkspaceGitMetadataWatcherDescriptorRequest(
+            generation: 3,
+            directory: "/tmp/repo-b"
+        )
+        let service = makeService(
+            host: host,
+            reader: GatedMetadataReader(metadata: .repository(branch: "feature/x")),
+            clock: ManualGitPollClock()
+        )
+
+        service.setPendingWorkspaceGitMetadataWatcherRequest(
+            firstRequest,
+            for: firstKey,
+            watchedPathsKey: firstPathsKey
+        )
+        service.setPendingWorkspaceGitMetadataWatcherRequest(
+            secondRequest,
+            for: secondKey,
+            watchedPathsKey: secondPathsKey
+        )
+        service.setPendingWorkspaceGitMetadataWatcherRequest(
+            movedRequest,
+            for: firstKey,
+            watchedPathsKey: movedPathsKey
+        )
+
+        #expect(service.workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[firstPathsKey] == nil)
+        #expect(service.workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[movedPathsKey]?[firstKey] == movedRequest)
+        #expect(service.workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey[firstKey] == movedPathsKey)
+
+        service.stopWorkspaceGitMetadataWatcher(for: firstKey)
+
+        #expect(service.workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[movedPathsKey] == nil)
+        #expect(service.workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey[firstKey] == nil)
+        #expect(service.workspaceGitMetadataWatcherPendingRequestsByWatchedPathsKey[secondPathsKey]?[secondKey] == secondRequest)
+        #expect(service.workspaceGitMetadataWatcherPendingWatchedPathsKeyByProbeKey[secondKey] == secondPathsKey)
+    }
+
     @Test func sharedWatchedPathsEventBumpsDirectoryGenerationOnce() throws {
         let directory = "/tmp/repo"
         let host = RecordingSidebarGitHost()

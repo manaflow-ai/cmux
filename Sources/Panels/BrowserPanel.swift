@@ -1473,6 +1473,21 @@ final class BrowserHistoryStore: ObservableObject {
         loadIfNeeded()
         guard !importedEntries.isEmpty else { return 0 }
 
+        var mergedEntries = entries
+        var exactIndexByURL: [String: Int] = [:]
+        var normalizedIndexByKey: [String: Int] = [:]
+        exactIndexByURL.reserveCapacity(mergedEntries.count)
+        normalizedIndexByKey.reserveCapacity(mergedEntries.count)
+        for (index, entry) in mergedEntries.enumerated() {
+            if exactIndexByURL[entry.url] == nil {
+                exactIndexByURL[entry.url] = index
+            }
+            if let key = suggestionEngine.normalizedHistoryKey(urlString: entry.url),
+               normalizedIndexByKey[key] == nil {
+                normalizedIndexByKey[key] = index
+            }
+        }
+
         var mergedCount = 0
         for imported in importedEntries {
             guard let parsedURL = URL(string: imported.url),
@@ -1496,42 +1511,48 @@ final class BrowserHistoryStore: ObservableObject {
             let importedTypedCount = max(0, imported.typedCount)
             let importedLastTypedAt = imported.lastTypedAt
 
-            if let idx = entries.firstIndex(where: {
-                if $0.url == urlString { return true }
-                guard let normalizedKey else { return false }
-                return suggestionEngine.normalizedHistoryKey(urlString: $0.url) == normalizedKey
-            }) {
+            let exactIndex = exactIndexByURL[urlString]
+            let normalizedIndex = normalizedKey.flatMap { normalizedIndexByKey[$0] }
+            let matchedIndex: Int?
+            switch (exactIndex, normalizedIndex) {
+            case let (exact?, normalized?): matchedIndex = min(exact, normalized)
+            case let (exact?, nil): matchedIndex = exact
+            case let (nil, normalized?): matchedIndex = normalized
+            case (nil, nil): matchedIndex = nil
+            }
+
+            if let idx = matchedIndex {
                 var didMutate = false
-                if importedLastVisited > entries[idx].lastVisited {
-                    entries[idx].lastVisited = importedLastVisited
+                if importedLastVisited > mergedEntries[idx].lastVisited {
+                    mergedEntries[idx].lastVisited = importedLastVisited
                     didMutate = true
                 }
-                if importedVisitCount > entries[idx].visitCount {
-                    entries[idx].visitCount = importedVisitCount
+                if importedVisitCount > mergedEntries[idx].visitCount {
+                    mergedEntries[idx].visitCount = importedVisitCount
                     didMutate = true
                 }
-                if importedTypedCount > entries[idx].typedCount {
-                    entries[idx].typedCount = importedTypedCount
+                if importedTypedCount > mergedEntries[idx].typedCount {
+                    mergedEntries[idx].typedCount = importedTypedCount
                     didMutate = true
                 }
                 if let importedLastTypedAt {
-                    if let existingLastTypedAt = entries[idx].lastTypedAt {
+                    if let existingLastTypedAt = mergedEntries[idx].lastTypedAt {
                         if importedLastTypedAt > existingLastTypedAt {
-                            entries[idx].lastTypedAt = importedLastTypedAt
+                            mergedEntries[idx].lastTypedAt = importedLastTypedAt
                             didMutate = true
                         }
                     } else {
-                        entries[idx].lastTypedAt = importedLastTypedAt
+                        mergedEntries[idx].lastTypedAt = importedLastTypedAt
                         didMutate = true
                     }
                 }
 
-                let existingTitle = entries[idx].title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let existingTitle = mergedEntries[idx].title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let incomingTitle = importedTitle ?? ""
                 if !incomingTitle.isEmpty,
-                   (existingTitle.isEmpty || importedLastVisited >= entries[idx].lastVisited) {
-                    if entries[idx].title != incomingTitle {
-                        entries[idx].title = incomingTitle
+                   (existingTitle.isEmpty || importedLastVisited >= mergedEntries[idx].lastVisited) {
+                    if mergedEntries[idx].title != incomingTitle {
+                        mergedEntries[idx].title = incomingTitle
                         didMutate = true
                     }
                 }
@@ -1540,7 +1561,8 @@ final class BrowserHistoryStore: ObservableObject {
                     mergedCount += 1
                 }
             } else {
-                entries.append(Entry(
+                let newIndex = mergedEntries.endIndex
+                mergedEntries.append(Entry(
                     id: UUID(),
                     url: urlString,
                     title: importedTitle,
@@ -1549,15 +1571,22 @@ final class BrowserHistoryStore: ObservableObject {
                     typedCount: importedTypedCount,
                     lastTypedAt: importedLastTypedAt
                 ))
+                if exactIndexByURL[urlString] == nil {
+                    exactIndexByURL[urlString] = newIndex
+                }
+                if let normalizedKey, normalizedIndexByKey[normalizedKey] == nil {
+                    normalizedIndexByKey[normalizedKey] = newIndex
+                }
                 mergedCount += 1
             }
         }
 
         guard mergedCount > 0 else { return 0 }
-        entries.sort(by: { $0.lastVisited > $1.lastVisited })
-        if entries.count > maxEntries {
-            entries.removeLast(entries.count - maxEntries)
+        mergedEntries.sort(by: { $0.lastVisited > $1.lastVisited })
+        if mergedEntries.count > maxEntries {
+            mergedEntries.removeLast(mergedEntries.count - maxEntries)
         }
+        entries = mergedEntries
         scheduleSave()
         return mergedCount
     }
@@ -3808,189 +3837,168 @@ final class BrowserPanel: Panel, ObservableObject {
             navigationDelegate?.recordSubframeDownloadIntent($0)
         }
         navigationDelegate.didRenderPDFDocument = { [weak self] url, isMainFrame in
-            MainActor.assumeIsolated { self?.noteRenderedPDFDocument(url, isMainFrame: isMainFrame) }
+            self?.noteRenderedPDFDocument(url, isMainFrame: isMainFrame)
         }
         navigationDelegate.didClearPDFDocument = { [weak self] in
-            MainActor.assumeIsolated { self?.clearRenderedPDFDocument() }
+            self?.clearRenderedPDFDocument()
         }
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
-                self.automationNavigationCoordinator.didStart(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) },
-                    targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
-                        ?? self.navigationDelegate?.lastAttemptedURL
-                )
-                self.isMainFrameProvisionalNavigationActive = true
-                self.refreshBackgroundAppearance()
-                self.applyMuteState(to: webView, reason: "navigationStart")
-            }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            (webView as? CmuxWebView)?.diffViewerNavigationDidStart(navigation)
+            self.automationNavigationCoordinator.didStart(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) },
+                targetURL: Self.remoteProxyDisplayURL(for: self.navigationDelegate?.lastAttemptedURL)
+                    ?? self.navigationDelegate?.lastAttemptedURL
+            )
+            self.isMainFrameProvisionalNavigationActive = true
+            self.refreshBackgroundAppearance()
+            self.applyMuteState(to: webView, reason: "navigationStart")
         }
         navigationDelegate.didCommit = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.designModeController.webViewWillNavigate()
-                (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
-                self.isMainFrameProvisionalNavigationActive = false
-                self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
-                self.automationNavigationCoordinator.didCommit(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
-                // An about:blank placeholder leaves the restore-stall detector armed.
-                if !Self.isAboutBlankURL(webView.url) {
-                    self.hasCommittedDocumentSinceWebViewReplacement = true
-                }
-                // Reset playback tracking only once the new top-level document has replaced
-                // the old one. Resetting earlier (on provisional
-                // start) would drop a still-playing page's frames if the
-                // navigation then fails or is canceled, letting a playing pane be
-                // discarded. didCommit does not fire for same-document (pushState)
-                // navigations, so a persisting SPA video keeps its frame id.
-                self.resetMediaPlaybackTracking()
-                self.publishCommittedURL(from: webView)
-                self.applyMuteState(to: webView, reason: "navigationCommit")
-                if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
-                    self.noteDiscardedWebViewRestoreNavigationCommitted()
-                }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            self.designModeController.webViewWillNavigate()
+            (webView as? CmuxWebView)?.diffViewerNavigationDidCommit(navigation)
+            self.isMainFrameProvisionalNavigationActive = false
+            self.automationDocumentReadiness.didCommit(instanceID: boundWebViewInstanceID)
+            self.automationNavigationCoordinator.didCommit(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
+            // An about:blank placeholder leaves the restore-stall detector armed.
+            if !Self.isAboutBlankURL(webView.url) {
+                self.hasCommittedDocumentSinceWebViewReplacement = true
+            }
+            // Reset playback tracking only once the new top-level document has replaced
+            // the old one. Resetting earlier (on provisional
+            // start) would drop a still-playing page's frames if the
+            // navigation then fails or is canceled, letting a playing pane be
+            // discarded. didCommit does not fire for same-document (pushState)
+            // navigations, so a persisting SPA video keeps its frame id.
+            self.resetMediaPlaybackTracking()
+            self.publishCommittedURL(from: webView)
+            self.applyMuteState(to: webView, reason: "navigationCommit")
+            if self.shouldTreatCommitAsDiscardedRestoreCommit(from: webView) {
+                self.noteDiscardedWebViewRestoreNavigationCommitted()
             }
         }
         navigationDelegate.didFinish = { [weak self] webView in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.isMainFrameProvisionalNavigationActive = false
-                self.publishCommittedURL(from: webView)
-                self.applyMuteState(to: webView, reason: "navigationFinish")
-                if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
-                    self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
-                    boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
-                    self.refreshFavicon(from: webView)
-                }
-                self.applyCurrentAppWebTheme(to: webView)
-                // Keep find-in-page open through load completion and refresh matches for the new DOM.
-                self.restoreFindStateAfterNavigation(replaySearch: true)
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            self.isMainFrameProvisionalNavigationActive = false
+            self.publishCommittedURL(from: webView)
+            self.applyMuteState(to: webView, reason: "navigationFinish")
+            if self.navigationDelegate?.activeErrorPageDisplayURL == nil {
+                self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
+                boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
+                self.refreshFavicon(from: webView)
             }
+            self.applyCurrentAppWebTheme(to: webView)
+            // Keep find-in-page open through load completion and refresh matches for the new DOM.
+            self.restoreFindStateAfterNavigation(replaySearch: true)
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL, failureMessage, failedNavigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
-                self.automationNavigationCoordinator.didFail(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: failedNavigation.map { ObjectIdentifier($0) },
-                    message: failureMessage
-                )
-                self.isMainFrameProvisionalNavigationActive = false
-                if let url = URL(string: failedURL) {
-                    self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
-                }
-                // Clear stale title/favicon from the previous page so the tab
-                // shows the failed URL instead of the old page's branding.
-                self.pageTitle = failedURL.isEmpty ? "" : failedURL
-                self.faviconPNGData = nil
-                self.lastFaviconURLString = nil
-                self.applyMuteState(to: failedWebView, reason: "navigationFail")
-                if self.isDiscardRestoreBookkeepingNavigation(failedNavigation) {
-                    self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
-                }
-                // Keep find-in-page open and clear stale counters on failed loads.
-                self.restoreFindStateAfterNavigation(replaySearch: false)
+            guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+            self.automationNavigationCoordinator.didFail(
+                instanceID: boundWebViewInstanceID,
+                navigationID: failedNavigation.map { ObjectIdentifier($0) },
+                message: failureMessage
+            )
+            self.isMainFrameProvisionalNavigationActive = false
+            if let url = URL(string: failedURL) {
+                self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
             }
+            // Clear stale title/favicon from the previous page so the tab
+            // shows the failed URL instead of the old page's branding.
+            self.pageTitle = failedURL.isEmpty ? "" : failedURL
+            self.faviconPNGData = nil
+            self.lastFaviconURLString = nil
+            self.applyMuteState(to: failedWebView, reason: "navigationFail")
+            if self.isDiscardRestoreBookkeepingNavigation(failedNavigation) {
+                self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_failed")
+            }
+            // Keep find-in-page open and clear stale counters on failed loads.
+            self.restoreFindStateAfterNavigation(replaySearch: false)
         }
         navigationDelegate.didCancelNavigationPolicy = { [weak self] webView, cancellationKind in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                switch cancellationKind {
-                case let .terminal(restoreAttemptID): self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
-                }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            switch cancellationKind {
+            case let .terminal(restoreAttemptID):
+                self.noteDiscardedWebViewRestoreNavigationTerminallyCancelled(restoreAttemptID: restoreAttemptID)
             }
         }
         navigationDelegate.willReplaceNavigationForUserAgentPolicy = {
             [weak self] webView, replacedNavigation in
-            MainActor.assumeIsolated {
-                guard let self,
-                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return
-                }
-                self.automationNavigationCoordinator.willReplaceNavigation(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: replacedNavigation.map { ObjectIdentifier($0) }
-                )
+            guard let self,
+                  self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return
             }
+            self.automationNavigationCoordinator.willReplaceNavigation(
+                instanceID: boundWebViewInstanceID,
+                navigationID: replacedNavigation.map { ObjectIdentifier($0) }
+            )
         }
         navigationDelegate.didReplaceNavigationForUserAgentPolicy = {
             [weak self] webView, replacedNavigation, replacementNavigation in
-            MainActor.assumeIsolated {
-                guard let self,
-                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return
-                }
-                self.automationNavigationCoordinator.didReplaceNavigation(
-                    instanceID: boundWebViewInstanceID,
-                    replacedNavigationID: replacedNavigation.map { ObjectIdentifier($0) },
-                    replacementNavigationID: replacementNavigation.map { ObjectIdentifier($0) }
-                )
+            guard let self,
+                  self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return
             }
+            self.automationNavigationCoordinator.didReplaceNavigation(
+                instanceID: boundWebViewInstanceID,
+                replacedNavigationID: replacedNavigation.map { ObjectIdentifier($0) },
+                replacementNavigationID: replacementNavigation.map { ObjectIdentifier($0) }
+            )
         }
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView, cancelledNavigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
-                self.automationNavigationCoordinator.didCancel(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: cancelledNavigation.map { ObjectIdentifier($0) }
-                )
-                let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
-                self.isMainFrameProvisionalNavigationActive = false
-                if isRestoreBookkeepingNavigation {
-                    self.navigationDelegate?.clearAttemptedRequest()
-                }
-                self.refreshBackgroundAppearance()
-                if isRestoreBookkeepingNavigation {
-                    self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
-                }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            (webView as? CmuxWebView)?.diffViewerNavigationDidCancel(cancelledNavigation)
+            self.automationNavigationCoordinator.didCancel(
+                instanceID: boundWebViewInstanceID,
+                navigationID: cancelledNavigation.map { ObjectIdentifier($0) }
+            )
+            let isRestoreBookkeepingNavigation = self.isDiscardRestoreBookkeepingNavigation(cancelledNavigation)
+            self.isMainFrameProvisionalNavigationActive = false
+            if isRestoreBookkeepingNavigation {
+                self.navigationDelegate?.clearAttemptedRequest()
+            }
+            self.refreshBackgroundAppearance()
+            if isRestoreBookkeepingNavigation {
+                self.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_cancelled")
             }
         }
         navigationDelegate.didChooseMainFrameDownloadPolicy = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
-                self.automationNavigationCoordinator.didChooseDownloadPolicy(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
-            }
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+            self.automationNavigationCoordinator.didChooseDownloadPolicy(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
         }
         navigationDelegate.didInterruptProvisionalNavigationByPolicy = { [weak self] webView, navigation in
-            MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return false
-                }
-                let isDownload = self.automationNavigationCoordinator.didInterruptByPolicyChange(
-                    instanceID: boundWebViewInstanceID,
-                    navigationID: navigation.map { ObjectIdentifier($0) }
-                )
-                guard isDownload else { return false }
-                self.isMainFrameProvisionalNavigationActive = false
-                self.refreshBackgroundAppearance()
-                return true
+            guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return false
             }
+            let isDownload = self.automationNavigationCoordinator.didInterruptByPolicyChange(
+                instanceID: boundWebViewInstanceID,
+                navigationID: navigation.map { ObjectIdentifier($0) }
+            )
+            guard isDownload else { return false }
+            self.isMainFrameProvisionalNavigationActive = false
+            self.refreshBackgroundAppearance()
+            return true
         }
         navigationDelegate.didBecomeDownload = { [weak self] webView, isMainFrame, restoreAttemptID in
-            MainActor.assumeIsolated {
-                guard isMainFrame,
-                      let self,
-                      self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
-                    return
-                }
-                guard let restoreAttemptID,
-                      restoreAttemptID == self.currentDiscardRestoreAttemptID else {
-                    return
-                }
-                // A main-frame download is a terminal outcome with no document commit; never restart it on the next reveal.
-                self.hasCommittedDocumentSinceWebViewReplacement = true
-                self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
+            guard isMainFrame,
+                  let self,
+                  self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
+                return
             }
+            guard let restoreAttemptID,
+                  restoreAttemptID == self.currentDiscardRestoreAttemptID else {
+                return
+            }
+            // A main-frame download is a terminal outcome with no document commit; never restart it on the next reveal.
+            self.hasCommittedDocumentSinceWebViewReplacement = true
+            self.noteDiscardedWebViewRestoreNavigationCommitted(reason: "navigation_download")
         }
     }
 
@@ -4439,10 +4447,12 @@ final class BrowserPanel: Panel, ObservableObject {
             let presentationView = webView.cmuxBrowserViewportPresentationView
             guard webView.window == nil,
                   presentationView.superview == nil,
-                  let contentView = preloadWindow.contentView else {
+                  let contentView = BrowserBackgroundPreloadHost.attach(
+                    presentationView,
+                    to: preloadWindow
+                  ) else {
                 return false
             }
-            contentView.addSubview(presentationView)
             webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
             webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
             return true
@@ -4467,12 +4477,16 @@ final class BrowserPanel: Panel, ObservableObject {
         window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
         window.isExcludedFromWindowsMenu = true
 
-        let contentView = NSView(frame: frame)
-        contentView.addSubview(presentationView)
+        guard let contentView = BrowserBackgroundPreloadHost.attach(
+            presentationView,
+            to: window
+        ) else {
+            window.close()
+            return false
+        }
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
-        window.contentView = contentView
         backgroundPreloadWindow = window
-        window.orderFrontRegardless()
+        BrowserBackgroundPreloadHost.orderOnScreenIfSafe(window)
         webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
 
 #if DEBUG

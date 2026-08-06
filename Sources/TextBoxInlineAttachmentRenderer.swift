@@ -34,7 +34,7 @@ final class TextBoxInlineAttachmentRenderer {
     }
 
     func image(
-        for attachment: TextBoxAttachment,
+        for attachmentGroup: TextBoxAttachmentGroup,
         font: NSFont,
         foregroundColor: NSColor,
         isFocused: Bool,
@@ -51,7 +51,7 @@ final class TextBoxInlineAttachmentRenderer {
         ]
         let textWidth = min(
             TextBoxLayout.inlineAttachmentMaxTextWidth,
-            ceil((attachment.displayName as NSString).size(withAttributes: textAttributes).width)
+            ceil((attachmentGroup.displayName as NSString).size(withAttributes: textAttributes).width)
         )
         let height = TextBoxLayout.attachmentChipHeight
         let iconSize = TextBoxLayout.attachmentImageSize
@@ -65,12 +65,12 @@ final class TextBoxInlineAttachmentRenderer {
             width: Int(ceil(iconSize * scale)),
             height: Int(ceil(iconSize * scale))
         )
-        let normalizedThumbnail = normalizedThumbnails[attachment.id]?[thumbnailSize]
+        let normalizedThumbnail = normalizedThumbnails[attachmentGroup.id]?[thumbnailSize]
 
         if normalizedThumbnail == nil,
-           let thumbnailSource = attachment.inlineThumbnailSource {
+           let thumbnailSource = attachmentGroup.inlineThumbnailSource {
             requestThumbnail(
-                attachmentID: attachment.id,
+                attachmentID: attachmentGroup.id,
                 source: thumbnailSource,
                 pixelSize: thumbnailSize,
                 pointSize: NSSize(width: iconSize, height: iconSize)
@@ -84,8 +84,8 @@ final class TextBoxInlineAttachmentRenderer {
             accentComponents = colorComponents(.controlAccentColor)
         }
         let key = TextBoxInlineAttachmentRenderKey(
-            attachmentID: attachment.id,
-            displayName: attachment.displayName,
+            attachmentID: attachmentGroup.id,
+            displayName: attachmentGroup.displayName,
             fontName: font.fontDescriptor.postscriptName ?? font.fontName,
             fontSize: font.pointSize,
             fontTraits: font.fontDescriptor.symbolicTraits.rawValue,
@@ -96,14 +96,14 @@ final class TextBoxInlineAttachmentRenderer {
             width: width,
             height: height,
             iconSize: iconSize,
-            thumbnailGeneration: thumbnailGenerations[attachment.id, default: 0]
+            thumbnailGeneration: thumbnailGenerations[attachmentGroup.id, default: 0]
         )
-        if let cached = renderedImages[attachment.id]?[key]?[isFocused] {
+        if let cached = renderedImages[attachmentGroup.id]?[key]?[isFocused] {
             return cached
         }
 
         let image = renderImage(
-            attachment: attachment,
+            attachmentGroup: attachmentGroup,
             normalizedThumbnail: normalizedThumbnail,
             textAttributes: textAttributes,
             textWidth: textWidth,
@@ -114,9 +114,9 @@ final class TextBoxInlineAttachmentRenderer {
             appearance: appearance,
             backingScale: scale
         )
-        var focusVariants = renderedImages[attachment.id]?[key] ?? [:]
+        var focusVariants = renderedImages[attachmentGroup.id]?[key] ?? [:]
         focusVariants[isFocused] = image
-        renderedImages[attachment.id] = [key: focusVariants]
+        renderedImages[attachmentGroup.id] = [key: focusVariants]
         return image
     }
 
@@ -217,7 +217,10 @@ final class TextBoxInlineAttachmentRenderer {
             return
         }
         guard let pixels,
-              let thumbnail = image(from: pixels, pointSize: request.pointSize) else {
+              let thumbnail = TextBoxAttachmentThumbnailImageFactory.image(
+                  from: pixels,
+                  pointSize: request.pointSize
+              ) else {
             failedThumbnailSizes[request.attachmentID] = request.pixelSize
             return
         }
@@ -261,7 +264,7 @@ final class TextBoxInlineAttachmentRenderer {
     }
 
     private func renderImage(
-        attachment: TextBoxAttachment,
+        attachmentGroup: TextBoxAttachmentGroup,
         normalizedThumbnail: NSImage?,
         textAttributes: [NSAttributedString.Key: Any],
         textWidth: CGFloat,
@@ -327,13 +330,19 @@ final class TextBoxInlineAttachmentRenderer {
                 normalizedThumbnail.draw(in: iconRect)
                 NSGraphicsContext.restoreGraphicsState()
             } else {
-                let symbolName = attachment.inlineThumbnailSource == nil ? "doc" : "photo"
+                let symbolName = if attachmentGroup.attachments.count > 1 {
+                    "doc.on.doc"
+                } else if attachmentGroup.inlineThumbnailSource == nil {
+                    "doc"
+                } else {
+                    "photo"
+                }
                 let icon = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
                 icon?.withSymbolConfiguration(.init(pointSize: 11, weight: .medium))?
                     .draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 0.9)
             }
 
-            let textSize = (attachment.displayName as NSString).size(
+            let textSize = (attachmentGroup.displayName as NSString).size(
                 withAttributes: textAttributes
             )
             let textRect = NSRect(
@@ -342,7 +351,7 @@ final class TextBoxInlineAttachmentRenderer {
                 width: textWidth,
                 height: textSize.height
             )
-            (attachment.displayName as NSString).draw(
+            (attachmentGroup.displayName as NSString).draw(
                 in: textRect,
                 withAttributes: textAttributes
             )
@@ -364,37 +373,6 @@ final class TextBoxInlineAttachmentRenderer {
 
         let image = NSImage(size: size)
         image.addRepresentation(bitmap)
-        image.cacheMode = .never
-        image.isTemplate = false
-        return image
-    }
-
-    private func image(
-        from pixels: TextBoxInlineAttachmentThumbnailPixels,
-        pointSize: NSSize
-    ) -> NSImage? {
-        guard pixels.rgba8.count == pixels.bytesPerRow * pixels.size.height,
-              let provider = CGDataProvider(data: pixels.rgba8 as CFData),
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let cgImage = CGImage(
-                width: pixels.size.width,
-                height: pixels.size.height,
-                bitsPerComponent: 8,
-                bitsPerPixel: 32,
-                bytesPerRow: pixels.bytesPerRow,
-                space: colorSpace,
-                bitmapInfo: CGBitmapInfo(
-                    rawValue: CGBitmapInfo.byteOrder32Big.rawValue
-                        | CGImageAlphaInfo.premultipliedLast.rawValue
-                ),
-                provider: provider,
-                decode: nil,
-                shouldInterpolate: true,
-                intent: .defaultIntent
-              ) else {
-            return nil
-        }
-        let image = NSImage(cgImage: cgImage, size: pointSize)
         image.cacheMode = .never
         image.isTemplate = false
         return image

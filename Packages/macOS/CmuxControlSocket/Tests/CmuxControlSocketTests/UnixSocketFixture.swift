@@ -8,7 +8,7 @@ enum UnixSocketFixture {
     }
 
     /// Binds and listens on a Unix socket at `path`, returning the listener fd.
-    static func bindListeningSocket(at path: String) throws -> Int32 {
+    static func bindListeningSocket(at path: String, backlog: Int32 = 1) throws -> Int32 {
         unlink(path)
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -44,7 +44,7 @@ enum UnixSocketFixture {
             throw error
         }
 
-        guard Darwin.listen(fd, 1) == 0 else {
+        guard Darwin.listen(fd, backlog) == 0 else {
             let error = posixError("listen(\(path))")
             Darwin.close(fd)
             throw error

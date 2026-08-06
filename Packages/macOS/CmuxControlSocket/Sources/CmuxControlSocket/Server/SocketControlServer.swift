@@ -11,7 +11,7 @@ internal import os
 /// The server owns transport state only. Everything app-shaped — telemetry,
 /// client command handling, restart scheduling, notifications — crosses the
 /// ``SocketControlServerEvents`` seam, and accepted client connections are
-/// surfaced through ``connections``.
+/// delivered through either the synchronous ingress handler or ``connections``.
 ///
 /// ## Isolation design: state separated by its drivers
 ///
@@ -21,9 +21,10 @@ internal import os
 /// - **Lifecycle mutations** (start, stop, reserve, rearm claim) are all
 ///   driven from the main thread — app startup, `applicationWillTerminate`,
 ///   the updater relaunch hook, settings-driven restarts, and the recovery
-///   callbacks all live there. The full ``ListenerState`` machine, including
-///   the `DispatchSource` references and their suspend flags, is therefore
-///   `@MainActor`: the legacy threading, made compiler-checked. Termination
+///   callbacks all live there. The ``ListenerState`` startup machine and the
+///   transport resources, including `DispatchSource` references and their
+///   suspend flags, are therefore `@MainActor`: the legacy threading, made
+///   compiler-checked. Termination
 ///   teardown and startup path reservation stay synchronous for their
 ///   callers by construction.
 /// - **Hot synchronous reads** (``isRunning`` polled per client read,
@@ -54,28 +55,6 @@ internal import os
 /// the queue-side drain can never `accept(2)` on a recycled descriptor.
 @MainActor
 public final class SocketControlServer {
-    /// The full listener state machine, main-actor isolated. One value,
-    /// mirroring the legacy field block.
-    struct ListenerState {
-        var socketPath: String
-        var boundSocketPathIdentity: SocketPathIdentity?
-        var serverSocket: Int32 = -1
-        var isRunning = false
-        var acceptLoopAlive = false
-        var activeAcceptLoopGeneration: UInt64 = 0
-        var nextAcceptLoopGeneration: UInt64 = 0
-        var pendingAcceptLoopRearmGeneration: UInt64?
-        var reservedStartupSocketPath: String?
-        var reservedStartupSocketPathCanReplaceRefusedSocket = false
-        var listenerStartInProgress = false
-        var socketPathLockFD: Int32 = -1
-        var listenerReadSource: (any DispatchSourceRead)?
-        var listenerReadSourceSuspended = false
-        var socketPathMonitorSource: (any DispatchSourceFileSystemObject)?
-        var accessMode: SocketControlMode = .cmuxOnly
-        var configuredPreferredSocketPath: String?
-    }
-
     /// Sendable snapshot of the listener state, published to the read mirror
     /// after every mutation and served by the synchronous read API.
     struct ListenerStateSnapshot: Sendable {
@@ -88,6 +67,7 @@ public final class SocketControlServer {
         let pendingRearmGeneration: UInt64?
         let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
+        let pendingStartupRetry: Bool
         let socketPathLockHeld: Bool
         let accessMode: SocketControlMode
         let configuredPreferredSocketPath: String?
@@ -134,15 +114,17 @@ public final class SocketControlServer {
     private let authorizationObserverBag: SocketAuthorizationObserverBag
     private nonisolated let connectionAuthorizationState: SocketConnectionAuthorizationState
     private nonisolated let effectivePasswordProvider: @Sendable () -> String?
+    nonisolated let acceptedConnectionHandler: (@Sendable (ControlConnection) -> Void)?
 
     /// Accepted, configured client connections, in accept order.
     ///
-    /// The composition root must run exactly one long-lived consumer over
-    /// this stream for the server's lifetime; descriptor ownership transfers
-    /// with each yielded ``ControlConnection``. The stream spans listener
-    /// restarts and never finishes. At most `maximumBufferedConnections` wait
-    /// for that consumer. When the buffer is full, the accept path closes each
-    /// newly dropped descriptor.
+    /// When no `acceptedConnectionHandler` is supplied, the composition root
+    /// must run exactly one long-lived consumer over this stream for the
+    /// server's lifetime; descriptor ownership transfers with each yielded
+    /// ``ControlConnection``. The stream spans listener restarts and never
+    /// finishes. At most `maximumBufferedConnections` wait for that consumer.
+    /// When the buffer is full, the accept path closes each newly dropped
+    /// descriptor.
     public nonisolated let connections: AsyncStream<ControlConnection>
     nonisolated let connectionsContinuation: AsyncStream<ControlConnection>.Continuation
 
@@ -150,6 +132,11 @@ public final class SocketControlServer {
     /// most one is in flight: the source is suspended while it waits, so no
     /// further accept failures can schedule another.
     var acceptResumeTask: Task<Void, Never>?
+
+    /// Pending listener-start wakeup. This task owns only the injected delay;
+    /// the matching generation, request, and failure count live exclusively in
+    /// ``ListenerState`` and are claimed atomically on the main actor.
+    var startupWakeTask: Task<Void, Never>?
 
     /// Creates a control-socket server.
     /// - Parameters:
@@ -159,8 +146,8 @@ public final class SocketControlServer {
     ///     timeouts/backlog.
     ///   - listenerPolicy: Recovery policy; defaults preserve production
     ///     backoff/rearm behavior.
-    ///   - recoveryClock: Clock for recovery delays; defaults to the
-    ///     continuous clock.
+    ///   - recoveryClock: Clock for startup and accept-source recovery delays;
+    ///     defaults to the continuous clock.
     ///   - maximumBufferedConnections: Maximum accepted connections waiting
     ///     for the stream consumer. New connections are closed when full.
     ///   - notificationCenter: Source of authorization-secret change
@@ -170,6 +157,11 @@ public final class SocketControlServer {
     ///     password mode. Called outside authorization-state lock sections.
     ///   - authorizationChangeSignals: Out-of-band signals for authoritative
     ///     password-file changes that do not post an in-process notification.
+    ///   - acceptedConnectionHandler: Optional synchronous ingress handler.
+    ///     It runs on the listener Dispatch queue, must return promptly, and
+    ///     assumes ownership of each descriptor. When present, accepted
+    ///     connections bypass ``connections`` so delivery cannot be starved by
+    ///     Swift cooperative-executor work.
     ///   - events: Host callback seam.
     public init(
         initialSocketPath: String = SocketControlSettings.stableDefaultSocketPath,
@@ -180,6 +172,7 @@ public final class SocketControlServer {
         notificationCenter: NotificationCenter,
         effectivePasswordProvider: @escaping @Sendable () -> String? = { nil },
         authorizationChangeSignals: AsyncStream<Void>? = nil,
+        acceptedConnectionHandler: (@Sendable (ControlConnection) -> Void)? = nil,
         events: SocketControlServerEvents
     ) {
         let initialState = ListenerState(socketPath: initialSocketPath)
@@ -194,6 +187,7 @@ public final class SocketControlServer {
         )
         self.connectionAuthorizationState = SocketConnectionAuthorizationState()
         self.effectivePasswordProvider = effectivePasswordProvider
+        self.acceptedConnectionHandler = acceptedConnectionHandler
         self.events = events
         (self.connections, self.connectionsContinuation) =
             AsyncStream<ControlConnection>.makeStream(
@@ -272,14 +266,15 @@ public final class SocketControlServer {
     private static func snapshot(of state: ListenerState) -> ListenerStateSnapshot {
         ListenerStateSnapshot(
             socketPath: state.socketPath,
-            boundSocketPathIdentity: state.boundSocketPathIdentity,
+            boundSocketPathIdentity: state.boundSocketPathOwnership.identity,
             serverSocket: state.serverSocket,
             isRunning: state.isRunning,
             acceptLoopAlive: state.acceptLoopAlive,
             activeGeneration: state.activeAcceptLoopGeneration,
             pendingRearmGeneration: state.pendingAcceptLoopRearmGeneration,
             reservedStartupSocketPath: state.reservedStartupSocketPath,
-            listenerStartInProgress: state.listenerStartInProgress,
+            listenerStartInProgress: state.listenerState.isStarting,
+            pendingStartupRetry: state.listenerState.isWaiting,
             socketPathLockHeld: state.socketPathLockFD >= 0,
             accessMode: state.accessMode,
             configuredPreferredSocketPath: state.configuredPreferredSocketPath
@@ -333,15 +328,19 @@ public final class SocketControlServer {
         listenerStateSnapshot().socketPath
     }
 
-    /// The socket path remote-session restore should reconnect through, or
-    /// `nil` when no listener is active or reserved.
+    /// The socket path remote-session restore can safely reconnect through,
+    /// or `nil` until a running accept loop still owns the published pathname.
     public nonisolated func currentSocketPathForRemoteRestore() -> String? {
         let snapshot = listenerStateSnapshot()
-        if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress
-            || snapshot.serverSocket >= 0 {
-            return snapshot.socketPath
+        guard snapshot.isRunning,
+              snapshot.acceptLoopAlive,
+              snapshot.serverSocket >= 0,
+              snapshot.socketPathLockHeld,
+              let boundIdentity = snapshot.boundSocketPathIdentity,
+              transport.pathIdentity(at: snapshot.socketPath) == boundIdentity else {
+            return nil
         }
-        return snapshot.reservedStartupSocketPath
+        return snapshot.socketPath
     }
 
     /// The path the listener is using (when active in any phase), the
@@ -353,6 +352,7 @@ public final class SocketControlServer {
         if snapshot.isRunning
             || snapshot.acceptLoopAlive
             || snapshot.listenerStartInProgress
+            || snapshot.pendingStartupRetry
             || snapshot.pendingRearmGeneration != nil
             || snapshot.socketPathLockHeld
             || snapshot.serverSocket >= 0 {

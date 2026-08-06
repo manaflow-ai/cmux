@@ -238,7 +238,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
 struct RightSidebarToolPanelView: View {
     @ObservedObject var panel: RightSidebarToolPanel
-    @EnvironmentObject private var tabManager: TabManager
+    let tabManager: TabManager?
     let isFocused: Bool
     let isVisibleInUI: Bool
     let appearance: PanelAppearance
@@ -287,6 +287,7 @@ struct RightSidebarToolPanelView: View {
             SessionIndexView(
                 store: panel.sessionIndexStore,
                 onResume: { entry in
+                    guard let tabManager else { return }
                     SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
                 }
             )

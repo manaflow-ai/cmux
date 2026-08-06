@@ -11,9 +11,8 @@ extension ControlCommandContext {
     /// Test default for the worker-lane resolution hop primitive: run the
     /// body on the main actor (inline when the test is already there, else a
     /// synchronous dispatch), mirroring the app's `v2MainSync` semantics.
-    /// Test fakes have no app topology, so there is no known-ref refresh —
-    /// exactly like the pre-migration main-lane coordinator tests, whose
-    /// refresh also lived app-side.
+    /// Test fakes have no app topology, matching the app's on-demand ref
+    /// registry behavior.
     nonisolated func controlResolveOnMain<T: Sendable>(
         _ body: @MainActor (any ControlCommandContext) -> T
     ) -> T {

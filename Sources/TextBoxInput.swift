@@ -218,7 +218,6 @@ struct TextBoxAttachment: Identifiable {
     let submissionText: String
     let submissionPath: String
     let localURL: URL?
-    let thumbnail: NSImage?
     let inlineThumbnailSource: TextBoxInlineAttachmentThumbnailSource?
     let cleanupLocalURLWhenDisposed: Bool
 
@@ -237,9 +236,8 @@ struct TextBoxAttachment: Identifiable {
         self.submissionText = submissionText
         self.submissionPath = submissionPath
         self.localURL = standardizedURL
-        let thumbnail = standardizedURL.flatMap { TextBoxAttachment.makeThumbnail(for: $0) }
-        self.thumbnail = thumbnail
-        self.inlineThumbnailSource = if let standardizedURL, thumbnail != nil {
+        self.inlineThumbnailSource = if let standardizedURL,
+            TextBoxAttachment.isImageFileURL(standardizedURL) {
             TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
         } else {
             nil
@@ -260,18 +258,16 @@ struct TextBoxAttachment: Identifiable {
         self.submissionText = submissionText
         self.submissionPath = submissionPath ?? standardizedURL.path
         self.localURL = standardizedURL
-        let thumbnail = TextBoxAttachment.makeThumbnail(for: standardizedURL)
-        self.thumbnail = thumbnail
-        self.inlineThumbnailSource = thumbnail.map { _ in
+        self.inlineThumbnailSource = if TextBoxAttachment.isImageFileURL(standardizedURL) {
             TextBoxInlineAttachmentThumbnailSource(fileURL: standardizedURL)
+        } else {
+            nil
         }
         self.cleanupLocalURLWhenDisposed = cleanupLocalURLWhenDisposed
     }
 
     var isImage: Bool {
-        if thumbnail != nil { return true }
-        guard let localURL else { return false }
-        return TextBoxAttachment.isImageFileURL(localURL)
+        inlineThumbnailSource != nil
     }
 
     var escapedSubmissionPath: String {
@@ -296,14 +292,6 @@ struct TextBoxAttachment: Identifiable {
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
         GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
-    }
-
-    private static func makeThumbnail(for url: URL) -> NSImage? {
-        guard TextBoxAttachment.isImageFileURL(url),
-              let image = NSImage(contentsOf: url) else {
-            return nil
-        }
-        return image
     }
 
     private static func isImageFileURL(_ url: URL) -> Bool {
@@ -652,7 +640,9 @@ enum TextBoxSubmissionFormatter {
 
         attributed.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, _ in
             if let inlineAttachment = value as? TextBoxInlineTextAttachment {
-                parts.append(.attachment(inlineAttachment.textBoxAttachment))
+                parts.append(contentsOf: inlineAttachment.attachmentGroup.attachments.map {
+                    .attachment($0)
+                })
             } else {
                 let text = raw.substring(with: range)
                 let strippedText = TextBoxInputTextView.stringByStrippingNonTextMarkers(from: text)
@@ -756,8 +746,6 @@ enum TextBoxPasteboardRestorationGuard {
 }
 
 private enum TextBoxAttachmentPreviewLayout {
-    static let maxImageSize = CGSize(width: 408, height: 288)
-    static let minImageSize = CGSize(width: 220, height: 140)
     static let cornerRadius: CGFloat = 14
     static let topButtonPadding: CGFloat = 8
     static let previewPadding: CGFloat = 8
@@ -768,8 +756,8 @@ private struct TextBoxAttachmentPreviewMetrics {
     let imageSize: CGSize
     let contentSize: NSSize
 
-    static func metrics(for attachment: TextBoxAttachment) -> TextBoxAttachmentPreviewMetrics {
-        let imageSize = fittedImageSize(for: attachment)
+    static func metrics(for _: TextBoxAttachment) -> TextBoxAttachmentPreviewMetrics {
+        let imageSize = CGSize(width: 260, height: 160)
         let padding = TextBoxAttachmentPreviewLayout.previewPadding
         return TextBoxAttachmentPreviewMetrics(
             imageSize: imageSize,
@@ -779,39 +767,6 @@ private struct TextBoxAttachmentPreviewMetrics {
             )
         )
     }
-
-    private static func fittedImageSize(for attachment: TextBoxAttachment) -> CGSize {
-        let fallback = CGSize(width: 260, height: 160)
-        guard let image = attachment.thumbnail else { return fallback }
-
-        let natural = naturalSize(for: image)
-        guard natural.width > 0, natural.height > 0 else { return fallback }
-
-        let minSize = TextBoxAttachmentPreviewLayout.minImageSize
-        let maxSize = TextBoxAttachmentPreviewLayout.maxImageSize
-        let maxScale = min(maxSize.width / natural.width, maxSize.height / natural.height)
-        let needsMinimumSize = natural.width < minSize.width || natural.height < minSize.height
-        let scale: CGFloat
-        if needsMinimumSize {
-            let minScale = max(minSize.width / natural.width, minSize.height / natural.height)
-            scale = min(minScale, maxScale)
-        } else {
-            scale = min(1, maxScale)
-        }
-        return CGSize(
-            width: max(1, floor(natural.width * scale)),
-            height: max(1, floor(natural.height * scale))
-        )
-    }
-
-    private static func naturalSize(for image: NSImage) -> CGSize {
-        if let rep = image.representations.max(by: { lhs, rhs in
-            lhs.pixelsWide * lhs.pixelsHigh < rhs.pixelsWide * rhs.pixelsHigh
-        }), rep.pixelsWide > 0, rep.pixelsHigh > 0 {
-            return CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
-        }
-        return image.size
-    }
 }
 
 private struct TextBoxAttachmentPreviewPopoverView: View {
@@ -819,6 +774,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
     let imageSize: CGSize
 
     @State private var isPresented = false
+    @State private var thumbnail: NSImage?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -857,11 +813,14 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 isPresented = true
             }
         }
+        .task(id: attachment.id) {
+            await loadThumbnail()
+        }
     }
 
     @ViewBuilder
     private var previewContent: some View {
-        if let thumbnail = attachment.thumbnail {
+        if let thumbnail {
             Image(nsImage: thumbnail)
                 .resizable()
                 .scaledToFit()
@@ -869,7 +828,11 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 .background(Color.black.opacity(0.82))
         } else {
             VStack(spacing: 10) {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 42, weight: .regular)
+                CmuxSystemSymbolImage(
+                    magnified: attachment.isImage ? "photo" : "doc",
+                    pointSize: 42,
+                    weight: .regular
+                )
                 Text(attachment.displayName)
                     .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
@@ -879,6 +842,21 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
             .foregroundStyle(.primary.opacity(0.86))
             .frame(width: imageSize.width, height: imageSize.height)
         }
+    }
+
+    private func loadThumbnail() async {
+        guard let source = attachment.inlineThumbnailSource else { return }
+        let scale = max(1, NSScreen.main?.backingScaleFactor ?? 1)
+        let pixelSize = TextBoxInlineAttachmentThumbnailSize(
+            width: max(1, Int(ceil(imageSize.width * scale))),
+            height: max(1, Int(ceil(imageSize.height * scale)))
+        )
+        guard let pixels = await source.thumbnail(pixelSize: pixelSize),
+              !Task.isCancelled else { return }
+        thumbnail = TextBoxAttachmentThumbnailImageFactory.image(
+            from: pixels,
+            pointSize: NSSize(width: imageSize.width, height: imageSize.height)
+        )
     }
 
     private func openInPreview() {
@@ -940,22 +918,15 @@ private struct TextBoxAttachmentChip: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if let thumbnail = attachment.thumbnail {
-                Image(nsImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(
-                        width: TextBoxLayout.attachmentImageSize,
-                        height: TextBoxLayout.attachmentImageSize
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-            } else {
-                CmuxSystemSymbolImage(magnified: "doc", pointSize: 12, weight: .medium)
-                    .frame(
-                        width: TextBoxLayout.attachmentImageSize,
-                        height: TextBoxLayout.attachmentImageSize
-                    )
-            }
+            CmuxSystemSymbolImage(
+                magnified: attachment.isImage ? "photo" : "doc",
+                pointSize: 12,
+                weight: .medium
+            )
+            .frame(
+                width: TextBoxLayout.attachmentImageSize,
+                height: TextBoxLayout.attachmentImageSize
+            )
 
             Text(attachment.displayName)
                 .cmuxFont(size: 11, weight: .medium)
@@ -2696,10 +2667,7 @@ struct TextBoxInputContainer: View {
     }
 
     private func insertSelectedFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
-        let standardizedURLs = fileURLs
-            .filter(\.isFileURL)
-            .map(\.standardizedFileURL)
-        return insertPreparedContent(.fileURLs(standardizedURLs), into: textView)
+        insertPreparedContent(.fileURLs(fileURLs), into: textView)
     }
 
     private func focusTerminal() {
@@ -2745,10 +2713,9 @@ struct TextBoxInputContainer: View {
     }
 
     private func attachFileURLs(_ fileURLs: [URL], into textView: TextBoxInputTextView) -> Bool {
-        let standardizedURLs = fileURLs
-            .filter(\.isFileURL)
-            .map(\.standardizedFileURL)
-        guard !standardizedURLs.isEmpty else { return false }
+        let localFileURLs = fileURLs.filter(\.isFileURL)
+        guard !localFileURLs.isEmpty else { return false }
+        let standardizedURLs = localFileURLs.map(\.standardizedFileURL)
 
         let plan = TerminalImageTransferPlanner.plan(
             fileURLs: standardizedURLs,
@@ -2972,7 +2939,7 @@ struct TextBoxInputView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let textView = TextBoxInputTextView()
-        textView.delegate = context.coordinator
+        context.coordinator.install(on: textView)
         textView.onMoveToWindow = onTextViewMovedToWindow
         textView.isRichText = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
@@ -3068,7 +3035,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.wantsLayer = true
         textView.layer?.backgroundColor = NSColor.clear.cgColor
         textView.layer?.borderWidth = 0
-        textView.delegate = context.coordinator
+        context.coordinator.install(on: textView)
         textView.onLayoutCompleted = { [weak coordinator] textView, lineFragmentCount in
             coordinator?.recalculateHeight(textView, lineFragmentCount: lineFragmentCount)
         }
@@ -3082,6 +3049,13 @@ struct TextBoxInputView: NSViewRepresentable {
 
         init(parent: TextBoxInputView) {
             self.parent = parent
+        }
+
+        @discardableResult
+        func install(on textView: NSTextView) -> Bool {
+            guard textView.delegate !== self else { return false }
+            textView.delegate = self
+            return true
         }
 
         /// Captures pending-upload state once after representable construction restores AppKit storage.
@@ -3142,12 +3116,19 @@ struct TextBoxInputView: NSViewRepresentable {
             let nextText = textView.plainText()
             let nextAttachments = textView.inlineAttachments()
             let nextHasPendingAttachmentUpload = textView.hasPendingAttachmentUploadPlaceholder()
-            let contentChanged = parent.text != nextText
-                || parent.attachments.map(\.id) != nextAttachments.map(\.id)
-                || parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
-            parent.text = nextText
-            parent.attachments = nextAttachments
-            parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            let textChanged = parent.text != nextText
+            let attachmentsChanged = parent.attachments.map(\.id) != nextAttachments.map(\.id)
+            let pendingUploadChanged = parent.hasPendingAttachmentUpload != nextHasPendingAttachmentUpload
+            if textChanged {
+                parent.text = nextText
+            }
+            if attachmentsChanged {
+                parent.attachments = nextAttachments
+            }
+            if pendingUploadChanged {
+                parent.hasPendingAttachmentUpload = nextHasPendingAttachmentUpload
+            }
+            let contentChanged = textChanged || attachmentsChanged || pendingUploadChanged
             if contentChanged {
                 parent.onContentChanged()
             }
@@ -3287,6 +3268,9 @@ final class TextBoxInputTextView: NSTextView {
     private var pendingUndoableAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var pendingAutomaticAttachmentFileCleanup: [String: TextBoxAttachment] = [:]
     private var suppressAutomaticAttachmentFileCleanup = false
+    private var sessionDraftContentRevision: UInt64 = 0
+    private var cachedSessionDraftRevision: UInt64?
+    private var cachedSessionDraftSnapshot: SessionTextBoxInputDraftSnapshot?
     var mentionCompletionController: TextBoxMentionCompletionController {
         if let mentionCompletionControllerStorage {
             return mentionCompletionControllerStorage
@@ -3433,6 +3417,7 @@ final class TextBoxInputTextView: NSTextView {
         if activeInsertTextDepth > 0 {
             didChangeTextDuringActiveInsertText = true
         }
+        sessionDraftContentRevision &+= 1
         isHandlingDidChangeText = true
         defer { isHandlingDidChangeText = false }
         if undoManager?.isUndoing == true || undoManager?.isRedoing == true {
@@ -3524,6 +3509,7 @@ final class TextBoxInputTextView: NSTextView {
         if notifyingTextChange {
             didChangeText()
         } else {
+            sessionDraftContentRevision &+= 1
             flushAutomaticAttachmentFileCleanup()
         }
     }
@@ -3535,7 +3521,16 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func sessionDraftSnapshot(isActive: Bool) -> SessionTextBoxInputDraftSnapshot? {
-        Self.sessionDraftSnapshot(from: attributedContentForPreservation(), isActive: isActive)
+        if cachedSessionDraftRevision != sessionDraftContentRevision {
+            cachedSessionDraftSnapshot = Self.sessionDraftSnapshot(
+                from: attributedContentForPreservation(),
+                isActive: false
+            )
+            cachedSessionDraftRevision = sessionDraftContentRevision
+        }
+        guard var snapshot = cachedSessionDraftSnapshot else { return nil }
+        snapshot.isActive = isActive
+        return snapshot
     }
 
     static func sessionDraftSnapshot(
@@ -3603,25 +3598,37 @@ final class TextBoxInputTextView: NSTextView {
 
     private func attributedContent(from draft: SessionTextBoxInputDraftSnapshot) -> NSAttributedString {
         let attributed = NSMutableAttributedString()
+        var pendingAttachments: [TextBoxAttachment] = []
+
+        func appendPendingAttachments() {
+            guard !pendingAttachments.isEmpty else { return }
+            attributed.append(inlineAttachmentAttributedString(for: pendingAttachments))
+            pendingAttachments.removeAll(keepingCapacity: true)
+        }
+
         for part in draft.parts {
             switch part.kind {
             case .text:
+                appendPendingAttachments()
                 guard let text = part.text,
                       !text.isEmpty else { continue }
                 attributed.append(NSAttributedString(string: text, attributes: currentTextAttributes()))
             case .attachment:
                 guard let attachment = part.attachment?.textBoxAttachment() else { continue }
-                attributed.append(inlineAttachmentAttributedString(for: attachment))
+                pendingAttachments.append(attachment)
             }
         }
+        appendPendingAttachments()
         return attributed
     }
 
-    func insertAttachments(_ attachments: [TextBoxAttachment]) {
-        guard !attachments.isEmpty else { return }
+    @discardableResult
+    func insertAttachments(_ attachments: [TextBoxAttachment]) -> Bool {
+        guard !attachments.isEmpty else { return false }
         window?.makeFirstResponder(self)
 
         insertAttachments(attachments, replacementRange: selectedRange())
+        return true
     }
 
     func insertPendingAttachmentUploadPlaceholder(id: UUID) {
@@ -3718,7 +3725,7 @@ final class TextBoxInputTextView: NSTextView {
             options: []
         ) { value, _, _ in
             guard let attachment = value as? TextBoxInlineTextAttachment else { return }
-            result.append(attachment.textBoxAttachment)
+            result.append(contentsOf: attachment.attachmentGroup.attachments)
         }
         return result
     }
@@ -3748,8 +3755,8 @@ final class TextBoxInputTextView: NSTextView {
             options: []
         ) { value, range, _ in
             guard let attachment = value as? TextBoxInlineTextAttachment else { return }
-            attachmentIDs.insert(attachment.textBoxAttachment.id)
-            attachmentsByID[attachment.textBoxAttachment.id, default: []].append(attachment)
+            attachmentIDs.insert(attachment.attachmentGroup.id)
+            attachmentsByID[attachment.attachmentGroup.id, default: []].append(attachment)
             let isFocused = isAttachmentFocused(at: range.location)
             attachment.refreshCell(
                 font: font,
@@ -4961,7 +4968,7 @@ final class TextBoxInputTextView: NSTextView {
               ) as? TextBoxInlineTextAttachment else {
             return nil
         }
-        return inlineAttachment.textBoxAttachment
+        return inlineAttachment.attachmentGroup.primaryAttachment
     }
 
     private func moveFocusedAttachmentSelection(toTrailingEdge: Bool) -> Bool {
@@ -5084,7 +5091,7 @@ final class TextBoxInputTextView: NSTextView {
         var nonAttachmentContent = ""
         attributed.enumerateAttribute(.attachment, in: range, options: []) { value, subrange, _ in
             if let inlineAttachment = value as? TextBoxInlineTextAttachment {
-                attachments.append(inlineAttachment.textBoxAttachment)
+                attachments.append(contentsOf: inlineAttachment.attachmentGroup.attachments)
             } else {
                 nonAttachmentContent += raw.substring(with: subrange)
             }
@@ -5156,7 +5163,7 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         let removedInlineAttachments = inlineTextAttachments(in: range)
-        let removedAttachments = removedInlineAttachments.map(\.textBoxAttachment)
+        let removedAttachments = removedInlineAttachments.flatMap(\.attachmentGroup.attachments)
         discardInlineAttachmentRendering(for: removedInlineAttachments)
         suppressAutomaticAttachmentFileCleanup = true
         defer { suppressAutomaticAttachmentFileCleanup = false }
@@ -5173,7 +5180,7 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     private func inlineAttachments(in range: NSRange) -> [TextBoxAttachment] {
-        inlineTextAttachments(in: range).map(\.textBoxAttachment)
+        inlineTextAttachments(in: range).flatMap(\.attachmentGroup.attachments)
     }
 
     private func inlineTextAttachments(in range: NSRange) -> [TextBoxInlineTextAttachment] {
@@ -5194,7 +5201,7 @@ final class TextBoxInputTextView: NSTextView {
         let removedInlineAttachments = inlineTextAttachments(in: range)
         guard !removedInlineAttachments.isEmpty else { return }
         discardInlineAttachmentRendering(for: removedInlineAttachments)
-        let removedAttachments = removedInlineAttachments.map(\.textBoxAttachment)
+        let removedAttachments = removedInlineAttachments.flatMap(\.attachmentGroup.attachments)
         for attachment in removedAttachments {
             guard attachment.cleanupLocalURLWhenDisposed,
                   let localURL = attachment.localURL else { continue }
@@ -5214,7 +5221,7 @@ final class TextBoxInputTextView: NSTextView {
     ) {
         let removedByID = Dictionary(
             grouping: removedAttachments,
-            by: \.textBoxAttachment.id
+            by: \.attachmentGroup.id
         )
         var attachmentIDsWithoutOccurrences: Set<UUID> = []
         for (attachmentID, removedOccurrences) in removedByID {
@@ -5290,15 +5297,23 @@ final class TextBoxInputTextView: NSTextView {
     }
 
     func inlineAttachmentAttributedString(for attachment: TextBoxAttachment) -> NSAttributedString {
+        inlineAttachmentAttributedString(
+            for: TextBoxAttachmentGroup(attachments: [attachment])
+        )
+    }
+
+    private func inlineAttachmentAttributedString(
+        for attachmentGroup: TextBoxAttachmentGroup
+    ) -> NSAttributedString {
         let inlineAttachment = TextBoxInlineTextAttachment(
-            attachment: attachment,
+            attachmentGroup: attachmentGroup,
             font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor,
             renderer: inlineAttachmentRenderer,
             appearance: effectiveAppearance,
             backingScale: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
         )
-        inlineAttachmentsByID[attachment.id, default: []].append(inlineAttachment)
+        inlineAttachmentsByID[attachmentGroup.id, default: []].append(inlineAttachment)
         let attributed = NSMutableAttributedString(
             attachment: inlineAttachment
         )
@@ -5312,11 +5327,11 @@ final class TextBoxInputTextView: NSTextView {
 
     private func inlineAttachmentAttributedString(for attachments: [TextBoxAttachment]) -> NSAttributedString {
         let inserted = NSMutableAttributedString()
-        for (index, attachment) in attachments.enumerated() {
+        for (index, attachmentGroup) in TextBoxAttachmentPresentation.groups(for: attachments).enumerated() {
             if index > 0 {
                 inserted.append(NSAttributedString(string: " ", attributes: currentTextAttributes()))
             }
-            inserted.append(inlineAttachmentAttributedString(for: attachment))
+            inserted.append(inlineAttachmentAttributedString(for: attachmentGroup))
         }
         return inserted
     }
@@ -5649,7 +5664,7 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         return InlineAttachmentHit(
-            attachment: inlineAttachment.textBoxAttachment,
+            attachment: inlineAttachment.attachmentGroup.primaryAttachment,
             characterIndex: characterIndex,
             point: point,
             closeRect: NSRect(

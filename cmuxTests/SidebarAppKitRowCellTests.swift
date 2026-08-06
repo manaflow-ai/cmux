@@ -1072,6 +1072,7 @@ struct SidebarAppKitRowCellTests {
             #expect(!Self.makeModel(settings: settings).settings.details[keyPath: detailKey])
         }
     }
+
 }
 
 @Suite

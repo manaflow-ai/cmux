@@ -177,6 +177,38 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testWaitDeliveryTargetReturnsPublishedSurfaceImmediately() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        let result = TerminalController.shared.v2AgentWaitForDeliveryTarget(params: [
+            "workspace_id": fixture.owningWorkspace.id.uuidString,
+            "surface_id": fixture.panelId.uuidString,
+        ])
+        guard case .ok(let payload) = result,
+              let target = payload as? [String: Any] else {
+            Issue.record("Expected the published surface target, got \(result)")
+            return
+        }
+        #expect(target["workspace_id"] as? String == fixture.owningWorkspace.id.uuidString)
+        #expect(target["surface_id"] as? String == fixture.panelId.uuidString)
+        #expect(target["source"] as? String == "surface")
+    }
+
+    @Test
+    func testDeliveryTargetPublicationBusDoesNotMissPreWaitChange() {
+        let observedGeneration = AgentDeliveryTargetPublicationBus.snapshot()
+        AgentDeliveryTargetPublicationBus.publish()
+
+        #expect(
+            AgentDeliveryTargetPublicationBus.waitForChange(
+                after: observedGeneration,
+                until: Date()
+            )
+        )
+    }
+
+    @Test
     func testRelayTTYResolutionStaysInsideAuthenticatedWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }

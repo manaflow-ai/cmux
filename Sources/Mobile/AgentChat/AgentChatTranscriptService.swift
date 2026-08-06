@@ -130,8 +130,30 @@ final class AgentChatTranscriptService {
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     private var failedResolutions: Set<String> = []
+    private typealias TranscriptBindingKey = (
+        agentKind: ChatAgentKind,
+        transcriptPath: String?,
+        workingDirectory: String?,
+        hookStoreSessionID: String?
+    )
+    private typealias PendingBoundedTailerResolution = (
+        id: UUID,
+        key: TranscriptBindingKey,
+        task: Task<Void, Never>
+    )
+    private var pendingBoundedTailerResolutions: [String: PendingBoundedTailerResolution] = [:]
+    private typealias PendingHistoryTailerResolution = (
+        id: UUID,
+        key: TranscriptBindingKey,
+        task: Task<AgentChatTranscriptTailer?, Never>
+    )
+    /// One end-to-end path lookup and tailer publication per session binding.
+    /// Keeping the task through `ensureTailer` closes the gap where a fallback
+    /// lookup had completed but concurrent history callers could not yet see
+    /// the resulting tailer and started another recursive scan.
+    private var pendingHistoryTailerResolutions: [String: PendingHistoryTailerResolution] = [:]
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
-    private var endedListability = AgentChatEndedTranscriptListabilityCache()
+    private let endedListability = AgentChatEndedTranscriptListabilityCache()
 
     private struct ProseTurnState {
         let token: AgentChatProseStreamer.TurnToken
@@ -312,9 +334,7 @@ final class AgentChatTranscriptService {
         // tailer here would undo the ended-state eviction).
         if record.state != .ended,
            hasEventSubscribers() {
-            ensureTailer(for: record) {
-                resolver.boundedTranscriptPath(for: record)
-            }
+            scheduleBoundedTailerResolution(for: record)
         }
         // Drive the live prose-streaming preview off the turn lifecycle: a
         // prompt starts the in-flight turn, Stop ends it.
@@ -384,19 +404,22 @@ final class AgentChatTranscriptService {
     /// Whether an ended session can still serve history without expensive
     /// fallback scans. Live sessions stay visible before their JSONL exists;
     /// ended sessions with missing JSONL only open to an unrecoverable error.
-    func hasBoundedReadableTranscript(_ record: AgentChatSessionRecord) -> Bool {
-        resolver.boundedTranscriptPath(for: record) != nil
+    func hasBoundedReadableTranscript(_ record: AgentChatSessionRecord) async -> Bool {
+        await resolver.boundedTranscriptPath(for: record) != nil
     }
 
     /// Whether an ended session should remain visible in the list. Claude can be
     /// checked cheaply from cwd/recorded path; Codex fallback scans its sessions
     /// tree, so Codex rows stay listable and resolve fallback history on open.
-    func shouldListEndedSession(_ record: AgentChatSessionRecord) -> Bool {
+    func shouldListEndedSession(_ record: AgentChatSessionRecord) async -> Bool {
         switch record.agentKind {
         case .codex:
             return true
         case .claude, .other:
-            return endedListability.shouldList(record, resolver: resolver, now: now())
+            let resolver = resolver
+            return await endedListability.shouldList(record, now: now()) {
+                await resolver.boundedTranscriptPath(for: record)
+            }
         }
     }
 
@@ -454,38 +477,101 @@ final class AgentChatTranscriptService {
     /// - Returns: The page, or `nil` when the session or transcript is
     ///   unknown.
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async -> ChatHistoryPage? {
-        guard let record = registry.record(sessionID: sessionID) else { return nil }
+        guard registry.record(sessionID: sessionID) != nil else { return nil }
         // A user opening the chat is the right moment to retry a previously
         // failed transcript resolution. Codex's recursive fallback is explicit
         // history work, so perform it off the main actor.
         failedResolutions.remove(sessionID)
-        let tailer: AgentChatTranscriptTailer
-        if let existing = tailers[sessionID] {
-            tailer = existing
-        } else {
-            let resolver = resolver
-            let initialPath = resolver.boundedTranscriptPath(for: record)
-            let fallbackPath: String?
-            if let initialPath {
-                fallbackPath = initialPath
-            } else {
-                fallbackPath = await fallbackResolutionCoordinator.resolve(for: record)
-            }
-            guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
-            failedResolutions.remove(sessionID)
-            guard let resolvedTailer = ensureTailer(for: currentRecord, resolvePath: {
-                resolver.boundedTranscriptPath(for: currentRecord) ?? fallbackPath
-            }) else {
-                return nil
-            }
-            tailer = resolvedTailer
-        }
+        guard let tailer = await historyTailer(sessionID: sessionID) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
-        if record.title == nil, let title = await tailer.title {
+        if case nil = registry.record(sessionID: sessionID)?.title,
+           let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
         return page
+    }
+
+    private func historyTailer(sessionID: String) async -> AgentChatTranscriptTailer? {
+        while !Task.isCancelled {
+            if let existing = tailers[sessionID] {
+                return existing
+            }
+            guard let record = registry.record(sessionID: sessionID) else { return nil }
+            let key = Self.transcriptBindingKey(for: record)
+            let pending: PendingHistoryTailerResolution
+            if let existing = pendingHistoryTailerResolutions[sessionID],
+               existing.key == key {
+                pending = existing
+            } else {
+                pendingHistoryTailerResolutions.removeValue(forKey: sessionID)?.task.cancel()
+                let id = UUID()
+                let task = Task { @MainActor [weak self] in
+                    await self?.resolveHistoryTailer(for: record)
+                }
+                pending = (id: id, key: key, task: task)
+                pendingHistoryTailerResolutions[sessionID] = pending
+            }
+
+            let resolvedTailer = await pending.task.value
+            if pendingHistoryTailerResolutions[sessionID]?.id == pending.id {
+                pendingHistoryTailerResolutions.removeValue(forKey: sessionID)
+            }
+            if let resolvedTailer {
+                return resolvedTailer
+            }
+
+            // An authoritative binding update cancels the old fallback task.
+            // Continue the same history request against that new binding;
+            // session teardown and ordinary unresolved lookups still return.
+            guard !Task.isCancelled,
+                  let latestRecord = registry.record(sessionID: sessionID),
+                  latestRecord.state != .ended,
+                  Self.transcriptBindingKey(for: latestRecord) != key else {
+                return nil
+            }
+        }
+        return nil
+    }
+
+    private func resolveHistoryTailer(
+        for initialRecord: AgentChatSessionRecord
+    ) async -> AgentChatTranscriptTailer? {
+        if let existing = tailers[initialRecord.sessionID] {
+            return existing
+        }
+        let resolver = resolver
+        var resolvedRecord = initialRecord
+        var resolvedPath = await resolver.boundedTranscriptPath(for: resolvedRecord)
+        guard !Task.isCancelled else { return nil }
+        if resolvedPath == nil {
+            resolvedPath = await fallbackResolutionCoordinator.resolve(for: resolvedRecord)
+        }
+        guard !Task.isCancelled else { return nil }
+        if let existing = tailers[initialRecord.sessionID] {
+            return existing
+        }
+        guard let currentRecord = registry.record(sessionID: initialRecord.sessionID) else {
+            return nil
+        }
+        if !Self.hasSameTranscriptBinding(currentRecord, resolvedRecord) {
+            resolvedRecord = currentRecord
+            resolvedPath = await resolver.boundedTranscriptPath(for: resolvedRecord)
+            guard !Task.isCancelled else { return nil }
+            if resolvedPath == nil {
+                resolvedPath = await fallbackResolutionCoordinator.resolve(for: resolvedRecord)
+            }
+            guard !Task.isCancelled else { return nil }
+        }
+        if let existing = tailers[initialRecord.sessionID] {
+            return existing
+        }
+        guard let latestRecord = registry.record(sessionID: initialRecord.sessionID),
+              Self.hasSameTranscriptBinding(latestRecord, resolvedRecord) else {
+            return nil
+        }
+        failedResolutions.remove(initialRecord.sessionID)
+        return ensureTailer(for: latestRecord, resolvedPath: resolvedPath)
     }
 
     /// Debug-socket dump of every registry record plus tailer liveness.
@@ -515,13 +601,15 @@ final class AgentChatTranscriptService {
     @discardableResult
     private func ensureTailer(
         for record: AgentChatSessionRecord,
-        resolvePath: () -> String?
+        resolvedPath: String?
     ) -> AgentChatTranscriptTailer? {
         if let existing = tailers[record.sessionID] {
+            pendingBoundedTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
             return existing
         }
+        pendingBoundedTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
         guard !failedResolutions.contains(record.sessionID) else { return nil }
-        guard let path = resolvePath() else {
+        guard let path = resolvedPath else {
             failedResolutions.insert(record.sessionID)
             #if DEBUG
             cmuxDebugLog(
@@ -553,6 +641,63 @@ final class AgentChatTranscriptService {
         }
         Task { await tailer.start() }
         return tailer
+    }
+
+    private func scheduleBoundedTailerResolution(for record: AgentChatSessionRecord) {
+        guard tailers[record.sessionID] == nil,
+              !failedResolutions.contains(record.sessionID) else {
+            return
+        }
+        let key = Self.transcriptBindingKey(for: record)
+        if let pending = pendingBoundedTailerResolutions[record.sessionID],
+           pending.key == key {
+            return
+        }
+        pendingBoundedTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
+
+        let id = UUID()
+        let resolver = resolver
+        let task = Task { @MainActor [weak self] in
+            let path = await resolver.boundedTranscriptPath(for: record)
+            guard let self,
+                  let pending = self.pendingBoundedTailerResolutions[record.sessionID],
+                  pending.id == id,
+                  pending.key == key else {
+                return
+            }
+            self.pendingBoundedTailerResolutions.removeValue(forKey: record.sessionID)
+            guard self.hasEventSubscribers(),
+                  let currentRecord = self.registry.record(sessionID: record.sessionID),
+                  currentRecord.state != .ended,
+                  Self.hasSameTranscriptBinding(currentRecord, record) else {
+                return
+            }
+            _ = self.ensureTailer(for: currentRecord, resolvedPath: path)
+        }
+        pendingBoundedTailerResolutions[record.sessionID] = (
+            id: id,
+            key: key,
+            task: task
+        )
+    }
+
+    private static func hasSameTranscriptBinding(
+        _ lhs: AgentChatSessionRecord,
+        _ rhs: AgentChatSessionRecord
+    ) -> Bool {
+        lhs.sessionID == rhs.sessionID
+            && transcriptBindingKey(for: lhs) == transcriptBindingKey(for: rhs)
+    }
+
+    private static func transcriptBindingKey(
+        for record: AgentChatSessionRecord
+    ) -> TranscriptBindingKey {
+        (
+            agentKind: record.agentKind,
+            transcriptPath: record.transcriptPath,
+            workingDirectory: record.workingDirectory,
+            hookStoreSessionID: record.hookStoreSessionID
+        )
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
@@ -624,13 +769,15 @@ final class AgentChatTranscriptService {
     }
 
     private func handleRecordChange(_ record: AgentChatSessionRecord, previous: AgentChatSessionRecord?) {
-        let endedRecordIsListable: Bool
-        if record.state == .ended {
-            endedRecordIsListable = record.agentKind == .codex
-                || endedListability.update(record, previous: previous, resolver: resolver, now: now())
-        } else {
+        if tailers[record.sessionID] == nil,
+           let pending = pendingHistoryTailerResolutions[record.sessionID],
+           pending.key != Self.transcriptBindingKey(for: record) {
+            pendingHistoryTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
+        }
+        if record.state != .ended {
             endedListability.remove(sessionID: record.sessionID)
-            endedRecordIsListable = true
+        } else if record.agentKind == .codex {
+            endedListability.remove(sessionID: record.sessionID)
         }
         let stateChanged = previous?.state != record.state
         let transcriptBecameAvailable = previous?.transcriptPath == nil && record.transcriptPath != nil
@@ -640,6 +787,8 @@ final class AgentChatTranscriptService {
         }
         if stateChanged, record.state == .ended {
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
+            pendingBoundedTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
+            pendingHistoryTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
             endProseTurn(sessionID: record.sessionID)
@@ -653,15 +802,49 @@ final class AgentChatTranscriptService {
         }
         guard hasEventSubscribers() else { return }
         if transcriptBecameAvailable, record.state != .ended {
-            ensureTailer(for: record) {
-                resolver.boundedTranscriptPath(for: record)
-            }
+            scheduleBoundedTailerResolution(for: record)
         }
+
+        if record.state == .ended, record.agentKind != .codex {
+            let resolutionNow = now()
+            let resolver = resolver
+            Task { @MainActor [weak self, resolver] in
+                guard let self else { return }
+                let isListable = await self.endedListability.update(
+                    record,
+                    previous: previous,
+                    now: resolutionNow
+                ) {
+                    await resolver.boundedTranscriptPath(for: record)
+                }
+                guard self.hasEventSubscribers(),
+                      let currentRecord = self.registry.record(sessionID: record.sessionID),
+                      currentRecord.version == record.version,
+                      currentRecord.state == .ended else {
+                    return
+                }
+                self.emitRecordChange(
+                    currentRecord,
+                    previous: previous,
+                    endedRecordIsListable: isListable
+                )
+            }
+            return
+        }
+
+        emitRecordChange(record, previous: previous, endedRecordIsListable: true)
+    }
+
+    private func emitRecordChange(
+        _ record: AgentChatSessionRecord,
+        previous: AgentChatSessionRecord?,
+        endedRecordIsListable: Bool
+    ) {
         if record.state == .ended, !endedRecordIsListable {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
             return
         }
-        if stateChanged {
+        if previous?.state != record.state {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .stateChanged(record.state)))
         }
         // Pure activity bumps (every pre/postToolUse moves lastActivityAt)
@@ -674,6 +857,8 @@ final class AgentChatTranscriptService {
 
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
+        pendingBoundedTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
+        pendingHistoryTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
         endProseTurn(sessionID: record.sessionID)
         latestTranscriptSeqBySessionID[record.sessionID] = nil
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
@@ -708,6 +893,9 @@ final class AgentChatTranscriptService {
         // `isolated deinit` still has Xcode compatibility constraints in cmux,
         // so keep teardown synchronous while asserting that owner invariant.
         MainActor.assumeIsolated {
+            for pending in pendingHistoryTailerResolutions.values {
+                pending.task.cancel()
+            }
             proseWakeDriver?.stop()
             proseStreamer?.stopAll()
         }

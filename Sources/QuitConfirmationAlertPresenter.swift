@@ -3,22 +3,27 @@ import AppKit
 @MainActor
 final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     typealias Completion = (NSApplication.ModalResponse, NSControl.StateValue) -> Void
+    typealias OrderOutWindow = @MainActor (NSWindow) -> Void
 
     private let alert: NSAlert
     private let presentingWindowProvider: () -> NSWindow?
+    private let orderOutWindow: OrderOutWindow
     private let completion: Completion
     private var didFinish = false
+    private var presentedAsStandalone = false
     private var joinedCancellationAction: (() -> Void)?
 
     init(
         alert: NSAlert? = nil,
         presentingWindowProvider: (() -> NSWindow?)? = nil,
+        orderOutWindow: @escaping OrderOutWindow = { $0.orderOut(nil) },
         completion: @escaping Completion
     ) {
         self.alert = alert ?? Self.makeAlert()
         self.presentingWindowProvider = presentingWindowProvider ?? {
             NSApp.cmuxMainWindowForModalPresentation()
         }
+        self.orderOutWindow = orderOutWindow
         self.completion = completion
         super.init()
     }
@@ -58,6 +63,7 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     }
 
     private func presentStandalone() {
+        presentedAsStandalone = true
         let buttons = alert.buttons
         if buttons.indices.contains(0) {
             buttons[0].target = self
@@ -93,7 +99,9 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
         let cancellationAction = joinedCancellationAction
         joinedCancellationAction = nil
         alert.window.delegate = nil
-        alert.window.orderOut(nil)
+        if presentedAsStandalone {
+            orderOutWindow(alert.window)
+        }
         completion(response, alert.suppressionButton?.state ?? .off)
         if response != .alertFirstButtonReturn {
             cancellationAction?()

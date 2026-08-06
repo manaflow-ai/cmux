@@ -115,9 +115,9 @@ extension TerminalController {
         case .success(let value):
             return .success(value)
         case .failure(let message):
-            return .failure(message)
+            return .javaScriptFailure(message)
         case .timedOut:
-            return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
+            return .javaScriptFailure(v2BrowserAutomationMessageAfterLivenessCheck(
                 originalMessage: String(
                     localized: "browser.automation.error.javaScriptTimedOut",
                     defaultValue: "Timed out waiting for JavaScript result"

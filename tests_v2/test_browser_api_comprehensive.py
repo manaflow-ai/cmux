@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Comprehensive v2 browser API coverage (ported from agent-browser test themes)."""
 
+import contextlib
+import http.server
 import os
 import sys
+import threading
 import time
-import urllib.parse
+from collections.abc import Iterator
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -17,10 +20,6 @@ SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 def _must(cond: bool, msg: str) -> None:
     if not cond:
         raise cmuxError(msg)
-
-
-def _data_url(html: str) -> str:
-    return "data:text/html;charset=utf-8," + urllib.parse.quote(html)
 
 
 def _wait_until(pred, timeout_s: float, label: str) -> None:
@@ -77,7 +76,7 @@ def _wait_with_fallback(c: cmux, surface_id: str, params: dict, pred, timeout_s:
     _wait_until(pred, timeout_s=timeout_s, label=f"{label} fallback")
 
 
-def _build_pages() -> tuple[str, str]:
+def _build_pages() -> dict[str, str]:
     page1 = """
 <!doctype html>
 <html>
@@ -139,14 +138,58 @@ def _build_pages() -> tuple[str, str]:
 </html>
 """.strip()
 
-    return _data_url(page1), _data_url(page2)
+    return {
+        "/probe.html": "<!doctype html><html><body><button id='probe'>P</button></body></html>",
+        "/cmux-browser-comprehensive-1.html": page1,
+        "/cmux-browser-comprehensive-2.html": page2,
+    }
+
+
+@contextlib.contextmanager
+def _serve_pages(pages: dict[str, str]) -> Iterator[dict[str, str]]:
+    encoded_pages = {path: html.encode("utf-8") for path, html in pages.items()}
+
+    class FixtureHandler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            path = self.path.split("?", 1)[0]
+            body = encoded_pages.get(path)
+            if body is None:
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            return
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name="cmux-browser-comprehensive-fixtures",
+        daemon=True,
+    )
+    thread.start()
+    try:
+        port = int(server.server_address[1])
+        yield {path: f"http://127.0.0.1:{port}{path}" for path in pages}
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+        _must(not thread.is_alive(), "Timed out stopping browser fixture server")
 
 
 def main() -> int:
-    page1_url, page2_url = _build_pages()
+    pages = _build_pages()
 
-    with cmux(SOCKET_PATH) as c:
-        opened = c._call("browser.open_split", {"url": "about:blank"}) or {}
+    with _serve_pages(pages) as page_urls, cmux(SOCKET_PATH) as c:
+        page1_url = page_urls["/cmux-browser-comprehensive-1.html"]
+        page2_url = page_urls["/cmux-browser-comprehensive-2.html"]
+        probe_url = page_urls["/probe.html"]
+        opened = c._call("browser.open_split", {"url": probe_url}) or {}
         sid = str(opened.get("surface_id") or "")
         sref = str(opened.get("surface_ref") or "")
         _must(bool(sid), f"browser.open_split returned no surface_id: {opened}")
@@ -154,8 +197,6 @@ def main() -> int:
         if sref:
             _ = c._call("browser.url.get", {"surface_id": sref})
 
-        probe_url = _data_url("<!doctype html><html><body><button id='probe'>P</button></body></html>")
-        c._call("browser.navigate", {"surface_id": target, "url": probe_url})
         _wait_with_fallback(
             c,
             target,
@@ -193,10 +234,10 @@ def main() -> int:
         _wait_with_fallback(
             c,
             target,
-            {"url_contains": "data:text/html", "timeout_ms": 3000},
-            lambda: "data:text/html" in str((c._call("browser.url.get", {"surface_id": target}) or {}).get("url") or ""),
+            {"url_contains": "cmux-browser-comprehensive-1.html", "timeout_ms": 3000},
+            lambda: "cmux-browser-comprehensive-1.html" in str((c._call("browser.url.get", {"surface_id": target}) or {}).get("url") or ""),
             timeout_s=4.0,
-            label="browser.wait url_contains data:text/html",
+            label="browser.wait url_contains page1",
         )
 
         _wait_until(
@@ -206,7 +247,10 @@ def main() -> int:
             label="browser.get.title page1",
         )
         url_payload = c._call("browser.url.get", {"surface_id": target}) or {}
-        _must("data:text/html" in str(url_payload.get("url") or ""), f"Expected data URL from browser.url.get: {url_payload}")
+        _must(
+            "cmux-browser-comprehensive-1.html" in str(url_payload.get("url") or ""),
+            f"Expected fixture URL from browser.url.get: {url_payload}",
+        )
 
         c._call("browser.fill", {"surface_id": target, "selector": "#name", "text": "cmux"})
         c._call("browser.click", {"surface_id": target, "selector": "#btn"})
@@ -251,6 +295,40 @@ def main() -> int:
         _must(int(key_value.get("down", 0)) >= 2, f"Expected keydown counter >= 2: {key_stats}")
         _must(int(key_value.get("up", 0)) >= 2, f"Expected keyup counter >= 2: {key_stats}")
         _must(int(key_value.get("press", 0)) >= 1, f"Expected keypress counter >= 1: {key_stats}")
+
+        dom_rect_result = c._call(
+            "browser.eval",
+            {
+                "surface_id": target,
+                "script": "document.querySelector('#status').getBoundingClientRect()",
+            },
+        ) or {}
+        dom_rect = _value(dom_rect_result)
+        _must(
+            isinstance(dom_rect, dict),
+            f"Expected DOMRect to cross the browser bridge as a dictionary: {dom_rect_result}",
+        )
+        _must(
+            float(dom_rect.get("width") or 0.0) > 0.0,
+            f"Expected bridged DOMRect width to be positive: {dom_rect_result}",
+        )
+
+        nested_dom_rect_result = c._call(
+            "browser.eval",
+            {
+                "surface_id": target,
+                "script": "({bounds: document.querySelector('#status').getBoundingClientRect()})",
+            },
+        ) or {}
+        nested_dom_rect = (_value(nested_dom_rect_result) or {}).get("bounds")
+        _must(
+            isinstance(nested_dom_rect, dict),
+            f"Expected nested DOMRect to cross the browser bridge as a dictionary: {nested_dom_rect_result}",
+        )
+        _must(
+            float(nested_dom_rect.get("height") or 0.0) > 0.0,
+            f"Expected bridged nested DOMRect height to be positive: {nested_dom_rect_result}",
+        )
 
         c._call("browser.check", {"surface_id": target, "selector": "#chk"})
         is_checked = c._call("browser.is.checked", {"surface_id": target, "selector": "#chk"}) or {}
@@ -373,6 +451,8 @@ def main() -> int:
             label="browser.wait url_contains page2 (reload)",
         )
 
+        c.activate_app()
+        c.focus_surface(target)
         c._call("browser.focus_webview", {"surface_id": target})
         _wait_until(
             lambda: bool((c._call("browser.is_webview_focused", {"surface_id": target}) or {}).get("focused")),
@@ -413,7 +493,7 @@ def main() -> int:
         _expect_error(
             "browser method on terminal surface",
             lambda: c._call("browser.url.get", {"surface_id": terminal_surface}),
-            "not_found",
+            "invalid_params",
         )
 
     print("PASS: comprehensive browser.* coverage (ported/adapted from agent-browser) is green")

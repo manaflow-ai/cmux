@@ -12,6 +12,48 @@ struct PaneMemoryGuardrailTests {
     private let gb: Int64 = 1024 * 1024 * 1024
     private var threshold: Int64 { 8 * gb }
 
+    @Test
+    func processTreePayloadCapsAdversarialDepth() throws {
+        let processCount = 160
+        let processes = (1...processCount).map { pid in
+            CmuxTopProcessInfo(
+                pid: pid,
+                parentPID: pid == 1 ? 0 : pid - 1,
+                name: "process-\(pid)",
+                path: nil,
+                ttyDevice: nil,
+                cmuxWorkspaceID: nil,
+                cmuxSurfaceID: nil,
+                cmuxAttributionReason: nil,
+                processGroupID: nil,
+                terminalProcessGroupID: nil,
+                cpuPercent: 0,
+                residentBytes: 0,
+                virtualBytes: 0,
+                threadCount: 1
+            )
+        }
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: processes,
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+
+        var node = try #require(
+            snapshot.processTreePayload(for: Set(1...processCount)).first
+        )
+        for expectedPID in 1...128 {
+            #expect(node["pid"] as? Int == expectedPID)
+            if expectedPID < 128 {
+                let children = try #require(node["children"] as? [[String: Any]])
+                node = try #require(children.first)
+            }
+        }
+
+        #expect(node["children_truncated"] as? Bool == true)
+        #expect((node["children"] as? [[String: Any]])?.isEmpty == true)
+    }
+
     private func sample(
         workspace: UUID,
         pane: UUID,
@@ -292,6 +334,55 @@ struct PaneMemoryGuardrailTests {
         #expect(sample?.memoryBytes == 9_010_000_000)
         #expect(sample?.memoryPressureProcessGroupIDs == [200])
         #expect(sample?.foregroundCommand == "zsh")
+    }
+
+    @Test
+    func scopedSurfaceIdentityDoesNotRequireLiveTTYOrForegroundPID() {
+        let workspaceID = UUID()
+        let paneID = UUID()
+        let daemon = CmuxTopProcessInfo(
+            pid: 200,
+            parentPID: 1,
+            name: "python",
+            path: nil,
+            ttyDevice: nil,
+            cmuxWorkspaceID: workspaceID,
+            cmuxSurfaceID: paneID,
+            cmuxAttributionReason: nil,
+            processGroupID: 200,
+            terminalProcessGroupID: 200,
+            cpuPercent: 0,
+            memoryBytes: 9_000_000_000,
+            memorySource: .physicalFootprint,
+            residentBytes: 9_000_000_000,
+            residentMemorySource: .residentSize,
+            virtualBytes: 0,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [daemon],
+            sampledAt: Date(),
+            includesProcessDetails: false,
+            includesCMUXScope: true
+        )
+        let descriptor = PaneMemoryDescriptor(
+            workspaceId: workspaceID,
+            panelId: paneID,
+            workspaceTitle: "Workspace",
+            paneTitle: "Terminal",
+            ttyName: nil,
+            foregroundPID: nil
+        )
+
+        let sample = PaneMemoryGuardrail.computeSamples(
+            descriptors: [descriptor],
+            thresholdBytes: threshold,
+            snapshot: snapshot
+        ).first
+
+        #expect(sample?.memoryBytes == 9_000_000_000)
+        #expect(sample?.memoryPressureProcessGroupIDs == [200])
+        #expect(sample?.foregroundCommand == nil)
     }
 
     @Test

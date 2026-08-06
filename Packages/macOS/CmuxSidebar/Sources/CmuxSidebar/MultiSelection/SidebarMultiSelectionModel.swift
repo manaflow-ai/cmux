@@ -33,22 +33,28 @@ public final class SidebarMultiSelectionModel {
 
     /// Replaces the selection wholesale.
     public func replaceSelection(with workspaceIds: Set<UUID>) {
+        guard selectedWorkspaceIds != workspaceIds else { return }
         selectedWorkspaceIds = workspaceIds
     }
 
     /// Removes one workspace from the selection (workspace closed).
     public func removeFromSelection(_ workspaceId: UUID) {
+        guard selectedWorkspaceIds.contains(workspaceId) else { return }
         selectedWorkspaceIds.remove(workspaceId)
     }
 
     /// Removes the given workspaces from the selection.
     public func subtractSelection(_ workspaceIds: Set<UUID>) {
-        selectedWorkspaceIds.subtract(workspaceIds)
+        let next = selectedWorkspaceIds.subtracting(workspaceIds)
+        guard next != selectedWorkspaceIds else { return }
+        selectedWorkspaceIds = next
     }
 
     /// Intersects the selection with the workspaces that still exist.
     public func intersectSelection(with workspaceIds: Set<UUID>) {
-        selectedWorkspaceIds.formIntersection(workspaceIds)
+        let next = selectedWorkspaceIds.intersection(workspaceIds)
+        guard next != selectedWorkspaceIds else { return }
+        selectedWorkspaceIds = next
     }
 
     /// Reduces the selection to a single workspace (or clears it when the

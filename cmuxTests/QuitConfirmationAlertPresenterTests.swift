@@ -54,9 +54,11 @@ struct QuitConfirmationAlertPresenterTests {
 
         var completedResponse: NSApplication.ModalResponse?
         var completedSuppressionState: NSControl.StateValue?
+        var orderOutCount = 0
         let presenter = QuitConfirmationAlertPresenter(
             alert: alert,
-            presentingWindowProvider: { hostWindow }
+            presentingWindowProvider: { hostWindow },
+            orderOutWindow: { _ in orderOutCount += 1 }
         ) { response, suppressionState in
             completedResponse = response
             completedSuppressionState = suppressionState
@@ -72,6 +74,7 @@ struct QuitConfirmationAlertPresenterTests {
 
         #expect(completedResponse == .alertFirstButtonReturn)
         #expect(completedSuppressionState == .off)
+        #expect(orderOutCount == 0)
     }
 
     @Test
@@ -80,9 +83,11 @@ struct QuitConfirmationAlertPresenterTests {
 
         var completedResponse: NSApplication.ModalResponse?
         var completedSuppressionState: NSControl.StateValue?
+        var orderOutCount = 0
         let presenter = QuitConfirmationAlertPresenter(
             alert: alert,
-            presentingWindowProvider: { nil }
+            presentingWindowProvider: { nil },
+            orderOutWindow: { _ in orderOutCount += 1 }
         ) { response, suppressionState in
             completedResponse = response
             completedSuppressionState = suppressionState
@@ -102,6 +107,7 @@ struct QuitConfirmationAlertPresenterTests {
 
         #expect(completedResponse == .alertFirstButtonReturn)
         #expect(completedSuppressionState == .off)
+        #expect(orderOutCount == 1)
     }
 
     @Test

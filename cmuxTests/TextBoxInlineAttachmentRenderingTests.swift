@@ -10,6 +10,318 @@ import Testing
 
 @MainActor
 @Suite struct TextBoxInlineAttachmentRenderingTests {
+    @Test func largeAttachmentBatchUsesOneInlineCellWithoutDroppingFiles() throws {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "existing text"
+        textView.setSelectedRange(NSRange(location: textView.string.utf16.count, length: 0))
+
+        let attachments = (0..<1_000).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+
+        #expect(textView.insertAttachments(attachments))
+
+        #expect(textView.inlineAttachments().map(\.submissionPath) == attachments.map(\.submissionPath))
+        #expect(inlineAttachmentCellCount(in: textView) == 1)
+        let submissionParts = textView.submissionParts()
+        #expect(submissionParts.count == 1_001)
+        guard submissionParts.count == 1_001 else { return }
+        guard case .text(let prefix) = submissionParts[0],
+              case .attachment(let firstAttachment) = submissionParts[1],
+              case .attachment(let lastAttachment) = submissionParts[1_000] else {
+            Issue.record("Large attachment groups must expand into ordered submission parts.")
+            return
+        }
+        #expect(prefix == "existing text ")
+        #expect(firstAttachment.submissionPath == "/tmp/file-0.txt")
+        #expect(lastAttachment.submissionPath == "/tmp/file-999.txt")
+
+        let firstDraft = try #require(textView.sessionDraftSnapshot(isActive: true))
+        let secondDraft = try #require(textView.sessionDraftSnapshot(isActive: true))
+        firstDraft.parts.withUnsafeBufferPointer { firstBuffer in
+            secondDraft.parts.withUnsafeBufferPointer { secondBuffer in
+                #expect(firstBuffer.baseAddress == secondBuffer.baseAddress)
+            }
+        }
+    }
+
+    @Test func normalAttachmentBatchKeepsIndividualCells() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        let maximumIndividualCells = 20
+        let attachments = (0..<maximumIndividualCells).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+
+        #expect(textView.insertAttachments(attachments))
+        #expect(textView.inlineAttachments().count == attachments.count)
+        #expect(inlineAttachmentCellCount(in: textView) == attachments.count)
+    }
+
+    @Test func deletingLargeAttachmentGroupRemovesEveryLogicalFile() {
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        let attachments = (0..<1_000).map { index in
+            TextBoxAttachment(
+                displayName: "file-\(index).txt",
+                submissionText: "/tmp/file-\(index).txt",
+                submissionPath: "/tmp/file-\(index).txt",
+                localURL: nil
+            )
+        }
+        #expect(textView.insertAttachments(attachments))
+        #expect(inlineAttachmentCellCount(in: textView) == 1)
+
+        textView.deleteAttachment(at: 0)
+
+        #expect(textView.inlineAttachments().isEmpty)
+        #expect(inlineAttachmentCellCount(in: textView) == 0)
+    }
+
+    @Test func imageAttachmentCreatesThumbnailSourceWithoutReadingTheFile() {
+        let missingImageURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-\(UUID().uuidString).png")
+        let attachment = TextBoxAttachment(
+            localURL: missingImageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: missingImageURL)
+        )
+
+        #expect(attachment.isImage)
+        #expect(attachment.inlineThumbnailSource != nil)
+    }
+
+    @Test func largeSessionDraftRestoresEveryFileIntoOneInlineCell() {
+        let attachmentParts = (0..<1_000).map { index in
+            SessionTextBoxInputDraftPart.attachment(
+                SessionTextBoxInputAttachmentSnapshot(
+                    displayName: "file-\(index).txt",
+                    submissionText: "/tmp/file-\(index).txt",
+                    submissionPath: "/tmp/file-\(index).txt",
+                    localPath: nil,
+                    cleanupLocalPathWhenDisposed: false
+                )
+            )
+        }
+        let draft = SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("before ")] + attachmentParts + [.text(" after")]
+        )
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+
+        textView.installSessionDraft(draft)
+
+        #expect(textView.inlineAttachments().count == 1_000)
+        #expect(inlineAttachmentCellCount(in: textView) == 1)
+        #expect(textView.plainText() == "before  after")
+    }
+
+    @Test func liveDraftSnapshotDoesNotDuplicateTrailingText() throws {
+        let attachment = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let attachmentSnapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let expectedParts: [SessionTextBoxInputDraftPart] = [
+            .attachment(attachmentSnapshot),
+            .text("describe this"),
+        ]
+        let snapshot = try preservedDraft(initialParts: expectedParts) { textView in
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: textView.attributedString().length, length: 0),
+                with: "!"
+            )
+        }
+
+        #expect(snapshot.parts == [
+            .attachment(attachmentSnapshot),
+            .text("describe this!"),
+        ])
+    }
+
+    @Test func textEditPreservesInterleavedAttachmentPosition() throws {
+        let attachment = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let attachmentPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(attachment)
+        )
+        let snapshot = try preservedDraft(
+            initialParts: [.text("before "), attachmentPart, .text(" after")]
+        ) { textView in
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: textView.attributedString().length, length: 0),
+                with: " edited"
+            )
+        }
+
+        #expect(
+            snapshot.parts
+                == [.text("before "), attachmentPart, .text(" after edited")]
+        )
+    }
+
+    @Test func insertionAfterAttachmentPreservesAttachmentAffinity() throws {
+        let attachment = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let attachmentPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(attachment)
+        )
+        let snapshot = try preservedDraft(
+            initialParts: [.text("before"), attachmentPart, .text("after")]
+        ) { textView in
+            let locationAfterAttachment = ("before" as NSString).length + 1
+            textView.textStorage?.replaceCharacters(
+                in: NSRange(location: locationAfterAttachment, length: 0),
+                with: " inserted "
+            )
+        }
+
+        #expect(
+            snapshot.parts
+                == [.text("before"), attachmentPart, .text(" inserted after")]
+        )
+    }
+
+    @Test func attachmentUpdatePreservesExactDraftPartOrdering() throws {
+        let first = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let second = TextBoxAttachment(
+            displayName: "second.txt",
+            submissionText: "/tmp/second.txt",
+            submissionPath: "/tmp/second.txt",
+            localURL: nil
+        )
+        let added = TextBoxAttachment(
+            displayName: "added.txt",
+            submissionText: "/tmp/added.txt",
+            submissionPath: "/tmp/added.txt",
+            localURL: nil
+        )
+        let firstPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(first)
+        )
+        let secondPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(second)
+        )
+        let addedPart = SessionTextBoxInputDraftPart.attachment(
+            SessionTextBoxInputAttachmentSnapshot(added)
+        )
+        let snapshot = try preservedDraft(
+            initialParts: [firstPart, .text("compare"), secondPart]
+        ) { textView in
+            textView.installSessionDraft(SessionTextBoxInputDraftSnapshot(
+                isActive: true,
+                parts: [firstPart, .text("compare"), secondPart, addedPart]
+            ))
+        }
+
+        #expect(
+            snapshot.parts
+                == [firstPart, .text("compare"), secondPart, addedPart]
+        )
+    }
+
+    @Test func exactDraftSnapshotRejectsAmbiguousFlattenedUpdates() throws {
+        let attachment = TextBoxAttachment(
+            displayName: "first.txt",
+            submissionText: "/tmp/first.txt",
+            submissionPath: "/tmp/first.txt",
+            localURL: nil
+        )
+        let attachmentSnapshot = SessionTextBoxInputAttachmentSnapshot(attachment)
+        let expectedParts: [SessionTextBoxInputDraftPart] = [
+            .text("before"),
+            .attachment(attachmentSnapshot),
+            .text("after"),
+        ]
+        let cache = TerminalPanelTextBoxDraftCache()
+        cache.recordExactSnapshot(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: expectedParts
+        ))
+
+        cache.updateFlattenedText("before inserted after")
+        cache.updateFlattenedAttachments([attachment])
+
+        #expect(try #require(cache.currentSnapshot()).parts == expectedParts)
+    }
+
+    private func preservedDraft(
+        initialParts: [SessionTextBoxInputDraftPart],
+        mutation: (TextBoxInputTextView) -> Void
+    ) throws -> SessionTextBoxInputDraftSnapshot {
+        let initialDraft = SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: initialParts
+        )
+        let textView = TextBoxInputTextView(
+            frame: NSRect(x: 0, y: 0, width: 420, height: 30)
+        )
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.installSessionDraft(initialDraft, notifyingTextChange: false)
+
+        mutation(textView)
+        textView.didChangeText()
+
+        let snapshot = try #require(textView.sessionDraftSnapshot(isActive: true))
+        let cache = TerminalPanelTextBoxDraftCache()
+        cache.recordExactSnapshot(snapshot)
+        return try #require(cache.currentSnapshot())
+    }
+
+    private func inlineAttachmentCellCount(in textView: TextBoxInputTextView) -> Int {
+        var count = 0
+        let attributed = textView.attributedString()
+        attributed.enumerateAttribute(
+            .attachment,
+            in: NSRange(location: 0, length: attributed.length),
+            options: []
+        ) { value, _, _ in
+            if value is TextBoxInlineTextAttachment {
+                count += 1
+            }
+        }
+        return count
+    }
+
     @Test func identicalRefreshReusesRenderedChipImage() throws {
         let fixture = try AttachmentFixture()
         defer { fixture.cleanup() }

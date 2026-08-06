@@ -67,6 +67,21 @@ import Testing
         )
     }
 
+    @Test func redactsAuthorizationAssignmentsWithAndWithoutSchemes() {
+        #expect(
+            scrubber.scrub("Authorization: Basic dXNlcjpwYXNz")
+                == "Authorization: Basic <redacted-secret>"
+        )
+        #expect(
+            scrubber.scrub("Authorization: opaquetoken")
+                == "Authorization: <redacted-secret>"
+        )
+        #expect(
+            scrubber.scrub("Proxy-Authorization=Digest opaquetoken")
+                == "Proxy-Authorization=Digest <redacted-secret>"
+        )
+    }
+
     @Test func redactsTokenQueryParameterButKeepsKey() {
         #expect(
             scrubber.scrub("GET https://api.example.com/v1?token=supersecretvalue123&page=2")
@@ -79,6 +94,22 @@ import Testing
             scrubber.scrub(#"{"password":"hunter2hunter2hunter2"}"#)
                 == #"{"password":"<redacted-secret>"}"#
         )
+    }
+
+    @Test func redactsEscapedQuoteInsideQuotedSecretAssignment() {
+        #expect(
+            scrubber.scrub(#"{"password":"abc\"def"}"#)
+                == #"{"password":"<redacted-secret>"}"#
+        )
+    }
+
+    @Test
+    func markerRichTextWithoutAnAssignmentDoesNotWedgeScrubbing() {
+        // Sentry HTTP-query breadcrumbs can contain long branch names with
+        // "author" fragments. The free-text scanner must inspect this once,
+        // not repeatedly backtrack around the embedded "auth" substring.
+        let input = "state=all&head=" + String(repeating: "author-", count: 160) + "branch"
+        #expect(scrubber.scrub(input) == input)
     }
 
     @Test func redactsProviderApiKey() {
@@ -108,8 +139,8 @@ import Testing
     }
 
     @Test func redactsBroaderCredentialMarkersInRawQueryStrings() {
-        // The free-text assignment markers stay in sync with the dictionary
-        // sensitive-key set, so auth/session/cookie params are caught as raw text.
+        // The free-text assignment scanner shares the dictionary sensitive-key
+        // set, so auth/session/cookie params are caught as raw text.
         #expect(
             scrubber.scrub("GET /x?auth=opaquesessionvalue&page=1")
                 == "GET /x?auth=<redacted-secret>&page=1"
@@ -121,6 +152,27 @@ import Testing
         #expect(
             scrubber.scrub("cookie=sid%3Dabcdef0123 set")
                 == "cookie=<redacted-secret> set"
+        )
+    }
+
+    @Test func redactsPunctuationInsideUnquotedCredentialValues() {
+        for input in [
+            "token=abc;def",
+            "token=abc)def",
+            "token=abc]def",
+            "token=abc,def",
+            "token=abc}def",
+        ] {
+            #expect(scrubber.scrub(input) == "token=<redacted-secret>")
+        }
+
+        #expect(
+            scrubber.scrub("token=abc;page=2")
+                == "token=<redacted-secret>;page=2"
+        )
+        #expect(
+            scrubber.scrub("env TOKEN=abc,KEEP=2")
+                == "env TOKEN=<redacted-secret>,KEEP=2"
         )
     }
 
@@ -155,6 +207,28 @@ import Testing
         // keys that merely contain the letters (inside/aside).
         #expect(scrubber.scrub("inside=hallway") == "inside=hallway")
         #expect(scrubber.scrub("aside=note") == "aside=note")
+    }
+
+    @Test func redactsSensitiveExactAliasesAtPunctuationBoundaries() {
+        #expect(
+            scrubber.scrub(#"{"connect.sid":"session-secret"}"#)
+                == #"{"connect.sid":"<redacted-secret>"}"#
+        )
+        #expect(
+            scrubber.scrub("x-sid=session-secret")
+                == "x-sid=<redacted-secret>"
+        )
+        #expect(
+            scrubber.scrubQueryString("x-sid=session-secret&inside=hallway")
+                == "x-sid=<redacted-secret>&inside=hallway"
+        )
+        let structured = scrubber.scrub(dictionary: [
+            "x-sid": "session-secret",
+            "x-inside": "hallway",
+        ])
+        #expect(structured["x-sid"] as? String == "<redacted-secret>")
+        #expect(structured["x-inside"] as? String == "hallway")
+        #expect(scrubber.scrub("x-inside=hallway") == "x-inside=hallway")
     }
 
     @Test func sessionAndSidDictionaryKeysAreSensitiveWithoutOvermatching() {
@@ -248,7 +322,7 @@ import Testing
     @Test func scrubsSensitiveQueryParamsByKeyKeepingNonSensitive() {
         // The maintained denylist's EXACT aliases (csrf/_csrf, _vercel_jwt, su,
         // phpsessid, sid) are redacted by key even though they are too short to
-        // live in the free-text assignment regex. Keys stay; non-sensitive params
+        // need ambiguous free-text regexes. Keys stay; non-sensitive params
         // (page) are untouched.
         #expect(
             scrubber.scrubQueryString("_csrf=abc123&_vercel_jwt=xyz789&page=2")

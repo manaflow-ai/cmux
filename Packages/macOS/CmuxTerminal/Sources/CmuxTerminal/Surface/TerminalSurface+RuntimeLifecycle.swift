@@ -287,27 +287,28 @@ extension TerminalSurface {
         }
 #endif
 
-        Task { @MainActor in
-            // Keep free behavior aligned with deinit: perform the runtime teardown on
-            // the next main-actor turn so SIGHUP delivery is deterministic but non-reentrant.
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
-        }
+        runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: "teardown",
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease
+        )
     }
 
     /// Frees the runtime surface while keeping the model alive for an
     /// agent-hibernation resume.
     ///
     /// - Returns: `false` without changing the surface when the bounded
-    ///   hibernation teardown lane has no capacity.
+    ///   hibernation teardown batch has no reservation capacity.
     @discardableResult
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
         guard let teardownReservation =
                 agentHibernationRuntimeTeardownReservation ??
-                runtimeTeardown.reserveIsolatedHibernationTeardown() else {
+                runtimeTeardown.reserveHibernationTeardown() else {
             return false
         }
         agentHibernationRuntimeTeardownReservation = nil
@@ -340,7 +341,7 @@ extension TerminalSurface {
         desiredFocusState = false
 
         guard let surfaceToFree else {
-            runtimeTeardown.cancelIsolatedHibernationTeardown(
+            runtimeTeardown.cancelHibernationTeardown(
                 teardownReservation
             )
             callbackContext?.release()
@@ -369,8 +370,7 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
-                executionLane: .isolatedHibernation,
-                isolatedHibernationReservation: teardownReservation,
+                hibernationReservation: teardownReservation,
                 freeSurface: freeSurface
             )
             return true
@@ -385,19 +385,18 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
-            executionLane: .isolatedHibernation,
-            isolatedHibernationReservation: teardownReservation
+            hibernationReservation: teardownReservation
         )
         return true
     }
 
-    /// Reserves the bounded native-free lane at the final pre-signal gate.
+    /// Reserves bounded hibernation teardown capacity at the pre-signal gate.
     @MainActor
     public func reserveAgentHibernationRuntimeTeardown() -> Bool {
         guard agentHibernationRuntimeTeardownTicket == nil else { return false }
         if agentHibernationRuntimeTeardownReservation != nil { return true }
         guard let reservation =
-                runtimeTeardown.reserveIsolatedHibernationTeardown() else {
+                runtimeTeardown.reserveHibernationTeardown() else {
             return false
         }
         agentHibernationRuntimeTeardownReservation = reservation
@@ -411,7 +410,7 @@ extension TerminalSurface {
             return
         }
         agentHibernationRuntimeTeardownReservation = nil
-        runtimeTeardown.cancelIsolatedHibernationTeardown(reservation)
+        runtimeTeardown.cancelHibernationTeardown(reservation)
     }
 
     /// Waits for the old hibernated runtime generation to finish native teardown.
@@ -602,6 +601,19 @@ extension TerminalSurface {
 
     @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing, source: RuntimeSurfaceCreationSource) {
+        attemptRuntimeSurfaceCreation(
+            for: view,
+            source: source,
+            ownsNativeLifecycleQueue: false
+        )
+    }
+
+    @MainActor
+    private func attemptRuntimeSurfaceCreation(
+        for view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource,
+        ownsNativeLifecycleQueue: Bool
+    ) {
         guard allowsRuntimeSurfaceCreation() else {
 #if DEBUG
             logDebugEvent(
@@ -612,6 +624,14 @@ extension TerminalSurface {
                 "createSurface SKIPPED surface=\(id.uuidString) tab=\(tabId.uuidString) lifecycle=\(portalLifecycleState.rawValue)"
             )
 #endif
+            return
+        }
+        guard surface == nil else { return }
+        if !ownsNativeLifecycleQueue,
+           let queuedSource = queuedRuntimeSurfaceCreationSource {
+            queuedRuntimeSurfaceCreationSource =
+                queuedSource.promoted(with: source)
+            queuedRuntimeSurfaceCreationView = view
             return
         }
         if deferRuntimeSurfaceCreationForConfigurationReload(
@@ -627,9 +647,20 @@ extension TerminalSurface {
             return
         }
         let claudeShim = claudeShimState.shim
+        if !ownsNativeLifecycleQueue {
 #if DEBUG
-        runtimeSurfaceCreateAttemptCountForTesting += 1
+            runtimeSurfaceCreateAttemptCountForTesting += 1
 #endif
+            queuedRuntimeSurfaceCreationSource = source
+            queuedRuntimeSurfaceCreationView = view
+            runtimeTeardown.enqueueRuntimeCreation(
+                id: id,
+                reason: String(describing: source)
+            ) { [weak self] in
+                self?.performQueuedRuntimeSurfaceCreation()
+            }
+            return
+        }
         #if DEBUG
         let resourcesDir = getenv("GHOSTTY_RESOURCES_DIR").flatMap { String(cString: $0) } ?? "(unset)"
         let terminfo = getenv("TERMINFO").flatMap { String(cString: $0) } ?? "(unset)"
@@ -802,6 +833,40 @@ extension TerminalSurface {
             "runtimeFont=\(runtimeFontText)"
         )
 #endif
+    }
+
+    @MainActor
+    private func performQueuedRuntimeSurfaceCreation() {
+        guard let source = queuedRuntimeSurfaceCreationSource else {
+            return
+        }
+        let view =
+            queuedRuntimeSurfaceCreationView
+            ?? attachedView
+            ?? surfaceView
+        queuedRuntimeSurfaceCreationSource = nil
+        queuedRuntimeSurfaceCreationView = nil
+
+        guard allowsRuntimeSurfaceCreation(),
+              surface == nil,
+              attachedView === view,
+              view.window != nil else {
+#if DEBUG
+            logDebugEvent(
+                "surface.create.dequeue.skip surface=\(id.uuidString.prefix(5)) " +
+                "lifecycle=\(portalLifecycleState.rawValue) " +
+                "attached=\(attachedView === view ? 1 : 0) " +
+                "inWindow=\(view.window != nil ? 1 : 0)"
+            )
+#endif
+            return
+        }
+
+        attemptRuntimeSurfaceCreation(
+            for: view,
+            source: source,
+            ownsNativeLifecycleQueue: true
+        )
     }
 
 }

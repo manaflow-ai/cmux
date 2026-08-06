@@ -35,6 +35,71 @@ final class SidebarLazyLayoutScaleTests {
     /// pass can multiply that, but a virtualization defeat realizes all 300.
     private static let realizedRowCeiling = 150
 
+    @Test
+    @MainActor
+    func renderIdentityDistinguishesReplacementWorkspaceWithSameStableId() {
+        let workspaceId = UUID()
+        let first = Workspace(id: workspaceId)
+        let replacement = Workspace(id: workspaceId)
+
+        #expect(
+            WorkspaceListRenderContext.WorkspaceReferenceIdentity(first)
+                != WorkspaceListRenderContext.WorkspaceReferenceIdentity(replacement)
+        )
+    }
+
+    @Test
+    @MainActor
+    func configRevisionInvalidatesSidebarEquatableGate() {
+        let updateViewModel = UpdateStateModel()
+        let tabManager = TabManager()
+        let configStore = CmuxConfigStore(
+            globalConfigPath: "/nonexistent/cmux-sidebar-config.json"
+        )
+        let fileExplorerState = FileExplorerState()
+        let featureFlags = CmuxFeatureFlags(
+            telemetryEnabled: false,
+            remoteFlagValueProvider: { _ in nil }
+        )
+        let unread = SidebarUnreadModel()
+        let titlebarControlsLayoutModel = TitlebarControlsLayoutModel()
+        let windowId = UUID()
+        let observedWindowReference = WeakWindowReference()
+
+        func makeSidebar() -> VerticalTabsSidebar {
+            VerticalTabsSidebar(
+                updateViewModel: updateViewModel,
+                tabManager: tabManager,
+                cmuxConfigStore: configStore,
+                cmuxConfigRevision: configStore.configRevision,
+                fileExplorerState: fileExplorerState,
+                featureFlags: featureFlags,
+                sidebarUnread: unread,
+                titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+                windowId: windowId,
+                onSendFeedback: {},
+                onToggleSidebar: {},
+                onNewTab: {},
+                observedWindowReference: observedWindowReference,
+                selectedExtensionSidebarProviderId: CmuxExtensionSidebarSelection.defaultProviderId,
+                sidebarMatchTerminalBackground: false,
+                titlebarLeftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+                titlebarLeftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
+                selection: .constant(.tabs),
+                selectedTabIds: .constant([]),
+                lastSidebarSelectionIndex: .constant(nil),
+                sidebarRenderWorkerClient: .constant(nil)
+            )
+        }
+
+        let beforeReload = makeSidebar()
+        configStore.loadAll()
+        let afterReload = makeSidebar()
+
+        #expect(configStore.configRevision > 0)
+        #expect(beforeReload != afterReload)
+    }
+
     final class InjectableMouseLocationWindow: NSWindow {
         var injectedMouseLocation = NSPoint.zero
 
@@ -47,8 +112,10 @@ final class SidebarLazyLayoutScaleTests {
     // closures can mutate it; bodies only run on the main thread. Same shape
     // as MinimalModeBodyProbeCounts in WorkspaceContentViewVisibilityTests.
     final class RowBodyCounter {
+        var verticalTabsSidebarBodies = 0
         var workspaceRowBodies = 0
         var groupHeaderBodies = 0
+        var defaultWorkspaceAreaBodies = 0
         var workspaceSnapshotBuilds = 0
         var workspaceRowInputProjections = 0
         // Snapshot builds bracketed by workspaceRowBody/workspaceRowBodyEnd,
@@ -59,8 +126,10 @@ final class SidebarLazyLayoutScaleTests {
         var snapshotBuildsInCurrentRowBody = 0
         var maxSnapshotBuildsInOneRowBody = 0
         func reset() {
+            verticalTabsSidebarBodies = 0
             workspaceRowBodies = 0
             groupHeaderBodies = 0
+            defaultWorkspaceAreaBodies = 0
             workspaceSnapshotBuilds = 0
             workspaceRowInputProjections = 0
             insideWorkspaceRowBody = false
@@ -72,12 +141,14 @@ final class SidebarLazyLayoutScaleTests {
     @MainActor
     struct Harness {
         let tabManager: TabManager
+        let fileExplorerState: FileExplorerState
         let unread: SidebarUnreadModel
         let counter: RowBodyCounter
         let window: InjectableMouseLocationWindow
         let defaultsSuiteName: String
 
         func tearDown() {
+            window.orderOut(nil)
             window.contentView = nil
             window.close()
             UserDefaults(suiteName: defaultsSuiteName)?
@@ -102,6 +173,12 @@ final class SidebarLazyLayoutScaleTests {
             CmuxExtensionSidebarSelection.defaultProviderId,
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
+        let featureFlags = CmuxFeatureFlags(
+            defaults: defaults,
+            telemetryEnabled: false,
+            remoteFlagValueProvider: { _ in nil }
+        )
+        featureFlags.setOverride(false, for: CmuxFeatureFlags.appKitSidebarListFlag)
 
         let tabManager = TabManager()
         while tabManager.tabs.count < workspaceCount {
@@ -142,11 +219,17 @@ final class SidebarLazyLayoutScaleTests {
         Self.turnMainRunLoopOnce(layingOut: nil)
 
         let unread = SidebarUnreadModel()
+        let fileExplorerState = FileExplorerState()
         let counter = RowBodyCounter()
+        let cmuxConfigStore = CmuxConfigStore()
 
         let root = VerticalTabsSidebar(
             updateViewModel: UpdateStateModel(),
-            fileExplorerState: FileExplorerState(),
+            tabManager: tabManager,
+            cmuxConfigStore: cmuxConfigStore,
+            cmuxConfigRevision: cmuxConfigStore.configRevision,
+            fileExplorerState: fileExplorerState,
+            featureFlags: featureFlags,
             sidebarUnread: unread,
             titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
             windowId: UUID(),
@@ -154,6 +237,10 @@ final class SidebarLazyLayoutScaleTests {
             onToggleSidebar: {},
             onNewTab: {},
             observedWindowReference: WeakWindowReference(),
+            selectedExtensionSidebarProviderId: CmuxExtensionSidebarSelection.defaultProviderId,
+            sidebarMatchTerminalBackground: false,
+            titlebarLeftControlsLeadingInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
+            titlebarLeftControlsTopInset: MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
             selection: .constant(.tabs),
             selectedTabIds: .constant([]),
             lastSidebarSelectionIndex: .constant(nil),
@@ -161,13 +248,16 @@ final class SidebarLazyLayoutScaleTests {
         )
         .frame(width: 280)
         .environmentObject(tabManager)
-        .environmentObject(CmuxConfigStore())
+        .environmentObject(cmuxConfigStore)
         .environmentObject(TerminalNotificationStore.shared)
         .environmentObject(SidebarState())
         .environmentObject(SidebarSelectionState())
         .environment(
             \.sidebarLazyContractProbe,
             SidebarLazyContractProbe(
+                defaultWorkspaceAreaBody: {
+                    counter.defaultWorkspaceAreaBodies += 1
+                },
                 workspaceRowBody: {
                     counter.workspaceRowBodies += 1
                     counter.insideWorkspaceRowBody = true
@@ -191,6 +281,14 @@ final class SidebarLazyLayoutScaleTests {
                 }
             )
         )
+        .environment(
+            \.minimalModeInvalidationProbe,
+            MinimalModeInvalidationProbe(
+                verticalTabsSidebarBody: {
+                    counter.verticalTabsSidebarBodies += 1
+                }
+            )
+        )
         .defaultAppStorage(defaults)
 
         let window = InjectableMouseLocationWindow(
@@ -206,13 +304,50 @@ final class SidebarLazyLayoutScaleTests {
         // the host before the pass was recorded, and CI masked it (#5641).
         window.isReleasedWhenClosed = false
         window.contentView = NSHostingView(rootView: root)
+        window.orderFrontRegardless()
 
         return Harness(
             tabManager: tabManager,
+            fileExplorerState: fileExplorerState,
             unread: unread,
             counter: counter,
             window: window,
             defaultsSuiteName: defaultsSuiteName
+        )
+    }
+
+    /// The footer observes right-sidebar state, but the default workspace area
+    /// must not be rebuilt when that unrelated state changes. At 300
+    /// workspaces, copying the former all-in-one `VerticalTabsSidebar` value
+    /// into this path is the CMUXTERM-MACOS-25V4 main-thread hang signature.
+    @Test
+    @MainActor
+    func testFileExplorerInvalidationDoesNotReevaluateDefaultWorkspaceArea() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+        harness.counter.reset()
+
+        var heartbeatRan = false
+        Task { @MainActor in
+            heartbeatRan = true
+        }
+        harness.fileExplorerState.width += 1
+        await Self.drainMainRunLoop(for: harness.window)
+
+        #expect(heartbeatRan, "The main run loop must keep making progress after the invalidation.")
+        #expect(
+            harness.counter.verticalTabsSidebarBodies == 0,
+            "FileExplorerState must invalidate SidebarFooter without rebuilding VerticalTabsSidebar."
+        )
+        #expect(
+            harness.counter.defaultWorkspaceAreaBodies == 0,
+            """
+            An unrelated FileExplorerState update reevaluated the 300-workspace area \
+            \(harness.counter.defaultWorkspaceAreaBodies) times. The footer may update, but \
+            the default workspace subtree must remain behind its independent snapshot boundary.
+            """
         )
     }
 
@@ -351,6 +486,8 @@ final class SidebarLazyLayoutScaleTests {
 
         harness.counter.reset()
         let targets = Array(harness.tabManager.tabs.suffix(80))
+        var heartbeatRan = false
+        Task { @MainActor in heartbeatRan = true }
         for (index, workspace) in targets.enumerated() {
             workspace.statusEntries["issue-6707.batch"] = SidebarStatusEntry(
                 key: "issue-6707.batch",
@@ -372,6 +509,15 @@ final class SidebarLazyLayoutScaleTests {
         await Self.drainMainRunLoop(for: harness.window)
 
         let projections = harness.counter.workspaceRowInputProjections
+        #expect(heartbeatRan, "The main run loop must progress through a workspace publisher batch.")
+        #expect(
+            harness.counter.verticalTabsSidebarBodies <= 4,
+            "Workspace publisher churn rebuilt the sidebar root without a structural tab change."
+        )
+        #expect(
+            harness.counter.defaultWorkspaceAreaBodies <= 20,
+            "One coalesced workspace batch repeatedly reevaluated the extracted default workspace area."
+        )
         #expect(projections > 0, "The parent row-input projection probe did not run.")
         #expect(
             projections <= Self.workspaceCount * 4,
@@ -396,6 +542,8 @@ final class SidebarLazyLayoutScaleTests {
 
         await Self.drainMainRunLoop(for: harness.window)
         harness.counter.reset()
+        var heartbeatRan = false
+        Task { @MainActor in heartbeatRan = true }
 
         let stormTargets = Array(harness.tabManager.tabs.prefix(3).map(\.id))
         let storms = 40
@@ -418,6 +566,15 @@ final class SidebarLazyLayoutScaleTests {
         await Self.drainMainRunLoop(for: harness.window)
 
         let stormEvals = harness.counter.workspaceRowBodies
+        #expect(heartbeatRan, "The main run loop must progress through an unread storm.")
+        #expect(
+            harness.counter.verticalTabsSidebarBodies <= 4,
+            "Unread updates escaped their narrow reader and rebuilt VerticalTabsSidebar."
+        )
+        #expect(
+            harness.counter.defaultWorkspaceAreaBodies <= 8,
+            "Unread updates repeatedly reevaluated the extracted default workspace area."
+        )
         #expect(
             stormEvals < storms * 10,
             """
@@ -438,6 +595,61 @@ final class SidebarLazyLayoutScaleTests {
             changes at all. The sidebar is re-invalidating itself — a layout/state feedback \
             loop (the #6556 signature). This livelocks the main thread at scale.
             """
+        )
+    }
+
+    /// Process-title and agent-runtime notifications are high-frequency leaf
+    /// inputs. Each must refresh only the changed workspace snapshot while the
+    /// root remains schedulable at the 300-workspace scale.
+    @Test
+    @MainActor
+    func testProcessAndAgentInvalidationsStayBelowSidebarRoot() async throws {
+        let harness = try await Self.mountSidebar(workspaceCount: Self.workspaceCount)
+        defer { harness.tearDown() }
+
+        await Self.drainMainRunLoop(for: harness.window)
+        await Self.drainMainRunLoop(for: harness.window)
+        harness.counter.reset()
+        let target = try #require(harness.tabManager.tabs.last)
+        var heartbeatCount = 0
+
+        target.sidebarAgentRuntimeObservation.setAgentPIDs(["sentry-probe": 999_999])
+        Task { @MainActor in heartbeatCount += 1 }
+        let agentDeadline = ProcessInfo.processInfo.systemUptime + 2
+        while harness.counter.workspaceSnapshotBuilds < 1,
+              ProcessInfo.processInfo.systemUptime < agentDeadline {
+            Self.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+        let buildsAfterAgent = harness.counter.workspaceSnapshotBuilds
+
+        target.sidebarProcessTitleObservation.processTitleDidChange()
+        Task { @MainActor in heartbeatCount += 1 }
+        let processDeadline = ProcessInfo.processInfo.systemUptime + 2
+        while harness.counter.workspaceSnapshotBuilds <= buildsAfterAgent,
+              ProcessInfo.processInfo.systemUptime < processDeadline {
+            Self.turnMainRunLoopOnce(layingOut: harness.window)
+            await Task.yield()
+        }
+        await Self.drainMainRunLoop(for: harness.window)
+
+        #expect(buildsAfterAgent >= 1, "Agent runtime invalidation did not refresh its workspace snapshot.")
+        #expect(
+            harness.counter.workspaceSnapshotBuilds > buildsAfterAgent,
+            "Process-title invalidation did not refresh its workspace snapshot."
+        )
+        #expect(heartbeatCount == 2, "The main run loop stalled during process or agent invalidation.")
+        #expect(
+            harness.counter.verticalTabsSidebarBodies <= 4,
+            "Process or agent invalidation rebuilt the 300-workspace sidebar root."
+        )
+        #expect(
+            harness.counter.defaultWorkspaceAreaBodies <= 12,
+            "Two leaf invalidations repeatedly reevaluated the extracted default workspace area."
+        )
+        #expect(
+            harness.counter.workspaceRowInputProjections <= Self.workspaceCount * 4,
+            "Two leaf invalidations caused superlinear workspace row projection."
         )
     }
 
@@ -468,15 +680,18 @@ final class SidebarLazyLayoutScaleTests {
         )
         window.isReleasedWhenClosed = false
         defer {
+            window.orderOut(nil)
             window.contentView = nil
             window.close()
         }
         window.contentView = NSHostingView(rootView: root)
+        window.orderFrontRegardless()
 
         await Self.drainMainRunLoop(for: window, iterations: 40)
 
         #expect(
-            counter.workspaceRowBodies > rows * 3,
+            counter.workspaceRowBodies
+                > rows * DivergentGeometryFeedbackRowFixture.canaryThresholdPerRow,
             """
             The divergent GeometryReader → @State fixture only produced \
             \(counter.workspaceRowBodies) body evaluations for \(rows) rows; the harness \
@@ -487,14 +702,20 @@ final class SidebarLazyLayoutScaleTests {
     }
 }
 
-/// Reproduces the #6556 anti-pattern in deliberately divergent form: a
-/// GeometryReader writes measured height back into `@State` that feeds the
-/// row's own frame, so every layout pass invalidates the next. Test fixture
-/// only — this shape is banned in real sidebar rows by
+/// Reproduces the #6556 anti-pattern for four bounded layout passes. Newer
+/// AppKit releases terminate an unbounded constraint cycle before the test can
+/// inspect its counter, so the fixture converges after exceeding the canary's
+/// detection threshold. This shape remains banned in real sidebar rows by
 /// `scripts/check-sidebar-lazy-layout.py`.
 private struct DivergentGeometryFeedbackRowFixture: View {
+    static let canaryThresholdPerRow = 3
+    private static let heightIncrementCount = 8
+
     let onBody: () -> Void
     @State private var rowHeight: CGFloat = 20
+    private var terminalHeight: CGFloat {
+        20 + CGFloat(Self.heightIncrementCount)
+    }
 
     var body: some View {
         let _ = { onBody() }()
@@ -503,11 +724,16 @@ private struct DivergentGeometryFeedbackRowFixture: View {
             .background {
                 GeometryReader { proxy in
                     Color.clear
-                        .onAppear { rowHeight = proxy.size.height + 1 }
-                        .onChange(of: proxy.size.height) { _, newHeight in
-                            rowHeight = newHeight + 1
-                        }
+                        .onAppear { scheduleNextHeight() }
+                        .onChange(of: proxy.size.height) { _, _ in scheduleNextHeight() }
                 }
             }
+    }
+
+    private func scheduleNextHeight() {
+        Task { @MainActor in
+            guard rowHeight < terminalHeight else { return }
+            rowHeight += 1
+        }
     }
 }

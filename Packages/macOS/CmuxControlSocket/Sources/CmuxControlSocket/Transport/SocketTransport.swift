@@ -29,6 +29,7 @@ public struct SocketTransport: Sendable {
     /// Marker content a lock file carries once its socket path is known to be
     /// reclaimable by a future listener.
     public let pathLockReusableMarker: String
+    let faultInjection: SocketTransportFaultInjection
 
     /// The longest path that fits in `sockaddr_un.sun_path` (one byte reserved
     /// for the null terminator).
@@ -59,6 +60,7 @@ public struct SocketTransport: Sendable {
         self.listenBacklog = listenBacklog
         self.pathLockSuffix = pathLockSuffix
         self.pathLockReusableMarker = pathLockReusableMarker
+        self.faultInjection = .disabled
     }
 
     /// Builds a `sockaddr_un` for `path`, or nil when the path does not fit.

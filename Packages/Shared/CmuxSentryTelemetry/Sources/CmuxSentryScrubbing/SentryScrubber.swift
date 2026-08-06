@@ -289,8 +289,8 @@ public struct SentryScrubber: Sendable {
     /// strings: adding a denylist key now covers query params automatically, with
     /// no parallel free-text marker list to drift out of sync. The denylist's
     /// EXACT-match aliases (`csrf`, `_csrf`, `xsrf`, `_vercel_jwt`, `su`,
-    /// `sentrysid`, `phpsessid`, `sid`, …) are therefore caught here even though
-    /// they are too short to embed safely in the free-text assignment regex.
+    /// `sentrysid`, `phpsessid`, `sid`, …) are therefore caught here and by the
+    /// free-text assignment scanner without ambiguous regex matching.
     ///
     /// The key is URL-decoded before the sensitivity check (so `%5Fcsrf` matches
     /// `_csrf`) but the original, still-encoded key text is emitted unchanged.
@@ -336,14 +336,20 @@ public struct SentryScrubber: Sendable {
     /// - Parameter key: The dictionary or header key.
     /// - Returns: `true` when the key's value should be redacted wholesale.
     static func isSensitiveKey(_ key: String) -> Bool {
-        let normalized = key.lowercased().replacingOccurrences(of: "-", with: "")
-            .replacingOccurrences(of: "_", with: "")
-            .replacingOccurrences(of: " ", with: "")
+        let normalized = normalizedSensitiveKey(key)
         if sensitiveKeyExactMarkers.contains(normalized) {
             return true
         }
         for marker in sensitiveKeyMarkers where normalized.contains(marker) {
             return true
+        }
+        // Exact aliases such as `sid` and `su` may appear as a leaf after a
+        // punctuation boundary (`x-sid`, `vendor.sid`). Match whole components
+        // without regressing to substring behavior that would redact `inside`.
+        for component in key.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            if sensitiveKeyExactMarkers.contains(normalizedSensitiveKey(String(component))) {
+                return true
+            }
         }
         return false
     }
@@ -359,7 +365,7 @@ public struct SentryScrubber: Sendable {
     /// Short or marker-free credential key aliases matched WHOLE (not as
     /// substrings), so they don't redact innocuous keys that merely contain them
     /// (e.g. `sid` must not match `inside`/`aside`). The free-text scrubber
-    /// covers their `key=value` form via a `\b`-anchored pattern.
+    /// covers their `key=value` form through the shared key check.
     ///
     /// Sourced from ``ScrubberDenylists/sensitiveKeyExactMarkers`` (ported from
     /// sentry-python `DEFAULT_DENYLIST` + `DEFAULT_PII_DENYLIST` and relay's
@@ -406,7 +412,8 @@ public struct SentryScrubber: Sendable {
 
     /// Replaces email addresses with ``redactedEmail``.
     private func redactEmails(in text: String) -> String {
-        Self.email.replace(in: text) { _ in Self.redactedEmail }
+        guard text.contains("@") else { return text }
+        return Self.email.replace(in: text) { _ in Self.redactedEmail }
     }
 
     // MARK: - Secrets
@@ -424,6 +431,220 @@ public struct SentryScrubber: Sendable {
                 return Self.redactedSecret
             }
         }
-        return result
+        return redactSensitiveAssignments(in: result)
     }
+
+    /// Redacts sensitive `key=value` and `key: value` assignments in one pass.
+    ///
+    /// The previous regex family placed unbounded key quantifiers around a
+    /// sensitive-marker alternation. Marker-rich HTTP queries without a later
+    /// assignment delimiter made ICU reconsider the same suffix repeatedly,
+    /// blocking the thread that added a Sentry breadcrumb. This scanner visits
+    /// the input in linear time, reuses the structured key denylist, and
+    /// understands escaped quotes in JSON-style values.
+    private func redactSensitiveAssignments(in text: String) -> String {
+        let utf8 = text.utf8
+        guard utf8.contains(0x3A) || utf8.contains(0x3D) else { return text }
+
+        if let result = utf8.withContiguousStorageIfAvailable({ bytes in
+            redactSensitiveAssignments(in: text, bytes: bytes)
+        }) {
+            return result
+        }
+
+        return redactSensitiveAssignments(in: text, bytes: Array(utf8))
+    }
+
+    private func redactSensitiveAssignments<Bytes: RandomAccessCollection>(
+        in text: String,
+        bytes: Bytes
+    ) -> String where Bytes.Element == UInt8, Bytes.Index == Int {
+        var replacementRanges: [Range<Int>] = []
+        var index = 0
+        while index < bytes.count {
+            guard bytes[index] == 0x3A || bytes[index] == 0x3D else {
+                index += 1
+                continue
+            }
+            guard let range = sensitiveAssignmentValueRange(
+                delimiterIndex: index,
+                bytes: bytes
+            ) else {
+                index += 1
+                continue
+            }
+            replacementRanges.append(range)
+            index = max(index + 1, range.upperBound)
+        }
+
+        guard !replacementRanges.isEmpty else { return text }
+        let replacement = Array(Self.redactedSecret.utf8)
+        var output: [UInt8] = []
+        output.reserveCapacity(bytes.count)
+        var copiedThrough = 0
+        for range in replacementRanges {
+            output.append(contentsOf: bytes[copiedThrough ..< range.lowerBound])
+            output.append(contentsOf: replacement)
+            copiedThrough = range.upperBound
+        }
+        output.append(contentsOf: bytes[copiedThrough...])
+        return String(decoding: output, as: UTF8.self)
+    }
+}
+
+/// Resolves the value bytes belonging to a sensitive assignment delimiter.
+private func sensitiveAssignmentValueRange<Bytes: RandomAccessCollection>(
+    delimiterIndex: Int,
+    bytes: Bytes
+) -> Range<Int>? where Bytes.Element == UInt8, Bytes.Index == Int {
+    guard delimiterIndex > 0 else { return nil }
+
+    var keyCursor = delimiterIndex - 1
+    while keyCursor >= 0, isASCIIWhitespace(bytes[keyCursor]) {
+        keyCursor -= 1
+    }
+    if keyCursor >= 0, isQuote(bytes[keyCursor]) {
+        keyCursor -= 1
+        while keyCursor >= 0, isASCIIWhitespace(bytes[keyCursor]) {
+            keyCursor -= 1
+        }
+    }
+    guard keyCursor >= 0 else { return nil }
+
+    let keyEnd = keyCursor + 1
+    while keyCursor >= 0, isAssignmentKeyByte(bytes[keyCursor]) {
+        keyCursor -= 1
+    }
+    let keyStart = keyCursor + 1
+    guard keyStart < keyEnd else { return nil }
+    let key = String(decoding: bytes[keyStart ..< keyEnd], as: UTF8.self)
+    guard SentryScrubber.isSensitiveKey(key) else { return nil }
+
+    var valueStart = delimiterIndex + 1
+    while valueStart < bytes.count, isASCIIWhitespace(bytes[valueStart]) {
+        valueStart += 1
+    }
+    guard valueStart < bytes.count else { return nil }
+
+    if isQuote(bytes[valueStart]) {
+        let quote = bytes[valueStart]
+        valueStart += 1
+        var valueEnd = valueStart
+        while valueEnd < bytes.count {
+            if bytes[valueEnd] == quote {
+                break
+            }
+            if bytes[valueEnd] == 0x5C, valueEnd + 1 < bytes.count {
+                valueEnd += 2
+            } else {
+                valueEnd += 1
+            }
+        }
+        guard valueStart < valueEnd else { return nil }
+        return valueStart ..< valueEnd
+    }
+
+    if isAuthorizationAssignmentKey(key) {
+        let firstTokenStart = valueStart
+        while valueStart < bytes.count,
+              !isUnquotedValueTerminator(at: valueStart, in: bytes)
+        {
+            valueStart += 1
+        }
+        var secondTokenStart = valueStart
+        while secondTokenStart < bytes.count, isASCIIWhitespace(bytes[secondTokenStart]) {
+            secondTokenStart += 1
+        }
+        if secondTokenStart < bytes.count,
+           !isUnquotedValueTerminator(at: secondTokenStart, in: bytes)
+        {
+            valueStart = secondTokenStart
+        } else {
+            valueStart = firstTokenStart
+        }
+    }
+
+    var valueEnd = valueStart
+    while valueEnd < bytes.count,
+          !isUnquotedValueTerminator(at: valueEnd, in: bytes)
+    {
+        valueEnd += 1
+    }
+    guard valueStart < valueEnd else { return nil }
+    return valueStart ..< valueEnd
+}
+
+private func normalizedSensitiveKey(_ key: String) -> String {
+    key.lowercased().replacingOccurrences(of: "-", with: "")
+        .replacingOccurrences(of: "_", with: "")
+        .replacingOccurrences(of: " ", with: "")
+}
+
+private func isAuthorizationAssignmentKey(_ key: String) -> Bool {
+    let normalized = normalizedSensitiveKey(key)
+    return normalized == "authorization" || normalized == "proxyauthorization"
+}
+
+private func isAssignmentKeyByte(_ byte: UInt8) -> Bool {
+    (byte >= 0x30 && byte <= 0x39)
+        || (byte >= 0x41 && byte <= 0x5A)
+        || (byte >= 0x61 && byte <= 0x7A)
+        || byte == 0x2D
+        || byte == 0x2E
+        || byte == 0x5F
+}
+
+private func isASCIIWhitespace(_ byte: UInt8) -> Bool {
+    byte == 0x20 || byte == 0x09 || byte == 0x0A || byte == 0x0D
+}
+
+private func isQuote(_ byte: UInt8) -> Bool {
+    byte == 0x22 || byte == 0x27
+}
+
+private func isUnquotedValueTerminator<Bytes: RandomAccessCollection>(
+    at index: Int,
+    in bytes: Bytes
+) -> Bool where Bytes.Element == UInt8, Bytes.Index == Int {
+    let byte = bytes[index]
+    if isASCIIWhitespace(byte) {
+        return true
+    }
+
+    // Query and environment separators are also valid credential bytes. Only
+    // preserve one when the suffix proves that a new assignment starts there;
+    // otherwise redact through it so no secret suffix can escape.
+    if byte == 0x26 || byte == 0x2C || byte == 0x3B {
+        return startsAssignment(after: index, in: bytes)
+    }
+
+    // Quotes and closing delimiters are structural only at a visible boundary.
+    // Embedded punctuation such as `token=abc)def` remains part of the value.
+    if isQuote(byte) || byte == 0x29 || byte == 0x5D || byte == 0x7D {
+        let nextIndex = index + 1
+        return nextIndex == bytes.count
+            || isASCIIWhitespace(bytes[nextIndex])
+            || startsAssignment(after: index, in: bytes)
+    }
+
+    return false
+}
+
+private func startsAssignment<Bytes: RandomAccessCollection>(
+    after separatorIndex: Int,
+    in bytes: Bytes
+) -> Bool where Bytes.Element == UInt8, Bytes.Index == Int {
+    var cursor = separatorIndex + 1
+    while cursor < bytes.count, isASCIIWhitespace(bytes[cursor]) {
+        cursor += 1
+    }
+    let keyStart = cursor
+    while cursor < bytes.count, isAssignmentKeyByte(bytes[cursor]) {
+        cursor += 1
+    }
+    guard cursor > keyStart else { return false }
+    while cursor < bytes.count, isASCIIWhitespace(bytes[cursor]) {
+        cursor += 1
+    }
+    return cursor < bytes.count && (bytes[cursor] == 0x3A || bytes[cursor] == 0x3D)
 }

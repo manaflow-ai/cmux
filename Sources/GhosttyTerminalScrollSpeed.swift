@@ -3,9 +3,23 @@ import CoreGraphics
 final class TerminalScrollSpeedAccumulator {
     private var pendingNonPreciseX: CGFloat = 0
     private var pendingNonPreciseY: CGFloat = 0
+    private var multiplier: CGFloat
+
+    init(multiplier: Double = TerminalScrollSpeedSettings.defaultMultiplier) {
+        self.multiplier = CGFloat(TerminalScrollSpeedSettings.sanitizedMultiplier(multiplier))
+    }
+
+    func updateMultiplier(_ nextMultiplier: Double) {
+        let nextMultiplier = CGFloat(
+            TerminalScrollSpeedSettings.sanitizedMultiplier(nextMultiplier)
+        )
+        guard multiplier != nextMultiplier else { return }
+        multiplier = nextMultiplier
+        pendingNonPreciseX = 0
+        pendingNonPreciseY = 0
+    }
 
     func apply(x: inout CGFloat, y: inout CGFloat, precision: Bool) {
-        let multiplier = CGFloat(TerminalScrollSpeedSettings.multiplier())
         guard multiplier != 1 else { return }
         if precision {
             x *= multiplier

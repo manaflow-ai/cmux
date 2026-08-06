@@ -48,6 +48,7 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
     let shellActivity = TerminalPanelShellActivityModel()
     let textBoxState = TerminalPanelTextBoxState()
+    private let textBoxDraftCache = TerminalPanelTextBoxDraftCache()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
@@ -149,6 +150,22 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        let draftCache = textBoxDraftCache
+        $isTextBoxActive
+            .sink { draftCache.updateIsActive($0) }
+            .store(in: &cancellables)
+        $textBoxContent
+            .sink { [weak self] text in
+                guard self?.textBoxInputView == nil else { return }
+                draftCache.updateFlattenedText(text)
+            }
+            .store(in: &cancellables)
+        $textBoxAttachments
+            .sink { [weak self] attachments in
+                guard self?.textBoxInputView == nil else { return }
+                draftCache.updateFlattenedAttachments(attachments)
+            }
+            .store(in: &cancellables)
         // Subscribe to surface's search state changes
         surface.$searchState
             .sink { [weak self] state in
@@ -380,8 +397,9 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func preserveTextBoxContentForUnmount(from textBoxInputView: TextBoxInputTextView) {
-        // Dismantle can run while AttributeGraph is destroying this subtree. Cache only
-        // non-published draft state here; normal editing keeps the published bindings current.
+        // Dismantle can run while AttributeGraph is destroying this subtree. Cache the
+        // editor's ordered snapshot without publishing through SwiftUI; its flat bindings
+        // cannot preserve whether boundary text sits before or after an attachment.
         if isClosingPanel {
             assert(
                 didDiscardTextBoxContentForClose,
@@ -391,6 +409,9 @@ final class TerminalPanel: Panel, ObservableObject {
             return
         }
         let preservedContent = textBoxInputView.attributedContentForPreservation()
+        textBoxDraftCache.recordExactSnapshot(
+            textBoxInputView.sessionDraftSnapshot(isActive: isTextBoxActive)
+        )
         textBoxInputView.invalidatePendingAttachmentUploads()
         preservedTextBoxAttributedContent = NSAttributedString(
             attributedString: preservedContent
@@ -419,6 +440,7 @@ final class TerminalPanel: Panel, ObservableObject {
         }
         restoredTextBoxDraft = nil
         preservedTextBoxAttributedContent = nil
+        textBoxDraftCache.recordExactSnapshot(nil)
         textBoxContent = ""
         textBoxAttachments = []
         isTextBoxActive = false
@@ -440,18 +462,7 @@ final class TerminalPanel: Panel, ObservableObject {
             return restoredTextBoxDraft
         }
 
-        if let preservedTextBoxAttributedContent {
-            return TextBoxInputTextView.sessionDraftSnapshot(
-                from: preservedTextBoxAttributedContent,
-                isActive: isTextBoxActive
-            )
-        }
-
-        return TextBoxInputTextView.sessionDraftSnapshot(
-            text: textBoxContent,
-            attachments: textBoxAttachments,
-            isActive: isTextBoxActive
-        )
+        return textBoxDraftCache.currentSnapshot()
     }
 
     func restoreSessionTextBoxDraft(_ draft: SessionTextBoxInputDraftSnapshot?) {
@@ -459,6 +470,7 @@ final class TerminalPanel: Panel, ObservableObject {
               !draft.parts.isEmpty else {
             restoredTextBoxDraft = nil
             preservedTextBoxAttributedContent = nil
+            textBoxDraftCache.recordExactSnapshot(nil)
             textBoxContent = ""
             textBoxAttachments = []
             isTextBoxActive = false
@@ -474,6 +486,7 @@ final class TerminalPanel: Panel, ObservableObject {
         textBoxContent = TextBoxInputTextView.plainText(from: draft)
         textBoxAttachments = TextBoxInputTextView.attachments(from: draft)
         isTextBoxActive = draft.isActive
+        textBoxDraftCache.recordExactSnapshot(draft)
         textBoxInputFocusIntent = draft.isActive ? .textBox : .hidden
         shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false

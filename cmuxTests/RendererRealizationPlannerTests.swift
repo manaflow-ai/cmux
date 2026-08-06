@@ -12,6 +12,32 @@ import CmuxSettings
 /// offscreen terminal surfaces release their GPU renderer (Metal swap chain /
 /// IOSurface) while keeping their PTY alive.
 struct RendererRealizationPlannerTests {
+    @MainActor
+    @Test(.timeLimit(.minutes(1)))
+    func runtimeSettingsLoadDoesNotRunOnMainThread() async {
+        let threadProbe = RendererRealizationSettingsThreadProbe()
+        let controller = RendererRealizationController(
+            notificationCenter: NotificationCenter(),
+            surfaceProvider: { [] },
+            surfaceLookup: { _ in nil },
+            initialSettings: .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1),
+            settingsProvider: {
+                let isMainThread = Thread.isMainThread
+                Task { await threadProbe.record(isMainThread) }
+                return .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1)
+            },
+            nowProvider: Date.init,
+            sleepFor: { _ in },
+            safetyTimerEnabled: false
+        )
+
+        controller.start()
+        let settingsLoadedOnMainThread = await threadProbe.next()
+        controller.stop()
+
+        #expect(!settingsLoadedOnMainThread)
+    }
+
     @Test func catalogDefaultsMatchRuntimeReclamationPolicy() {
         let terminal = SettingCatalog().terminal
 
@@ -349,6 +375,30 @@ struct RendererRealizationPlannerTests {
     }
 }
 
+private actor RendererRealizationSettingsThreadProbe {
+    private var observations: [Bool] = []
+    private var waiters: [CheckedContinuation<Bool, Never>] = []
+
+    func record(_ isMainThread: Bool) {
+        if let waiter = waiters.first {
+            waiters.removeFirst()
+            waiter.resume(returning: isMainThread)
+        } else {
+            observations.append(isMainThread)
+        }
+    }
+
+    func next() async -> Bool {
+        if let observation = observations.first {
+            observations.removeFirst()
+            return observation
+        }
+        return await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+}
+
 @MainActor
 private final class RendererRealizationSchedulerHarness {
     let notificationCenter = NotificationCenter()
@@ -367,6 +417,7 @@ private final class RendererRealizationSchedulerHarness {
         surfaceLookup: { [unowned self] id in
             surfaces.first { $0.id == id }
         },
+        initialSettings: .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1),
         settingsProvider: {
             .init(enabled: true, idleSeconds: 5, maxWarmRenderers: 1)
         },

@@ -18,6 +18,24 @@ extension CMUXCLI {
             : mappedPID ?? inferredPID
     }
 
+    /// Gives a newly launched agent surface one event-driven opportunity to
+    /// enter the app's authoritative surface index. Codex invokes SessionStart
+    /// from a detached hook process, which can connect before its launching
+    /// surface is published. The app-side waiter wakes on topology changes, so
+    /// the CLI keeps strict identity validation without timer polling.
+    func awaitAgentHookSessionStartTarget(
+        subcommand: String,
+        workspaceId: String,
+        surfaceId: String,
+        awaitPublication: (
+            _ workspaceId: String,
+            _ surfaceId: String
+        ) -> (workspaceId: String, surfaceId: String)?
+    ) -> (workspaceId: String, surfaceId: String)? {
+        guard subcommand == "session-start" else { return nil }
+        return awaitPublication(workspaceId, surfaceId)
+    }
+
     /// Reports a persistently throttled hook failure without serializing raw transport details.
     func reportAgentHookFailure(
         stage: AgentHookFailureStage,

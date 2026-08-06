@@ -164,8 +164,6 @@ class TerminalController {
     // The package-owned listener: path/bind/lock lifecycle, accept source,
     // backoff/rearm recovery, and the generation-counted state machine.
     nonisolated let socketServer: SocketControlServer
-    // Accepted-connection consumer; runs until process exit (singleton).
-    private nonisolated let socketConnectionsTask: Task<Void, Never>
     // Per-surface dedupe for high-frequency report_* socket telemetry.
     // Cross-thread contract (reintroduced by the tranche-B v1 worker lane):
     // the nonisolated seam witness controlSidebarScheduleScopedShellState
@@ -320,12 +318,6 @@ class TerminalController {
     }
 
     private final class V2BrowserUndefinedSentinel: Sendable {}
-
-    private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
-    private nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
-
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
     private var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
@@ -337,14 +329,7 @@ class TerminalController {
     /// Stateless browser-control logic (JS builders, value normalization,
     /// diagnostics, failure classification) extracted to `CmuxBrowser`.
     /// The per-surface mutable state and WebKit evaluation seam stay here.
-    private nonisolated let v2BrowserControl = BrowserControlService(
-        evalEnvelope: BrowserEvalEnvelope(
-            typeKey: TerminalController.v2BrowserEvalEnvelopeTypeKey,
-            valueKey: TerminalController.v2BrowserEvalEnvelopeValueKey,
-            typeUndefined: TerminalController.v2BrowserEvalEnvelopeTypeUndefined,
-            typeValue: TerminalController.v2BrowserEvalEnvelopeTypeValue
-        )
-    )
+    private nonisolated let v2BrowserControl = BrowserControlService()
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
@@ -428,27 +413,21 @@ class TerminalController {
                 passwordStore.configuredPassword(allowLazyKeychainFallback: true)
             },
             authorizationChangeSignals: socketPasswordFileWatcher?.events,
-            events: Self.makeSocketServerEvents(target: serverEventTarget)
-        )
-        self.socketServer = socketServer
-        // Single consumer of the accepted-connection stream, detached so
-        // accepts never funnel through the main actor. Each connection still
-        // gets a dedicated thread: command bodies block (main-thread sync
-        // hops, semaphore waits), so never the cooperative pool.
-        self.socketConnectionsTask = Task.detached {
-            for await connection in socketServer.connections {
+            acceptedConnectionHandler: { connection in
                 guard let controller = serverEventTarget.controller else {
                     close(connection.socket)
-                    continue
+                    return
                 }
-                await controller.spawnClientHandler(
+                controller.spawnClientHandler(
                     socket: connection.socket,
                     peerPid: connection.peerProcessID,
                     authorizationGeneration: connection.authorizationGeneration,
                     authorizationRevocationSignal: connection.authorizationRevocationSignal
                 )
-            }
-        }
+            },
+            events: Self.makeSocketServerEvents(target: serverEventTarget)
+        )
+        self.socketServer = socketServer
         serverEventTarget.controller = self
         controlCommandCoordinator.context = self
         browserDownloadObserver = NotificationCenter.default.addObserver(
@@ -1020,8 +999,8 @@ class TerminalController {
     /// (`feed.push` without an id). The caller (the socket execution-policy
     /// dispatcher) has already parsed the line and checked the policy.
     /// Worker-lane v2 methods whose body IS the shared main-actor dispatch
-    /// (`v2MainActorResponse`, i.e. known-ref refresh + coordinator + legacy
-    /// switch) behind a single `v2MainSync` hop, with response encoding on the
+    /// (`v2MainActorResponse`, i.e. coordinator + legacy switch) behind a
+    /// single `v2MainSync` hop, with response encoding on the
     /// worker. Byte-identical to the main lane by construction; being on the
     /// worker lane moves the policy wrapper, JSON bridging, and encode off the
     /// main thread and keeps the connection thread (not the main queue) as
@@ -1110,7 +1089,7 @@ class TerminalController {
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
             // — pure parse plus JSON payload build — with ONE
-            // controlResolveOnMain hop (known-ref refresh + witness + ref
+            // controlResolveOnMain hop (routing resolution + witness + ref
             // minting) inside; the encode runs here, on this thread, through
             // the same encoder as the main lane. `self` is the coordinator's
             // wired ControlCommandContext, passed explicitly because the
@@ -1389,8 +1368,6 @@ class TerminalController {
              "browser.console.list", "browser.console.clear", "browser.errors.list",
              "browser.state.save", "browser.state.load",
              "browser.addinitscript", "browser.addscript", "browser.addstyle":
-            // Keep ref payloads fresh like the main-actor dispatch path does.
-            v2MainSync { self.v2RefreshKnownRefs() }
             return v2Result(id: request.id, v2BrowserAutomationCommandOnSocketWorker(method: request.method, params: request.params))
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
@@ -1431,6 +1408,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "agent.wait_for_delivery_target":
+            return v2Result(id: request.id, v2AgentWaitForDeliveryTarget(params: request.params))
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
@@ -1476,28 +1455,10 @@ class TerminalController {
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
         case "debug.mobile.transport.disconnect":
-            let selectedConnectionID: UUID?
-            if let rawConnectionID = request.params["connection_id"] {
-                guard let value = rawConnectionID as? String,
-                      let parsed = UUID(uuidString: value) else {
-                    return v2Error(
-                        id: request.id,
-                        code: "invalid_params",
-                        message: "connection_id must be a UUID"
-                    )
-                }
-                selectedConnectionID = parsed
-            } else {
-                selectedConnectionID = nil
-            }
-            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
-                let closed = await MobileHostConnectionRegistry.shared
-                    .debugCloseConnections(connectionID: selectedConnectionID)
-                return .ok([
-                    "closed_connection_ids": closed.map(\.uuidString),
-                    "closed_count": closed.count,
-                ])
-            }
+            return v2DebugMobileTransportDisconnect(
+                id: request.id,
+                params: request.params
+            )
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1536,11 +1497,11 @@ class TerminalController {
         peerPid: pid_t?,
         authorizationGeneration: UInt64,
         authorizationRevocationSignal: SocketAuthorizationRevocationSignal
-    ) async {
+    ) {
         let initialReadLimits = socketClientInitialReadLimits(peerProcessID: peerPid)
         let preauthorizationLimiter = socketClientPreauthorizationLimiter
         let claimedPreauthorizationSlot = if initialReadLimits != nil {
-            await preauthorizationLimiter.claim()
+            preauthorizationLimiter.claim()
         } else {
             false
         }
@@ -1579,7 +1540,7 @@ class TerminalController {
         var holdsPreauthorizationSlot = initialSlotHeld
         defer {
             if holdsPreauthorizationSlot {
-                Task { await preauthorizationLimiter.release() }
+                preauthorizationLimiter.release()
             }
         }
         var passwordAuthorization = SocketPasswordAuthorization()
@@ -1615,7 +1576,7 @@ class TerminalController {
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
-                Task { await preauthorizationLimiter.release() }
+                preauthorizationLimiter.release()
             }
 
             var shouldCloseSocket = false
@@ -2298,19 +2259,12 @@ class TerminalController {
         }
     }
 
-    /// The main-actor body of one main-lane v2 command: the known-ref
-    /// refresh, then the coordinator, then the legacy switch. The
+    /// The main-actor body of one main-lane v2 command: the coordinator,
+    /// then the legacy switch. The
     /// coordinator's typed result returns unencoded so the socket worker
     /// serializes it after the hop.
     ///
-    /// LOCKSTEP: `controlResolveOnMain` (TerminalControllerControlCommandContext.swift)
-    /// is the worker-lane mirror of this dispatch preamble. Any step added
-    /// before `controlCommandCoordinator.handle` here must also be added
-    /// there, or the tranche-D worker-lane verbs silently fork from the
-    /// main lane.
     private func v2MainActorResponse(request: ControlRequest, id: Any?, method: String, params: [String: Any]) -> V2MainHopOutcome {
-        v2RefreshKnownRefs()
-
         // Domains migrated into CmuxControlSocket's ControlCommandCoordinator
         // answer here, on the main actor, through the same encoder/id as the
         // legacy switch (the worker encodes the typed result after the hop);
@@ -2650,6 +2604,7 @@ class TerminalController {
             "pane.last",
             "notification.create",
             "notification.create_for_caller", "agent.resolve_delivery_target",
+            "agent.wait_for_delivery_target",
             "notification.create_for_surface",
             "notification.create_for_target",
             "notification.list",
@@ -2941,8 +2896,6 @@ class TerminalController {
 #endif
 
     func taskManagerTopPayload(includeProcesses: Bool) async throws -> [String: Any] {
-        v2RefreshKnownRefs()
-
         let identifyPayload = v2Identify(params: [:])
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         var windowNodes: [[String: Any]] = []
@@ -3017,7 +2970,6 @@ class TerminalController {
 
     private nonisolated func v2SystemTop(params: [String: Any]) -> V2CallResult {
         let base = v2MainSync {
-            self.v2RefreshKnownRefs()
             return self.v2SystemTopBasePayload(params: params)
         }
         guard case .ok(let value) = base else { return base }
@@ -3053,7 +3005,6 @@ class TerminalController {
         var baseParams = params
         baseParams["include_processes"] = false
         let base = v2MainSync {
-            self.v2RefreshKnownRefs()
             return self.v2SystemTopBasePayload(params: baseParams)
         }
         guard case .ok(let value) = base else { return base }
@@ -3691,32 +3642,6 @@ class TerminalController {
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
-    // Internal (not private): the `controlResolveOnMain` seam conformance in
-    // TerminalControllerControlCommandContext.swift runs this refresh inside
-    // the worker-lane resolution hop, mirroring the main-lane dispatch
-    // preamble.
-    func v2RefreshKnownRefs() {
-        guard let app = AppDelegate.shared else { return }
-
-        let windows = app.listMainWindowSummaries()
-        for item in windows {
-            _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
-            if let tm = app.tabManagerFor(windowId: item.windowId) {
-                for ws in tm.tabs {
-                    _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
-                    v2RefreshRemoteTmuxAwarePaneAndSurfaceRefs(workspace: ws)
-                }
-                // Mint workspace_group refs for groups that exist before any
-                // workspace.group.* call so callers can pass `workspace_group:N`
-                // immediately after restore (otherwise the first ref hand-off
-                // happens only on `list`/`create`).
-                for group in tm.workspaceGroups {
-                    _ = v2EnsureHandleRef(kind: .workspaceGroup, uuid: group.id)
-                }
-            }
-        }
-    }
-
     // MARK: - V2 Context Resolution
 
     nonisolated func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
@@ -3934,7 +3859,6 @@ class TerminalController {
         var workspaceId: UUID?
         var invalidWorkspaceID = false
         v2MainSync {
-            v2RefreshKnownRefs()
             workspaceId = v2UUID(params, "workspace_id")
             invalidWorkspaceID = v2HasNonNullParam(params, "workspace_id") && workspaceId == nil
         }
@@ -3954,7 +3878,6 @@ class TerminalController {
         var surfaceId: UUID?
         var invalidSurfaceID = false
         v2MainSync {
-            v2RefreshKnownRefs()
             surfaceId = v2UUID(params, "surface_id")
             invalidSurfaceID = v2HasNonNullParam(params, "surface_id") && surfaceId == nil
         }
@@ -3989,7 +3912,6 @@ class TerminalController {
         var workspaceMismatchData: [String: Any]?
 
         v2MainSync {
-            v2RefreshKnownRefs()
             let fallbackTabManager = v2ResolveTabManager(params: params)
             let fallbackWorkspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
             var owner: TabManager?
@@ -4169,7 +4091,6 @@ class TerminalController {
             }
         }
         return v2MainSync { () -> V2CallResult in
-            v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return .err(code: "unavailable", message: "TabManager not available", data: nil)
             }
@@ -4223,7 +4144,6 @@ class TerminalController {
         if allWorkspaces {
             var targets: [RemotePTYSocketTarget] = []
             v2MainSync {
-                v2RefreshKnownRefs()
                 guard let app = AppDelegate.shared else { return }
                 for summary in app.listMainWindowSummaries() {
                     guard let owner = app.tabManagerFor(windowId: summary.windowId) else { continue }
@@ -5483,10 +5403,6 @@ class TerminalController {
         // Main-actor critical section: resolve the target and read the raw
         // Ghostty text. Everything after this hop runs off the main actor.
         let outcome: ReadTextCaptureOutcome = v2MainSync {
-            // Mint refs for current topology so caller-supplied `kind:N` refs
-            // resolve, exactly as the former main-actor dispatch did before
-            // handing off to the coordinator.
-            self.v2RefreshKnownRefs()
             let routing = ControlRoutingSelectors(
                 hasWindowIDParam: self.v2HasNonNullParam(params, "window_id"),
                 windowID: self.v2UUID(params, "window_id"),
@@ -6142,7 +6058,47 @@ class TerminalController {
 
     enum V2JavaScriptResult {
         case success(Any?)
-        case failure(String)
+        case failure(V2JavaScriptFailure)
+
+        static func javaScriptFailure(_ message: String) -> Self {
+            .failure(V2JavaScriptFailure(code: "js_error", message: message))
+        }
+    }
+
+    /// Converts an internal WebKit or page-world failure into the small,
+    /// stable error vocabulary exposed by the control socket. Raw JavaScript
+    /// text can contain page data, so it must stay inside the process.
+    private nonisolated func v2BrowserClientSafeFailure(
+        _ failure: V2JavaScriptFailure
+    ) -> V2JavaScriptFailure {
+        if failure.code == "circular_reference" {
+            return V2JavaScriptFailure(
+                code: "circular_reference",
+                message: String(
+                    localized: "cli.browser.error.circularReference",
+                    defaultValue: "browser.eval result contains a circular reference"
+                )
+            )
+        }
+        return V2JavaScriptFailure(
+            code: "js_error",
+            message: String(
+                localized: "cli.browser.error.operationFailed",
+                defaultValue: "Browser operation failed"
+            )
+        )
+    }
+
+    private nonisolated func v2BrowserClientFailureResult(
+        _ failure: V2JavaScriptFailure,
+        data: Any? = nil
+    ) -> V2CallResult {
+        let safeFailure = v2BrowserClientSafeFailure(failure)
+        return .err(
+            code: safeFailure.code,
+            message: safeFailure.message,
+            data: data
+        )
     }
 
     /// True when a page-world JS failure looks like a CSP block of eval/function
@@ -6313,15 +6269,15 @@ class TerminalController {
         ) {
         case .success(let value):
             return (value as? Bool) == true ? .met : .timedOut
-        case .failure(let message):
-            return .evaluationFailed(message)
+        case .failure(let failure):
+            return .evaluationFailed(failure)
         }
     }
 
     private enum V2BrowserWaitOutcome {
         case met
         case timedOut
-        case evaluationFailed(String)
+        case evaluationFailed(V2JavaScriptFailure)
     }
 
     private nonisolated func v2BrowserSelector(_ params: [String: Any]) -> String? {
@@ -6436,7 +6392,7 @@ class TerminalController {
             browserPanel: browserPanel,
             surfaceId: surfaceId
         ) else {
-            return .failure(v2BrowserAutomationMessageAfterLivenessCheck(
+            return .javaScriptFailure(v2BrowserAutomationMessageAfterLivenessCheck(
                 originalMessage: String(
                     localized: "browser.automation.error.documentReadinessTimedOut",
                     defaultValue: "Timed out waiting for the browser document to become ready"
@@ -6447,52 +6403,11 @@ class TerminalController {
                 channel: .javaScript
             ))
         }
-        let scriptLiteral = v2JSONLiteral(script)
-        let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
-            let selectorLiteral = v2JSONLiteral(frameSelector)
-            framePrelude = """
-            let __cmuxDoc = document;
-            try {
-              const __cmuxFrame = document.querySelector(\(selectorLiteral));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
-              }
-            } catch (_) {}
-            """
-        } else {
-            framePrelude = "const __cmuxDoc = document;"
-        }
-
-        let executionBlock: String
-        if useEval {
-            executionBlock = "const __r = eval(\(scriptLiteral));"
-        } else {
-            executionBlock = "const __r = \(script);"
-        }
-
-        let asyncFunctionBody = """
-        \(framePrelude)
-
-        const __cmuxMaybeAwait = async (__r) => {
-          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
-            return await __r;
-          }
-          return __r;
-        };
-
-        const __cmuxEvalInFrame = async function() {
-          const document = __cmuxDoc;
-          \(executionBlock)
-          const __value = await __cmuxMaybeAwait(__r);
-          return {
-            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
-            __cmux_v: __value
-          };
-        };
-
-        return await __cmuxEvalInFrame();
-        """
+        let asyncFunctionBody = v2BrowserControl.evaluationScript(
+            script: script,
+            useEval: useEval,
+            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        )
 
         var rawResult: BrowserJavaScriptEvaluationResult
         if #available(macOS 11.0, *) {
@@ -6558,21 +6473,16 @@ class TerminalController {
         )
 
         switch resolvedResult {
-        case .failure(let message):
-            return .failure(message)
+        case .failure(let failure):
+            return .failure(failure)
         case .success(let value):
-            guard let dict = value as? [String: Any],
-                  let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
-                return .success(value)
-            }
-
-            switch type {
-            case Self.v2BrowserEvalEnvelopeTypeUndefined:
+            switch v2BrowserControl.resolveEvaluationEnvelope(value) {
+            case .undefined:
                 return .success(v2BrowserUndefinedSentinel)
-            case Self.v2BrowserEvalEnvelopeTypeValue:
-                return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
-            default:
-                return .success(value)
+            case .value(let unwrapped), .unwrapped(let unwrapped):
+                return .success(unwrapped)
+            case .error(let code, let message):
+                return .failure(V2JavaScriptFailure(code: code, message: message))
             }
         }
     }
@@ -7150,10 +7060,12 @@ class TerminalController {
         let script = v2BrowserControl.notFoundDiagnosticsScript(selector: selector)
 
         switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, browserPanel: browserPanel, surfaceId: surfaceId, script: script, timeout: 4.0) {
-        case .failure(let message):
+        case .failure(let failure):
+            let safeFailure = v2BrowserClientSafeFailure(failure)
             return [
                 "selector": selector,
-                "diagnostics_error": message
+                "diagnostics_error": safeFailure.message,
+                "diagnostics_code": safeFailure.code,
             ]
         case .success(let value):
             guard let dict = value as? [String: Any] else {
@@ -7268,8 +7180,11 @@ class TerminalController {
 
             for attempt in 1...retryAttempts {
                 switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, useEval: false) {
-                case .failure(let message):
-                    return .err(code: "js_error", message: message, data: ["action": actionName, "selector": selector])
+                case .failure(let failure):
+                    return v2BrowserClientFailureResult(
+                        failure,
+                        data: ["action": actionName, "selector": selector]
+                    )
                 case .success(let value):
                     if let dict = value as? [String: Any],
                        let ok = dict["ok"] as? Bool,
@@ -7292,13 +7207,16 @@ class TerminalController {
                     let errorText = (value as? [String: Any])?["error"] as? String
                     if errorText == "not_found", attempt < retryAttempts {
                         let waitTimeoutMs = max(80, (retryAttempts - attempt) * 80)
-                        guard case .met = v2WaitForBrowserCondition(
+                        switch v2WaitForBrowserCondition(
                             ctx.webView,
                             browserPanel: ctx.browserPanel,
                             surfaceId: surfaceId,
                             conditionScript: selectorCondition,
                             timeoutMs: waitTimeoutMs
-                        ) else {
+                        ) {
+                        case .met:
+                            continue
+                        case .timedOut:
                             return v2BrowserElementNotFoundResult(
                                 actionName: actionName,
                                 selector: selector,
@@ -7306,8 +7224,12 @@ class TerminalController {
                                 surfaceId: surfaceId,
                                 browserPanel: browserPanel
                             )
+                        case .evaluationFailed(let failure):
+                            return v2BrowserClientFailureResult(
+                                failure,
+                                data: ["action": actionName, "selector": selector]
+                            )
                         }
-                        continue
                     }
                     if errorText == "not_found" {
                         return v2BrowserElementNotFoundResult(
@@ -7347,8 +7269,8 @@ class TerminalController {
                 timeout: 10.0,
                 onIsolatedWorldFallback: { usedIsolatedWorld = true }
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
@@ -7558,8 +7480,8 @@ class TerminalController {
             """
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script, timeout: 10.0, useEval: false) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any] else {
                     return .err(code: "js_error", message: "Invalid snapshot payload", data: nil)
@@ -7744,10 +7666,9 @@ class TerminalController {
             ])
         case .timedOut:
             return .err(code: "timeout", message: "Condition not met before timeout", data: ["timeout_ms": timeoutMs])
-        case .evaluationFailed(let message):
-            return .err(
-                code: "js_error",
-                message: "Wait condition could not be evaluated: \(message)",
+        case .evaluationFailed(let failure):
+            return v2BrowserClientFailureResult(
+                failure,
                 data: [
                     "timeout_ms": timeoutMs,
                     "url": v2MainSync { webView.url?.absoluteString ?? "about:blank" },
@@ -7991,8 +7912,8 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success:
                 var payload: [String: Any] = [
                     "workspace_id": ctx.workspaceId.uuidString,
@@ -8080,8 +8001,8 @@ class TerminalController {
             }
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
@@ -8280,8 +8201,8 @@ class TerminalController {
             let selectorLiteral = v2JSONLiteral(selector)
             let script = "document.querySelectorAll(\(selectorLiteral)).length"
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 let count = (value as? NSNumber)?.intValue ?? 0
                 return .ok([
@@ -8853,8 +8774,8 @@ class TerminalController {
             let script = v2BrowserControl.findScript(finderBody: finderBody)
 
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: ["action": actionName])
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure, data: ["action": actionName])
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9015,8 +8936,8 @@ class TerminalController {
             }
             let script = v2BrowserControl.findFirstScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9049,8 +8970,8 @@ class TerminalController {
             }
             let script = v2BrowserControl.findLastScript(selector: selector)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9089,8 +9010,8 @@ class TerminalController {
             }
             let script = v2BrowserControl.findNthScript(selector: selector, index: index)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9141,8 +9062,8 @@ class TerminalController {
             })()
             """
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
@@ -9238,8 +9159,8 @@ class TerminalController {
                 useEval: false,
                 requiresPageWorld: true
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9440,7 +9361,6 @@ class TerminalController {
 
     private nonisolated func v2BrowserDownloadWaitSnapshot(params: [String: Any]) -> V2BrowserDownloadWaitSnapshot {
         v2MainSync {
-            v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return V2BrowserDownloadWaitSnapshot(
                     workspaceId: UUID(),
@@ -9924,8 +9844,8 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let script = v2BrowserControl.storageGetScript(storageType: storageType, key: key)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9954,8 +9874,8 @@ class TerminalController {
             let valueLiteral = v2JSONLiteral(v2NormalizeJSValue(value))
             let script = v2BrowserControl.storageSetScript(storageType: storageType, key: key, valueLiteral: valueLiteral)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -9975,8 +9895,8 @@ class TerminalController {
         return v2BrowserWithPanelContext(params: params) { ctx in
             let script = v2BrowserControl.storageClearScript(storageType: storageType)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
@@ -10317,8 +10237,8 @@ class TerminalController {
                 useEval: false,
                 requiresPageWorld: true
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
@@ -10359,8 +10279,8 @@ class TerminalController {
                 useEval: false,
                 requiresPageWorld: true
             ) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
@@ -10418,8 +10338,8 @@ class TerminalController {
 
             let storageValue: Any
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: storageScript, timeout: 10.0) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 storageValue = v2NormalizeJSValue(value)
             }
@@ -10548,8 +10468,8 @@ class TerminalController {
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: ctx.surfaceId, script: script, timeout: 10.0) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
+            case .failure(let failure):
+                return v2BrowserClientFailureResult(failure)
             case .success(let value):
                 return .ok(v2BrowserPanelFields(ctx, adding: ["value": v2NormalizeJSValue(value)]))
             }

@@ -32,7 +32,8 @@ public struct CommandRunner: CommandRunning, Sendable {
 
     /// Creates a command runner.
     /// - Parameters:
-    ///   - environment: The environment whose `PATH` is searched; defaults to the process environment.
+    ///   - environment: The child process environment and the source of `PATH`;
+    ///     defaults to the current process environment.
     ///   - bundledBinPath: An extra directory searched ahead of the fallbacks (the app's
     ///     bundled CLI directory); defaults to `Bundle.main`'s `Contents/Resources/bin`.
     ///   - fallbackSearchDirectories: Directories searched after `PATH` and the bundled bin.
@@ -81,7 +82,8 @@ public struct CommandRunner: CommandRunning, Sendable {
             let execution = try CommandExecution(
                 executableURL: executableURL,
                 arguments: resolvedArguments,
-                currentDirectoryURL: URL(fileURLWithPath: directory)
+                currentDirectoryURL: URL(fileURLWithPath: directory),
+                environment: environment
             )
             return await execution.run(timeout: timeout)
         } catch {

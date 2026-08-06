@@ -66,6 +66,10 @@ final class PortalSplitDividerCacheInvalidator {
     }
 
     private nonisolated func invalidateObservations() {
+        // Explicitly detach KVO before releasing the tokens. Relying on token
+        // deinit performs that work while ARC is tearing down the array, which
+        // can re-enter AppKit cursor-region updates and corrupt the token.
+        observations.forEach { $0.invalidate() }
         observations.removeAll()
         notificationObservers.forEach(NotificationCenter.default.removeObserver)
         notificationObservers.removeAll()

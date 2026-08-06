@@ -39,6 +39,76 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    @Test
+    @MainActor
+    func deferredThemeRefreshOwnerCoalescesWithoutPublishingViewState() {
+        let owner = WorkspaceDeferredThemeRefreshOwner()
+        owner.record(WorkspaceDeferredThemeRefresh(
+            reason: "first",
+            backgroundOverride: .red,
+            backgroundEventId: 1,
+            backgroundSource: "test.first",
+            notificationPayloadHex: "ff0000",
+            forceInitialApply: true
+        ))
+        owner.record(WorkspaceDeferredThemeRefresh(
+            reason: "second",
+            backgroundOverride: .blue,
+            backgroundEventId: 2,
+            backgroundSource: "test.second",
+            notificationPayloadHex: "0000ff",
+            forceInitialApply: false
+        ))
+
+        let refresh = owner.takePending()
+        #expect(refresh?.reason == "second")
+        #expect(refresh?.backgroundOverride == .blue)
+        #expect(refresh?.backgroundEventId == 2)
+        #expect(refresh?.backgroundSource == "test.second")
+        #expect(refresh?.notificationPayloadHex == "0000ff")
+        #expect(refresh?.forceInitialApply == true)
+        #expect(owner.takePending() == nil)
+    }
+
+    @Test
+    @MainActor
+    func ghosttyAppearanceSignatureChangesWhenTerminalFontSizeChanges() {
+        var first = GhosttyConfig()
+        first.fontSize = 13
+        var second = first
+        second.fontSize = 24
+
+        #expect(
+            WorkspaceContentView.ghosttyAppearanceSignature(
+                first,
+                usesHostLayerBackground: false
+            ) != WorkspaceContentView.ghosttyAppearanceSignature(
+                second,
+                usesHostLayerBackground: false
+            )
+        )
+    }
+
+    @Test
+    @MainActor
+    func workspaceAppearanceProjectionLoadsOneConfigForThreeHundredPanels() {
+        var loadCount = 0
+        var sourceConfig = GhosttyConfig()
+        sourceConfig.fontSize = 23
+        let config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
+            loadConfig: {
+                loadCount += 1
+                return sourceConfig
+            }
+        )
+
+        let appearances = (0..<300).map { _ in PanelAppearance.fromConfig(config) }
+
+        #expect(appearances.count == 300)
+        #expect(appearances.allSatisfy { $0.fontSize == 23 })
+        #expect(loadCount == 1)
+    }
+
     @Test(.timeLimit(.minutes(1)))
     @MainActor
     func sidebarResizerCursorReleaseSchedulerCancelsReplacedDelayedRelease() async {
@@ -101,6 +171,27 @@ final class WorkspaceContentViewVisibilityTests {
         let sentinelRelease = await releaseIterator.next()
         #expect(sentinelRelease == true)
         #expect(releases == [true, true])
+    }
+
+    @Test
+    @MainActor
+    func sidebarResizerPointerButtonStateTracksEventsWithoutPollingCoreGraphics() {
+        let state = SidebarResizerPointerButtonState()
+
+        #expect(state.isLeftButtonDown == false)
+        state.observe(.mouseMoved)
+        #expect(state.isLeftButtonDown == false)
+
+        state.observe(.leftMouseDown)
+        #expect(state.isLeftButtonDown)
+        state.observe(.leftMouseDragged)
+        #expect(state.isLeftButtonDown)
+
+        state.observe(.leftMouseUp)
+        #expect(state.isLeftButtonDown == false)
+        state.observe(.leftMouseDown)
+        state.reset()
+        #expect(state.isLeftButtonDown == false)
     }
 
     @Test
@@ -197,14 +288,24 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: WorkspacePresentationModeSettings.modeKey
         )
 
-        let tabManager = TabManager()
+        let tabManager = TabManager(
+            initialSurface: .cloudVMLoading,
+            autoWelcomeIfNeeded: false
+        )
         for _ in 0..<6 {
-            tabManager.addWorkspace(autoWelcomeIfNeeded: false)
+            tabManager.addWorkspace(
+                initialSurface: .cloudVMLoading,
+                autoWelcomeIfNeeded: false
+            )
         }
         let notificationStore = TerminalNotificationStore.shared
         let counts = MinimalModeBodyProbeCounts()
-        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
-            .environmentObject(tabManager)
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
+            windowId: UUID(),
+            appStorageDefaults: defaults
+        )
             .environmentObject(notificationStore)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
@@ -232,7 +333,7 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
-        await Self.drainMainRunLoop(for: window)
+        try await Self.waitForInitialRender(in: tabManager, window: window, counts: counts)
         #expect(counts.contentViewBody > 0)
         #expect(counts.workspaceContentBody > 0)
         #expect(counts.verticalTabsSidebarBody > 0)
@@ -260,10 +361,31 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
-    func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
+    func contentViewDefaultsStorePublishesRelevantChanges() async throws {
+        let suiteName = "ContentViewDefaultsStoreTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = ContentViewDefaultsStore(defaults: defaults)
+        #expect(!store.snapshot.sidebarMatchTerminalBackground)
+        #expect(store.snapshot.activePaneBorderColorHex == PaneChromeSettings.defaultColorHex)
+
+        store.toggleSidebarMatchTerminalBackground()
+        defaults.set("#123456", forKey: PaneChromeSettings.activePaneBorderColorKey)
+        await Self.drainMainRunLoop()
+
+        #expect(defaults.bool(forKey: "sidebarMatchTerminalBackground"))
+        #expect(store.snapshot.sidebarMatchTerminalBackground)
+        #expect(store.snapshot.activePaneBorderColorHex == "#123456")
+    }
+
+    @Test
+    @MainActor
+    func workspaceInsertionInvalidatesSidebarWithoutRebuildingContentRoot() async throws {
         _ = NSApplication.shared
 
-        let suiteName = "WorkspaceContentViewUnreadTests.\(UUID().uuidString)"
+        let suiteName = "WorkspaceContentViewInsertionTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer {
@@ -274,20 +396,17 @@ final class WorkspaceContentViewVisibilityTests {
             forKey: CmuxExtensionSidebarSelection.defaultsKey
         )
 
-        let tabManager = TabManager()
-        let workspaceId = try #require(tabManager.selectedTabId)
-        let unaffectedWorkspace = tabManager.addWorkspace(
-            select: false,
+        let tabManager = TabManager(
+            initialSurface: .cloudVMLoading,
             autoWelcomeIfNeeded: false
         )
-        let unread = SidebarUnreadModel()
         let counts = MinimalModeBodyProbeCounts()
         let root = ContentView(
             updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
             windowId: UUID(),
-            sidebarUnread: unread
+            appStorageDefaults: defaults
         )
-            .environmentObject(tabManager)
             .environmentObject(TerminalNotificationStore.shared)
             .environmentObject(SidebarState())
             .environmentObject(SidebarSelectionState())
@@ -316,7 +435,99 @@ final class WorkspaceContentViewVisibilityTests {
             window.close()
         }
 
+        try await Self.waitForInitialRender(in: tabManager, window: window, counts: counts)
+        counts.reset()
+
+        tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
         await Self.drainMainRunLoop(for: window)
+
+        #expect(
+            counts.contentViewBody == 0,
+            "Adding an unselected workspace must not rebuild the window content root."
+        )
+        #expect(
+            counts.workspaceContentBody == 0,
+            "Adding an unselected workspace must not rebuild mounted terminal content."
+        )
+        #expect(
+            counts.verticalTabsSidebarBody > 0,
+            "The sidebar leaf must still observe and render the inserted workspace."
+        )
+        let workspaceRows = window.contentView.map { root in
+            Self.descendants(of: root)
+                .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+        } ?? []
+        #expect(workspaceRows.count == tabManager.tabs.count)
+    }
+
+    @Test
+    @MainActor
+    func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewUnreadTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
+
+        let tabManager = TabManager(
+            initialSurface: .cloudVMLoading,
+            autoWelcomeIfNeeded: false
+        )
+        let workspaceId = try #require(tabManager.selectedTabId)
+        let unaffectedWorkspace = tabManager.addWorkspace(
+            initialSurface: .cloudVMLoading,
+            select: false,
+            autoWelcomeIfNeeded: false
+        )
+        let unread = SidebarUnreadModel()
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(
+            updateViewModel: UpdateStateModel(),
+            tabManager: tabManager,
+            windowId: UUID(),
+            sidebarUnread: unread,
+            appStorageDefaults: defaults
+        )
+            .environmentObject(TerminalNotificationStore.shared)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState())
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        try await Self.waitForInitialRender(in: tabManager, window: window, counts: counts)
         let workspaceCell = try #require(
             window.contentView.flatMap { root in
                 Self.descendants(of: root)
@@ -504,9 +715,51 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @MainActor
+    private static func waitForInitialRender(
+        in tabManager: TabManager,
+        window: NSWindow,
+        counts: MinimalModeBodyProbeCounts
+    ) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+
+        func isMounted() -> Bool {
+            let workspaceRowCount = window.contentView.map { root in
+                descendants(of: root)
+                    .compactMap { $0 as? SidebarWorkspaceRowTableCellView }
+                    .count
+            } ?? 0
+            return counts.contentViewBody > 0
+                && counts.workspaceContentBody > 0
+                && counts.verticalTabsSidebarBody > 0
+                && workspaceRowCount == tabManager.tabs.count
+        }
+
+        while !isMounted(), clock.now < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            await Task.yield()
+        }
+
+        try #require(
+            isMounted(),
+            "The content and every sidebar row must render before measuring unrelated invalidations."
+        )
+        await drainMainRunLoop(for: window)
+    }
+
+    @MainActor
     private static func drainMainRunLoop(for window: NSWindow, iterations: Int = 20) async {
         for _ in 0..<iterations {
             window.contentView?.layoutSubtreeIfNeeded()
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
+            await Task.yield()
+        }
+    }
+
+    @MainActor
+    private static func drainMainRunLoop(iterations: Int = 20) async {
+        for _ in 0..<iterations {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001))
             await Task.yield()
         }
@@ -603,6 +856,155 @@ final class WorkspaceContentViewVisibilityTests {
                 isSelectedInPane: false,
                 isFocused: false
             )
+        )
+    }
+
+    @Test
+    @MainActor
+    func browserPortalUsesLiveSelectedSurfaceWhenVisibilitySnapshotIsStale() async throws {
+        _ = NSApplication.shared
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(
+            initialSurface: .cloudVMLoading,
+            autoWelcomeIfNeeded: false
+        )
+        appDelegate.tabManager = tabManager
+        defer { appDelegate.tabManager = previousTabManager }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try #require(
+            workspace.newBrowserSurface(inPane: paneId, focus: true)
+        )
+        defer { browserPanel.close() }
+        let browserTabId = try #require(workspace.surfaceIdFromPanelId(browserPanel.id))
+
+        #expect(tabManager.selectedTabId == workspace.id)
+        #expect(workspace.bonsplitController.selectedTab(inPane: paneId)?.id == browserTabId)
+
+        let representable = WebViewRepresentable(
+            panel: browserPanel,
+            paneId: paneId,
+            shouldAttachWebView: false,
+            useLocalInlineHosting: false,
+            shouldFocusWebView: false,
+            isPanelFocused: false,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
+        )
+        let hostingView = NSHostingView(rootView: representable)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+
+        let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        #expect(
+            snapshot?.visibleInUI == true,
+            "A selected browser must attach from live workspace state even when its SwiftUI visibility snapshot is stale."
+        )
+        #expect(snapshot?.containerHidden == false)
+    }
+
+    @Test
+    @MainActor
+    func browserPortalRestoresRegistryVisibilityAfterExternalHideWithUnchangedViewState() async throws {
+        _ = NSApplication.shared
+
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(
+            initialSurface: .cloudVMLoading,
+            autoWelcomeIfNeeded: false
+        )
+        appDelegate.tabManager = tabManager
+        defer { appDelegate.tabManager = previousTabManager }
+
+        let workspace = try #require(tabManager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let browserPanel = try #require(
+            workspace.newBrowserSurface(inPane: paneId, focus: true)
+        )
+        defer { browserPanel.close() }
+
+        let representable = WebViewRepresentable(
+            panel: browserPanel,
+            paneId: paneId,
+            shouldAttachWebView: true,
+            useLocalInlineHosting: false,
+            shouldFocusWebView: false,
+            isPanelFocused: true,
+            portalZPriority: 0,
+            paneDropZone: nil,
+            searchOverlay: nil,
+            designComposer: nil,
+            omnibarSuggestions: nil,
+            paneTopChromeHeight: 0
+        )
+        let hostingView = NSHostingView(rootView: representable)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        let visibleSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        )
+        #expect(visibleSnapshot.visibleInUI)
+        #expect(!visibleSnapshot.containerHidden)
+
+        BrowserWindowPortalRegistry.hide(
+            webView: browserPanel.webView,
+            source: "test.externalTabDeselection"
+        )
+        let hiddenSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        )
+        #expect(!hiddenSnapshot.visibleInUI)
+        #expect(hiddenSnapshot.containerHidden)
+
+        // Model the selected browser's next SwiftUI update. Its desired visibility,
+        // host, and geometry are unchanged, but the registry was hidden externally.
+        hostingView.rootView = representable
+        await Self.drainMainRunLoop(for: window)
+
+        let restoredSnapshot = try #require(
+            BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)
+        )
+        #expect(
+            restoredSnapshot.visibleInUI,
+            "The selected browser must make its registry entry visible again after a transient external hide."
+        )
+        #expect(
+            !restoredSnapshot.containerHidden,
+            "The selected browser's portal container must be presented again in the same update."
         )
     }
 

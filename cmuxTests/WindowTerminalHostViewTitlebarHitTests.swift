@@ -111,7 +111,8 @@ struct WindowTerminalHostViewTitlebarHitTests {
             "The regression point must exercise the fixed-height titlebar pass-through band"
         )
         #expect(
-            !WindowDecorationsController().handleMinimalModeTitlebarDoubleClickMouseDown(event: event),
+            !WindowDecorationsController(initialPresentationMode: .minimal)
+                .handleMinimalModeTitlebarDoubleClickMouseDown(event: event),
             "The app-level titlebar double-click handler must not consume terminal top-row double-clicks"
         )
     }

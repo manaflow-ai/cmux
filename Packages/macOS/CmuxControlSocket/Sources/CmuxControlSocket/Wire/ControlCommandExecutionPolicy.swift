@@ -106,6 +106,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
+        // SessionStart can reach the socket before its launching surface is
+        // published. This worker-only method waits on the app's topology
+        // publication signal and must never park the main actor.
+        "agent.wait_for_delivery_target",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop
@@ -256,8 +260,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.
         // Their nonisolated coordinator bodies
         // (ControlCommandCoordinator.handleSocketWorkerV2) take ONE
-        // controlResolveOnMain hop (known-ref refresh + routing resolution +
-        // snapshot witness + ref minting in payload order) and build/encode
+        // controlResolveOnMain hop (routing resolution + snapshot witness +
+        // ref minting in payload order) and build/encode
         // the JSON reply on the worker. None are focus-intent.
         "surface.list",
         "surface.current",
