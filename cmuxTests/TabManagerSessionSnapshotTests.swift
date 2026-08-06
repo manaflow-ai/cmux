@@ -1,7 +1,7 @@
 import CmuxWorkspaces
 import Darwin
 import CmuxCore
-import XCTest
+@preconcurrency import XCTest
 import CmuxTerminal
 
 #if canImport(cmux_DEV)

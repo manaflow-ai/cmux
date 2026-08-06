@@ -249,16 +249,3 @@ struct BrowserControlServiceEvaluationScriptTests {
         return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 }
-
-@MainActor
-private final class BrowserEvaluationScriptNavigationDelegate: NSObject, WKNavigationDelegate {
-    private let onFinish: () -> Void
-
-    init(onFinish: @escaping () -> Void) {
-        self.onFinish = onFinish
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
-        onFinish()
-    }
-}

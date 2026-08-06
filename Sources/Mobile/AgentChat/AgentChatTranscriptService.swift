@@ -485,7 +485,7 @@ final class AgentChatTranscriptService {
         guard let tailer = await historyTailer(sessionID: sessionID) else { return nil }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
-        if registry.record(sessionID: sessionID)?.title == nil,
+        if case nil = registry.record(sessionID: sessionID)?.title,
            let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }

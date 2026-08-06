@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

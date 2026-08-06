@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import CmuxCore
 import AppKit
 import SwiftUI
