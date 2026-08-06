@@ -8546,7 +8546,9 @@ impl Mux {
                         #[cfg(test)]
                         operation_hook.as_ref(),
                     );
-                    if result.2.is_ok()
+                    let completed_at = Instant::now();
+                    if completed_at <= deadline
+                        && result.2.is_ok()
                         && let Some(mux) = completion_mux.upgrade()
                     {
                         mux.record_cell_pixel_completion(&completion, surface.id);
@@ -8681,7 +8683,9 @@ impl Mux {
                     #[cfg(test)]
                     fanout_operation_hook.as_ref(),
                 );
-                if result.2.is_ok()
+                let completed_at = Instant::now();
+                if completed_at <= deadline
+                    && result.2.is_ok()
                     && let Some(mux) = operation_mux.upgrade()
                 {
                     mux.record_cell_pixel_completion(&operation_completion, surface.id);
