@@ -319,7 +319,8 @@ jobs:
             typeof tags.latest !== "string" ||
             tags.latest.length === 0
           ) {
-            throw new Error(`unexpected cmux-sdk dist-tags: ${JSON.stringify(tags)}`);
+            console.error("cmux-sdk dist-tag validation failed.");
+            process.exit(1);
           }
           NODE
 
