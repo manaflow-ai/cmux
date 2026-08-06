@@ -876,8 +876,8 @@ fn validate_stream_open_ack(
     let mut unknown = object
         .keys()
         .filter(|field| {
-            !matches!(field.as_str(), "stream_id" | "cursor")
-                && !(is_view_attachment && field.as_str() == "attachment_lease")
+            !(matches!(field.as_str(), "stream_id" | "cursor")
+                || is_view_attachment && field.as_str() == "attachment_lease")
         })
         .cloned()
         .collect::<Vec<_>>();
