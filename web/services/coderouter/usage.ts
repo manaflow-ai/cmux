@@ -5,7 +5,7 @@ import {
 } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
-import { reportCoderouterFailure } from "./observability";
+import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const usageRequests = new Map<
@@ -30,6 +30,7 @@ export async function accountsWithUsage(teamId: string) {
 
 async function loadAccountsWithUsage(teamId: string) {
   const startedAt = performance.now();
+  addCoderouterBreadcrumb("status", "Loading account usage");
   // Account metadata and encrypted envelopes are independent RDS reads.
   const rdsStartedAt = performance.now();
   const [accounts, credentials] = await Promise.all([
@@ -83,6 +84,10 @@ async function loadAccountsWithUsage(teamId: string) {
       return { ...account, usageError: "unavailable" };
     }
   }));
+  addCoderouterBreadcrumb("status", "Provider usage fanout completed", {
+    account_count: accounts.length,
+    provider_ms: Math.round(performance.now() - providerStartedAt),
+  });
   return {
     accounts: withUsage,
     usageAsOf: new Date().toISOString(),

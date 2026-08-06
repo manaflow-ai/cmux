@@ -1350,6 +1350,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
             CmuxTerminal

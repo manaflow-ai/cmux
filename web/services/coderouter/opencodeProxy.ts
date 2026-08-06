@@ -1,19 +1,31 @@
 import { authenticateRouteToken, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
+import { captureCoderouterEvent } from "./analytics";
+import {
+  addCoderouterBreadcrumb,
+  reportCoderouterFailure,
+} from "./observability";
+import { observeModelUsage } from "./responseUsage";
 
 const OPENCODE_CONSOLE = "https://console.opencode.ai";
 
-export async function openCodeClientConfig(request: Request): Promise<Response> {
+export async function openCodeClientConfig(
+  request: Request,
+): Promise<Response> {
   const auth = await routeIdentity(request);
   if (!auth) return Response.json({ error: "unauthorized" }, { status: 401 });
   const resolved = await openCodeAccount(auth.teamId);
-  if (!resolved) return Response.json({ error: "no_usable_account" }, { status: 503 });
+  if (!resolved)
+    return Response.json({ error: "no_usable_account" }, { status: 503 });
   const remote = await remoteConfig(resolved.credential.accessToken);
   const provider = rewriteProviders(remote, auth.token);
-  return Response.json({ provider }, {
-    headers: { "cache-control": "no-store" },
-  });
+  return Response.json(
+    { provider },
+    {
+      headers: { "cache-control": "no-store" },
+    },
+  );
 }
 
 export async function proxyOpenCodeRequest(
@@ -21,19 +33,58 @@ export async function proxyOpenCodeRequest(
   providerId: string,
   path: readonly string[],
 ): Promise<Response> {
+  const startedAt = performance.now();
   const auth = await routeIdentity(request);
-  if (!auth) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!auth) {
+    return apiError(
+      "unauthorized",
+      "Your coderouter session expired or was revoked. Run `cr login` and retry.",
+      401,
+      false,
+    );
+  }
   const resolved = await openCodeAccount(auth.teamId);
-  if (!resolved) return Response.json({ error: "no_usable_account" }, { status: 503 });
-  const config = await remoteConfig(resolved.credential.accessToken);
+  if (!resolved) {
+    return apiError(
+      "no_usable_account",
+      "No healthy OpenCode subscription is available. Check `cr`, add an account with `cr add`, or retry shortly.",
+      503,
+      true,
+    );
+  }
+  let config: Record<string, unknown>;
+  try {
+    config = await remoteConfig(resolved.credential.accessToken);
+  } catch (error) {
+    reportCoderouterFailure("provider_usage", error, {
+      provider: "opencode-go",
+      operation: "config",
+    });
+    return apiError(
+      "provider_unavailable",
+      "OpenCode configuration is temporarily unavailable. Retry shortly.",
+      502,
+      true,
+    );
+  }
   const provider = config[providerId];
   if (!isRecord(provider)) {
-    return Response.json({ error: "unknown_provider" }, { status: 404 });
+    return apiError(
+      "unknown_provider",
+      "This OpenCode provider is no longer available. Refresh OpenCode's provider list and retry.",
+      404,
+      false,
+    );
   }
   const api = provider.api;
   const base = isRecord(api) ? api.url : undefined;
   if (typeof base !== "string" || !safeProviderURL(base)) {
-    return Response.json({ error: "invalid_provider" }, { status: 502 });
+    return apiError(
+      "invalid_provider",
+      "OpenCode returned an unsafe or invalid provider endpoint.",
+      502,
+      false,
+    );
   }
   const target = new URL(base);
   target.pathname = `${target.pathname.replace(/\/+$/, "")}/${path
@@ -47,16 +98,56 @@ export async function proxyOpenCodeRequest(
     if (value) headers.set(name, value);
   }
   headers.set("authorization", `Bearer ${resolved.credential.accessToken}`);
-  const upstream = await fetch(target, {
-    method: request.method,
-    headers,
-    body: request.method === "GET" || request.method === "HEAD"
-      ? undefined
-      : request.body,
-    duplex: "half",
-    cache: "no-store",
-  } as RequestInit & { duplex: "half" });
-  return new Response(upstream.body, {
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, {
+      method: request.method,
+      headers,
+      body:
+        request.method === "GET" || request.method === "HEAD"
+          ? undefined
+          : request.body,
+      duplex: "half",
+      cache: "no-store",
+    } as RequestInit & { duplex: "half" });
+  } catch (error) {
+    reportCoderouterFailure("upstream_transport", error, {
+      provider: "opencode-go",
+    });
+    return apiError(
+      "provider_unavailable",
+      "The selected OpenCode provider could not be reached. Retry shortly.",
+      502,
+      true,
+    );
+  }
+  const body = observeModelUsage(upstream.body, (usage) => {
+    addCoderouterBreadcrumb("request", "Model request completed", {
+      provider: "opencode-go",
+      status: upstream.status,
+      duration_ms: Math.round(performance.now() - startedAt),
+    });
+    captureCoderouterEvent({
+      event: "coderouter_model_request_completed",
+      userId: auth.stackUserId,
+      teamId: auth.teamId,
+      properties: {
+        provider: "opencode-go",
+        agent: "opencode",
+        outcome: upstream.ok ? "success" : "upstream_error",
+        status: upstream.status,
+        duration_ms: Math.round(performance.now() - startedAt),
+        model: usage?.model ?? "unknown",
+        input_tokens: usage?.inputTokens ?? 0,
+        cached_input_tokens: usage?.cachedInputTokens ?? 0,
+        output_tokens: usage?.outputTokens ?? 0,
+        total_tokens: usage?.totalTokens ?? 0,
+        actual_cost_usd: 0,
+        cost_basis: "subscription_included",
+      },
+    });
+  });
+  return new Response(body, {
     status: upstream.status,
     headers: filteredResponseHeaders(upstream.headers),
   });
@@ -71,11 +162,7 @@ async function openCodeAccount(
 ) {
   const attempted: string[] = [];
   for (let attempt = 0; attempt < 8; attempt++) {
-    const account = await dependencies.select(
-      teamId,
-      "opencode-go",
-      attempted,
-    );
+    const account = await dependencies.select(teamId, "opencode-go", attempted);
     if (!account) return null;
     attempted.push(account.id);
     try {
@@ -94,15 +181,24 @@ async function openCodeAccount(
   return null;
 }
 
-async function remoteConfig(accessToken: string): Promise<Record<string, unknown>> {
-  const response = await fetchProviderRead(() => fetch(`${OPENCODE_CONSOLE}/api/config`, {
-    headers: { authorization: `Bearer ${accessToken}` },
-    cache: "no-store",
-    signal: AbortSignal.timeout(5_000),
-  }));
-  if (!response.ok) throw new Error(`OpenCode config failed: ${response.status}`);
+async function remoteConfig(
+  accessToken: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetchProviderRead(() =>
+    fetch(`${OPENCODE_CONSOLE}/api/config`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5_000),
+    }),
+  );
+  if (!response.ok)
+    throw new Error(`OpenCode config failed: ${response.status}`);
   const value: unknown = await response.json();
-  if (!isRecord(value) || !isRecord(value.config) || !isRecord(value.config.provider)) {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.config) ||
+    !isRecord(value.config.provider)
+  ) {
     throw new Error("OpenCode returned an invalid provider catalog");
   }
   return value.config.provider;
@@ -112,56 +208,89 @@ function rewriteProviders(
   providers: Record<string, unknown>,
   routeToken: string,
 ): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(providers).flatMap(([id, value]) => {
-    if (!isRecord(value)) return [];
-    const api = value.api;
-    const npm = isRecord(api) && typeof api.package === "string"
-      ? api.package
-      : typeof value.npm === "string"
-      ? value.npm
-      : undefined;
-    const models = isRecord(value.models)
-      ? Object.fromEntries(Object.entries(value.models).map(([modelId, model]) => {
-        if (!isRecord(model)) return [modelId, model];
-        const nestedProvider = isRecord(model.provider) ? model.provider : undefined;
-        return [modelId, {
-          ...model,
+  return Object.fromEntries(
+    Object.entries(providers).flatMap(([id, value]) => {
+      if (!isRecord(value)) return [];
+      const api = value.api;
+      const npm =
+        isRecord(api) && typeof api.package === "string"
+          ? api.package
+          : typeof value.npm === "string"
+            ? value.npm
+            : undefined;
+      const models = isRecord(value.models)
+        ? Object.fromEntries(
+            Object.entries(value.models).map(([modelId, model]) => {
+              if (!isRecord(model)) return [modelId, model];
+              const nestedProvider = isRecord(model.provider)
+                ? model.provider
+                : undefined;
+              return [
+                modelId,
+                {
+                  ...model,
           ...(nestedProvider
             ? {
               provider: {
-                ...nestedProvider,
+                ...publicNestedProvider(nestedProvider),
                 api: `https://coderouter.dev/api/coderouter/opencode/proxy/${encodeURIComponent(id)}`,
               },
-            }
-            : {}),
-        }];
-      }))
-      : value.models;
-    return [[id, {
-      ...value,
-      ...(npm ? { npm } : {}),
-      api: undefined,
-      models,
-      options: {
-        ...(isRecord(value.options) ? withoutSecrets(value.options) : {}),
-        baseURL: `https://coderouter.dev/api/coderouter/opencode/proxy/${encodeURIComponent(id)}`,
-        apiKey: routeToken,
-      },
-    }]];
-  }));
+                      }
+                    : {}),
+                },
+              ];
+            }),
+          )
+        : value.models;
+      return [
+        [
+          id,
+          {
+            ...value,
+            ...(npm ? { npm } : {}),
+            api: undefined,
+            models,
+            options: {
+              ...(isRecord(value.options) ? withoutSecrets(value.options) : {}),
+              baseURL: `https://coderouter.dev/api/coderouter/opencode/proxy/${encodeURIComponent(id)}`,
+              apiKey: routeToken,
+            },
+          },
+        ],
+      ];
+    }),
+  );
 }
 
-function withoutSecrets(value: Record<string, unknown>): Record<string, unknown> {
+function publicNestedProvider(
+  value: Record<string, unknown>,
+): Record<string, string> {
+  const output: Record<string, string> = {};
+  for (const key of ["id", "name", "npm"]) {
+    const candidate = value[key];
+    if (typeof candidate === "string" && candidate.length <= 512) {
+      output[key] = candidate;
+    }
+  }
+  return output;
+}
+
+function withoutSecrets(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(value).filter(([key]) =>
-      !["apiKey", "token", "accessToken", "refreshToken", "headers"].includes(key)
+    Object.entries(value).filter(
+      ([key]) =>
+        !["apiKey", "token", "accessToken", "refreshToken", "headers"].includes(
+          key,
+        ),
     ),
   );
 }
 
 async function routeIdentity(
   request: Request,
-): Promise<{ teamId: string; token: string } | null> {
+): Promise<{ teamId: string; stackUserId: string; token: string } | null> {
   const header = request.headers.get("authorization")?.trim() ?? "";
   const token = /^Bearer[ \t]+(.+)$/i.exec(header)?.[1]?.trim();
   if (!token) return null;
@@ -169,18 +298,38 @@ async function routeIdentity(
   return identity ? { ...identity, token } : null;
 }
 
+function apiError(
+  error: string,
+  message: string,
+  status: number,
+  retryable: boolean,
+): Response {
+  return Response.json(
+    { error, message, retryable },
+    {
+      status,
+      headers: {
+        "cache-control": "no-store",
+        ...(retryable ? { "retry-after": "5" } : {}),
+      },
+    },
+  );
+}
+
 function safeProviderURL(value: string): boolean {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password) return false;
     const hostname = url.hostname.toLowerCase();
-    return hostname !== "localhost" &&
+    return (
+      hostname !== "localhost" &&
       hostname !== "0.0.0.0" &&
       hostname !== "::1" &&
       !/^127\./.test(hostname) &&
       !/^10\./.test(hostname) &&
       !/^192\.168\./.test(hostname) &&
-      !/^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname);
+      !/^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname)
+    );
   } catch {
     return false;
   }
