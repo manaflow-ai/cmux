@@ -58,6 +58,7 @@ struct AgentConversationCrossHarnessForkTests {
         let script = """
         #!/bin/zsh
         /usr/bin/printf '%s\n' "$@" > "$CMUX_ARGUMENTS_LOG"
+        /usr/bin/printf 'Grok Build\n'
         IFS= read -r first_message
         /usr/bin/printf '%s' "$first_message" > "$CMUX_INPUT_LOG"
         """
@@ -105,7 +106,7 @@ struct AgentConversationCrossHarnessForkTests {
           /usr/bin/printf '%s' "$early_message" > "$CMUX_EARLY_INPUT_LOG"
           exit 41
         fi
-        /usr/bin/printf '❯ '
+        /usr/bin/printf 'Grok Build\n'
         IFS= read -r first_message
         /usr/bin/printf '%s' "$first_message" > "$CMUX_INPUT_LOG"
         """
@@ -232,6 +233,7 @@ struct AgentConversationCrossHarnessForkTests {
           exit 2
         fi
         /usr/bin/printf '%s\n' "$@" > "$CMUX_HERMES_TEST_LOG"
+        /usr/bin/printf 'Available Tools\n'
         IFS= read -r first_message
         /usr/bin/printf '%s' "$first_message" > "$CMUX_HERMES_INPUT_LOG"
         """

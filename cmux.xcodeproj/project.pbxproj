@@ -46,8 +46,12 @@
 		ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */; };
 		9016A0000000000000000001 /* AgentConversationCrossHarnessForkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016A0000000000000000002 /* AgentConversationCrossHarnessForkTests.swift */; };
 		901600000000000000000001 /* AgentConversationExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000002 /* AgentConversationExportService.swift */; };
+		9016D0000000000000000003 /* AgentConversationForkExecutableIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016D0000000000000000004 /* AgentConversationForkExecutableIdentity.swift */; };
+		9016D0000000000000000007 /* AgentConversationForkFirstMessageAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016D0000000000000000008 /* AgentConversationForkFirstMessageAdapter.swift */; };
 		901600000000000000000003 /* AgentConversationForkRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000004 /* AgentConversationForkRequest.swift */; };
+		9016D0000000000000000001 /* AgentConversationForkRequestError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016D0000000000000000002 /* AgentConversationForkRequestError.swift */; };
 		D5D44BADCD5543C3B18B4AED /* AgentConversationForkTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CF9865680D84D57BDCD9145 /* AgentConversationForkTarget.swift */; };
+		9016D0000000000000000005 /* AgentConversationForkTargetCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016D0000000000000000006 /* AgentConversationForkTargetCandidate.swift */; };
 		5008DFD6CF214C45A304E2FD /* AgentConversationForkTargetCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DFD97F9318D4E7298B529D8 /* AgentConversationForkTargetCatalog.swift */; };
 		80FB34CD1B7845B2BF655A30 /* AgentConversationForkTargetDiscoverer.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8D2F451D15C408A9F7F0076 /* AgentConversationForkTargetDiscoverer.swift */; };
 		9016B0000000000000000001 /* AgentConversationForkTargetHarness.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */; };
@@ -2772,8 +2776,12 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptTailer.swift"; sourceTree = "<group>"; };
 		9016A0000000000000000002 /* AgentConversationCrossHarnessForkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationCrossHarnessForkTests.swift; sourceTree = "<group>"; };
 		901600000000000000000002 /* AgentConversationExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationExportService.swift; sourceTree = "<group>"; };
+		9016D0000000000000000004 /* AgentConversationForkExecutableIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkExecutableIdentity.swift; sourceTree = "<group>"; };
+		9016D0000000000000000008 /* AgentConversationForkFirstMessageAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkFirstMessageAdapter.swift; sourceTree = "<group>"; };
 		901600000000000000000004 /* AgentConversationForkRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkRequest.swift; sourceTree = "<group>"; };
+		9016D0000000000000000002 /* AgentConversationForkRequestError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkRequestError.swift; sourceTree = "<group>"; };
 		8CF9865680D84D57BDCD9145 /* AgentConversationForkTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTarget.swift; sourceTree = "<group>"; };
+		9016D0000000000000000006 /* AgentConversationForkTargetCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTargetCandidate.swift; sourceTree = "<group>"; };
 		7DFD97F9318D4E7298B529D8 /* AgentConversationForkTargetCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTargetCatalog.swift; sourceTree = "<group>"; };
 		C8D2F451D15C408A9F7F0076 /* AgentConversationForkTargetDiscoverer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTargetDiscoverer.swift; sourceTree = "<group>"; };
 		9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkTargetHarness.swift; sourceTree = "<group>"; };
@@ -5687,9 +5695,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			children = (
 				901600000000000000000002 /* AgentConversationExportService.swift */,
 				901600000000000000000004 /* AgentConversationForkRequest.swift */,
+				9016D0000000000000000002 /* AgentConversationForkRequestError.swift */,
+				9016D0000000000000000004 /* AgentConversationForkExecutableIdentity.swift */,
 				8CF9865680D84D57BDCD9145 /* AgentConversationForkTarget.swift */,
+				9016D0000000000000000006 /* AgentConversationForkTargetCandidate.swift */,
 				7DFD97F9318D4E7298B529D8 /* AgentConversationForkTargetCatalog.swift */,
 				C8D2F451D15C408A9F7F0076 /* AgentConversationForkTargetDiscoverer.swift */,
+				9016D0000000000000000008 /* AgentConversationForkFirstMessageAdapter.swift */,
 				9016B0000000000000000002 /* AgentConversationForkTargetHarness.swift */,
 				901600000000000000000006 /* AgentConversationSource.swift */,
 				90160000000000000000001C /* AgentSessionIDProvenance.swift */,
@@ -8584,8 +8596,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				ACA7C4A7000000000000000B /* AgentChatTranscriptService.swift in Sources */,
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
 				901600000000000000000001 /* AgentConversationExportService.swift in Sources */,
+				9016D0000000000000000003 /* AgentConversationForkExecutableIdentity.swift in Sources */,
+				9016D0000000000000000007 /* AgentConversationForkFirstMessageAdapter.swift in Sources */,
 				901600000000000000000003 /* AgentConversationForkRequest.swift in Sources */,
+				9016D0000000000000000001 /* AgentConversationForkRequestError.swift in Sources */,
 				D5D44BADCD5543C3B18B4AED /* AgentConversationForkTarget.swift in Sources */,
+				9016D0000000000000000005 /* AgentConversationForkTargetCandidate.swift in Sources */,
 				5008DFD6CF214C45A304E2FD /* AgentConversationForkTargetCatalog.swift in Sources */,
 				80FB34CD1B7845B2BF655A30 /* AgentConversationForkTargetDiscoverer.swift in Sources */,
 				9016B0000000000000000001 /* AgentConversationForkTargetHarness.swift in Sources */,

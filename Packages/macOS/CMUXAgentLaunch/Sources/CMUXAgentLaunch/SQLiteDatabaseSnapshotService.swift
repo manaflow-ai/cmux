@@ -218,8 +218,8 @@ public struct SQLiteDatabaseSnapshotService {
         }
     }
 
-    /// Binds the validated database inode and its current WAL sidecars to
-    /// unpredictable names in a private directory on the same filesystem.
+    /// Binds the validated database inode and its current sidecars to
+    /// unpredictable names in a private directory controlled by cmux.
     /// SQLite opens only those hard links, so replacing the caller's path after
     /// validation cannot redirect or block its path-based open.
     private func bindSourceDatabase(path: String) throws -> (
@@ -233,10 +233,10 @@ public struct SQLiteDatabaseSnapshotService {
         let sourceDescriptor = try validatedRegularSourceDescriptor(path: sourceURL.path)
         defer { _ = Darwin.close(sourceDescriptor) }
         try sourceValidatedObserver?()
+        try rejectHotRollbackJournal(path: sourceURL.path + "-journal")
 
-        let directoryURL = try createPrivateDirectory(
-            in: sourceURL.deletingLastPathComponent(),
-            prefix: ".cmux-sqlite-source"
+        let directoryURL = try createPrivateTemporaryDirectory(
+            prefix: "cmux-sqlite-source"
         )
         do {
             let databaseURL = directoryURL.appendingPathComponent(
@@ -249,12 +249,14 @@ public struct SQLiteDatabaseSnapshotService {
                 to: databaseURL.path,
                 label: "source database"
             )
-            for suffix in ["-wal", "-shm"] {
+            for suffix in ["-wal", "-shm", "-journal"] {
                 try linkOptionalRegularFile(
                     from: sourceURL.path + suffix,
                     to: databaseURL.path + suffix
                 )
             }
+            try rejectHotRollbackJournal(path: databaseURL.path + "-journal")
+            try rejectHotRollbackJournal(path: sourceURL.path + "-journal")
             return (databaseURL, directoryURL)
         } catch {
             try? fileManager.removeItem(at: directoryURL)
@@ -306,6 +308,50 @@ public struct SQLiteDatabaseSnapshotService {
             to: destinationPath,
             label: "source database sidecar"
         )
+    }
+
+    /// SQLite considers a rollback journal hot when its header is live and it
+    /// is large enough to contain a journal sector. Opening a hard-linked main
+    /// database without that journal could expose pages from an interrupted
+    /// transaction, so snapshotting fails closed instead.
+    private func rejectHotRollbackJournal(path: String) throws {
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else {
+            if errno == ENOENT { return }
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot open source database sidecar"
+            )
+        }
+        defer { _ = Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "source database sidecar is not a regular file"
+            )
+        }
+        guard metadata.st_size > 512 else { return }
+        var header = [UInt8](repeating: 0, count: 8)
+        let bytesRead = header.withUnsafeMutableBytes { buffer in
+            Darwin.pread(descriptor, buffer.baseAddress, buffer.count, 0)
+        }
+        guard bytesRead == header.count else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot read source database sidecar"
+            )
+        }
+        let hotJournalMagic: [UInt8] = [
+            0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7,
+        ]
+        guard header != hotJournalMagic else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "source database has a hot rollback journal"
+            )
+        }
     }
 
     private func linkValidatedFile(

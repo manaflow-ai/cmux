@@ -68,8 +68,47 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         guard let interactiveCommand else { return nil }
         return AgentConversationForkFirstMessageAdapter.startupCommand(
             interactiveCommand: interactiveCommand,
-            firstMessage: handoffMessage
+            firstMessage: handoffMessage,
+            readinessPattern: firstMessageReadinessPattern
         )
+    }
+
+    /// Terminal output that is unique to the harness's editable prompt. Broad
+    /// selection glyphs are intentionally avoided because onboarding and trust
+    /// screens often use the same arrows as the main editor.
+    private var firstMessageReadinessPattern: String {
+        switch self {
+        case .current:
+            ""
+        case .claude:
+            "(auto|manual).*mode on"
+        case .codex:
+            "Context [0-9]+% left"
+        case .grok:
+            "Grok Build"
+        case .opencode:
+            "Ask anything\\.\\.\\."
+        case .omp:
+            "Recent sessions"
+        case .pi:
+            "\\(sub\\).*%"
+        case .amp:
+            "ctrl\\+o.*for commands"
+        case .cursor:
+            "Plan, search, build anything"
+        case .gemini, .antigravity:
+            "Type your message or @path/to/file"
+        case .kiro:
+            "Use Ctrl.*multi-line prompts"
+        case .hermesAgent:
+            "Available.*Tools"
+        case .copilot:
+            "Shift.*Tab"
+        case .codebuddy:
+            "(auto|manual).*mode on|Context [0-9]+% left"
+        case .factory:
+            "Shift.*Tab|Context [0-9]+% left"
+        }
     }
 
     private func startupExecutableInvocation(
@@ -215,45 +254,5 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .factory:
             ["factory", "/droid"]
         }
-    }
-}
-
-/// Starts an interactive harness in a child PTY and submits the transfer as its
-/// first terminal message. The enclosing private one-shot launcher self-deletes
-/// before this adapter runs, so neither the harness nor the long-lived PTY proxy
-/// exposes the transcript in process arguments.
-struct AgentConversationForkFirstMessageAdapter {
-    private static let heredocDelimiter = "CMUX_CONVERSATION_FIRST_MESSAGE"
-
-    static func startupCommand(
-        interactiveCommand: String,
-        firstMessage: String
-    ) -> String {
-        let encodedCommand = hexEncoded(interactiveCommand)
-        let encodedMessage = hexEncoded(firstMessage)
-        return """
-        [[ -x /usr/bin/expect ]] || exit 127
-        /usr/bin/expect -f - <<'\(heredocDelimiter)'
-        set timeout -1
-        set cmux_command [encoding convertfrom utf-8 [binary format H* {\(encodedCommand)}]]
-        set cmux_message [encoding convertfrom utf-8 [binary format H* {\(encodedMessage)}]]
-        spawn -noecho /bin/zsh -lc $cmux_command
-        after 150
-        send -- "\\033\\[200~"
-        send -- $cmux_message
-        send -- "\\033\\[201~\\r"
-        if {[catch {stty -g}]} {
-          expect eof
-        } else {
-          interact
-        }
-        set cmux_wait [wait]
-        exit [lindex $cmux_wait 3]
-        \(heredocDelimiter)
-        """
-    }
-
-    private static func hexEncoded(_ value: String) -> String {
-        value.utf8.map { String(format: "%02x", $0) }.joined()
     }
 }

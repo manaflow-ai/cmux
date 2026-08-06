@@ -38,8 +38,35 @@ struct AgentExecutableResolver {
         executableNames: [String]? = nil
     ) throws -> AgentSessionLaunchPlan {
         let executableNames = executableNames ?? [provider.executableName]
+        if let plan = resolveCandidates(
+            provider,
+            searchDirectories: searchDirectories,
+            executableNames: executableNames
+        ).first {
+            return plan
+        }
+
+        throw AgentExecutableResolverError.missing(
+            displayName: provider.displayName,
+            executableName: executableNames.first ?? provider.executableName,
+            searchedDirectories: searchDirectories
+        )
+    }
+
+    /// Enumerates every valid provider executable in priority order. Discovery
+    /// can probe later candidates when an earlier generic alias belongs to a
+    /// different tool.
+    func resolveCandidates(
+        _ provider: AgentSessionProviderID,
+        searchDirectories: [String],
+        executableNames: [String]? = nil
+    ) -> [AgentSessionLaunchPlan] {
+        let executableNames = executableNames ?? [provider.executableName]
+        var candidates: [URL] = []
+        var seenPaths: Set<String> = []
         if let configuredURL = resolvedConfiguredExecutableURL(for: provider) {
-            return launchPlan(provider: provider, executableURL: configuredURL, searchDirectories: searchDirectories)
+            candidates.append(configuredURL)
+            seenPaths.insert(configuredURL.path)
         }
 
         for directory in searchDirectories {
@@ -59,24 +86,37 @@ struct AgentExecutableResolver {
                 guard !isBundledProviderExecutable(candidateURL) else { continue }
                 guard !isKnownCmuxClaudeCommandShim(candidateURL, provider: provider) else { continue }
                 guard !isKnownCmuxClaudeWrapper(candidateURL, provider: provider) else { continue }
-
-                return launchPlan(provider: provider, executableURL: candidateURL, searchDirectories: searchDirectories)
+                guard seenPaths.insert(candidatePath).inserted else { continue }
+                candidates.append(candidateURL)
             }
         }
-
-        throw AgentExecutableResolverError.missing(
-            displayName: provider.displayName,
-            executableName: executableNames.first ?? provider.executableName,
-            searchedDirectories: searchDirectories
-        )
+        return candidates.map {
+            launchPlan(
+                provider: provider,
+                executableURL: $0,
+                searchDirectories: searchDirectories
+            )
+        }
     }
 
-    /// Finds the first executable alias using the same filtered search path as
-    /// provider resolution.
+    /// Finds the first executable alias using the resolved search path.
     func resolveExecutable(
         named executableNames: [String],
         searchDirectories: [String]
     ) -> URL? {
+        resolveExecutables(
+            named: executableNames,
+            searchDirectories: searchDirectories
+        ).first
+    }
+
+    /// Enumerates executable aliases in search priority order.
+    func resolveExecutables(
+        named executableNames: [String],
+        searchDirectories: [String]
+    ) -> [URL] {
+        var candidates: [URL] = []
+        var seenPaths: Set<String> = []
         for directory in searchDirectories {
             guard !shouldSkipSearchDirectory(directory) else { continue }
             for executableName in executableNames {
@@ -89,10 +129,11 @@ struct AgentExecutableResolver {
                       fileManager.isExecutableFile(atPath: candidateURL.path) else {
                     continue
                 }
-                return candidateURL
+                guard seenPaths.insert(candidateURL.path).inserted else { continue }
+                candidates.append(candidateURL)
             }
         }
-        return nil
+        return candidates
     }
 
     static func cmuxConfiguredExecutablePaths(defaults: UserDefaults = .standard) -> [AgentSessionProviderID: String] {

@@ -2,12 +2,6 @@ import Foundation
 
 /// Immutable inputs for one installed-harness discovery pass.
 struct AgentConversationForkTargetDiscoverer: Sendable {
-    private struct Candidate: Sendable {
-        let harness: AgentConversationForkTargetHarness
-        let executableURL: URL
-        let runtimeSearchPath: String?
-    }
-
     let environment: [String: String]
     let defaultHomeDirectory: String
     let bundleResourcePath: String?
@@ -56,52 +50,50 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
         )
         let searchDirectories = resolver.resolvedSearchDirectories()
 
-        let candidates = AgentConversationForkTargetHarness.allCases.compactMap { harness -> Candidate? in
+        let candidateGroups = AgentConversationForkTargetHarness.allCases.compactMap { harness -> [AgentConversationForkTargetCandidate]? in
             guard harness != .current else { return nil }
-            let resolution: (executableURL: URL, runtimeSearchPath: String?)?
+            let candidates: [AgentConversationForkTargetCandidate]
             if let provider = harness.providerID {
-                let plan = try? resolver.resolve(
+                candidates = resolver.resolveCandidates(
                     provider,
                     searchDirectories: searchDirectories,
                     executableNames: harness.executableNames
-                )
-                resolution = plan.map {
-                    ($0.executableURL, $0.environment["PATH"])
+                ).map {
+                    AgentConversationForkTargetCandidate(
+                        harness: harness,
+                        executableURL: $0.executableURL,
+                        runtimeSearchPath: $0.environment["PATH"]
+                    )
                 }
             } else {
-                let executableURL = resolver.resolveExecutable(
+                candidates = resolver.resolveExecutables(
                     named: harness.executableNames,
                     searchDirectories: searchDirectories
-                )
-                resolution = executableURL.map {
-                    (
-                        $0,
-                        resolver.runtimeSearchPath(
+                ).map {
+                    AgentConversationForkTargetCandidate(
+                        harness: harness,
+                        executableURL: $0,
+                        runtimeSearchPath: resolver.runtimeSearchPath(
                             searchDirectories: searchDirectories,
                             includingExecutableAt: $0
                         )
                     )
                 }
             }
-            guard let resolution else { return nil }
-            return Candidate(
-                harness: harness,
-                executableURL: resolution.executableURL,
-                runtimeSearchPath: resolution.runtimeSearchPath
-            )
+            return candidates.isEmpty ? nil : candidates
         }
         return await withTaskGroup(
             of: (Int, AgentConversationForkTarget?).self,
             returning: [AgentConversationForkTarget].self
         ) { group in
-            for (index, candidate) in candidates.enumerated() {
+            for (index, candidates) in candidateGroups.enumerated() {
                 group.addTask {
-                    (index, await validatedTarget(candidate))
+                    (index, await firstValidatedTarget(in: candidates))
                 }
             }
             var validated = Array<AgentConversationForkTarget?>(
                 repeating: nil,
-                count: candidates.count
+                count: candidateGroups.count
             )
             for await (index, target) in group {
                 validated[index] = target
@@ -110,7 +102,20 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
         }
     }
 
-    private func validatedTarget(_ candidate: Candidate) async -> AgentConversationForkTarget? {
+    private func firstValidatedTarget(
+        in candidates: [AgentConversationForkTargetCandidate]
+    ) async -> AgentConversationForkTarget? {
+        for candidate in candidates {
+            if let target = await validatedTarget(candidate) {
+                return target
+            }
+        }
+        return nil
+    }
+
+    private func validatedTarget(
+        _ candidate: AgentConversationForkTargetCandidate
+    ) async -> AgentConversationForkTarget? {
         guard !Task.isCancelled else { return nil }
         let executablePath = candidate.executableURL.path
         guard let identityBeforeProbe = AgentConversationForkExecutableIdentity.capture(

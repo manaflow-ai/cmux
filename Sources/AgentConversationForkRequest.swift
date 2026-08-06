@@ -1,10 +1,6 @@
 import CmuxCommandPalette
 import Foundation
 
-enum AgentConversationForkRequestError: Error, Equatable {
-    case targetExecutableChanged
-}
-
 /// One conversation fork, including the destination harness and layout target.
 struct AgentConversationForkRequest: Equatable, Sendable {
     static let harnessArgumentName = "harness"
