@@ -9,7 +9,18 @@ describe("coderouter OpenCode Go proxy", () => {
         npm: "@ai-sdk/openai-compatible",
         api: { url: "https://models.example.test/v1", package: "@ai-sdk/openai-compatible" },
         options: { apiKey: "upstream-secret", headers: { secret: "value" }, mode: "go" },
-        models: { "model-1": { name: "Model One" } },
+        models: {
+          "model-1": {
+            name: "Model One",
+            provider: {
+              id: "go",
+              name: "OpenCode Go",
+              npm: "@ai-sdk/openai-compatible",
+              apiKey: "nested-upstream-secret",
+              headers: { authorization: "nested-secret" },
+            },
+          },
+        },
       },
     }, "route-token") as {
       go: { options: Record<string, unknown> };
@@ -20,6 +31,7 @@ describe("coderouter OpenCode Go proxy", () => {
       apiKey: "route-token",
     });
     expect(JSON.stringify(rewritten)).not.toContain("upstream-secret");
+    expect(JSON.stringify(rewritten)).not.toContain("nested-secret");
     expect(JSON.stringify(rewritten)).not.toContain("models.example.test");
   });
 

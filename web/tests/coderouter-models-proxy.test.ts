@@ -18,7 +18,7 @@ afterAll(() => {
 
 const { createCodexModelsProxy } = await import("../services/coderouter/codexProxy");
 const proxyCodexModels = createCodexModelsProxy({
-  authenticate: async () => ({ teamId: "team-1" }),
+  authenticate: async () => ({ teamId: "team-1", stackUserId: "stack-user-1" }),
   select: async () => {
     const id = selectedAccounts.shift();
     return id
