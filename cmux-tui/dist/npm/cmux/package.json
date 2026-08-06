@@ -16,7 +16,8 @@
     "node": ">=18"
   },
   "files": [
-    "bin/cmux.js"
+    "bin/cmux.js",
+    "bin/cmux-tui-x86_64-pc-windows-gnu.exe"
   ],
   "optionalDependencies": {
     "cmux-tui-darwin-arm64": "0.0.0-managed",

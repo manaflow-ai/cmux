@@ -2709,8 +2709,7 @@ fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<Resource
                 .with_context(|| format!("write resource receipt pepper {}", path.display()))?;
             file.sync_all()
                 .with_context(|| format!("sync resource receipt pepper {}", path.display()))?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
+            platform::sync_directory(root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(pepper)
         }
@@ -2790,8 +2789,7 @@ fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
                 .and_then(|()| file.write_all(b"\n"))
                 .with_context(|| format!("write machine identity {}", path.display()))?;
             file.sync_all().with_context(|| format!("sync machine identity {}", path.display()))?;
-            File::open(root)
-                .and_then(|directory| directory.sync_all())
+            platform::sync_directory(root)
                 .with_context(|| format!("sync state root {}", root.display()))?;
             Ok(id)
         }

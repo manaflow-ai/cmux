@@ -169,6 +169,20 @@ jobs:
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Build macOS debug binary
+        if: runner.os == 'macOS'
+        working-directory: cmux-tui
+        run: cargo build -p cmux-tui --locked
+
+      - name: Upload macOS debug binary
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-macos-debug
+          path: cmux-tui/target/debug/cmux-tui
+          if-no-files-found: error
+          retention-days: 3
+
       - name: cargo test
         working-directory: cmux-tui
         run: cargo test --workspace --locked
@@ -261,6 +275,10 @@ jobs:
           rustup target add x86_64-pc-windows-gnu
           printf '%s\n' 'C:\msys64\mingw64\bin' >> "$GITHUB_PATH"
 
+      - name: Verify bounded Windows carrier behavior
+        working-directory: cmux-tui
+        run: cargo test -p cmux-remote --target x86_64-pc-windows-gnu --locked windows_ -- --nocapture
+
       - name: Build libghostty-vt for Windows GNU
         shell: bash
         working-directory: ghostty
@@ -271,3 +289,41 @@ jobs:
       - name: cargo build cmux-tui for Windows GNU
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --target x86_64-pc-windows-gnu --locked
+
+      - name: Verify Windows remote owner lifecycle
+        working-directory: cmux-tui
+        run: cargo test -p cmux-tui --target x86_64-pc-windows-gnu --locked --test windows_remote_owner -- --nocapture
+
+      - name: Verify native Windows remote probe
+        shell: bash
+        run: |
+          output="$(cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe remote-probe --json)"
+          printf '%s\n' "$output"
+          python -c 'import json,sys; probe=json.load(sys.stdin); assert probe["app"] == "cmux-tui"; assert probe["os"] == "windows"' <<<"$output"
+
+      - name: Verify native Windows remote startup is bounded
+        shell: bash
+        run: |
+          set +e
+          output="$(timeout 15s cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$status" -ne 124
+          if [[ "$status" -ne 0 ]]; then
+            # GitHub's runner job forbids process breakaway. Production must
+            # fail instead of launching an owner that dies with its carrier.
+            grep -F "could not start Windows mux owner: Access is denied" <<<"$output"
+          fi
+          cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe remote-stop --session ci-smoke
+
+      - name: Verify native Windows ConPTY terminal
+        shell: bash
+        run: cmux-tui/scripts/smoke-windows-native.sh cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe
+
+      - name: Upload Windows debug binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-windows-debug
+          path: cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe
+          if-no-files-found: error

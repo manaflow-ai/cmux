@@ -3,12 +3,24 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
+use base64::Engine;
 use cmux_remote_protocol::REMOTE_PROTOCOL_VERSION;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 
+use crate::provider::{SshRemoteShell, SshRemoteTarget};
+
 const SSH_BOOTSTRAP_OUTPUT_LIMIT: usize = 4_096;
+// Carrier-scoped Windows builds had no resident process to stop. Accept only
+// their exact response so the first resident-owner upgrade can proceed.
+const LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED: &str =
+    "cmux-tui: remote-stop is not implemented on Windows yet";
+// Older helpers expose this Winsock result only through their bounded stderr.
+// The recovery predicate also requires the named local mux socket.
+const WINDOWS_STALE_MUX_SOCKET_OS_ERROR: &str = "(os error 10050)";
+pub const WINDOWS_REMOTE_BINARY: &str = r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe";
+pub const WINDOWS_COMPANION_FILENAME: &str = "cmux-tui-x86_64-pc-windows-gnu.exe";
 
 /// The version of the npm/PyPI distribution that contains this binary. Release
 /// workflows stamp it independently from the Rust crate's internal version.
@@ -33,6 +45,10 @@ pub struct SshBootstrapConfig {
     /// Exact local executable used to bootstrap unpublished same-platform
     /// builds. Published distributions continue to install through npm.
     pub local_binary: Option<PathBuf>,
+    /// Exact Windows companion executable to upload to a native Windows SSH
+    /// host. Development builds can provide this through
+    /// `CMUX_TUI_WINDOWS_REMOTE_BINARY`; packaged builds may bundle it.
+    pub windows_local_binary: Option<PathBuf>,
     pub auto_install: bool,
     pub timeout: Duration,
 }
@@ -50,6 +66,9 @@ impl SshBootstrapConfig {
             package_installable: NPM_BOOTSTRAP_VERSION.is_some(),
             build_identity: BUILD_IDENTITY.into(),
             local_binary: std::env::current_exe().ok(),
+            windows_local_binary: std::env::var_os("CMUX_TUI_WINDOWS_REMOTE_BINARY")
+                .map(PathBuf::from)
+                .or_else(bundled_windows_companion),
             auto_install: true,
             timeout: Duration::from_secs(60),
         }
@@ -82,6 +101,16 @@ impl SshBootstrapConfig {
     }
 }
 
+fn bundled_windows_companion() -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    bundled_windows_companion_for(&executable)
+}
+
+fn bundled_windows_companion_for(executable: &Path) -> Option<PathBuf> {
+    let candidate = executable.parent()?.join(WINDOWS_COMPANION_FILENAME);
+    candidate.is_file().then_some(candidate)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RemoteProbe {
     pub app: String,
@@ -103,6 +132,12 @@ pub enum BootstrapOutcome {
     Installed,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedBootstrap {
+    pub outcome: BootstrapOutcome,
+    pub target: SshRemoteTarget,
+}
+
 pub struct SshBootstrapper {
     config: SshBootstrapConfig,
 }
@@ -114,15 +149,76 @@ impl SshBootstrapper {
     }
 
     pub async fn probe(&self) -> Result<Option<RemoteProbe>, BootstrapError> {
-        let output =
-            self.run_remote([self.config.remote_binary.as_str(), "remote-probe", "--json"]).await?;
+        self.probe_target().await.map(|(_, probe)| probe)
+    }
+
+    pub async fn probe_target(
+        &self,
+    ) -> Result<(SshRemoteTarget, Option<RemoteProbe>), BootstrapError> {
+        let posix_target = SshRemoteTarget {
+            binary: self.config.remote_binary.clone(),
+            shell: SshRemoteShell::Posix,
+        };
+        match self.probe_remote_target(&posix_target).await {
+            Ok(probe) => Ok((posix_target, probe)),
+            Err(BootstrapError::WindowsShellDetected) => {
+                let windows_target = SshRemoteTarget {
+                    binary: WINDOWS_REMOTE_BINARY.into(),
+                    shell: SshRemoteShell::WindowsCmd,
+                };
+                let probe = self.probe_remote_target(&windows_target).await?;
+                Ok((windows_target, probe))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Resolve the host shell for an explicit replacement without requiring
+    /// the installed binary to understand the current probe protocol.
+    async fn explicit_install_target(&self) -> Result<SshRemoteTarget, BootstrapError> {
+        let posix_target = SshRemoteTarget {
+            binary: self.config.remote_binary.clone(),
+            shell: SshRemoteShell::Posix,
+        };
+        match self.probe_remote_target(&posix_target).await {
+            Err(error @ BootstrapError::Remote { status: 255, .. }) => Err(error),
+            Ok(_) | Err(BootstrapError::ProbeJson(_)) | Err(BootstrapError::Remote { .. }) => {
+                Ok(posix_target)
+            }
+            Err(BootstrapError::WindowsShellDetected) => Ok(SshRemoteTarget {
+                binary: WINDOWS_REMOTE_BINARY.into(),
+                shell: SshRemoteShell::WindowsCmd,
+            }),
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn probe_remote_target(
+        &self,
+        target: &SshRemoteTarget,
+    ) -> Result<Option<RemoteProbe>, BootstrapError> {
+        let output = match target.shell {
+            SshRemoteShell::Posix => {
+                self.run_remote([target.binary.as_str(), "remote-probe", "--json"]).await?
+            }
+            SshRemoteShell::WindowsCmd => {
+                let command = format!("\"{}\" remote-probe --json", target.binary);
+                self.run_remote([command.as_str()]).await?
+            }
+        };
         if output.status == 127 || output.status == 126 {
             return Ok(None);
         }
         if output.status != 0 {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            if windows_command_shell_error(&stderr) {
-                return Err(BootstrapError::WindowsRequiresWsl);
+            if matches!(target.shell, SshRemoteShell::Posix) && windows_command_shell_error(&stderr)
+            {
+                return Err(BootstrapError::WindowsShellDetected);
+            }
+            if matches!(target.shell, SshRemoteShell::WindowsCmd)
+                && windows_missing_binary_error(&stderr)
+            {
+                return Ok(None);
             }
             if stderr.contains("not found") || stderr.contains("No such file") {
                 return Ok(None);
@@ -138,9 +234,13 @@ impl SshBootstrapper {
     }
 
     pub async fn ensure_installed(&self) -> Result<BootstrapOutcome, BootstrapError> {
-        let installed = self.probe().await?;
+        self.ensure_installed_target().await.map(|resolved| resolved.outcome)
+    }
+
+    pub async fn ensure_installed_target(&self) -> Result<ResolvedBootstrap, BootstrapError> {
+        let (target, installed) = self.probe_target().await?;
         if installed.as_ref().is_some_and(|probe| self.compatible(probe)) {
-            return Ok(BootstrapOutcome::AlreadyInstalled);
+            return Ok(ResolvedBootstrap { outcome: BootstrapOutcome::AlreadyInstalled, target });
         }
         if !self.config.auto_install {
             return match installed {
@@ -152,14 +252,36 @@ impl SshBootstrapper {
             };
         }
 
-        self.install_verified().await
+        self.install_verified_for_target(target).await
     }
 
     /// Installs the pinned distribution even when an older binary cannot
     /// answer `remote-probe`. This is reserved for an explicit upgrade.
     pub async fn install_verified(&self) -> Result<BootstrapOutcome, BootstrapError> {
+        self.install_verified_target().await.map(|resolved| resolved.outcome)
+    }
+
+    pub async fn install_verified_target(&self) -> Result<ResolvedBootstrap, BootstrapError> {
+        if !self.config.package_installable
+            && self.config.local_binary.is_none()
+            && self.config.windows_local_binary.is_none()
+        {
+            return Err(BootstrapError::PackageUnavailable(self.config.package_version.clone()));
+        }
+        let target = self.explicit_install_target().await?;
+        self.install_verified_for_target(target).await
+    }
+
+    async fn install_verified_for_target(
+        &self,
+        target: SshRemoteTarget,
+    ) -> Result<ResolvedBootstrap, BootstrapError> {
+        if matches!(target.shell, SshRemoteShell::WindowsCmd) {
+            return self.install_windows_binary(target).await;
+        }
         if !self.config.package_installable {
-            return self.install_local_binary().await;
+            let outcome = self.install_local_binary().await?;
+            return Ok(ResolvedBootstrap { outcome, target });
         }
         let npm_package = &self.config.npm_package;
         let package_version = &self.config.package_version;
@@ -190,7 +312,107 @@ impl SshBootstrapper {
                 protocol: probe.remote_protocol,
             });
         }
-        Ok(BootstrapOutcome::Installed)
+        Ok(ResolvedBootstrap { outcome: BootstrapOutcome::Installed, target })
+    }
+
+    async fn install_windows_binary(
+        &self,
+        target: SshRemoteTarget,
+    ) -> Result<ResolvedBootstrap, BootstrapError> {
+        let source = self.config.windows_local_binary.as_deref().ok_or_else(|| {
+            BootstrapError::WindowsBinaryUnavailable(self.config.package_version.clone())
+        })?;
+        let expected_size = std::fs::metadata(source).map_err(BootstrapError::Io)?.len();
+        let upload_name = format!(".cmux-upload-{}.exe", uuid::Uuid::new_v4().simple());
+        let upload = self.run_scp(source, &upload_name).await?;
+        if upload.status != 0 {
+            return Err(BootstrapError::Install {
+                status: upload.status,
+                stderr: sanitize(&String::from_utf8_lossy(&upload.stderr)),
+            });
+        }
+        let destination = powershell_single_quoted(&target.binary);
+        let upload_name = powershell_single_quoted(&upload_name);
+        let script = format!(
+            "$source=[IO.Path]::Combine($HOME,'{upload_name}');\
+             $destination=[Environment]::ExpandEnvironmentVariables('{destination}');\
+             $parent=[IO.Path]::GetDirectoryName($destination);\
+             [IO.Directory]::CreateDirectory($parent)|Out-Null;\
+             try{{if((Get-Item -LiteralPath $source -ErrorAction Stop).Length -ne {expected_size})\
+             {{throw 'uploaded Windows companion has the wrong size'}};\
+             Move-Item -LiteralPath $source -Destination $destination -Force;\
+             if((Get-Item -LiteralPath $destination -ErrorAction Stop).Length -ne {expected_size})\
+             {{throw 'installed Windows companion has the wrong size'}}}}\
+             finally{{if(Test-Path -LiteralPath $source){{Remove-Item -LiteralPath $source -Force}}}}"
+        );
+        let encoded = powershell_encoded_command(&script);
+        let command =
+            format!("powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand {encoded}");
+        let output = self.run_remote([command.as_str()]).await?;
+        if output.status != 0 {
+            return Err(BootstrapError::Install {
+                status: output.status,
+                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
+            });
+        }
+        let probe = self.probe_remote_target(&target).await?.ok_or(BootstrapError::Install {
+            status: 0,
+            stderr: "upload completed but the remote Windows binary is absent".into(),
+        })?;
+        if !self.compatible(&probe) {
+            return Err(BootstrapError::Incompatible {
+                version: probe.version,
+                protocol: probe.remote_protocol,
+            });
+        }
+        Ok(ResolvedBootstrap { outcome: BootstrapOutcome::Installed, target })
+    }
+
+    async fn run_scp(
+        &self,
+        source: &Path,
+        remote_filename: &str,
+    ) -> Result<RemoteOutput, BootstrapError> {
+        let mut command = Command::new(scp_binary_for(&self.config.ssh_binary));
+        command.arg("-q");
+        if let Some(port) = self.config.port {
+            command.arg("-P").arg(port.to_string());
+        }
+        let remote = format!("{}:{remote_filename}", self.config.destination);
+        command
+            .args(&self.config.extra_args)
+            .arg(source)
+            .arg(remote)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = command.kill_on_drop(true).spawn().map_err(BootstrapError::Io)?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            BootstrapError::Io(std::io::Error::other("SCP stdout pipe is unavailable"))
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            BootstrapError::Io(std::io::Error::other("SCP stderr pipe is unavailable"))
+        })?;
+        let completion = tokio::time::timeout(self.config.timeout, async {
+            tokio::try_join!(
+                read_bounded(stdout, "stdout"),
+                read_bounded(stderr, "stderr"),
+                async { child.wait().await.map_err(BootstrapError::Io) },
+            )
+        })
+        .await;
+        let (stdout, stderr, status) = match completion {
+            Ok(Ok(result)) => result,
+            Ok(Err(error)) => {
+                terminate_and_reap(&mut child).await;
+                return Err(error);
+            }
+            Err(_) => {
+                terminate_and_reap(&mut child).await;
+                return Err(BootstrapError::Timeout);
+            }
+        };
+        Ok(RemoteOutput { status: status.code().unwrap_or(255), stdout, stderr })
     }
 
     async fn install_local_binary(&self) -> Result<BootstrapOutcome, BootstrapError> {
@@ -258,6 +480,16 @@ impl SshBootstrapper {
         session: &str,
         state_dir: Option<&str>,
     ) -> Result<(), BootstrapError> {
+        let target = self.explicit_install_target().await?;
+        self.stop_daemon_target(&target, session, state_dir).await
+    }
+
+    pub async fn stop_daemon_target(
+        &self,
+        target: &SshRemoteTarget,
+        session: &str,
+        state_dir: Option<&str>,
+    ) -> Result<(), BootstrapError> {
         if session.is_empty()
             || !session.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
         {
@@ -267,41 +499,50 @@ impl SshBootstrapper {
         }
         if let Some(state_dir) = state_dir
             && (state_dir.is_empty()
-                || !state_dir
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"_./~:@+-".contains(&byte)))
+                || !state_dir.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric()
+                        || match target.shell {
+                            SshRemoteShell::Posix => b"_./~:@+-".contains(&byte),
+                            SshRemoteShell::WindowsCmd => b"_./\\%:@+-".contains(&byte),
+                        }
+                }))
         {
             return Err(BootstrapError::Configuration(
                 "remote state directory is not shell-safe".into(),
             ));
         }
-        let output = match state_dir {
-            Some(state_dir) => {
-                self.run_remote([
-                    self.config.remote_binary.as_str(),
-                    "remote-stop",
-                    "--session",
-                    session,
-                    "--state-dir",
-                    state_dir,
-                ])
-                .await?
-            }
-            None => {
-                self.run_remote([
-                    self.config.remote_binary.as_str(),
-                    "remote-stop",
-                    "--session",
-                    session,
-                ])
-                .await?
+        let output = match target.shell {
+            SshRemoteShell::Posix => match state_dir {
+                Some(state_dir) => {
+                    self.run_remote([
+                        target.binary.as_str(),
+                        "remote-stop",
+                        "--session",
+                        session,
+                        "--state-dir",
+                        state_dir,
+                    ])
+                    .await?
+                }
+                None => {
+                    self.run_remote([target.binary.as_str(), "remote-stop", "--session", session])
+                        .await?
+                }
+            },
+            SshRemoteShell::WindowsCmd => {
+                let mut command =
+                    format!("\"{}\" remote-stop --session {}", target.binary, session);
+                if let Some(state_dir) = state_dir {
+                    command.push_str(" --state-dir \"");
+                    command.push_str(state_dir);
+                    command.push('"');
+                }
+                self.run_remote([command.as_str()]).await?
             }
         };
-        if output.status != 0 {
-            return Err(BootstrapError::Remote {
-                status: output.status,
-                stderr: sanitize(&String::from_utf8_lossy(&output.stderr)),
-            });
+        let stderr = sanitize(&String::from_utf8_lossy(&output.stderr));
+        if output.status != 0 && !legacy_windows_stop_is_absent(target, &stderr) {
+            return Err(BootstrapError::Remote { status: output.status, stderr });
         }
         Ok(())
     }
@@ -441,6 +682,12 @@ impl SshBootstrapper {
     }
 }
 
+fn legacy_windows_stop_is_absent(target: &SshRemoteTarget, stderr: &str) -> bool {
+    target.shell == SshRemoteShell::WindowsCmd
+        && (stderr == LEGACY_WINDOWS_REMOTE_STOP_UNSUPPORTED
+            || (stderr.contains("mux.sock") && stderr.contains(WINDOWS_STALE_MUX_SOCKET_OS_ERROR)))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Platform {
     os: String,
@@ -495,6 +742,34 @@ fn windows_command_shell_error(stderr: &str) -> bool {
     stderr.to_ascii_lowercase().contains("is not recognized as an internal or external command")
 }
 
+fn windows_missing_binary_error(stderr: &str) -> bool {
+    let stderr = stderr.to_ascii_lowercase();
+    windows_command_shell_error(&stderr)
+        || stderr.contains("the system cannot find the path specified")
+        || stderr.contains("the system cannot find the file specified")
+}
+
+fn powershell_single_quoted(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn powershell_encoded_command(script: &str) -> String {
+    let mut utf16 = Vec::with_capacity(script.len() * 2);
+    for code_unit in script.encode_utf16() {
+        utf16.extend_from_slice(&code_unit.to_le_bytes());
+    }
+    base64::engine::general_purpose::STANDARD.encode(utf16)
+}
+
+fn scp_binary_for(ssh_binary: &str) -> PathBuf {
+    let ssh = Path::new(ssh_binary);
+    match ssh.file_name().and_then(|name| name.to_str()) {
+        Some("ssh") => ssh.with_file_name("scp"),
+        Some("ssh.exe") => ssh.with_file_name("scp.exe"),
+        _ => PathBuf::from("scp"),
+    }
+}
+
 async fn read_bounded(
     mut reader: impl tokio::io::AsyncRead + Unpin,
     stream: &'static str,
@@ -543,15 +818,33 @@ pub enum BootstrapError {
     Io(std::io::Error),
     ProbeJson(serde_json::Error),
     Timeout,
-    OutputLimit { stream: &'static str, limit: usize },
+    OutputLimit {
+        stream: &'static str,
+        limit: usize,
+    },
     Missing,
-    Remote { status: i32, stderr: String },
-    Install { status: i32, stderr: String },
+    Remote {
+        status: i32,
+        stderr: String,
+    },
+    Install {
+        status: i32,
+        stderr: String,
+    },
     PackageUnavailable(String),
     PlatformProbe(String),
-    LocalBinaryIncompatible { local: String, remote: String },
+    LocalBinaryIncompatible {
+        local: String,
+        remote: String,
+    },
+    WindowsBinaryUnavailable(String),
+    #[doc(hidden)]
+    WindowsShellDetected,
     WindowsRequiresWsl,
-    Incompatible { version: String, protocol: u8 },
+    Incompatible {
+        version: String,
+        protocol: u8,
+    },
 }
 
 impl fmt::Display for BootstrapError {
@@ -580,6 +873,13 @@ impl fmt::Display for BootstrapError {
                 formatter,
                 "this unpublished cmux-tui build cannot be uploaded from {local} to {remote}; use a published build or preinstall a matching remote binary"
             ),
+            Self::WindowsBinaryUnavailable(version) => write!(
+                formatter,
+                "this cmux-tui build does not include a native Windows companion ({version}); set CMUX_TUI_WINDOWS_REMOTE_BINARY to the matching cmux-tui.exe"
+            ),
+            Self::WindowsShellDetected => {
+                formatter.write_str("the SSH host uses the native Windows command shell")
+            }
             Self::WindowsRequiresWsl => formatter.write_str(
                 "native Windows cannot host the cmux-tui remote daemon yet; install a WSL 2 Linux distro with `wsl --install -d Ubuntu`, then connect through that Linux environment"
             ),
@@ -613,6 +913,8 @@ impl BootstrapError {
             ),
             Self::PlatformProbe(_)
             | Self::LocalBinaryIncompatible { .. }
+            | Self::WindowsBinaryUnavailable(_)
+            | Self::WindowsShellDetected
             | Self::WindowsRequiresWsl => false,
             _ => false,
         }
@@ -664,12 +966,199 @@ mod tests {
     }
 
     #[test]
-    fn native_windows_shell_failure_reports_the_wsl_prerequisite() {
+    fn native_windows_shell_failure_is_detectable_without_requiring_wsl() {
         assert!(windows_command_shell_error(
             "'~' is not recognized as an internal or external command, operable program or batch file."
         ));
-        assert!(!BootstrapError::WindowsRequiresWsl.is_retryable_carrier_failure());
-        assert!(BootstrapError::WindowsRequiresWsl.to_string().contains("wsl --install"));
+        assert!(windows_missing_binary_error("The system cannot find the path specified."));
+        assert!(!BootstrapError::WindowsShellDetected.is_retryable_carrier_failure());
+    }
+
+    #[test]
+    fn packaged_binary_discovers_its_windows_companion() {
+        let directory = tempfile::tempdir().unwrap();
+        let executable = directory.path().join("cmux-tui");
+        let companion = directory.path().join(WINDOWS_COMPANION_FILENAME);
+        std::fs::write(&executable, b"host").unwrap();
+
+        assert_eq!(bundled_windows_companion_for(&executable), None);
+        std::fs::write(&companion, b"windows").unwrap();
+        assert_eq!(bundled_windows_companion_for(&executable), Some(companion));
+    }
+
+    #[test]
+    fn scp_binary_tracks_standard_ssh_installations() {
+        assert_eq!(scp_binary_for("ssh"), PathBuf::from("scp"));
+        assert_eq!(scp_binary_for("/opt/openssh/bin/ssh"), PathBuf::from("/opt/openssh/bin/scp"));
+        assert_eq!(scp_binary_for("ssh.exe"), PathBuf::from("scp.exe"));
+        assert_eq!(scp_binary_for("ssh-wrapper"), PathBuf::from("scp"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn probe_resolves_native_windows_binary_after_cmd_shell_detection() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let remote_protocol_version = REMOTE_PROTOCOL_VERSION;
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\ncase \"$*\" in\n  *\"%LOCALAPPDATA%\\\\cmux\\\\bin\\\\cmux-tui.exe\"*) printf '%s' '{{\"app\":\"cmux-tui\",\"version\":\"{DISTRIBUTION_VERSION}\",\"distribution_version\":\"{DISTRIBUTION_VERSION}\",\"build_identity\":\"{BUILD_IDENTITY}\",\"remote_protocol\":{remote_protocol_version},\"os\":\"windows\",\"arch\":\"x86_64\"}}' ;;\n  *) printf \"'~' is not recognized as an internal or external command\" >&2; exit 1 ;;\nesac\n"
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut config = SshBootstrapConfig::defaults("host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        config.package_installable = false;
+        let resolved =
+            SshBootstrapper::new(config).unwrap().ensure_installed_target().await.unwrap();
+
+        assert_eq!(resolved.outcome, BootstrapOutcome::AlreadyInstalled);
+        assert_eq!(resolved.target.shell, SshRemoteShell::WindowsCmd);
+        assert_eq!(resolved.target.binary, WINDOWS_REMOTE_BINARY);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn resident_windows_target_stops_mux_owner_with_one_cmd_safe_command() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let arguments = directory.path().join("arguments");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", arguments.display()),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        bootstrap
+            .stop_daemon_target(&target, "main", Some(r"%LOCALAPPDATA%\cmux\state"))
+            .await
+            .unwrap();
+
+        let arguments = fs::read_to_string(arguments).unwrap();
+        assert!(arguments.contains("windows-host\n"));
+        assert!(arguments.contains(
+            r#""%LOCALAPPDATA%\cmux\bin\cmux-tui.exe" remote-stop --session main --state-dir "%LOCALAPPDATA%\cmux\state""#
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_carrier_scoped_windows_stop_does_not_block_owner_upgrade() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            "#!/bin/sh\nprintf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        bootstrap
+            .stop_daemon_target(&target, "main", Some(r"%LOCALAPPDATA%\cmux\state"))
+            .await
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn windows_stale_mux_socket_does_not_block_owner_upgrade() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            "#!/bin/sh\nprintf '%s' 'cmux-tui: could not inspect C:\\Users\\cmux\\AppData\\Local\\cmux\\remote\\sessions\\main\\mux.sock: A socket operation encountered a dead network. (os error 10050)' >&2\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+        let target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        bootstrap
+            .stop_daemon_target(&target, "main", Some(r"%LOCALAPPDATA%\cmux\state"))
+            .await
+            .unwrap();
+    }
+
+    #[test]
+    fn windows_upgrade_does_not_hide_unrelated_network_errors() {
+        let windows_target = SshRemoteTarget {
+            binary: WINDOWS_REMOTE_BINARY.into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+
+        assert!(!legacy_windows_stop_is_absent(
+            &windows_target,
+            "SSH transport failed before remote-stop (os error 10050)",
+        ));
+        assert!(!legacy_windows_stop_is_absent(
+            &windows_target,
+            "could not inspect mux.sock (os error 10054)",
+        ));
+
+        let posix_target = SshRemoteTarget {
+            binary: "~/.local/bin/cmux-tui".into(),
+            shell: SshRemoteShell::Posix,
+        };
+        assert!(!legacy_windows_stop_is_absent(
+            &posix_target,
+            "could not inspect mux.sock (os error 10050)",
+        ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn legacy_windows_probe_does_not_block_first_resident_owner_upgrade() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        fs::write(
+            &script,
+            "#!/bin/sh\ncase \"$*\" in\n  *\"~/.local/bin/cmux-tui remote-probe --json\"*) printf \"'~' is not recognized as an internal or external command\" >&2; exit 1 ;;\n  *\"remote-probe --json\"*) printf '%s' 'legacy Windows probe' >&2; exit 2 ;;\n  *\"remote-stop --session main\"*) printf '%s' 'cmux-tui: remote-stop is not implemented on Windows yet' >&2; exit 1 ;;\nesac\nexit 2\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let mut config = SshBootstrapConfig::defaults("windows-host");
+        config.ssh_binary = script.to_string_lossy().into_owned();
+        let bootstrap = SshBootstrapper::new(config).unwrap();
+
+        bootstrap.stop_daemon("main", Some(r"%LOCALAPPDATA%\cmux\state")).await.unwrap();
     }
 
     #[test]

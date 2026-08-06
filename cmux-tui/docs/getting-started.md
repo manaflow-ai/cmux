@@ -63,7 +63,7 @@ Resource selectors accept a typed opaque ID, `current`, or an exact name. Names 
 
 ## Remote machines
 
-The optional machine rail keeps rendering local while it connects individual sessions through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The SSH connector shares the managed lifecycle used by `cmux-tui ssh`: it checks the remote binary, starts the named headless mux and sidecar on demand, and reconnects without nesting a second TUI. Packaged releases can install their pinned remote binary. Source builds require the exact matching binary to be installed remotely.
+The optional machine rail keeps rendering local while it connects individual sessions through Unix sockets or SSH. It is disabled for the default local run and activates when `machine_sidebar.enabled` is true or `machines` contains a valid entry in `cmux-tui.json`. The SSH connector shares the managed lifecycle used by `cmux-tui ssh`: it checks the remote binary, starts the named remote session runtime on demand, and reconnects without nesting a second TUI. Packaged releases can install their pinned remote binary. Source builds require the exact matching binary to be installed remotely.
 
 Packaged clients use the same configuration and can start with:
 
@@ -93,7 +93,7 @@ The usual default is `$XDG_RUNTIME_DIR/cmux-tui-<uid>/main.sock` when `XDG_RUNTI
 
 ## Platforms and XDG
 
-cmux-tui supports macOS and Linux; Windows support via ConPTY is planned for phase 2. The TUI config path resolves `CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `$XDG_CONFIG_HOME/cmux/cmux-tui.json` or `~/.config/cmux/cmux-tui.json`. Existing `mux.json` files remain supported and are used when `cmux-tui.json` is absent.
+The packaged cmux-tui frontend supports macOS and Linux. Those frontends can also attach to native x86_64 Windows OpenSSH machines, where terminals use ConPTY; WSL is optional. The TUI config path resolves `CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `$XDG_CONFIG_HOME/cmux/cmux-tui.json` or `~/.config/cmux/cmux-tui.json`. Existing `mux.json` files remain supported and are used when `cmux-tui.json` is absent.
 
 Launched Chrome profile paths are platform-specific. On macOS the default is `~/Library/Application Support/cmux-tui/chrome-profile`. On Linux and other non-macOS targets, `XDG_DATA_HOME` is used when set, then `~/.local/share/cmux-tui/chrome-profile`.
 

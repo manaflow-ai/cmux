@@ -1132,17 +1132,11 @@ pub(crate) struct ManagedSshConnection {
 }
 
 /// Keeps the local bridge and its reconnecting SSH client alive for as long
-/// as the selected machine session owns it.
+/// as the selected machine session owns it. Dropping this lease signals the
+/// runtime asynchronously; sidebar navigation must never join a transport
+/// thread that may be blocked in operating-system I/O.
 pub(crate) struct ManagedSshLease {
-    runtime: Option<crate::remote_runtime::ClientRuntimeHandle>,
-}
-
-impl Drop for ManagedSshLease {
-    fn drop(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            let _ = runtime.shutdown();
-        }
-    }
+    _runtime: crate::remote_runtime::ClientRuntimeHandle,
 }
 
 pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyhow::Result<()> {
@@ -1178,14 +1172,13 @@ pub(crate) fn connect_managed_ssh(
     match RemoteSession::connect(&local_socket) {
         Ok(remote) => Ok(ManagedSshConnection {
             session: Session::Remote(remote),
-            lease: ManagedSshLease { runtime: Some(connected.runtime) },
+            lease: ManagedSshLease { _runtime: connected.runtime },
         }),
         Err(connect_error) => {
-            let cleanup_error = connected.runtime.shutdown().err();
-            match cleanup_error {
-                Some(cleanup_error) => Err(connect_error.context(cleanup_error)),
-                None => Err(connect_error),
-            }
+            // Dropping signals cancellation and lets the runtime reap itself.
+            // A failed attach must not wait indefinitely for transport I/O.
+            drop(connected.runtime);
+            Err(connect_error)
         }
     }
 }

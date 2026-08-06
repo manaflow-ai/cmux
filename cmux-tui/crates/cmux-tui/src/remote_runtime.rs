@@ -37,7 +37,8 @@ use cmux_remote::provider::{
     IrohProviderConfig, LinkGroup, ProviderError, RelayClientConfig, RelayCredentialSource,
     RelayDaemonConfig, RelayDaemonRegistration, RelayProvider, SshProvider, SshProviderConfig,
     SupportedClientAuthModes, TransportProvider, UnixProvider, load_or_create_iroh_secret,
-    register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+    register_relay_daemon_with_credentials, register_resolved_ssh_target, sanitized_route,
+    sanitized_route_text,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
@@ -1103,7 +1104,7 @@ async fn bootstrap_initial_ssh_route(
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
-    let mut config = SshBootstrapConfig::defaults(destination);
+    let mut config = SshBootstrapConfig::defaults(destination.clone());
     config.ssh_binary = ssh.ssh_binary.clone();
     config.port = port;
     config.remote_binary = ssh.remote_binary.clone();
@@ -1113,17 +1114,19 @@ async fn bootstrap_initial_ssh_route(
     let bootstrap = SshBootstrapper::new(config)?;
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
-            if upgrade {
-                bootstrap.install_verified().await?;
+            let target = if upgrade {
                 bootstrap
                     .stop_daemon(&ssh.remote_session, ssh.remote_state_dir.as_deref())
                     .await?;
+                let resolved = bootstrap.install_verified_target().await?;
+                resolved.target
             } else {
-                bootstrap.ensure_installed().await?;
-            }
-            Ok::<(), BootstrapError>(())
+                bootstrap.ensure_installed_target().await?.target
+            };
+            Ok::<_, BootstrapError>(target)
         }) => {
-            result.map_err(|_| BootstrapError::Timeout)??;
+            let target = result.map_err(|_| BootstrapError::Timeout)??;
+            register_resolved_ssh_target(&destination, port, target)?;
             Ok(())
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),

@@ -132,17 +132,7 @@ pub fn draw_prompt(app: &mut App, frame: &mut Frame) {
     if let Some(transaction) = connection
         && !matches!(transaction.phase, crate::app::ConnectionDialogPhase::Editing)
     {
-        draw_connection_prompt(
-            frame,
-            prompt,
-            &transaction,
-            hover,
-            base,
-            title_style,
-            input_style,
-            chrome.prompt_button_accent_fg,
-            chrome.prompt_button_hover_bg,
-        );
+        draw_connection_prompt(frame, prompt, &transaction, hover, chrome);
         return;
     }
     buf.set_stringn(x + 2, y + 2, prompt.label.as_str(), (width - 4) as usize, title_style);
@@ -210,14 +200,13 @@ fn draw_connection_prompt(
     prompt: &mut crate::app::Prompt,
     transaction: &crate::app::ConnectionTransaction,
     hover: Option<(u16, u16)>,
-    base: Style,
-    title_style: Style,
-    input_style: Style,
-    button_accent: ratatui::style::Color,
-    button_hover: ratatui::style::Color,
+    chrome: crate::config::ChromeTheme,
 ) {
     use crate::app::ConnectionDialogPhase;
 
+    let base = Style::default().bg(chrome.prompt_bg).fg(chrome.prompt_fg);
+    let title_style = base.fg(chrome.prompt_title_fg).add_modifier(Modifier::BOLD);
+    let input_style = Style::default().bg(chrome.prompt_input_bg).fg(chrome.prompt_input_fg);
     let Rect { x, y, width, height } = prompt.rect;
     let copy = &catalog().sidebar;
     let (title, error) = match &transaction.phase {
@@ -288,9 +277,9 @@ fn draw_connection_prompt(
     };
     let button_style = |rect: Rect, accent: bool| {
         let hovered = hover.is_some_and(|(hx, hy)| rect.contains(hx, hy));
-        let mut style = if accent { base.fg(button_accent) } else { base };
+        let mut style = if accent { base.fg(chrome.prompt_button_accent_fg) } else { base };
         if hovered {
-            style = style.add_modifier(Modifier::BOLD).bg(button_hover);
+            style = style.add_modifier(Modifier::BOLD).bg(chrome.prompt_button_hover_bg);
         }
         style
     };

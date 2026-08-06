@@ -5961,15 +5961,20 @@ fn clamp_rail_width(desired: u16, configured_max: u16, available: u16) -> Option
     (effective_max >= MIN_RAIL_WIDTH).then(|| desired.clamp(MIN_RAIL_WIDTH, effective_max))
 }
 
+#[derive(Clone, Copy, Default)]
+struct SidebarWidthOverrides {
+    workspace: Option<u16>,
+    machine: Option<u16>,
+    tabs: Option<u16>,
+}
+
 fn sidebar_layout_for(
     config: &Config,
     visible: bool,
     compact: bool,
     machine_visible: bool,
     size: (u16, u16),
-    workspace_override: Option<u16>,
-    machine_override: Option<u16>,
-    tabs_override: Option<u16>,
+    overrides: SidebarWidthOverrides,
 ) -> SidebarLayout {
     sidebar_layout_for_state(
         config,
@@ -5977,9 +5982,9 @@ fn sidebar_layout_for(
         compact,
         machine_visible,
         size,
-        workspace_override,
-        machine_override,
-        tabs_override,
+        overrides.workspace,
+        overrides.machine,
+        overrides.tabs,
         &HashMap::new(),
         &HashSet::new(),
         None,
@@ -6951,9 +6956,7 @@ fn run_with_machine_updates_inner(
             false,
             machine_ui.is_some(),
             (w, h),
-            None,
-            None,
-            None,
+            SidebarWidthOverrides::default(),
         )
         .content;
         content_size_for_rect(pane, config.scrollbar.position).unwrap_or((1, 1))
@@ -7845,10 +7848,11 @@ impl App {
             .map(|state| &state.collapsed)
             .cloned()
             .unwrap_or_default();
-        let agents = spec
-            .includes(SidebarResourceKind::Agents)
-            .then(|| self.session.agents())
-            .unwrap_or_default();
+        let agents = if spec.includes(SidebarResourceKind::Agents) {
+            self.session.agents()
+        } else {
+            Vec::new()
+        };
         crate::sidebar_projection::rows(
             spec,
             &self.tree,
@@ -12161,9 +12165,7 @@ impl App {
         } else if let Some(menu) = self.menu.as_mut() {
             menu.insert_search_text(&text);
             Ok(RenderAction::Draw)
-        } else if self.machine_sidebar_focused() {
-            Ok(RenderAction::Draw)
-        } else if self.tabs_sidebar_focused() {
+        } else if self.machine_sidebar_focused() || self.tabs_sidebar_focused() {
             Ok(RenderAction::Draw)
         } else if self.workspace_sidebar_focused() {
             if self.config.sidebar.plugin.is_some() {
@@ -19503,6 +19505,7 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
+    use super::SidebarWidthOverrides;
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DeferredInput, DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome,
@@ -20172,7 +20175,14 @@ mod tests {
     #[test]
     fn zero_width_startup_hides_sidebar_without_panicking() {
         let config = Config::default();
-        let layout = sidebar_layout_for(&config, true, false, false, (0, 24), None, None, None);
+        let layout = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            false,
+            (0, 24),
+            SidebarWidthOverrides::default(),
+        );
         assert!(layout.workspace.is_none());
         assert_eq!(layout.content.width, 0);
     }
@@ -21005,13 +21015,13 @@ mod tests {
         let mut config = Config::default();
         config.sidebar.width = 28;
         config.sidebar.compact_width = 10;
-        let full = sidebar_layout_for(&config, true, false, false, (100, 30), Some(35), None, None);
+        let overrides =
+            SidebarWidthOverrides { workspace: Some(35), ..SidebarWidthOverrides::default() };
+        let full = sidebar_layout_for(&config, true, false, false, (100, 30), overrides);
         assert_eq!(full.workspace.map(|area| area.width), Some(35));
-        let compact =
-            sidebar_layout_for(&config, true, true, false, (100, 30), Some(35), None, None);
+        let compact = sidebar_layout_for(&config, true, true, false, (100, 30), overrides);
         assert_eq!(compact.workspace.map(|area| area.width), Some(10));
-        let hidden =
-            sidebar_layout_for(&config, false, true, false, (100, 30), Some(35), None, None);
+        let hidden = sidebar_layout_for(&config, false, true, false, (100, 30), overrides);
         assert_eq!(hidden.workspace, None);
 
         let mux = Mux::new("compact-sidebar-action-test", SurfaceOptions::default());
@@ -21049,18 +21059,39 @@ mod tests {
             .collect();
         config.sidebar.views_explicit = true;
 
-        let full = sidebar_layout_for(&config, true, false, true, (120, 30), None, None, None);
+        let full = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (120, 30),
+            SidebarWidthOverrides::default(),
+        );
         assert_eq!(full.machine, Some(Rect { x: 0, y: 0, width: 18, height: 30 }));
         assert_eq!(full.workspace, Some(Rect { x: 18, y: 0, width: 22, height: 30 }));
         assert_eq!(full.tabs, Some(Rect { x: 40, y: 0, width: 24, height: 30 }));
         assert_eq!(full.content.x, 64);
 
-        let medium = sidebar_layout_for(&config, true, false, true, (60, 30), None, None, None);
+        let medium = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (60, 30),
+            SidebarWidthOverrides::default(),
+        );
         assert_eq!(medium.machine, None);
         assert!(medium.workspace.is_some());
         assert!(medium.tabs.is_some());
 
-        let narrow = sidebar_layout_for(&config, true, false, true, (50, 30), None, None, None);
+        let narrow = sidebar_layout_for(
+            &config,
+            true,
+            false,
+            true,
+            (50, 30),
+            SidebarWidthOverrides::default(),
+        );
         assert_eq!(narrow.machine, None);
         assert_eq!(narrow.tabs, None);
         assert_eq!(narrow.workspace.map(|rect| rect.width), Some(10));

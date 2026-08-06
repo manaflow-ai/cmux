@@ -166,7 +166,6 @@ export const env = createEnv({
     CMUX_APNS_KEY_P8: z.string().min(1).optional(),
     CMUX_APNS_KEY_ID: z.string().min(1).optional(),
     CMUX_APNS_TEAM_ID: z.string().min(1).optional(),
-    CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
     // cmux Founder's Edition welcome email (Stripe webhook -> Resend). Optional:
     // the /api/stripe/founders-welcome route returns "not configured" until the
     // webhook signing secret is set. CMUX_FOUNDERS_FROM_EMAIL overrides the
@@ -266,7 +265,7 @@ export const env = createEnv({
       z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
     // Optional: leave unset to disable iroh rate limiting entirely. When unset,
     // the firewall gate in routeHandler.ts is skipped. Matches the other
-    // optional rate-limit IDs (CMUX_PUSH_RATE_LIMIT_ID,
+    // optional rate-limit IDs (for example
     // CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID).
     CMUX_IROH_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Account-scoped route invalidations. The payload is revision-only; apps
@@ -320,7 +319,6 @@ export const env = createEnv({
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
     CMUX_APNS_TEAM_ID: trimEnv(process.env.CMUX_APNS_TEAM_ID),
-    CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     STRIPE_FOUNDERS_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET),
     CMUX_FOUNDERS_FROM_EMAIL: trimEnv(process.env.CMUX_FOUNDERS_FROM_EMAIL),
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),

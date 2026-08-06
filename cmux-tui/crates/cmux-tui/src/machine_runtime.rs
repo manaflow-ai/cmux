@@ -3,8 +3,9 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::config::{MachineConfig, MachineCreationSourceConfig, MachineTargetConfig};
 use crate::machine::{
@@ -17,6 +18,9 @@ const SSH_CONFIG_MAX_DEPTH: usize = 16;
 const SSH_CONFIG_MAX_FILES: usize = 256;
 const SSH_CONFIG_MAX_HOSTS: usize = 4096;
 const MACHINE_WARM_WORKERS: usize = 4;
+pub(crate) const MACHINE_CONNECTION_TIMEOUT_SECONDS: u64 = 95;
+const MACHINE_CONNECTION_TIMEOUT: Duration =
+    Duration::from_secs(MACHINE_CONNECTION_TIMEOUT_SECONDS);
 /// Provider-backed machine keys grow upward from one. Client-local overlay
 /// keys live in the upper half so the two process-local catalogs cannot
 /// collide without changing the provider protocol.
@@ -436,11 +440,19 @@ struct MachineConnectionHubInner {
     slots: Mutex<HashMap<MachineKey, MachineConnectionSlot>>,
     changed: Condvar,
     closed: AtomicBool,
+    next_attempt: AtomicU64,
 }
 
 struct MachineConnectionSlot {
     connector: MachineConnectFn,
     state: MachineConnectionState,
+    active_attempt: Option<MachineConnectionAttempt>,
+}
+
+#[derive(Clone, Copy)]
+struct MachineConnectionAttempt {
+    id: u64,
+    deadline: Instant,
 }
 
 enum MachineConnectionState {
@@ -462,6 +474,7 @@ impl MachineConnectionHub {
                     MachineConnectionSlot {
                         connector,
                         state: MachineConnectionState::Disconnected,
+                        active_attempt: None,
                     },
                 )
             })
@@ -471,6 +484,7 @@ impl MachineConnectionHub {
                 slots: Mutex::new(slots),
                 changed: Condvar::new(),
                 closed: AtomicBool::new(false),
+                next_attempt: AtomicU64::new(1),
             }),
         }
     }
@@ -485,6 +499,7 @@ impl MachineConnectionHub {
                     MachineConnectionSlot {
                         connector,
                         state: MachineConnectionState::Disconnected,
+                        active_attempt: None,
                     },
                 );
             }
@@ -494,6 +509,7 @@ impl MachineConnectionHub {
     pub(crate) fn insert_ready(&self, key: MachineKey, connection: MachineConnection) {
         let Ok(mut slots) = self.inner.slots.lock() else { return };
         let Some(slot) = slots.get_mut(&key) else { return };
+        slot.active_attempt = None;
         slot.state = MachineConnectionState::Ready(connection);
         self.inner.changed.notify_all();
     }
@@ -520,52 +536,101 @@ impl MachineConnectionHub {
                     return Ok(connection.session.clone());
                 }
                 MachineConnectionState::Connecting => {
-                    drop(self.inner.changed.wait(slots).map_err(|_| {
-                        anyhow::anyhow!(
-                            crate::localization::catalog().sidebar.machine_catalog_updates_failed
-                        )
-                    })?);
+                    let deadline = slot
+                        .active_attempt
+                        .map(|attempt| attempt.deadline)
+                        .unwrap_or_else(Instant::now);
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        let message = machine_connection_timeout_message();
+                        slot.state = MachineConnectionState::Failed(message.clone());
+                        self.inner.changed.notify_all();
+                        return Err(anyhow::anyhow!(message));
+                    }
+                    let (mut slots, wait) =
+                        self.inner.changed.wait_timeout(slots, remaining).map_err(|_| {
+                            anyhow::anyhow!(
+                                crate::localization::catalog()
+                                    .sidebar
+                                    .machine_catalog_updates_failed
+                            )
+                        })?;
+                    if wait.timed_out()
+                        && let Some(slot) = slots.get_mut(&key)
+                        && matches!(slot.state, MachineConnectionState::Connecting)
+                    {
+                        let message = machine_connection_timeout_message();
+                        slot.state = MachineConnectionState::Failed(message.clone());
+                        self.inner.changed.notify_all();
+                        return Err(anyhow::anyhow!(message));
+                    }
+                    drop(slots);
                 }
-                MachineConnectionState::Failed(error) if !retry_failed => {
+                MachineConnectionState::Failed(error)
+                    if !retry_failed || slot.active_attempt.is_some() =>
+                {
                     return Err(anyhow::anyhow!(error.clone()));
                 }
                 MachineConnectionState::Disconnected | MachineConnectionState::Failed(_) => {
                     let connector = Arc::clone(&slot.connector);
+                    let attempt = MachineConnectionAttempt {
+                        id: self.inner.next_attempt.fetch_add(1, Ordering::Relaxed),
+                        deadline: Instant::now() + MACHINE_CONNECTION_TIMEOUT,
+                    };
+                    slot.active_attempt = Some(attempt);
                     slot.state = MachineConnectionState::Connecting;
                     drop(slots);
-                    let result = connector();
-                    let mut slots = self.inner.slots.lock().map_err(|_| {
-                        anyhow::anyhow!(
-                            crate::localization::catalog().sidebar.machine_catalog_updates_failed
-                        )
-                    })?;
-                    let Some(slot) = slots.get_mut(&key) else {
-                        return Err(anyhow::anyhow!(
-                            crate::localization::catalog().sidebar.client_machine_unavailable
-                        ));
-                    };
-                    if self.inner.closed.load(Ordering::Acquire) {
-                        slot.state = MachineConnectionState::Disconnected;
-                        self.inner.changed.notify_all();
-                        anyhow::bail!(crate::localization::catalog().sidebar.no_active_session);
-                    }
-                    match result {
-                        Ok(connection) => {
-                            let session = connection.session.clone();
-                            slot.state = MachineConnectionState::Ready(connection);
-                            self.inner.changed.notify_all();
-                            return Ok(session);
-                        }
-                        Err(error) => {
-                            let message = error.to_string();
+                    if let Err(error) = self.spawn_attempt(key, attempt, connector) {
+                        let message = error.to_string();
+                        if let Ok(mut slots) = self.inner.slots.lock()
+                            && let Some(slot) = slots.get_mut(&key)
+                            && slot.active_attempt.is_some_and(|active| active.id == attempt.id)
+                        {
+                            slot.active_attempt = None;
                             slot.state = MachineConnectionState::Failed(message);
                             self.inner.changed.notify_all();
-                            return Err(error);
                         }
+                        return Err(error.into());
                     }
                 }
             }
         }
+    }
+
+    fn spawn_attempt(
+        &self,
+        key: MachineKey,
+        attempt: MachineConnectionAttempt,
+        connector: MachineConnectFn,
+    ) -> std::io::Result<()> {
+        let hub = self.clone();
+        std::thread::Builder::new()
+            .name(format!("machine-connect-{}", key.0))
+            .spawn(move || hub.finish_attempt(key, attempt, connector()))?;
+        Ok(())
+    }
+
+    fn finish_attempt(
+        &self,
+        key: MachineKey,
+        attempt: MachineConnectionAttempt,
+        result: anyhow::Result<MachineConnection>,
+    ) {
+        let Ok(mut slots) = self.inner.slots.lock() else { return };
+        let Some(slot) = slots.get_mut(&key) else { return };
+        if slot.active_attempt.is_none_or(|active| active.id != attempt.id) {
+            return;
+        }
+        slot.active_attempt = None;
+        if self.inner.closed.load(Ordering::Acquire) {
+            slot.state = MachineConnectionState::Disconnected;
+        } else if matches!(slot.state, MachineConnectionState::Connecting) {
+            slot.state = match result {
+                Ok(connection) => MachineConnectionState::Ready(connection),
+                Err(error) => MachineConnectionState::Failed(error.to_string()),
+            };
+        }
+        self.inner.changed.notify_all();
     }
 
     /// Warm every explicitly registered machine without extending startup.
@@ -670,6 +735,7 @@ impl MachineConnectionHub {
             slots
                 .values_mut()
                 .filter_map(|slot| {
+                    slot.active_attempt = None;
                     match std::mem::replace(&mut slot.state, MachineConnectionState::Disconnected) {
                         MachineConnectionState::Ready(connection) => Some(connection),
                         MachineConnectionState::Disconnected
@@ -684,6 +750,12 @@ impl MachineConnectionHub {
         }
         self.inner.changed.notify_all();
     }
+}
+
+fn machine_connection_timeout_message() -> String {
+    crate::localization::catalog()
+        .sidebar
+        .machine_connection_timed_out(MACHINE_CONNECTION_TIMEOUT.as_secs())
 }
 
 fn connect_target(target: &MachineTargetConfig) -> anyhow::Result<MachineConnection> {
@@ -781,6 +853,47 @@ fn local_hostname() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn closing_hub_releases_a_caller_while_its_connector_is_blocked() {
+        let key = MachineKey(41);
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let connector_release = release.clone();
+        let connector: MachineConnectFn = Arc::new(move || {
+            started_tx.send(()).unwrap();
+            let (lock, changed) = &*connector_release;
+            let mut released = lock.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            finished_tx.send(()).unwrap();
+            anyhow::bail!("test connector released")
+        });
+        let hub = MachineConnectionHub::new([(key, connector)]);
+        let connecting = hub.clone();
+        let (result_tx, result_rx) = std::sync::mpsc::sync_channel(1);
+        let caller = std::thread::spawn(move || {
+            let _ = result_tx.send(connecting.connect(key));
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        hub.close();
+        let result = result_rx.recv_timeout(Duration::from_millis(250));
+
+        let (lock, changed) = &*release;
+        *lock.lock().unwrap() = true;
+        changed.notify_all();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        caller.join().unwrap();
+
+        assert!(
+            matches!(result, Ok(Err(_))),
+            "closing the hub left its caller blocked inside the connector"
+        );
+    }
 
     #[test]
     fn connected_target_is_deduplicated() {

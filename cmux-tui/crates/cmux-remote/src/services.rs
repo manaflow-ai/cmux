@@ -618,17 +618,32 @@ impl DaemonServices {
         Self::serve_mux_control_with_budget(None, stream, MuxUploadBudget::new()).await
     }
 
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    async fn serve_mux_control_with_budget(
+        mux_socket: Option<PathBuf>,
+        stream: ServiceStream,
+        upload_budget: MuxUploadBudget,
+    ) -> Result<(), ServicesError> {
+        let path = mux_socket.as_ref().ok_or_else(|| {
+            ServicesError::Unavailable("mux control socket is not configured".into())
+        })?;
+        let socket = uds_windows::UnixStream::connect(path)?;
+        let local = crate::windows_socket::bridge(socket)?;
+        let (local_reader, local_writer) = tokio::io::split(local);
+
+        let stream = Arc::new(stream);
+        send_opened(&stream, Lane::Interactive).await?;
+        pump_mux_server_with_budget(stream, local_reader, local_writer, upload_budget).await
+    }
+
+    #[cfg(not(any(unix, windows)))]
     async fn serve_mux_control_with_budget(
         _mux_socket: Option<PathBuf>,
         stream: ServiceStream,
         _upload_budget: MuxUploadBudget,
     ) -> Result<(), ServicesError> {
         stream
-            .reject(
-                "unsupported".to_string(),
-                "mux control bridge requires Unix sockets".to_string(),
-            )
+            .reject("unsupported".to_string(), "mux control bridge is unavailable".to_string())
             .await?;
         Ok(())
     }
