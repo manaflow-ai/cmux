@@ -11,6 +11,7 @@ const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
+  "content-encoding",
   "content-type",
   "openai-beta",
   "openai-organization",
@@ -93,6 +94,9 @@ export async function proxyCodexRequest(request: Request): Promise<Response> {
   ]) {
     const value = upstream.headers.get(name);
     if (value) responseHeaders.set(name, value);
+  }
+  if (!responseHeaders.has("content-type")) {
+    responseHeaders.set("content-type", "text/event-stream; charset=utf-8");
   }
   responseHeaders.set("cache-control", "no-store");
   return new Response(upstream.body, {
@@ -213,6 +217,8 @@ function rateLimitDelay(headers: Headers): number {
 }
 
 function bearerToken(request: Request): string | null {
+  const routed = request.headers.get("x-coderouter-route-token")?.trim();
+  if (routed) return routed;
   const authorization = request.headers.get("authorization")?.trim() ?? "";
   const match = /^Bearer[ \t]+(.+)$/i.exec(authorization);
   return match?.[1]?.trim() || null;

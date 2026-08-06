@@ -26,4 +26,16 @@ describe("coderouter middleware", () => {
     expect(response.headers.get("x-middleware-rewrite")).toBeNull();
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
+
+  test("does not localize Pi's Codex-compatible data-plane route", () => {
+    const response = middleware(
+      new NextRequest("https://coderouter.dev/v1/codex/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
 });
