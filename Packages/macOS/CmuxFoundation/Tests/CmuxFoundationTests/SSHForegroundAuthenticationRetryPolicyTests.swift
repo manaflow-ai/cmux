@@ -581,6 +581,63 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
+    @Test func forceOwnedProcessesChecksDeadlineInsidePIDLoop() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-loop-deadline-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() {
+          cmux_test_deadline_calls=$(/bin/cat "$CMUX_TEST_DEADLINE_CALLS") || return 1
+          cmux_test_deadline_calls=$((cmux_test_deadline_calls + 1))
+          printf '%s\n' "$cmux_test_deadline_calls" > "$CMUX_TEST_DEADLINE_CALLS" || return 1
+          [ "$cmux_test_deadline_calls" -le 2 ]
+        }
+        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_select_exclusive_groups() { : > "$cmux_ssh_auth_owned_groups"; }
+        cmux_ssh_auth_order_children_first() {
+          /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"
+        }
+        cmux_ssh_auth_identity() {
+          printf x >> "$CMUX_TEST_IDENTITY_CALLS"
+          printf '1|2|started\n'
+        }
+        printf '0\n' > "$CMUX_TEST_DEADLINE_CALLS"
+        : > "$CMUX_TEST_IDENTITY_CALLS"
+        printf '101 1 2 started S\n102 1 2 started S\n103 1 2 started S\n' \
+          > "$CMUX_TEST_OWNED"
+        : > "$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_caller_group=3
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_groups="$CMUX_TEST_GROUPS_NEXT"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        if cmux_ssh_auth_force_owned_processes; then exit 98; fi
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_IDENTITY_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 1 || exit 97
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_DEADLINE_CALLS": root.appendingPathComponent("deadline-calls").path,
+            "CMUX_TEST_GROUPS": root.appendingPathComponent("groups").path,
+            "CMUX_TEST_GROUPS_NEXT": root.appendingPathComponent("groups.next").path,
+            "CMUX_TEST_IDENTITY_CALLS": root.appendingPathComponent("identity-calls").path,
+            "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+            "CMUX_TEST_ORDERED": root.appendingPathComponent("ordered").path,
+            "CMUX_TEST_OWNED": root.appendingPathComponent("owned").path,
+            "CMUX_TEST_OWNED_NEXT": root.appendingPathComponent("owned.next").path,
+            "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func emptyFrozenProcessSetRequiresNoForce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -897,11 +954,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         : > "$CMUX_TEST_ALLOW_CLEANUP"
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
-        cmux_ssh_resume_failed_auth_group_reapers || exit 95
+        cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 95
+        cmux_ssh_resume_failed_auth_group_reapers || exit 94
         cmux_test_second_reaper=$!
-        wait "$cmux_test_second_reaper" || exit 94
-        test ! -d "$TMPDIR/cmux-ssh-auth-group.test" || exit 93
-        test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 4 || exit 92
+        wait "$cmux_test_second_reaper" || exit 93
+        test ! -d "$TMPDIR/cmux-ssh-auth-group.test" || exit 92
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 4 || exit 91
         """
 
         let process = Process()
@@ -956,7 +1014,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
-        cmux_ssh_resume_failed_auth_group_reapers || exit 96
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_ORPHAN_GROUP" || exit 96
+        cmux_ssh_auth_recovery_enqueue "$CMUX_TEST_LIVE_GROUP" || exit 95
+        cmux_ssh_resume_failed_auth_group_reapers || exit 94
         wait
         test "$(/bin/cat "$CMUX_TEST_RECOVERY_CALLS" 2>/dev/null)" = \
           "cmux-ssh-auth-group.orphan" || exit 95
@@ -965,6 +1025,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let result = try runShellCommand(command, environment: [
             "CMUX_TEST_LIVE_GROUP": liveDirectory.path,
+            "CMUX_TEST_ORPHAN_GROUP": orphanDirectory.path,
             "CMUX_TEST_RECOVERY_CALLS": callsFile.path,
             "TMPDIR": root.path,
         ])
@@ -1000,6 +1061,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
+        for cmux_test_group_dir in "$TMPDIR"/cmux-ssh-auth-group.*; do
+          cmux_ssh_auth_recovery_enqueue "$cmux_test_group_dir" || exit 99
+        done
         cmux_ssh_resume_failed_auth_group_reapers || exit 98
         cmux_ssh_resume_failed_auth_group_reapers || exit 97
         /usr/bin/grep -qx 'cmux-ssh-auth-group.08' "$CMUX_TEST_RECOVERY_CALLS" || exit 96
@@ -1067,8 +1131,84 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.expired" || exit 99
         cmux_ssh_resume_failed_auth_group_reapers || exit 98
         test ! -d "$TMPDIR/cmux-ssh-auth-group.expired" || exit 97
+        """
+
+        let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test func recoveryQueueProcessesOneBoundedSegmentPerSweep() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-batch-\(UUID().uuidString)", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        for index in 0..<65 {
+            let groupDirectory = root.appendingPathComponent(
+                String(format: "cmux-ssh-auth-group.%02d", index),
+                isDirectory: true
+            )
+            try createSecureGroupDirectory(at: groupDirectory)
+            try "999999|888888|Thu_Jan_1_00:00:00_1970\n".write(
+                to: groupDirectory.appendingPathComponent("identity"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_launch_owned_auth_group_reaper() {
+          /usr/bin/basename "$1" >> "$CMUX_TEST_RECOVERY_CALLS"
+          CMUX_SSH_AUTH_REAPER_LAUNCHED=0
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        for cmux_test_group_dir in "$TMPDIR"/cmux-ssh-auth-group.*; do
+          cmux_ssh_auth_recovery_enqueue "$cmux_test_group_dir" || exit 99
+        done
+        cmux_ssh_resume_failed_auth_group_reapers || exit 98
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_RECOVERY_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 64 || exit 97
+        /usr/bin/grep -qx 'cmux-ssh-auth-group.64' "$CMUX_TEST_RECOVERY_CALLS" && exit 96
+        : > "$CMUX_TEST_RECOVERY_CALLS"
+        cmux_ssh_resume_failed_auth_group_reapers || exit 95
+        /usr/bin/grep -qx 'cmux-ssh-auth-group.64' "$CMUX_TEST_RECOVERY_CALLS" || exit 94
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_RECOVERY_CALLS": callsFile.path,
+            "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test func recoveryQueueReclaimsExpiredUnpublishedDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-unpublished-orphan-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("cmux-ssh-auth-group.unpublished", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "1\n".write(
+            to: groupDirectory.appendingPathComponent("created"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.unpublished" || exit 99
+        cmux_ssh_resume_failed_auth_group_reapers || exit 98
+        test ! -d "$TMPDIR/cmux-ssh-auth-group.unpublished" || exit 97
         """
 
         let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
@@ -1109,6 +1249,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 98
         cmux_ssh_resume_failed_auth_group_reapers
         cmux_test_recovery_attempt=0
         while [ -d "$TMPDIR/cmux-ssh-auth-group.test" ] && \
