@@ -71,7 +71,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     public func processTreeTerminationShellFunction() -> String {
         #"""
         cmux_ssh_auth_identity() {
-          /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
+          /usr/bin/env LC_ALL=C LANG=C /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
             /usr/bin/awk 'NF >= 8 && $3 !~ /Z/ {
               cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
               print $1 "|" $2 "|" cmux_started
@@ -79,9 +79,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         }
 
         cmux_ssh_terminate_owned_auth_group() (
-          cmux_ssh_auth_group_file="${CMUX_SSH_AUTH_GROUP_FILE:-}"
-          if [ -z "$cmux_ssh_auth_group_file" ]; then exit 0; fi
-          trap '/bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_file.anchor" "$cmux_ssh_auth_group_file.new" 2>/dev/null || true' EXIT
+          cmux_ssh_auth_group_dir="${CMUX_SSH_AUTH_GROUP_DIR:-}"
+          if [ -z "$cmux_ssh_auth_group_dir" ]; then exit 0; fi
+          cmux_ssh_auth_expected_dir_identity="$(/usr/bin/id -u):700"
+          cmux_ssh_auth_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' "$cmux_ssh_auth_group_dir" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_observed_dir_identity" != "$cmux_ssh_auth_expected_dir_identity" ]; then exit 0; fi
+          cmux_ssh_auth_group_file="$cmux_ssh_auth_group_dir/identity"
+          cmux_ssh_auth_group_anchor_fifo="$cmux_ssh_auth_group_dir/anchor"
+          cmux_ssh_auth_group_publish_file="$cmux_ssh_auth_group_dir/identity.new"
+          trap '/bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_anchor_fifo" "$cmux_ssh_auth_group_publish_file" 2>/dev/null || true; /bin/rmdir "$cmux_ssh_auth_group_dir" 2>/dev/null || true' EXIT
+          if [ ! -d "$cmux_ssh_auth_group_dir" ]; then exit 0; fi
           if [ ! -e "$cmux_ssh_auth_group_file" ]; then exit 0; fi
 
           cmux_ssh_auth_group_attempt=0
@@ -101,7 +108,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             *[!A-Za-z0-9_:]*|:*|*:) exit 0 ;;
           esac
 
-          cmux_ssh_auth_caller_group=$(/bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
+          cmux_ssh_auth_caller_group=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
           case "$cmux_ssh_auth_caller_group" in ''|*[!0-9]*) exit 0 ;; esac
           if [ "$cmux_ssh_auth_owned_group" = "$cmux_ssh_auth_caller_group" ]; then exit 0; fi
 
@@ -178,12 +185,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// - Returns: A zsh command suitable for embedding in a startup script.
     public func classifyingTransientFailure(in command: String) -> String {
         let ownedGroupCommand = [
-            "cmux_ssh_auth_group_file=\"${CMUX_SSH_AUTH_GROUP_FILE:-}\"",
-            "if [ -z \"$cmux_ssh_auth_group_file\" ]; then exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command)); fi",
+            "cmux_ssh_auth_group_dir=\"${CMUX_SSH_AUTH_GROUP_DIR:-}\"",
+            "if [ -z \"$cmux_ssh_auth_group_dir\" ]; then exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command)); fi",
+            "cmux_ssh_auth_expected_dir_identity=\"$(/usr/bin/id -u):700\"",
+            "cmux_ssh_auth_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \"$cmux_ssh_auth_group_dir\" 2>/dev/null || true)",
+            "if [ \"$cmux_ssh_auth_observed_dir_identity\" != \"$cmux_ssh_auth_expected_dir_identity\" ]; then exit 255; fi",
+            "cmux_ssh_auth_group_file=\"$cmux_ssh_auth_group_dir/identity\"",
             "cmux_ssh_auth_group_anchor_pid=",
             "cmux_ssh_auth_group_anchor_guard_fd=",
-            "cmux_ssh_auth_group_anchor_fifo=\"$cmux_ssh_auth_group_file.anchor\"",
-            "cmux_ssh_auth_group_publish_file=\"$cmux_ssh_auth_group_file.new\"",
+            "cmux_ssh_auth_group_anchor_fifo=\"$cmux_ssh_auth_group_dir/anchor\"",
+            "cmux_ssh_auth_group_publish_file=\"$cmux_ssh_auth_group_dir/identity.new\"",
             "cmux_ssh_auth_group_published=0",
             "cmux_ssh_auth_group_cleanup() {",
             "  trap - EXIT HUP INT TERM",
@@ -196,6 +207,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "    cmux_ssh_auth_group_anchor_guard_fd=",
             "  fi",
             "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" \"$cmux_ssh_auth_group_file\" 2>/dev/null || true",
+            "  /bin/rmdir \"$cmux_ssh_auth_group_dir\" 2>/dev/null || true",
             "}",
             "cmux_ssh_auth_group_signal_exit() {",
             "  cmux_ssh_auth_group_signal_status=\"$1\"",
@@ -215,8 +227,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "exec {cmux_ssh_auth_group_anchor_guard_fd}<> \"$cmux_ssh_auth_group_anchor_fifo\" || exit 255",
             "( trap '' HUP INT TERM; while IFS= read -r cmux_ssh_auth_group_anchor_input; do :; done < \"$cmux_ssh_auth_group_anchor_fifo\" ) &",
             "cmux_ssh_auth_group_anchor_pid=$!",
-            "cmux_ssh_auth_supervisor_group=$(/bin/ps -o pgid= -p \"$$\" 2>/dev/null | /usr/bin/tr -d '[:space:]')",
-            "cmux_ssh_auth_anchor_identity=$(/bin/ps -o pgid= -o state= -o lstart= -p \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null | /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ { print $1 \"|\" $3 \"_\" $4 \"_\" $5 \"_\" $6 \"_\" $7 }')",
+            "cmux_ssh_auth_supervisor_group=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -p \"$$\" 2>/dev/null | /usr/bin/tr -d '[:space:]')",
+            "cmux_ssh_auth_anchor_identity=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -o state= -o lstart= -p \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null | /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ { print $1 \"|\" $3 \"_\" $4 \"_\" $5 \"_\" $6 \"_\" $7 }')",
             "cmux_ssh_auth_anchor_group=${cmux_ssh_auth_anchor_identity%%|*}",
             "cmux_ssh_auth_anchor_started=${cmux_ssh_auth_anchor_identity#*|}",
             "case \"$cmux_ssh_auth_supervisor_group:$cmux_ssh_auth_anchor_group:$cmux_ssh_auth_anchor_started\" in *[!A-Za-z0-9_:]*) exit 255 ;; esac",
@@ -224,7 +236,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "printf '%s|%s|%s\\n' \"$cmux_ssh_auth_group_anchor_pid\" \"$cmux_ssh_auth_anchor_group\" \"$cmux_ssh_auth_anchor_started\" > \"$cmux_ssh_auth_group_publish_file\" || exit 255",
             "/bin/mv -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_file\" || exit 255",
             "cmux_ssh_auth_group_published=1",
-            "unset CMUX_SSH_AUTH_GROUP_FILE",
+            "unset CMUX_SSH_AUTH_GROUP_DIR",
             "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))",
             "cmux_ssh_auth_group_status=$?",
             "trap - HUP INT TERM",
@@ -255,8 +267,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         """
         let script = [
             "umask 077",
-            "cmux_ssh_auth_capture_state=$(mktemp \"${TMPDIR:-/tmp}/cmux-ssh-auth.XXXXXX\") || exit 255",
-            "cmux_ssh_auth_classifier_fifo=\"$cmux_ssh_auth_capture_state.classifier.fifo\"",
+            "cmux_ssh_auth_capture_dir=$(/usr/bin/mktemp -d \"${TMPDIR:-/tmp}/cmux-ssh-auth.XXXXXX\") || exit 255",
+            "cmux_ssh_auth_capture_state=\"$cmux_ssh_auth_capture_dir/classification\"",
+            "cmux_ssh_auth_classifier_fifo=\"$cmux_ssh_auth_capture_dir/classifier.fifo\"",
             "cmux_ssh_auth_classifier_guard_fd=",
             "cmux_ssh_auth_classifier_pid=",
             "cmux_ssh_auth_command_pid=",
@@ -272,6 +285,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "    fi",
             "  done",
             "  /bin/rm -f -- \"$cmux_ssh_auth_classifier_fifo\" \"$cmux_ssh_auth_capture_state\" 2>/dev/null || true",
+            "  /bin/rmdir \"$cmux_ssh_auth_capture_dir\" 2>/dev/null || true",
             "}",
             "cmux_ssh_auth_capture_signal_exit() {",
             "  cmux_ssh_auth_capture_signal_status=\"$1\"",
