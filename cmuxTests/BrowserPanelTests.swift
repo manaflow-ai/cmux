@@ -4553,3 +4553,32 @@ final class MobileBrowserStreamInputFocusTests: XCTestCase {
         XCTAssertEqual(active, "field", "A replayed click on a text field must focus it")
     }
 }
+
+extension MobileBrowserStreamInputFocusTests {
+    func testBareBackspaceOutsideEditableIsSuppressed() async throws {
+        let panel = try await loadInputTestPanel()
+        defer { panel.close() }
+        let backspace = MobileBrowserKeyInput(
+            panelID: panel.id.uuidString,
+            key: "delete",
+            modifiers: []
+        )
+        let deliveredWithoutFocus = try await panel.replayMobileBrowserKey(backspace)
+        XCTAssertFalse(
+            deliveredWithoutFocus,
+            "A bare backspace with no focused editable must be suppressed, not navigate history"
+        )
+
+        let click = MobileBrowserPointerInput(
+            panelID: panel.id.uuidString,
+            kind: .click,
+            x: 100,
+            y: 30,
+            clickCount: 1,
+            button: .left
+        )
+        _ = try await panel.replayMobileBrowserPointer(click)
+        let deliveredWhileEditing = try await panel.replayMobileBrowserKey(backspace)
+        XCTAssertTrue(deliveredWhileEditing, "Backspace while editing must reach the field")
+    }
+}

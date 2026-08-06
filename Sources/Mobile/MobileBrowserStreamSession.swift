@@ -110,6 +110,12 @@ final class MobileBrowserStreamSession {
         case let .dirty(focused):
             if let focused, editableFocused != focused {
                 editableFocused = focused
+                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                    .browserEditableFocus,
+                    a: focused ? 1 : 0,
+                    b: 3,
+                    c: TerminalController.mobileBrowserPanelCorrelation(panelID)
+                ))
                 scheduleStateEmission()
             }
             noteDirty()
@@ -255,6 +261,11 @@ final class MobileBrowserStreamSession {
             if waitForScreenUpdate, panel.webView === capturedWebView {
                 hasCapturedCommittedFrame = true
                 synchronizedFirstCaptureFailures = 0
+                MobileHostIrohRuntime.hostDiagnosticLog.record(DiagnosticEvent(
+                    .browserStreamLifecycle,
+                    a: 4,
+                    c: TerminalController.mobileBrowserPanelCorrelation(panelID)
+                ))
             }
             panel.updateMobileBrowserStreamMirror(image)
             #if DEBUG
