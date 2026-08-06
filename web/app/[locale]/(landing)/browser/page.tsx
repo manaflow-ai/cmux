@@ -1,11 +1,6 @@
 import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { BrandLogoLink } from "@/app/[locale]/components/brand-logo-link";
-import {
-  ctaButtonBase,
-  ctaButtonDefaultSize,
-  ctaButtonStyle,
-} from "@/app/[locale]/components/cta-styles";
 import { PlatformIcon } from "@/app/[locale]/components/platform-icons";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
@@ -17,6 +12,7 @@ import {
   PLATFORM_DOWNLOADS,
 } from "@/app/lib/download";
 import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
+import { BrowserDownloadCardAction } from "./browser-download-card-action";
 
 export async function generateMetadata({
   params,
@@ -61,6 +57,7 @@ export default async function BrowserPage() {
       name: platforms("macos"),
       cta: common("downloadForMac"),
       href: BROWSER_MACOS_NIGHTLY_DOWNLOAD.primary.url,
+      artifact: BROWSER_MACOS_NIGHTLY_DOWNLOAD.primary.artifact,
       available: BROWSER_MACOS_NIGHTLY_AVAILABLE,
       requirements: null,
     },
@@ -69,6 +66,7 @@ export default async function BrowserPage() {
       name: t("windows.name"),
       cta: t("windows.primaryCta"),
       href: PLATFORM_DOWNLOADS.windows.primary.url,
+      artifact: PLATFORM_DOWNLOADS.windows.primary.artifact,
       available: PLATFORM_DOWNLOAD_AVAILABILITY.windows,
       requirements: t("windows.requirements"),
     },
@@ -77,6 +75,7 @@ export default async function BrowserPage() {
       name: t("linux.name"),
       cta: t("linux.primaryCta"),
       href: PLATFORM_DOWNLOADS.linux.primary.url,
+      artifact: PLATFORM_DOWNLOADS.linux.primary.artifact,
       available: PLATFORM_DOWNLOAD_AVAILABILITY.linux,
       requirements: t("linux.requirements"),
     },
@@ -130,23 +129,14 @@ export default async function BrowserPage() {
                 </p>
               )}
               <div className="mt-auto pt-6">
-                {card.available ? (
-                  <a
-                    href={card.href}
-                    className={`${ctaButtonBase} ${ctaButtonDefaultSize} w-full justify-center`}
-                    style={ctaButtonStyle}
-                  >
-                    {card.cta}
-                  </a>
-                ) : (
-                  <span
-                    aria-disabled="true"
-                    className={`${ctaButtonBase} ${ctaButtonDefaultSize} w-full cursor-not-allowed justify-center opacity-45`}
-                    style={ctaButtonStyle}
-                  >
-                    {card.cta}
-                  </span>
-                )}
+                <BrowserDownloadCardAction
+                  platform={card.platform}
+                  artifact={card.artifact}
+                  href={card.href}
+                  available={card.available}
+                >
+                  {card.cta}
+                </BrowserDownloadCardAction>
               </div>
             </section>
           ))}

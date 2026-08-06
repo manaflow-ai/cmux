@@ -1,13 +1,13 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import posthog from "posthog-js";
 import { BrowserDownloadCardAction } from "../app/[locale]/(landing)/browser/browser-download-card-action";
 import { PlatformDownloadLink } from "../app/[locale]/components/platform-download-link";
 
 describe("Browser download card action", () => {
   test("tracks enabled landing-page downloads for current and future platforms", () => {
-    const capture = spyOn(posthog, "capture").mockImplementation(
-      () => undefined,
-    );
+    const originalCapture = posthog.capture;
+    const capture = mock(() => undefined);
+    posthog.capture = capture as unknown as typeof posthog.capture;
 
     try {
       const scenarios = [
@@ -59,7 +59,7 @@ describe("Browser download card action", () => {
         );
       }
     } finally {
-      capture.mockRestore();
+      posthog.capture = originalCapture;
     }
   });
 
