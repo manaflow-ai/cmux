@@ -148,6 +148,13 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
                 result.removeValue(forKey: key)
             }
         }
+        if normalizedKind == "opencode",
+           let configuredDatabase = normalizedValue(env["OPENCODE_DB"]),
+           configuredDatabase != ":memory:" {
+            result["OPENCODE_DB"] = OpenCodeSessionResolver(
+                defaultHomeDirectory: NSHomeDirectory()
+            ).databasePath(env: env)
+        }
         return result
     }
 

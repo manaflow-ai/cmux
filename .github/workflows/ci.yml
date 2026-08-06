@@ -610,13 +610,14 @@ jobs:
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep transcript retention and private launcher
-          # cleanup on a non-tolerant focused invocation.
+          # app-host suite. Keep transcript privacy, retention, and private
+          # launcher cleanup on a non-tolerant focused invocation.
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           for suite in \
             AgentConversationCrossHarnessForkTests \
             AgentConversationTransferSourceTests \
+            RovoDevTranscriptPreviewTests \
             SessionIndexJSONLReaderTests
           do
             scripts/ci/run-in-console-session.sh \
