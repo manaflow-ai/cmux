@@ -1,3 +1,4 @@
+public import CmuxFoundation
 public import SwiftUI
 public import WebKit
 
@@ -90,14 +91,18 @@ public struct CustomSidebarWebView: NSViewRepresentable {
         let container = CustomSidebarWebContainerView(webView: webView)
         container.insets = insets
         context.coordinator.container = container
-        context.coordinator.focusWorkspace = focusWorkspace
-        context.coordinator.load(source, into: webView)
+        context.coordinator.attach(
+            registry: CustomSidebarWebViewFocusHandlerRegistry(
+                userContentController: configuration.userContentController
+            ),
+            webView: webView
+        )
+        context.coordinator.apply(source: source, focusWorkspace: focusWorkspace, into: webView)
         return container
     }
 
     public func updateNSView(_ container: CustomSidebarWebContainerView, context: Context) {
         context.coordinator.container = container
-        context.coordinator.focusWorkspace = focusWorkspace
         if container.insets != insets {
             container.insets = insets
             // The page keeps rendering while the chrome resizes, so the variables are refreshed in
@@ -107,7 +112,7 @@ public struct CustomSidebarWebView: NSViewRepresentable {
                 completionHandler: nil
             )
         }
-        context.coordinator.load(source, into: container.webView)
+        context.coordinator.apply(source: source, focusWorkspace: focusWorkspace, into: container.webView)
     }
 
     public static func dismantleNSView(_ container: CustomSidebarWebContainerView, coordinator: Coordinator) {
@@ -118,8 +123,6 @@ public struct CustomSidebarWebView: NSViewRepresentable {
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: CustomSidebarWebView.viewportMessageName
         )
-        CustomSidebarFocusBridge.uninstall(from: container.webView.configuration.userContentController)
-        container.webView.navigationDelegate = nil
         coordinator.releaseFocusBridge()
     }
 
@@ -164,21 +167,54 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, WKScriptMessageHandler {
         private var loadedSource: CustomSidebarWebSource?
-        /// The scope the currently-loaded source armed, or `nil` when it armed none.
+        /// The scope the current source armed, or `nil` when nothing is armed.
         ///
-        /// Mirrors exactly what is registered on the web view: non-`nil` iff the focus handler and
-        /// the navigation lock are installed.
+        /// Mirrors exactly what is registered: non-`nil` iff the focus handler and the navigation
+        /// lock are installed.
         private(set) var armedScope: CustomSidebarFocusScope?
+        private var registry: (any CustomSidebarFocusHandlerRegistering)?
+        private var capability: CustomSidebarFocusCapability?
         private var focusBridge: CustomSidebarFocusBridge?
         private var navigationLock: CustomSidebarNavigationLock?
+        private weak var lockedWebView: WKWebView?
         weak var container: CustomSidebarWebContainerView?
-        /// Set from the representable on every make/update so a mount that stops offering the
-        /// bridge stops offering it on the next load rather than keeping a stale closure alive.
-        var focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?
+
+        /// Binds the coordinator to where the focus handler is registered.
+        ///
+        /// - Parameters:
+        ///   - registry: Where the handler is installed and removed.
+        ///   - webView: The web view whose navigation delegate the lock occupies.
+        func attach(registry: any CustomSidebarFocusHandlerRegistering, webView: WKWebView) {
+            self.registry = registry
+            lockedWebView = webView
+        }
+
+        /// Applies a source and the host's current focus capability together.
+        ///
+        /// The two are reconciled on every update, not only when the source changes. A source change
+        /// reloads the page; a capability that appeared or disappeared while the source stayed put
+        /// still has to arm or disarm, because a host that stops offering the capability is
+        /// withdrawing it now, not at whatever future moment the page happens to navigate.
+        ///
+        /// - Parameters:
+        ///   - source: The page to render.
+        ///   - focusWorkspace: The host's current focus implementation, or `nil` when it offers none.
+        ///   - webView: The sidebar's web view.
+        func apply(
+            source: CustomSidebarWebSource,
+            focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?,
+            into webView: WKWebView
+        ) {
+            reconcileFocusBridge(for: source, focusWorkspace: focusWorkspace, in: webView)
+            load(source, into: webView)
+        }
 
         /// Drops the bridge and the navigation lock when the sidebar is torn down.
         func releaseFocusBridge() {
+            registry?.removeFocusHandler()
+            lockedWebView?.navigationDelegate = nil
             armedScope = nil
+            capability = nil
             focusBridge = nil
             navigationLock = nil
         }
@@ -188,10 +224,9 @@ public struct CustomSidebarWebView: NSViewRepresentable {
         /// `updateNSView` runs on unrelated SwiftUI invalidations — and the custom sidebar is
         /// mounted inside a one-second `TimelineView` — so reloading unconditionally would discard
         /// the page's scroll position, filter text, and open menus roughly once a second.
-        func load(_ source: CustomSidebarWebSource, into webView: WKWebView) {
+        private func load(_ source: CustomSidebarWebSource, into webView: WKWebView) {
             guard loadedSource != source else { return }
             loadedSource = source
-            armFocusBridge(for: source, in: webView)
             // A reload replaces the document, so any previous full-bleed opt-in no longer applies;
             // the incoming page re-declares it or gets the safe default.
             container?.isFullBleed = false
@@ -205,31 +240,46 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             }
         }
 
-        /// Registers or clears the focus bridge for the source about to load.
+        /// Brings the registered handler in line with what the source and the host currently allow.
         ///
-        /// Runs before every load, unconditionally, so the handler's presence always describes the
-        /// page that is arriving rather than the one that left. A source that does not arm — a
-        /// public page, a DNS name that merely resolves to loopback — takes the removal branch and
-        /// therefore renders with no handler and no navigation lock at all.
-        private func armFocusBridge(for source: CustomSidebarWebSource, in webView: WKWebView) {
-            let controller = webView.configuration.userContentController
-            CustomSidebarFocusBridge.uninstall(from: controller)
-            webView.navigationDelegate = nil
-            armedScope = nil
-            focusBridge = nil
-            navigationLock = nil
+        /// Four transitions, all of which must be immediate:
+        ///
+        /// - Nothing armed, and it should be → install the handler and the lock.
+        /// - Something armed that should not be (the source no longer qualifies, or the host stopped
+        ///   offering the capability) → remove both.
+        /// - Armed on a different scope → tear down and rebuild, so the lock pins the new source.
+        /// - Armed on the same scope → keep the registration and swap the closure inside the
+        ///   capability, so a fresh mount's closure is what the page reaches without the handler
+        ///   ever being absent for a frame.
+        private func reconcileFocusBridge(
+            for source: CustomSidebarWebSource,
+            focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?,
+            in webView: WKWebView
+        ) {
+            lockedWebView = webView
+            let desiredScope = focusWorkspace == nil ? nil : CustomSidebarFocusScope(source: source)
 
-            guard let focusWorkspace, let scope = CustomSidebarFocusScope(source: source) else {
+            guard let desiredScope, let focusWorkspace else {
+                guard armedScope != nil else { return }
+                releaseFocusBridge()
                 return
             }
-            let bridge = CustomSidebarFocusBridge(scope: scope, focusWorkspace: focusWorkspace)
-            bridge.install(on: controller)
-            focusBridge = bridge
-            armedScope = scope
+            if armedScope == desiredScope, let capability {
+                capability.focus = focusWorkspace
+                return
+            }
 
-            let lock = CustomSidebarNavigationLock(scope: scope)
+            releaseFocusBridge()
+            let capability = CustomSidebarFocusCapability(focus: focusWorkspace)
+            let bridge = CustomSidebarFocusBridge(scope: desiredScope, capability: capability)
+            registry?.installFocusHandler(bridge)
+            self.capability = capability
+            focusBridge = bridge
+            armedScope = desiredScope
+
+            let lock = CustomSidebarNavigationLock(scope: desiredScope)
             // `navigationDelegate` is weak, so the lock is held here for as long as this source is
-            // loaded; letting it deallocate would silently unlock the frame.
+            // armed; letting it deallocate would silently unlock the frame.
             navigationLock = lock
             webView.navigationDelegate = lock
         }

@@ -39,50 +39,22 @@ public final class CustomSidebarFocusBridge: NSObject, WKScriptMessageHandlerWit
     private static let rejectionMessage = "cmux sidebar focus request rejected"
 
     private let scope: CustomSidebarFocusScope
-    private let focusWorkspace: @MainActor (UUID) -> CustomSidebarFocusStatus
+    private let capability: CustomSidebarFocusCapability
 
     /// Creates a bridge for one armed source.
     ///
     /// - Parameters:
     ///   - scope: The armed source. Every dispatch is re-checked against it.
-    ///   - focusWorkspace: Performs the focus and reports what happened. Injected because the
-    ///     package has no access to the app's window/workspace graph, and because it is the seam a
-    ///     test drives.
+    ///   - capability: Performs the focus and reports what happened. A reference, not a closure, so
+    ///     a remount that supplies a fresh closure replaces the one this bridge calls instead of
+    ///     leaving it pinned to whichever closure existed at install time.
     public init(
         scope: CustomSidebarFocusScope,
-        focusWorkspace: @escaping @MainActor (UUID) -> CustomSidebarFocusStatus
+        capability: CustomSidebarFocusCapability
     ) {
         self.scope = scope
-        self.focusWorkspace = focusWorkspace
+        self.capability = capability
         super.init()
-    }
-
-    /// Registers this bridge as the only handler under ``handlerName``.
-    ///
-    /// Removes any existing registration first: `addScriptMessageHandler` traps on a duplicate name,
-    /// and a sidebar's web view is reused across source changes.
-    ///
-    /// - Parameter userContentController: The content controller of the sidebar's web view.
-    public func install(on userContentController: WKUserContentController) {
-        CustomSidebarFocusBridge.uninstall(from: userContentController)
-        userContentController.addScriptMessageHandler(
-            self,
-            contentWorld: CustomSidebarFocusBridge.contentWorld,
-            name: CustomSidebarFocusBridge.handlerName
-        )
-    }
-
-    /// Removes any focus handler from a content controller.
-    ///
-    /// Called before every load and on dismantle, so a web view that goes on to render an unarmed
-    /// source carries no handler into it.
-    ///
-    /// - Parameter userContentController: The content controller of the sidebar's web view.
-    public static func uninstall(from userContentController: WKUserContentController) {
-        userContentController.removeScriptMessageHandler(
-            forName: handlerName,
-            contentWorld: contentWorld
-        )
     }
 
     /// Resolves a message to a status, or `nil` when it must be rejected.
@@ -124,7 +96,7 @@ public final class CustomSidebarFocusBridge: NSObject, WKScriptMessageHandlerWit
             )
             return nil
         }
-        return focusWorkspace(request.workspaceID)
+        return capability.focus(request.workspaceID)
     }
 
     public func userContentController(

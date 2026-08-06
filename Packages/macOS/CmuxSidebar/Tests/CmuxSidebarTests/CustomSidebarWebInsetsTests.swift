@@ -47,7 +47,11 @@ struct CustomSidebarWebInsetsTests {
 
         let coordinator = CustomSidebarWebView.Coordinator()
         coordinator.container = container
-        coordinator.load(.remote(URL(string: "https://example.com")!), into: container.webView)
+        coordinator.apply(
+            source: .remote(URL(string: "https://example.com")!),
+            focusWorkspace: nil,
+            into: container.webView
+        )
         container.layout()
 
         #expect(container.isFullBleed == false)

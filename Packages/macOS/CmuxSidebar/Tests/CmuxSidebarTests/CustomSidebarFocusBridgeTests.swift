@@ -19,10 +19,11 @@ struct CustomSidebarFocusBridgeTests {
         scope: CustomSidebarFocusScope? = nil
     ) -> CustomSidebarFocusBridge {
         let resolvedScope = scope ?? CustomSidebarFocusScope(source: .remote(armedURL))!
-        return CustomSidebarFocusBridge(scope: resolvedScope) { workspaceID in
+        let capability = CustomSidebarFocusCapability { workspaceID in
             recorder.requested.append(workspaceID)
             return recorder.status
         }
+        return CustomSidebarFocusBridge(scope: resolvedScope, capability: capability)
     }
 
     private func resolve(
@@ -174,18 +175,19 @@ struct CustomSidebarFocusBridgeTests {
         #expect(recorder.requested.isEmpty)
     }
 
-    @Test("installing twice leaves exactly one handler and does not trap")
-    func installIsIdempotent() {
-        let recorder = FocusRecorder()
-        let controller = WKUserContentController()
+    // The capability is held by reference so a remount can replace the closure the page reaches
+    // without the handler ever being unregistered.
+    @Test("replacing the capability's closure changes what an already-installed bridge does")
+    func capabilityClosureIsReplaceable() {
+        let capability = CustomSidebarFocusCapability { _ in .unavailable }
+        let bridge = CustomSidebarFocusBridge(
+            scope: CustomSidebarFocusScope(source: .remote(armedURL))!,
+            capability: capability
+        )
+        #expect(resolve(bridge, body: ["v": 1, "workspaceId": UUID().uuidString]) == .unavailable)
 
-        makeBridge(recorder: recorder).install(on: controller)
-        makeBridge(recorder: recorder).install(on: controller)
+        capability.focus = { _ in .notFound }
 
-        // A duplicate name would have raised inside `addScriptMessageHandler`; reaching here with a
-        // clean removal is the observable proof the second install replaced the first.
-        CustomSidebarFocusBridge.uninstall(from: controller)
-        makeBridge(recorder: recorder).install(on: controller)
-        CustomSidebarFocusBridge.uninstall(from: controller)
+        #expect(resolve(bridge, body: ["v": 1, "workspaceId": UUID().uuidString]) == .notFound)
     }
 }
