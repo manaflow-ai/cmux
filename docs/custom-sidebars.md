@@ -71,10 +71,85 @@ ignored, since a `.url` file is untrusted input that can arrive by drag-and-drop
 
 The trade-off against an interpreted sidebar: the live data bindings above
 (`workspaces`, `clock`, and the rest) and `cmux(...)` tap actions are features of
-the interpreter, so an HTML sidebar does not get them. It renders a page; talk to
-cmux from it the way any other program does, through `cmux` on the CLI or its
-socket. In exchange you get the whole web platform, including the interactive
-controls the interpreter does not support (`TextField`, `@State`, popovers).
+the interpreter, so an HTML sidebar does not get them. Read your data through
+`cmux` on the CLI or its socket the way any other program does. In exchange you
+get the whole web platform, including the interactive controls the interpreter
+does not support (`TextField`, `@State`, popovers).
+
+Focusing a workspace is the exception, and it has its own native call — see
+below. Do not shell out to `cmux workspace select` for it from a sidebar that
+qualifies; the native call is synchronous, tells you whether the workspace still
+exists, and works across windows.
+
+### Focusing a workspace from an HTML sidebar
+
+A qualifying sidebar (see the next section) can select a workspace directly:
+
+```js
+const reply = await window.webkit.messageHandlers
+    .cmuxSidebarFocusWorkspace
+    .postMessage({ v: 1, workspaceId: id })
+
+// reply === { v: 1, status: 'focused' | 'not-found' | 'unavailable' }
+```
+
+The request must be exactly `{ v: 1, workspaceId: "<uuid>" }` — both keys, no
+others, `v` the number `1`, and `workspaceId` a UUID string. Anything else
+rejects the promise, including an extra key you might add for a later protocol
+version. Handle the rejection; it is also what you get if the page has navigated
+somewhere it is no longer allowed to call from.
+
+The three statuses mean different things and are worth handling separately:
+
+| `status` | Meaning | What to do |
+| --- | --- | --- |
+| `focused` | Selected, and its window was brought forward. | Nothing. |
+| `not-found` | No workspace with that id. | Drop the row; your list is stale. |
+| `unavailable` | No window could be resolved right now. | Transient — keep the row and let the user retry. |
+
+Feature-detect rather than assuming: on a sidebar that does not qualify, the
+handler does not exist at all.
+
+```js
+const focus = window.webkit?.messageHandlers?.cmuxSidebarFocusWorkspace
+if (focus) {
+  await focus.postMessage({ v: 1, workspaceId: id })
+} else {
+  // Not a qualifying source. Fall back to the CLI, or render the rows
+  // non-interactive rather than showing a button that silently does nothing.
+}
+```
+
+This is the only native call an HTML sidebar gets. There is no general command
+bridge, and there is deliberately no way to pass a method name and parameters:
+that would give any page the whole socket surface. Anything else still goes
+through `cmux` on the CLI.
+
+### Which sidebars can focus a workspace
+
+Only two kinds of source qualify, decided from the source alone before the page
+loads:
+
+- **`<name>.html`** — a local document in your sidebars directory.
+- **`<name>.url`** pointing at a **literal loopback address**: `127.0.0.1`,
+  anything else in `127.0.0.0/8`, or `[::1]`. Any port, `http` or `https`.
+
+`http://localhost:8787/` does **not** qualify, and neither does any other
+hostname. A name is whatever the resolver, the hosts file, or the network says it
+is at that moment, so it cannot prove the server is on this machine. Use the
+address literal: `http://127.0.0.1:8787/`. A public address never qualifies.
+
+A qualifying sidebar is also **pinned to its own source** while it renders. A
+local document may not navigate away from that file; a loopback page may not
+leave its origin (same scheme, host, and port — paths and queries are free).
+Redirects, cross-origin links, and `file:`-to-`http:` hops in the main frame are
+cancelled rather than followed, which is what stops a page from carrying the
+native call somewhere that never earned it. Iframes are unrestricted: they cannot
+make the call.
+
+If you need to navigate the whole sidebar between origins, you are describing a
+browser rather than a sidebar — use a Dock browser pane, or serve the pages from
+one loopback origin and route inside it.
 
 ### Window chrome
 
