@@ -215,7 +215,7 @@ enum AgentConversationForkTargetHarness: String, CaseIterable, Hashable, Identif
         case .gemini:
             ["gemini"]
         case .kiro:
-            ["kiro-cli"]
+            ["kiro-cli", "kiro"]
         case .antigravity:
             ["agy", "antigravity"]
         case .rovodev:
