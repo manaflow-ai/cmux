@@ -68,10 +68,17 @@ struct ResourceCloseEffects {
     removed: Vec<Arc<Surface>>,
     terminal_runtime: Option<Arc<Surface>>,
     closed_terminal_public_id: Option<TerminalPublicId>,
-    delta: Option<TreeDelta>,
+    tree_publication: ResourceCloseTreePublication,
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
     empty_revision: Option<u64>,
+}
+
+enum ResourceCloseTreePublication {
+    PendingDelta(TreeDelta),
+    PendingSnapshot,
+    // Revisioned workspace deltas publish before the registry guard is released.
+    Published,
 }
 
 struct CommittedResourceClose {
@@ -100,7 +107,10 @@ impl ResourceClosePlan {
             removed: self.removed,
             terminal_runtime: self.terminal_runtime,
             closed_terminal_public_id: self.closed_terminal_public_id,
-            delta: self.delta,
+            tree_publication: self.delta.map_or(
+                ResourceCloseTreePublication::PendingSnapshot,
+                ResourceCloseTreePublication::PendingDelta,
+            ),
             changed_screens: self.changed_screens,
             selection_resync: self.selection_resync,
             empty_revision,
@@ -2424,10 +2434,24 @@ impl Mux {
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
             hook();
         }
-        let effects = plan.install(&mut state, close.resource.revision, close.workspace_revision);
+        let mut effects =
+            plan.install(&mut state, close.resource.revision, close.workspace_revision);
         drop(state);
         if close.terminal_batch.closed != 0 {
             self.emit_terminal_registry_changed(&registry, close.terminal_batch.revision);
+        }
+        if matches!(
+            &effects.tree_publication,
+            ResourceCloseTreePublication::PendingDelta(delta)
+                if delta.workspace_revision.is_some()
+        ) {
+            let ResourceCloseTreePublication::PendingDelta(delta) = std::mem::replace(
+                &mut effects.tree_publication,
+                ResourceCloseTreePublication::Published,
+            ) else {
+                unreachable!("revisioned workspace close publication was checked above");
+            };
+            self.emit_committed_workspace_delta(&registry, delta, effects.selection_resync);
         }
         drop(registry);
         drop(workspace_lifecycle);
@@ -2455,13 +2479,17 @@ impl Mux {
             self.purge_terminal_runtime_side_tables(&runtime);
             self.terminate_terminal_runtime(&runtime);
         }
-        if let Some(delta) = effects.delta {
-            self.emit_tree_delta(delta, effects.selection_resync);
-        } else {
-            self.emit(MuxEvent::TreeChanged);
-            if effects.selection_resync {
-                self.emit(MuxEvent::TreeSelectionChanged);
+        match effects.tree_publication {
+            ResourceCloseTreePublication::PendingDelta(delta) => {
+                self.emit_tree_delta(delta, effects.selection_resync);
             }
+            ResourceCloseTreePublication::PendingSnapshot => {
+                self.emit(MuxEvent::TreeChanged);
+                if effects.selection_resync {
+                    self.emit(MuxEvent::TreeSelectionChanged);
+                }
+            }
+            ResourceCloseTreePublication::Published => {}
         }
         for screen in effects.changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));

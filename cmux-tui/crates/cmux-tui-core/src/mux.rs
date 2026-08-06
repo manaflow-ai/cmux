@@ -91,6 +91,8 @@ impl DaemonHandoffRequest {
 #[cfg(test)]
 type WorkspaceRenameHook = Arc<dyn Fn(&WorkspacePublicId) + Send + Sync>;
 #[cfg(test)]
+type WorkspaceDeltaBeforeEmitHook = Arc<dyn Fn(u64) + Send + Sync>;
+#[cfg(test)]
 type TerminalReservationHook = Arc<dyn Fn(&str) + Send + Sync>;
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
@@ -441,8 +443,19 @@ impl DeadlineFanoutPool {
     }
 
     fn submit(&self, job: DeadlineFanoutJob) -> bool {
+        self.submit_until(None, job)
+    }
+
+    fn submit_before(&self, deadline: Instant, job: DeadlineFanoutJob) -> bool {
+        self.submit_until(Some(deadline), job)
+    }
+
+    fn submit_until(&self, deadline: Option<Instant>, job: DeadlineFanoutJob) -> bool {
         let mut state = self.inner.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if state.shutdown || state.admitted_jobs >= CELL_PIXEL_FANOUT_MAX_WORKERS {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline)
+            || state.shutdown
+            || state.admitted_jobs >= CELL_PIXEL_FANOUT_MAX_WORKERS
+        {
             return false;
         }
 
@@ -465,6 +478,12 @@ impl DeadlineFanoutPool {
                     return false;
                 }
             }
+        }
+
+        // Thread creation can outlive a short shared deadline. Sample time
+        // again while queue capacity is still protected by the admission lock.
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            return false;
         }
 
         state.jobs.push_back(job);
@@ -570,16 +589,20 @@ where
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut submitted = 0;
     for (index, item) in items.iter().cloned().enumerate() {
+        if Instant::now() >= deadline {
+            break;
+        }
         let sender = sender.clone();
         let operation = operation.clone();
         let result = Arc::new(Mutex::new(None));
         let job_result = result.clone();
-        if pool.submit(Box::new(move || {
+        let job = Box::new(move || {
             let value = operation(&item, deadline);
             *job_result.lock().unwrap() =
                 Some(DeadlineCompletion { completed_at: Instant::now(), value });
             let _ = sender.send(index);
-        })) {
+        });
+        if pool.submit_before(deadline, job) {
             submitted += 1;
             ordered[index] = DeadlineMapResult::Pending(DeadlinePending { result });
         }
@@ -1704,8 +1727,9 @@ impl Drop for TerminalExitStateQueryGuard<'_> {
 
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
-    /// Serializes durable workspace commits and their in-memory/event
-    /// projection. Lock order is always registry, then state.
+    /// Serializes durable workspace commits, their in-memory projection, and
+    /// publication of revisioned workspace deltas. Lock order is always
+    /// registry, then state.
     workspace_registry: Mutex<WorkspaceRegistry>,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
@@ -1729,6 +1753,8 @@ pub struct Mux {
     workspace_close_before_empty_check: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     workspace_close_after_selector_resolution: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    workspace_delta_before_emit: Mutex<Option<WorkspaceDeltaBeforeEmitHook>>,
     #[cfg(test)]
     resource_rename_after_selector_resolution: Mutex<Option<WorkspaceRenameHook>>,
     #[cfg(test)]
@@ -2077,6 +2103,8 @@ impl Mux {
             workspace_close_before_empty_check: Mutex::new(None),
             #[cfg(test)]
             workspace_close_after_selector_resolution: Mutex::new(None),
+            #[cfg(test)]
+            workspace_delta_before_emit: Mutex::new(None),
             #[cfg(test)]
             resource_rename_after_selector_resolution: Mutex::new(None),
             #[cfg(test)]
@@ -5157,10 +5185,26 @@ impl Mux {
     }
 
     fn emit_tree_delta(&self, delta: TreeDelta, selection_resync: bool) {
+        #[cfg(test)]
+        if let Some(revision) = delta.workspace_revision
+            && let Some(hook) = self.workspace_delta_before_emit.lock().unwrap().clone()
+        {
+            hook(revision);
+        }
         self.emit(MuxEvent::TreeDelta(delta));
         if selection_resync {
             self.emit(MuxEvent::TreeSelectionChanged);
         }
+    }
+
+    fn emit_committed_workspace_delta(
+        &self,
+        _registry: &MutexGuard<'_, WorkspaceRegistry>,
+        delta: TreeDelta,
+        selection_resync: bool,
+    ) {
+        debug_assert!(delta.workspace_revision.is_some());
+        self.emit_tree_delta(delta, selection_resync);
     }
 
     fn emit_empty_if_current(&self, workspace_revision: Option<u64>) {
@@ -9648,11 +9692,11 @@ impl Mux {
                 selection_resync,
             )
         };
+        self.emit_committed_workspace_delta(&registry, delta, selection_resync);
         drop(registry);
         if project_resource {
             self.publish_resource_event();
         }
-        self.emit_tree_delta(delta, selection_resync);
         Ok(placement)
     }
 
@@ -10621,7 +10665,8 @@ impl Mux {
                 }
             };
             let selection_resync = delta.index.is_some_and(|index| index > 0);
-            self.emit_tree_delta(delta, selection_resync);
+            self.emit_committed_workspace_delta(&registry, delta, selection_resync);
+            drop(registry);
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
@@ -11534,6 +11579,7 @@ impl Mux {
             let result = workspace_mutation_result(&commit)?;
             (removed, delta, empty_revision, selection_resync, result)
         };
+        self.emit_committed_workspace_delta(&registry, delta, selection_resync);
         drop(registry);
         if project_resource {
             self.publish_resource_event();
@@ -11544,7 +11590,6 @@ impl Mux {
                 surface.kill();
             }
         }
-        self.emit_tree_delta(delta, selection_resync);
         self.emit_empty_if_current(empty_revision);
         Ok(result)
     }
@@ -11739,9 +11784,9 @@ impl Mux {
                 workspace_mutation_result(&commit)?,
             )
         };
+        self.emit_committed_workspace_delta(&registry, renamed, false);
         drop(registry);
         self.publish_resource_event();
-        self.emit(MuxEvent::TreeDelta(renamed));
         Ok(result)
     }
 
@@ -13771,9 +13816,9 @@ impl Mux {
                 workspace_mutation_result(&commit)?,
             )
         };
+        self.emit_committed_workspace_delta(&registry, delta, false);
         drop(registry);
         self.publish_resource_event();
-        self.emit(MuxEvent::TreeDelta(delta));
         Ok(result)
     }
 
@@ -18787,6 +18832,22 @@ mod tests {
             vec![0, 2, 4, 6, 8, 10, 12, 14]
         );
         assert!(max_active.load(Ordering::Acquire) > 1);
+    }
+
+    #[test]
+    fn deadline_fanout_rejects_work_after_the_shared_deadline() {
+        let pool = DeadlineFanoutPool::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let operation_calls = calls.clone();
+        let deadline = Instant::now().checked_sub(Duration::from_millis(1)).unwrap();
+
+        let results = bounded_deadline_map(&pool, &[1_u8], deadline, move |item, _| {
+            operation_calls.fetch_add(1, Ordering::AcqRel);
+            *item
+        });
+
+        assert!(matches!(results.as_slice(), [DeadlineMapResult::Unscheduled]));
+        assert_eq!(calls.load(Ordering::Acquire), 0);
     }
 
     #[test]
@@ -24016,6 +24077,23 @@ mod tests {
             assert_eq!(state.workspace_revision, 16);
             assert_eq!(state.workspaces.len(), 16);
         });
+    }
+
+    #[test]
+    fn committed_workspace_delta_is_emitted_inside_registry_ordering_fence() {
+        let mux = test_mux();
+        let weak_mux = Arc::downgrade(&mux);
+        let (observed_tx, observed_rx) = std::sync::mpsc::sync_channel(1);
+        *mux.workspace_delta_before_emit.lock().unwrap() = Some(Arc::new(move |revision| {
+            let mux = weak_mux.upgrade().expect("mux remains alive through publication");
+            let emitted_while_locked = mux.workspace_registry.try_lock().is_err();
+            observed_tx.send((revision, emitted_while_locked)).unwrap();
+        }));
+
+        let placement = mux.create_empty_workspace(None, None, None).unwrap();
+        *mux.workspace_delta_before_emit.lock().unwrap() = None;
+
+        assert_eq!(observed_rx.recv().unwrap(), (placement.revision, true));
     }
 
     #[test]
