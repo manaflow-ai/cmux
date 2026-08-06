@@ -897,6 +897,25 @@ struct SocketControlServerReservationTests {
 @MainActor
 @Suite("SocketControlServer path monitor")
 struct SocketControlServerPathMonitorTests {
+    @Test func remoteRestoreRejectsAReplacedPathBeforeMonitorRecovery() throws {
+        let harness = try ServerHarness()
+        defer { harness.shutdown() }
+        let server = harness.server
+        #expect(server.start(socketPath: harness.socketPath, accessMode: .cmuxOnly))
+        #expect(server.currentSocketPathForRemoteRestore() == harness.socketPath)
+
+        #expect(unlink(harness.socketPath) == 0)
+        let replacement = try UnixSocketFixture.bindListeningSocket(at: harness.socketPath)
+        defer {
+            close(replacement)
+            unlink(harness.socketPath)
+        }
+        #expect(listen(replacement, 4) == 0)
+
+        #expect(server.isRunning)
+        #expect(server.currentSocketPathForRemoteRestore() == nil)
+    }
+
     @Test func detectsDeletedSocketPathAndSupportsRestart() throws {
         let harness = try ServerHarness()
         defer { harness.shutdown() }
