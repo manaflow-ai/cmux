@@ -1,6 +1,7 @@
 import CmuxConversationTransfer
 import CMUXAgentLaunch
 import Foundation
+import os
 import SQLite3
 import Testing
 
@@ -801,6 +802,80 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(await forkTask.value == false)
         #expect(workspace.bonsplitController.allPaneIds.count == 1)
         #expect(workspace.focusedPanelId == sourcePanelId)
+    }
+
+    @Test
+    func crossHarnessForkRejectsFreshLiveSessionDifferentFromCachedSelection() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let cachedSnapshot = try makeCodexSnapshot(
+            in: fixture,
+            sessionID: "cached-session"
+        )
+        let currentDirectory = fixture.appendingPathComponent("current", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: currentDirectory,
+            withIntermediateDirectories: true
+        )
+        let currentSnapshot = try makeCodexSnapshot(
+            in: currentDirectory,
+            sessionID: "current-session"
+        )
+        let sourceAdapter = ReadRecordingSourceAdapter()
+        let exportService = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [sourceAdapter])
+        )
+        let workspace = Workspace()
+        let sourcePanelId = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(cachedSnapshot, panelId: sourcePanelId)
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspace.id,
+            panelId: sourcePanelId
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let snapshot = loadCount.withLock { count in
+                    defer { count += 1 }
+                    return count == 0 ? cachedSnapshot : currentSnapshot
+                }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: fixture.path,
+                    fileManager: .default,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+        _ = await liveAgentIndex.indexRefreshingNow()
+
+        let didFork = await workspace.forkAgentConversation(
+            fromPanelId: sourcePanelId,
+            snapshot: cachedSnapshot,
+            request: .init(targetHarness: .claude, destination: .right),
+            exportService: exportService,
+            liveAgentIndex: liveAgentIndex
+        )
+
+        #expect(!didFork)
+        #expect(await sourceAdapter.readCount == 0)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
     }
 
     @Test
