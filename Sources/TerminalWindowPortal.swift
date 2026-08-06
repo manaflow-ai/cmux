@@ -1003,10 +1003,15 @@ final class WindowTerminalPortal: NSObject {
 #if DEBUG
         RemoteTmuxSizingDiagnostics.fullHierarchySyncCount += 1
 #endif
-        installedContainerView?.layoutSubtreeIfNeeded()
-        installedReferenceView?.layoutSubtreeIfNeeded()
-        hostView.superview?.layoutSubtreeIfNeeded()
-        hostView.layoutSubtreeIfNeeded()
+        // This method can run from geometry callbacks delivered while SwiftUI
+        // still owns the window's current layout transaction. A synchronous
+        // subtree flush re-enters AttributeGraph and can recursively attach or
+        // release the same view graph. Mark each boundary dirty and let AppKit
+        // perform its normal layout pass after the callback unwinds.
+        installedContainerView?.needsLayout = true
+        installedReferenceView?.needsLayout = true
+        hostView.superview?.needsLayout = true
+        hostView.needsLayout = true
         _ = synchronizeHostFrameToReference()
         lastHierarchySyncSignature = externalGeometrySignature()
     }
