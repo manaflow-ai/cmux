@@ -1,7 +1,17 @@
 public struct MobileSimulatorStreamCapability: Sendable {
-    public static let identifier = "simulator.stream.v1"
-    public static let inputIdentifier = "simulator.input.v1"
-    public static let ownershipIdentifier = "simulator.ownership.v1"
+    public static let current = MobileSimulatorStreamCapability()
 
-    private init() {}
+    public let identifier: String
+    public let inputIdentifier: String
+    public let ownershipIdentifier: String
+
+    public init(
+        identifier: String = "simulator.stream.v1",
+        inputIdentifier: String = "simulator.input.v1",
+        ownershipIdentifier: String = "simulator.ownership.v1"
+    ) {
+        self.identifier = identifier
+        self.inputIdentifier = inputIdentifier
+        self.ownershipIdentifier = ownershipIdentifier
+    }
 }
