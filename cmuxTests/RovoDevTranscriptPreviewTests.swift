@@ -50,6 +50,33 @@ struct RovoDevTranscriptPreviewTests {
     }
 
     @Test
+    func rejectsContentAppendedAfterExpectedGeneration() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-rovodev-preview-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let contextURL = tempDir.appendingPathComponent("session_context.json")
+        try Data(#"{"messages":[{"role":"user","content":"captured"}]}"#.utf8)
+            .write(to: contextURL)
+        let generation = try #require(
+            AgentConversationStorageGeneration.capture(atPath: contextURL.path)
+        )
+
+        let handle = try FileHandle(forWritingTo: contextURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(" ".utf8))
+        try handle.synchronize()
+        try handle.close()
+
+        let turns = try RovoDevTranscriptPreview.load(
+            from: contextURL,
+            limit: 10,
+            expectedStorageGeneration: generation
+        )
+        #expect(turns == nil)
+    }
+
+    @Test
     func dialogueOnlyExcludesNestedToolContentFromRoleBasedMessages() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-rovodev-preview-\(UUID().uuidString)", isDirectory: true)

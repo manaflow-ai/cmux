@@ -57,6 +57,76 @@ struct AgentConversationTransferSourceTests {
         ) == nil)
     }
 
+    @Test
+    func storageGenerationChangesAfterInPlaceAppend() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let transcript = directory.appendingPathComponent("transcript.jsonl")
+        try Data("first".utf8).write(to: transcript)
+        let initial = try #require(
+            AgentConversationStorageGeneration.captureStorage(atPath: transcript.path)
+        )
+
+        let handle = try FileHandle(forWritingTo: transcript)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(" second".utf8))
+        try handle.synchronize()
+        try handle.close()
+
+        let updated = try #require(
+            AgentConversationStorageGeneration.captureStorage(atPath: transcript.path)
+        )
+        #expect(updated.path == initial.path)
+        #expect(updated.generation != initial.generation)
+    }
+
+    @Test(arguments: [RestorableAgentKind.opencode, .hermesAgent])
+    func sqliteTransferIdentityChangesWhenWriteAheadLogAppears(
+        kind: RestorableAgentKind
+    ) throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = directory.appendingPathComponent(
+            kind == .opencode ? "opencode.db" : "state.db"
+        )
+        try Data("database".utf8).write(to: database)
+        let environment: [String: String]
+        switch kind {
+        case .opencode:
+            environment = [
+                OpenCodeSessionResolver.capturedDatabasePathEnvironmentKey: database.path,
+            ]
+        case .hermesAgent:
+            environment = ["HERMES_HOME": directory.path]
+        default:
+            Issue.record("Unexpected non-SQLite harness")
+            return
+        }
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: kind,
+            sessionId: "sqlite-generation",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: kind.rawValue,
+                executablePath: "/usr/local/bin/\(kind.rawValue)",
+                arguments: [kind.rawValue],
+                workingDirectory: nil,
+                environment: environment,
+                capturedAt: 123,
+                source: "test"
+            ),
+            sessionIDProvenance: .authoritative
+        )
+        let source = AgentConversationSource(snapshot: snapshot)
+        let initial = try #require(source.transferIdentity)
+
+        try Data("wal generation".utf8).write(
+            to: URL(fileURLWithPath: database.path + "-wal")
+        )
+
+        let updated = try #require(source.transferIdentity)
+        #expect(updated != initial)
+    }
+
     @Test(arguments: [RestorableAgentKind.rovodev, .antigravity])
     func localTranscriptSourceDoesNotRequireNativeForkCapability(
         kind: RestorableAgentKind
