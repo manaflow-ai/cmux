@@ -7,15 +7,23 @@ import {
 
 function harness(initialUserId?: string) {
   const values = new Map<string, string>();
+  const postHogProperties = new Map<string, unknown>();
   if (initialUserId) values.set(STACK_IDENTITY_STORAGE_KEY, initialUserId);
   return {
+    get_property: (key: string) => postHogProperties.get(key),
     identify: mock(() => {}),
-    reset: mock(() => {}),
+    register: (properties: Record<string, unknown>) => {
+      for (const [key, value] of Object.entries(properties)) {
+        postHogProperties.set(key, value);
+      }
+    },
+    reset: mock(() => postHogProperties.clear()),
     storage: {
       getItem: (key: string) => values.get(key) ?? null,
       setItem: (key: string, value: string) => values.set(key, value),
       removeItem: (key: string) => values.delete(key),
     },
+    postHogProperties,
     values,
   };
 }
@@ -36,6 +44,7 @@ describe("Stack PostHog identity bridge", () => {
       is_pro: true,
     });
     expect(h.reset).not.toHaveBeenCalled();
+    expect(h.postHogProperties.get("stack_user_id")).toBe("stack-user-1");
     expect(h.values.get(STACK_IDENTITY_STORAGE_KEY)).toBe("stack-user-1");
   });
 
@@ -97,5 +106,15 @@ describe("Stack PostHog identity bridge", () => {
 
     expect(h.identify).not.toHaveBeenCalled();
     expect(h.reset).toHaveBeenCalledTimes(1);
+  });
+
+  test("resets from PostHog's own marker when browser storage is missing", () => {
+    const h = harness();
+    h.register({ stack_user_id: "stack-user-1" });
+
+    syncStackAnalyticsIdentity(h, h.storage, null);
+
+    expect(h.reset).toHaveBeenCalledTimes(1);
+    expect(h.postHogProperties.has("stack_user_id")).toBe(false);
   });
 });

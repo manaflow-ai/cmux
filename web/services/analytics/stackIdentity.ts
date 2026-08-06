@@ -6,7 +6,9 @@ export type StackAnalyticsIdentity = {
 };
 
 type PostHogIdentityClient = {
+  get_property(property: string): unknown;
   identify(distinctId: string, properties?: Record<string, unknown>): void;
+  register(properties: Record<string, unknown>): void;
   reset(): void;
 };
 
@@ -22,7 +24,10 @@ export function syncStackAnalyticsIdentity(
   storage: IdentityStorage,
   identity: StackAnalyticsIdentity | null,
 ): void {
-  const previousUserId = storage.getItem(STACK_IDENTITY_STORAGE_KEY);
+  const postHogUserId = posthog.get_property("stack_user_id");
+  const previousUserId = typeof postHogUserId === "string"
+    ? postHogUserId
+    : storage.getItem(STACK_IDENTITY_STORAGE_KEY);
   if (identity) {
     // PostHog requires a reset between authenticated people. A browser can
     // switch accounts without observing an intermediate signed-out route.
@@ -33,6 +38,9 @@ export function syncStackAnalyticsIdentity(
       // Persist first so a failed marker write cannot leave an authenticated
       // PostHog identity that later logout handling is unable to reset.
       storage.setItem(STACK_IDENTITY_STORAGE_KEY, identity.id);
+      // Keep the authoritative marker in PostHog's own persistence boundary.
+      // reset() clears it together with the active distinct id.
+      posthog.register({ stack_user_id: identity.id });
       posthog.identify(identity.id, {
         stack_user_id: identity.id,
         authentication_provider: "stack",
@@ -52,7 +60,7 @@ export function syncStackAnalyticsIdentity(
   }
 
   // Do not reset ordinary anonymous visitors on every page load. Reset only
-  // when this browser was previously attached to a signed-in Stack account.
+  // when PostHog itself or the migration marker reports a signed-in account.
   if (previousUserId) {
     posthog.reset();
     storage.removeItem(STACK_IDENTITY_STORAGE_KEY);
