@@ -279,6 +279,14 @@ struct SidebarAppKitRowCellTests {
         }
     }
 
+    private static func accessibilityLinks(
+        in textView: SidebarRowTextView
+    ) -> [SidebarRowTextAccessibilityLink] {
+        (textView.accessibilityChildren() ?? []).compactMap {
+            $0 as? SidebarRowTextAccessibilityLink
+        }
+    }
+
     @discardableResult
     private static func layoutCell(_ cell: SidebarWorkspaceRowTableCellView, model: SidebarWorkspaceRowModel, width: CGFloat = 440) -> NSWindow {
         let height = cell.layoutContent(model: model, width: width, apply: false)
@@ -538,6 +546,7 @@ struct SidebarAppKitRowCellTests {
         #expect(textView.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil) == nil)
         #expect(textView.attributedStringValue.attribute(.sidebarRowLink, at: 0, effectiveRange: nil) == nil)
         #expect(textView.attributedStringValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil) == nil)
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
     }
 
     /// Rasterizes the link over the row's own selection background. AppKit used
@@ -579,10 +588,14 @@ struct SidebarAppKitRowCellTests {
                 for: NSRange(location: 0, length: textView.attributedStringValue.length)
             )
         )
-        let accessibilityLink = try #require(
+        let attributedAccessibilityLink = try #require(
             accessibilityValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
                 as? SidebarRowTextAccessibilityLink
         )
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(accessibilityLink === attributedAccessibilityLink)
         #expect(accessibilityLink.accessibilityRole() == .link)
         #expect(accessibilityLink.accessibilityURL() == url)
         #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
@@ -613,6 +626,66 @@ struct SidebarAppKitRowCellTests {
             textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
         )
+    }
+
+    @Test
+    func accessibilityLinkSurvivesSelectedRowReconfigurationWithoutResizing() throws {
+        let workspaceID = UUID()
+        let url = try #require(URL(string: "https://cmux.com"))
+        let initialModel = Self.makeModel(
+            workspaceId: workspaceID,
+            isActive: false,
+            customDescription: url.absoluteString
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: initialModel,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: initialModel)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+        let initialTextFrame = textView.frame
+        let staleLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(!staleLink.accessibilityFrameInParentSpace().isEmpty)
+
+        let selectedModel = Self.makeModel(
+            workspaceId: workspaceID,
+            isActive: true,
+            settings: initialModel.settings,
+            customDescription: url.absoluteString
+        )
+        cell.configure(
+            model: selectedModel,
+            actions: Self.makeActions(
+                model: selectedModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(textView.frame == initialTextFrame)
+        cell.layoutSubtreeIfNeeded()
+
+        let reconfiguredTextView = try #require(
+            Self.descriptionTextView(in: cell, showing: url.absoluteString)
+        )
+        #expect(reconfiguredTextView === textView)
+        #expect(reconfiguredTextView.frame == initialTextFrame)
+        let currentLink = try #require(
+            Self.accessibilityLinks(in: reconfiguredTextView).first {
+                $0.accessibilityURL() == url
+            }
+        )
+        #expect(currentLink !== staleLink)
+        #expect(!currentLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!staleLink.accessibilityPerformPress())
+        #expect(openedURL == nil)
+        #expect(currentLink.accessibilityPerformPress())
+        #expect(openedURL == url)
+        _ = window
     }
 
     private static func metadataBlock(_ markdown: String) -> SidebarMetadataBlock {
@@ -648,10 +721,14 @@ struct SidebarAppKitRowCellTests {
                 for: NSRange(location: 0, length: attributed.length)
             )
         )
-        let accessibilityLink = try #require(
+        let attributedAccessibilityLink = try #require(
             accessibilityValue.attribute(.accessibilityLink, at: linkLocation, effectiveRange: nil)
                 as? SidebarRowTextAccessibilityLink
         )
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(accessibilityLink === attributedAccessibilityLink)
         #expect(accessibilityLink.accessibilityRole() == .link)
         #expect(accessibilityLink.accessibilityURL() == url)
         #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
@@ -701,6 +778,7 @@ struct SidebarAppKitRowCellTests {
         #expect(attributed.attribute(.link, at: 0, effectiveRange: nil) == nil)
         #expect(attributed.attribute(.accessibilityLink, at: 0, effectiveRange: nil) == nil)
         #expect(attributed.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
     }
 
     private static func firstRowLinkLocation(in attributed: NSAttributedString) -> Int? {
