@@ -15,6 +15,7 @@ import {
 import {
   applySubscriptionUpdate as applySubscriptionUpdateDefault,
   isCmuxCheckoutSession,
+  isActiveStripeSubscriptionStatus,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
 } from "../../../../services/billing/purchase";
 import { sendProSignupWelcome as sendProSignupWelcomeDefault } from "../../../../services/billing/proFulfillment";
@@ -170,10 +171,12 @@ async function processStripeEvent(
           stackUserId: result.stackUserId,
         });
       }
+      const subscription = expandedSubscription(expanded);
+      const subscriptionStatus = subscription?.status ?? "unknown";
       const subject = analyticsSubject(
         result,
-        true,
-        expandedSubscription(expanded)?.status ?? "active",
+        isActiveStripeSubscriptionStatus(subscriptionStatus),
+        subscriptionStatus,
       );
       return {
         processed: event.type,

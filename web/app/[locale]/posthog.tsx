@@ -23,6 +23,9 @@ function PageviewTracker() {
       if (search) url += "?" + search;
       posthog.capture("$pageview", { $current_url: url });
     };
+    const clearUnresolvedIdentity = () => {
+      syncStackAnalyticsIdentity(posthog, window.localStorage, null);
+    };
 
     // Resolve auth before each route's pageview. This preserves anonymous
     // pre-sign-in history through identify(), and prevents the first pageview
@@ -33,7 +36,10 @@ function PageviewTracker() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok) return;
+        if (!response.ok) {
+          clearUnresolvedIdentity();
+          return;
+        }
         const payload = await response.json() as {
           user?: { id?: unknown; plan?: unknown } | null;
         };
@@ -46,6 +52,7 @@ function PageviewTracker() {
             typeof payload.user?.id !== "string"
             || (plan !== "free" && plan !== "pro" && plan !== "team")
           ) {
+            clearUnresolvedIdentity();
             return;
           }
           identity = { id: payload.user.id, plan };
@@ -55,7 +62,8 @@ function PageviewTracker() {
       })
       .catch(() => {
         // Fail closed: an unresolved auth state must not attribute this route
-        // to an identity retained from before a logout or account switch.
+        // or later autocapture to an identity retained from before a logout.
+        if (!controller.signal.aborted) clearUnresolvedIdentity();
       });
 
     return () => controller.abort();
