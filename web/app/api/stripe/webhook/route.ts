@@ -9,6 +9,10 @@ import { cloudDb } from "../../../../db/client";
 import { stripeWebhookEvents } from "../../../../db/schema";
 import { captureBillingError } from "../../../../services/errors";
 import {
+  captureStripeBillingEvent as captureStripeBillingEventDefault,
+  type StripeBillingAnalyticsSubject,
+} from "../../../../services/analytics/stripeBilling";
+import {
   applySubscriptionUpdate as applySubscriptionUpdateDefault,
   isCmuxCheckoutSession,
   recordCheckoutCompletion as recordCheckoutCompletionDefault,
@@ -34,6 +38,7 @@ type StripeWebhookDependencies = {
   applySubscriptionUpdate: typeof applySubscriptionUpdateDefault;
   sendProSignupWelcome: typeof sendProSignupWelcomeDefault;
   revokeCoderouterRouteTokens: typeof revokeRouteTokensForUserDefault;
+  captureStripeBillingEvent: typeof captureStripeBillingEventDefault;
 };
 
 const defaultDependencies: StripeWebhookDependencies = {
@@ -45,6 +50,7 @@ const defaultDependencies: StripeWebhookDependencies = {
   applySubscriptionUpdate: applySubscriptionUpdateDefault,
   sendProSignupWelcome: sendProSignupWelcomeDefault,
   revokeCoderouterRouteTokens: revokeRouteTokensForUserDefault,
+  captureStripeBillingEvent: captureStripeBillingEventDefault,
 };
 
 export const POST = makeStripeWebhookHandler();
@@ -157,6 +163,14 @@ async function processStripeEvent(
           stackUserId: result.stackUserId,
         });
       }
+      await dependencies.captureStripeBillingEvent(
+        event,
+        analyticsSubject(
+          result,
+          true,
+          expandedSubscription(expanded)?.status ?? "active",
+        ),
+      );
       return { processed: event.type };
     }
     case "customer.subscription.created":
@@ -166,6 +180,12 @@ async function processStripeEvent(
         event.data.object,
         dependencies,
       );
+      if (!("skipped" in result)) {
+        await dependencies.captureStripeBillingEvent(
+          event,
+          analyticsSubject(result, result.isActive, event.data.object.status),
+        );
+      }
       return "skipped" in result
         ? { skipped: "subscription_unmapped" }
         : { processed: event.type };
@@ -179,6 +199,12 @@ async function processStripeEvent(
         subscription,
         dependencies,
       );
+      if (!("skipped" in result)) {
+        await dependencies.captureStripeBillingEvent(
+          event,
+          analyticsSubject(result, result.isActive, subscription.status),
+        );
+      }
       return "skipped" in result
         ? { skipped: "invoice_subscription_unmapped" }
         : { processed: event.type };
@@ -186,6 +212,18 @@ async function processStripeEvent(
     default:
       return { skipped: "event_type" };
   }
+}
+
+function analyticsSubject(
+  result:
+    | { readonly scope: "user"; readonly stackUserId: string }
+    | { readonly scope: "team"; readonly stackTeamId: string },
+  isActive: boolean,
+  status: string,
+): StripeBillingAnalyticsSubject {
+  return result.scope === "user"
+    ? { scope: "user", stackUserId: result.stackUserId, isActive, status }
+    : { scope: "team", stackTeamId: result.stackTeamId, isActive, status };
 }
 
 async function applySubscriptionEntitlementUpdate(

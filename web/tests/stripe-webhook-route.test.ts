@@ -25,6 +25,7 @@ let applySubscriptionUpdateResult: unknown = {
 };
 const applySubscriptionUpdate = mock(async () => applySubscriptionUpdateResult);
 const revokeCoderouterRouteTokens = mock(async () => {});
+const captureStripeBillingEvent = mock(async () => {});
 const sendProSignupWelcome = mock(async () => {
   if (proWelcomeShouldFail) throw new Error("email provider unavailable");
 });
@@ -96,6 +97,7 @@ const POST = makeStripeWebhookHandler({
   applySubscriptionUpdate: applySubscriptionUpdate as never,
   sendProSignupWelcome,
   revokeCoderouterRouteTokens,
+  captureStripeBillingEvent,
 });
 
 describe("Stripe billing webhook route", () => {
@@ -131,6 +133,7 @@ describe("Stripe billing webhook route", () => {
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
     revokeCoderouterRouteTokens.mockClear();
+    captureStripeBillingEvent.mockClear();
     sendProSignupWelcome.mockClear();
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
@@ -178,6 +181,15 @@ describe("Stripe billing webhook route", () => {
       expand: ["subscription", "customer"],
     });
     expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(captureStripeBillingEvent).toHaveBeenCalledWith(
+      currentEvent,
+      {
+        scope: "user",
+        stackUserId: "user_1",
+        isActive: true,
+        status: "active",
+      },
+    );
     expect(updates.at(-1)).toMatchObject({ error: null });
   });
 
@@ -306,6 +318,15 @@ describe("Stripe billing webhook route", () => {
       (currentEvent.data as { object: unknown }).object,
     );
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+    expect(captureStripeBillingEvent).toHaveBeenCalledWith(
+      currentEvent,
+      {
+        scope: "user",
+        stackUserId: "user_1",
+        isActive: false,
+        status: "canceled",
+      },
+    );
   });
 
   test("revokes coderouter tokens for an inactive invoice subscription update", async () => {
