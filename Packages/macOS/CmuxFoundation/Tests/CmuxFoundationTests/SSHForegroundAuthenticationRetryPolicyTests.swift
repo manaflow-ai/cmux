@@ -1549,6 +1549,19 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
+    @Test func ownedProcessSignalsStayInCleanupShellProcess() {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .ownedProcessGroupTerminationShellFunctions()
+
+        #expect(
+            !functions.contains("/bin/kill"),
+            "Owned-process signaling must not fork and exec once per PID inside a bounded deadline"
+        )
+        #expect(functions.contains("kill -STOP"))
+        #expect(functions.contains("kill -KILL"))
+        #expect(functions.contains("kill -CONT"))
+    }
+
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func processTreeTerminationUsesOneOverallDeadline(shellPath: String) throws {
         let fileManager = FileManager.default
