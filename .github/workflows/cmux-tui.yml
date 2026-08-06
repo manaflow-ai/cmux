@@ -123,7 +123,7 @@ jobs:
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
             echo "Running valgrind for $bin"
-            valgrind_args=()
+            valgrind_args=(--track-origins=yes)
             test_args=()
             case "$(basename "$bin")" in
               pty-*|cmux_tui_core-*)
@@ -147,7 +147,7 @@ jobs:
                 # partially initialized SIMD buffer. Valgrind reports its
                 # padding at Rustls writev. Keep leak and address checks for
                 # this binary while scoping undefined-value suppression to it.
-                valgrind_args+=(--undef-value-errors=no)
+                valgrind_args=(--undef-value-errors=no)
                 ;;
             esac
             if ! valgrind \
@@ -156,7 +156,6 @@ jobs:
               --leak-check=full \
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
-              --track-origins=yes \
               -- "$bin" "${test_args[@]}"; then
               echo "Valgrind failed for $bin" >&2
               exit 1
