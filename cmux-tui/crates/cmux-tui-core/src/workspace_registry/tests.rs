@@ -3065,6 +3065,140 @@ fn current_schema_normalizes_legacy_single_view_resource_tabs() {
 }
 
 #[test]
+fn current_schema_rejects_semantically_different_browser_view_predicate() {
+    let root = temp_root("current-schema-wrong-browser-predicate");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let browser = browser_id(1);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "wrong-browser-predicate-terminal");
+        commit_browser_topology(
+            &mut registry,
+            "wrong-browser-predicate-browser",
+            RegistryBrowser::recreate(browser.clone(), "https://cmux.dev".into(), 80, 24),
+        );
+    }
+    let malformed = Connection::open(&database).unwrap();
+    malformed
+        .execute_batch(
+            "DROP INDEX live_resource_browser_view;
+             CREATE UNIQUE INDEX live_resource_browser_view
+               ON resource_tabs(content_id)
+               WHERE content_kind = 'browser' AND deleted_revision IS NULL
+                 AND name IS NOT NULL;",
+        )
+        .unwrap();
+    let second_tab = tab_id(3);
+    malformed
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 3, 3, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    malformed
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 3, 3, NULL)",
+            params![second_tab.as_str(), pane_id(2).as_str(), browser.as_str()],
+        )
+        .unwrap();
+    drop(malformed);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("workspace registry contains multiple live views for one browser"),
+        "unexpected normalization error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once() {
+    let root = temp_root("current-schema-formatted-browser-predicate");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        drop(registry);
+    }
+    let formatted = Connection::open(&database).unwrap();
+    formatted
+        .execute_batch(
+            "DROP INDEX live_resource_browser_view;
+             CREATE UNIQUE INDEX live_resource_browser_view
+               ON resource_tabs(content_id)
+               WHERE (deleted_revision IS NULL)
+                 AND (content_kind = 'browser');",
+        )
+        .unwrap();
+    let definition_before = formatted
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_before =
+        formatted.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)).unwrap();
+    drop(formatted);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let canonical_definition = reopened
+        .connection
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_after_normalization = reopened
+        .connection
+        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_ne!(canonical_definition, definition_before);
+    assert_eq!(
+        canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
+        "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
+    );
+    assert!(schema_version_after_normalization > schema_version_before);
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
+    let definition_after_second_open = reopened_again
+        .connection
+        .query_row(
+            "SELECT sql FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    let schema_version_after_second_open = reopened_again
+        .connection
+        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert_eq!(definition_after_second_open, canonical_definition);
+    assert_eq!(schema_version_after_second_open, schema_version_after_normalization);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn multiview_normalization_requires_browser_view_index() {
+    let registry = WorkspaceRegistry::in_memory("missing-browser-view-index").unwrap();
+    registry.connection.execute("DROP INDEX live_resource_browser_view", []).unwrap();
+
+    assert!(resource_tabs_needs_multiview_normalization(&registry.connection).unwrap());
+}
+
+#[test]
 fn schema_eight_rejects_multiple_live_views_for_one_browser() {
     let root = temp_root("schema-eight-duplicate-browser-views");
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
