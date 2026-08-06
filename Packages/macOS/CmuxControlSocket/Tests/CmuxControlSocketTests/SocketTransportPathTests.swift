@@ -90,6 +90,36 @@ import Testing
         #expect(failure.errnoCode == EINTR)
         #expect(faults.invocationCount(for: "verify_bound_path_drain_accept") > 1)
     }
+
+    @Test func retainedPathVerificationRejectsUncorrelatedQueuedConnectionAfterRebind() throws {
+        let path = UnixSocketFixture.makeTempSocketPath()
+        let originalListenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        let queuedOriginalClientFD = try UnixSocketFixture.connectClient(to: path)
+        Darwin.unlink(path)
+        let replacementListenerFD = try UnixSocketFixture.bindListeningSocket(at: path)
+        defer {
+            Darwin.close(queuedOriginalClientFD)
+            Darwin.close(originalListenerFD)
+            Darwin.close(replacementListenerFD)
+            Darwin.unlink(path)
+        }
+        let replacementIdentity = try #require(transport.pathIdentity(at: path))
+        let faults = TestSocketTransportFaultInjector(
+            failuresByStage: ["verify_bound_path_drain_accept": [EAGAIN]]
+        )
+        let transport = SocketTransport(faultInjector: faults)
+
+        guard case .failed(let failure) = transport.verifyRetainedBoundPath(
+            at: path,
+            listenerSocket: originalListenerFD
+        ) else {
+            Issue.record("A connection unrelated to the verifier must not prove path ownership")
+            return
+        }
+        #expect(failure.stage == "verify_bound_path")
+        #expect(failure.errnoCode == ESTALE)
+        #expect(transport.pathIdentity(at: path) == replacementIdentity)
+    }
 }
 
 @Suite struct SocketTransportProbeTests {
