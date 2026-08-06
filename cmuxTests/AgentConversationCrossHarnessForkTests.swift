@@ -357,6 +357,78 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func executableBindingPrunesOwnedExpiredCrashRemnants() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("grok", isDirectory: false)
+        try "#!/bin/zsh\nexit 0\n".write(
+            to: executable,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let identity = try #require(AgentConversationForkExecutableIdentity.capture(
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path
+        ))
+        let binding = try #require(AgentConversationForkExecutableBinding(identity: identity))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-lc",
+            binding.shellCommand(running: "/bin/kill -KILL $$"),
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        #expect(FileManager.default.fileExists(atPath: binding.boundPath))
+
+        let token = try #require(
+            URL(fileURLWithPath: binding.boundPath)
+                .lastPathComponent
+                .split(separator: "-")
+                .dropFirst(2)
+                .first
+        )
+        let recordDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-transfer-bindings", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: recordDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let record = recordDirectory
+            .appendingPathComponent("\(token).json", isDirectory: false)
+        defer {
+            try? FileManager.default.removeItem(at: record)
+            try? FileManager.default.removeItem(atPath: binding.boundPath)
+        }
+        let manifest: [String: Any] = [
+            "version": 1,
+            "boundPath": binding.boundPath,
+            "expectedStatSignature": identity.shellStatSignature,
+        ]
+        try JSONSerialization.data(withJSONObject: manifest).write(to: record)
+        try FileManager.default.setAttributes(
+            [
+                .posixPermissions: 0o600,
+                .modificationDate: Date(timeIntervalSinceNow: -(25 * 60 * 60)),
+            ],
+            ofItemAtPath: record.path
+        )
+
+        _ = try #require(AgentConversationForkExecutableBinding(identity: identity))
+
+        #expect(!FileManager.default.fileExists(atPath: binding.boundPath))
+        #expect(!FileManager.default.fileExists(atPath: record.path))
+    }
+
+    @Test
     func hermesTransferStartsInteractiveSessionAndSubmitsFirstMessage() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

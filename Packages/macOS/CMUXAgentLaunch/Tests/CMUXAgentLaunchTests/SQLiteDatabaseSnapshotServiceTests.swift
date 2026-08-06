@@ -199,6 +199,39 @@ struct SQLiteDatabaseSnapshotServiceTests {
         }
     }
 
+    @Test("Removes every destination artifact after an interrupted backup")
+    func removesDestinationArtifactsAfterInterruptedBackup() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeDatabase(at: source)
+        let interruptedService = SQLiteDatabaseSnapshotService(
+            pagesPerStep: 1,
+            stepObserver: {
+                throw SnapshotFixtureError.interrupted
+            }
+        )
+
+        #expect(throws: SnapshotFixtureError.interrupted) {
+            try interruptedService.copyDatabase(
+                from: source.path,
+                to: destination.path
+            )
+        }
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            #expect(!FileManager.default.fileExists(atPath: destination.path + suffix))
+        }
+
+        try SQLiteDatabaseSnapshotService().copyDatabase(
+            from: source.path,
+            to: destination.path
+        )
+        #expect(FileManager.default.fileExists(atPath: destination.path))
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
@@ -215,4 +248,8 @@ struct SQLiteDatabaseSnapshotServiceTests {
             throw SQLiteDatabaseSnapshotError.sqlite("fixture setup failed")
         }
     }
+}
+
+private enum SnapshotFixtureError: Error {
+    case interrupted
 }
