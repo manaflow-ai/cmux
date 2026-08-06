@@ -7,7 +7,7 @@ import Testing
     @testable import cmux
 #endif
 
-struct EventCursorPersistenceTests {
+final class EventCursorPersistenceTests {
     @Test func quietStreamFlushesCursorBeforeServerHeartbeat() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-cursor-\(UUID().uuidString)", isDirectory: true)
