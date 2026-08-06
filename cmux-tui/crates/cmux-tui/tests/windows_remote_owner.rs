@@ -27,23 +27,23 @@ fn socket_accepts(path: &Path) -> bool {
     cmux_tui_core::platform::transport::connect(path).is_ok()
 }
 
-fn wait_for_mux_owner(carrier: &mut Child, socket: &Path) {
+fn wait_for_mux_owner(owner: &mut Child, socket: &Path) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         if socket_accepts(socket) {
             return;
         }
-        if let Some(status) = carrier.try_wait().unwrap() {
+        if let Some(status) = owner.try_wait().unwrap() {
             let mut stderr = String::new();
-            carrier.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-            panic!("remote carrier exited before publishing its mux socket ({status}): {stderr}");
+            owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("remote owner exited before publishing its mux socket ({status}): {stderr}");
         }
         if Instant::now() >= deadline {
-            let _ = carrier.kill();
-            let _ = carrier.wait();
+            let _ = owner.kill();
+            let _ = owner.wait();
             let mut stderr = String::new();
-            carrier.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
-            panic!("remote carrier did not publish its mux socket within 15s: {stderr}");
+            owner.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("remote owner did not publish its mux socket within 15s: {stderr}");
         }
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -79,6 +79,29 @@ fn spawn_carrier(executable: &str, session: &str, state_root: &Path) -> Child {
         .unwrap()
 }
 
+fn spawn_owner(executable: &str, session: &str, state_root: &Path) -> Child {
+    Command::new(executable)
+        .args(["remote-mux-owner", "--session", session, "--state-dir"])
+        .arg(state_root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap()
+}
+
+fn assert_process_stays_running(child: &mut Child, duration: Duration, label: &str) {
+    let deadline = Instant::now() + duration;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait().unwrap() {
+            let mut stderr = String::new();
+            child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("{label} exited unexpectedly ({status}): {stderr}");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 #[test]
 fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     let executable = env!("CARGO_BIN_EXE_cmux-tui");
@@ -87,8 +110,13 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     let session_state = state_root.path().join("sessions").join(&session);
     let mux_socket = session_state.join("mux.sock");
 
+    // GitHub's Windows runner forbids CREATE_BREAKAWAY_FROM_JOB. Launch the
+    // durable owner from the longer-lived test job, then verify that the SSH
+    // carrier can come and go without owning the mux or its ConPTY children.
+    let mut owner = spawn_owner(executable, &session, state_root.path());
+    wait_for_mux_owner(&mut owner, &mux_socket);
     let mut carrier = spawn_carrier(executable, &session, state_root.path());
-    wait_for_mux_owner(&mut carrier, &mux_socket);
+    assert_process_stays_running(&mut carrier, Duration::from_millis(250), "remote carrier");
     let created = Command::new(executable)
         .arg("--socket")
         .arg(&mux_socket)
@@ -154,8 +182,9 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
         wait_until(Duration::from_secs(5), || !socket_accepts(&mux_socket)),
         "remote-stop left the resident mux owner running"
     );
+    assert!(wait_for_exit(&mut owner, Duration::from_secs(5)), "remote owner did not exit");
 
-    let mut replacement = spawn_carrier(executable, &session, state_root.path());
+    let mut replacement = spawn_owner(executable, &session, state_root.path());
     wait_for_mux_owner(&mut replacement, &mux_socket);
     let terminals = Command::new(executable)
         .arg("--socket")
@@ -168,15 +197,14 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
         !String::from_utf8_lossy(&terminals.stdout).contains(&terminal),
         "replacement owner exposed an unrecoverable terminal as live"
     );
-    drop(replacement.stdin.take());
-    assert!(
-        wait_for_exit(&mut replacement, Duration::from_secs(5)),
-        "replacement carrier did not exit after stdin closed"
-    );
     let final_stop = Command::new(executable)
         .args(["remote-stop", "--session", &session, "--state-dir"])
         .arg(state_root.path())
         .output()
         .unwrap();
     assert_cmux_success(&final_stop);
+    assert!(
+        wait_for_exit(&mut replacement, Duration::from_secs(5)),
+        "replacement owner did not exit"
+    );
 }
