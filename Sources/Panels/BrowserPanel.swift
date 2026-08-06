@@ -4486,7 +4486,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         webView.cmuxApplyBrowserViewportLayout(in: contentView.bounds)
         backgroundPreloadWindow = window
-        window.orderFrontRegardless()
+        BrowserBackgroundPreloadHost.orderOnScreenIfSafe(window)
         webView.browserPortalNotifyHidden(reason: "backgroundPreload:\(reason)")
 
 #if DEBUG
