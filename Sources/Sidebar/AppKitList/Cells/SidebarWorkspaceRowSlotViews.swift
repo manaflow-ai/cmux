@@ -362,9 +362,9 @@ final class SidebarRowTextView: NSTextField {
     }
 
     /// Moves every web `.link` run onto `.sidebarRowLink` so AppKit stops
-    /// painting it, then styles the run explicitly (row-derived color plus an
-    /// underline so it still reads as a link in both states). Non-web links are
-    /// dropped, matching the metadata URL contract enforced elsewhere.
+    /// painting it, preserves the standard `.accessibilityLink` semantics, and
+    /// styles the run explicitly (row-derived color plus an underline). Non-web
+    /// links are dropped, matching the metadata URL contract enforced elsewhere.
     private func applyRowOwnedLinkStyling(
         to mutable: NSMutableAttributedString,
         linkColor: NSColor
@@ -378,6 +378,7 @@ final class SidebarRowTextView: NSTextField {
         }
         for run in runs {
             mutable.removeAttribute(.link, range: run.range)
+            mutable.removeAttribute(.accessibilityLink, range: run.range)
             guard let url = run.url else {
                 mutable.removeAttribute(.underlineStyle, range: run.range)
                 continue
@@ -385,6 +386,7 @@ final class SidebarRowTextView: NSTextField {
             mutable.addAttributes(
                 [
                     .sidebarRowLink: url,
+                    .accessibilityLink: url,
                     .foregroundColor: linkColor,
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
                     .underlineColor: linkColor,

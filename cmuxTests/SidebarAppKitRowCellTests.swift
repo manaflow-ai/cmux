@@ -537,6 +537,7 @@ struct SidebarAppKitRowCellTests {
         #expect(openedURL == nil)
         #expect(textView.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil) == nil)
         #expect(textView.attributedStringValue.attribute(.sidebarRowLink, at: 0, effectiveRange: nil) == nil)
+        #expect(textView.attributedStringValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil) == nil)
     }
 
     /// Rasterizes the link over the row's own selection background. AppKit used
@@ -573,6 +574,12 @@ struct SidebarAppKitRowCellTests {
             textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
         )
+        let accessibilityValue = try #require(
+            textView.cell?.accessibilityAttributedString(
+                for: NSRange(location: 0, length: textView.attributedStringValue.length)
+            )
+        )
+        #expect(Self.linkURL(from: accessibilityValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil)) == url)
 
         let raster = try Self.raster(of: textView, background: selectionBackground)
         let systemLink = try #require(
@@ -629,6 +636,16 @@ struct SidebarAppKitRowCellTests {
 
         #expect(Self.linkURL(from: attributed.attribute(.sidebarRowLink, at: linkLocation, effectiveRange: nil)) == url)
         #expect(attributed.attribute(.link, at: linkLocation, effectiveRange: nil) == nil)
+        let accessibilityValue = try #require(
+            textView.cell?.accessibilityAttributedString(
+                for: NSRange(location: 0, length: attributed.length)
+            )
+        )
+        #expect(
+            Self.linkURL(
+                from: accessibilityValue.attribute(.accessibilityLink, at: linkLocation, effectiveRange: nil)
+            ) == url
+        )
         #expect(
             attributed.attribute(.underlineStyle, at: linkLocation, effectiveRange: nil) as? Int
                 == NSUnderlineStyle.single.rawValue
@@ -671,6 +688,7 @@ struct SidebarAppKitRowCellTests {
 
         #expect(Self.firstRowLinkLocation(in: attributed) == nil)
         #expect(attributed.attribute(.link, at: 0, effectiveRange: nil) == nil)
+        #expect(attributed.attribute(.accessibilityLink, at: 0, effectiveRange: nil) == nil)
         #expect(attributed.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
     }
 
