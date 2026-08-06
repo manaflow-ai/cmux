@@ -6,32 +6,19 @@ import Foundation
 @MainActor
 final class AgentChatEndedTranscriptListabilityCache {
     typealias ResolvePath = @Sendable () async -> String?
+    private typealias RecordKey = [String?]
+    private typealias Entry = (
+        key: RecordKey,
+        isReadable: Bool,
+        firstMissingAt: Date?
+    )
+    private typealias PendingResolution = (
+        id: UUID,
+        key: RecordKey,
+        task: Task<String?, Never>
+    )
 
     private static let missingTranscriptRetryWindow: TimeInterval = 5
-
-    private struct RecordKey: Equatable, Sendable {
-        let transcriptPath: String?
-        let workingDirectory: String?
-        let hookStoreSessionID: String?
-
-        init(_ record: AgentChatSessionRecord) {
-            transcriptPath = record.transcriptPath
-            workingDirectory = record.workingDirectory
-            hookStoreSessionID = record.hookStoreSessionID
-        }
-    }
-
-    private struct Entry {
-        let key: RecordKey
-        let isReadable: Bool
-        let firstMissingAt: Date?
-    }
-
-    private struct PendingResolution {
-        let id: UUID
-        let key: RecordKey
-        let task: Task<String?, Never>
-    }
 
     private var entryBySessionID: [String: Entry] = [:]
     private var pendingBySessionID: [String: PendingResolution] = [:]
@@ -45,7 +32,7 @@ final class AgentChatEndedTranscriptListabilityCache {
             remove(sessionID: record.sessionID)
             return false
         }
-        let key = RecordKey(record)
+        let key = recordKey(for: record)
         if let entry = entryBySessionID[record.sessionID], entry.key == key {
             if entry.isReadable {
                 return true
@@ -77,7 +64,7 @@ final class AgentChatEndedTranscriptListabilityCache {
         }
         return await refresh(
             record,
-            key: RecordKey(record),
+            key: recordKey(for: record),
             now: now,
             resolvePath: resolvePath
         )
@@ -98,7 +85,7 @@ final class AgentChatEndedTranscriptListabilityCache {
         let task = Task {
             await resolvePath()
         }
-        pendingBySessionID[record.sessionID] = PendingResolution(
+        pendingBySessionID[record.sessionID] = (
             id: id,
             key: key,
             task: task
@@ -112,7 +99,7 @@ final class AgentChatEndedTranscriptListabilityCache {
         }
         pendingBySessionID.removeValue(forKey: record.sessionID)
         guard !task.isCancelled else { return false }
-        entryBySessionID[record.sessionID] = Entry(
+        entryBySessionID[record.sessionID] = (
             key: key,
             isReadable: isReadable,
             firstMissingAt: isReadable ? nil : now
@@ -123,5 +110,13 @@ final class AgentChatEndedTranscriptListabilityCache {
     func remove(sessionID: String) {
         entryBySessionID.removeValue(forKey: sessionID)
         pendingBySessionID.removeValue(forKey: sessionID)?.task.cancel()
+    }
+
+    private func recordKey(for record: AgentChatSessionRecord) -> RecordKey {
+        [
+            record.transcriptPath,
+            record.workingDirectory,
+            record.hookStoreSessionID,
+        ]
     }
 }

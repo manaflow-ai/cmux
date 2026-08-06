@@ -49,7 +49,7 @@ struct PortScanPublicationBuffer {
         let batch = pending
         pending = PortScanPublicationBatch()
         claimedAgentPublicationsByWorkspace = batch.agentPublicationsByWorkspace
-        return PortScanPublicationDeliveryBatch(
+        return (
             panelPublications: Array(batch.panelPublicationsByKey.values),
             agentPublications: Array(batch.agentPublicationsByWorkspace.values)
         )

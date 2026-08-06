@@ -2,22 +2,6 @@ import AppKit
 import Carbon
 import Foundation
 
-protocol KeyboardInputSourceReading: Sendable {
-    func currentInputSource() -> TISInputSource?
-    func currentASCIICapableInputSource() -> TISInputSource?
-}
-
-/// The platform boundary for retained TIS input-source reads.
-struct SystemKeyboardInputSourceReader: KeyboardInputSourceReading {
-    func currentInputSource() -> TISInputSource? {
-        TISCopyCurrentKeyboardInputSource()?.takeRetainedValue()
-    }
-
-    func currentASCIICapableInputSource() -> TISInputSource? {
-        TISCopyCurrentASCIICapableKeyboardInputSource()?.takeRetainedValue()
-    }
-}
-
 struct KeyboardLayoutSystemLoader: Sendable {
     private let inputSourceReader: any KeyboardInputSourceReading
     private let keyCodes: [UInt16]

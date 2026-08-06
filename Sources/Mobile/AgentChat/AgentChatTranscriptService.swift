@@ -130,24 +130,17 @@ final class AgentChatTranscriptService {
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
     private var failedResolutions: Set<String> = []
-    private struct TranscriptBindingKey: Equatable, Sendable {
-        let agentKind: ChatAgentKind
-        let transcriptPath: String?
-        let workingDirectory: String?
-        let hookStoreSessionID: String?
-
-        init(_ record: AgentChatSessionRecord) {
-            agentKind = record.agentKind
-            transcriptPath = record.transcriptPath
-            workingDirectory = record.workingDirectory
-            hookStoreSessionID = record.hookStoreSessionID
-        }
-    }
-    private struct PendingBoundedTailerResolution {
-        let id: UUID
-        let key: TranscriptBindingKey
-        let task: Task<Void, Never>
-    }
+    private typealias TranscriptBindingKey = (
+        agentKind: ChatAgentKind,
+        transcriptPath: String?,
+        workingDirectory: String?,
+        hookStoreSessionID: String?
+    )
+    private typealias PendingBoundedTailerResolution = (
+        id: UUID,
+        key: TranscriptBindingKey,
+        task: Task<Void, Never>
+    )
     private var pendingBoundedTailerResolutions: [String: PendingBoundedTailerResolution] = [:]
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private let endedListability = AgentChatEndedTranscriptListabilityCache()
@@ -512,7 +505,7 @@ final class AgentChatTranscriptService {
         }
         await tailer.start()
         let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
-        if record.title == nil, let title = await tailer.title {
+        if case nil = record.title, let title = await tailer.title {
             registry.update(sessionID: sessionID) { $0.title = title }
         }
         return page
@@ -592,7 +585,7 @@ final class AgentChatTranscriptService {
               !failedResolutions.contains(record.sessionID) else {
             return
         }
-        let key = TranscriptBindingKey(record)
+        let key = transcriptBindingKey(for: record)
         if pendingBoundedTailerResolutions[record.sessionID]?.key == key {
             return
         }
@@ -617,7 +610,7 @@ final class AgentChatTranscriptService {
             }
             _ = self.ensureTailer(for: currentRecord, resolvedPath: path)
         }
-        pendingBoundedTailerResolutions[record.sessionID] = PendingBoundedTailerResolution(
+        pendingBoundedTailerResolutions[record.sessionID] = (
             id: id,
             key: key,
             task: task
@@ -629,7 +622,18 @@ final class AgentChatTranscriptService {
         _ rhs: AgentChatSessionRecord
     ) -> Bool {
         lhs.sessionID == rhs.sessionID
-            && TranscriptBindingKey(lhs) == TranscriptBindingKey(rhs)
+            && transcriptBindingKey(for: lhs) == transcriptBindingKey(for: rhs)
+    }
+
+    private func transcriptBindingKey(
+        for record: AgentChatSessionRecord
+    ) -> TranscriptBindingKey {
+        (
+            agentKind: record.agentKind,
+            transcriptPath: record.transcriptPath,
+            workingDirectory: record.workingDirectory,
+            hookStoreSessionID: record.hookStoreSessionID
+        )
     }
 
     private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {

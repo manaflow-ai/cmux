@@ -21,19 +21,17 @@ extension KeyboardLayout {
     }
 }
 
-private struct KeyboardLayoutDebugInputSource {
+// SAFETY: The reader is created and consumed inside one detached task. Its
+// retained TIS handle is immutable and never crosses to another task afterward.
+private struct KeyboardLayoutDebugInputSource: KeyboardInputSourceReading, @unchecked Sendable {
     private let source: TISInputSource
 
-    private struct InputSourceReader: KeyboardInputSourceReading, @unchecked Sendable {
-        let source: TISInputSource
+    func currentInputSource() -> TISInputSource? {
+        source
+    }
 
-        func currentInputSource() -> TISInputSource? {
-            source
-        }
-
-        func currentASCIICapableInputSource() -> TISInputSource? {
-            nil
-        }
+    func currentASCIICapableInputSource() -> TISInputSource? {
+        nil
     }
 
     init?(inputSourceID: String) {
@@ -53,7 +51,7 @@ private struct KeyboardLayoutDebugInputSource {
         modifierFlags: NSEvent.ModifierFlags
     ) -> String? {
         let snapshot = KeyboardLayoutSystemLoader(
-            inputSourceReader: InputSourceReader(source: source),
+            inputSourceReader: self,
             keyCodes: [keyCode],
             shortcutModifierFlags: [],
             textInputModifierFlags: [modifierFlags]

@@ -1237,6 +1237,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		E89950040000000000000001 /* KeyboardCopyModeGridMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950040000000000000002 /* KeyboardCopyModeGridMetrics.swift */; };
 		E89950030000000000000001 /* KeyboardCopyModeResolvedCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950030000000000000002 /* KeyboardCopyModeResolvedCell.swift */; };
 		E89950020000000000000001 /* KeyboardCopyModeSelectionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = E89950020000000000000002 /* KeyboardCopyModeSelectionKind.swift */; };
+		15A66D19EF9B48BD82DA1B05 /* KeyboardInputSourceReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C9BECC62EEF4EB28370BF0A /* KeyboardInputSourceReading.swift */; };
 		A50012F5 /* KeyboardLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50012F4 /* KeyboardLayout.swift */; };
 		A17DB6000000000000000001 /* KeyboardLayoutDebugInputSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17DB6000000000000000002 /* KeyboardLayoutDebugInputSource.swift */; };
 		F9417A000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9417B000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift */; };
@@ -1940,8 +1941,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D75280020000000000000002 /* SidebarProfilingSignposts.swift */; };
 		C0DE48000000000000000001 /* SidebarProviderMenuRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */; };
 		B9000130A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */; };
+		690FD8D3C3C1482F9E862972 /* SidebarResizerCursorReleaseScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FBC83E889A2467898DE26E3 /* SidebarResizerCursorReleaseScheduler.swift */; };
 		5B0C00010000000000000001 /* SidebarResizerOcclusionResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */; };
 		5B0C00010000000000000003 /* SidebarResizerOcclusionResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */; };
+		066211E712D04AC0ADC2DBA4 /* SidebarResizerPointerButtonState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 584D48D7C81043BBAF6D2ECF /* SidebarResizerPointerButtonState.swift */; };
 		B8F266236A1A3D9A45BD840F /* SidebarResizeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */; };
 		AABBCC000000000000000208 /* SidebarRowAccessibilityModifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = AABBCC000000000000000207 /* SidebarRowAccessibilityModifier.swift */; };
 		B804A02E000000000000002E /* SidebarRowChecklistAddRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = B804B02E000000000000002E /* SidebarRowChecklistAddRow.swift */; };
@@ -2154,6 +2157,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */; };
 		A7206B010000000000000001 /* SystemAppearanceObserverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7206B020000000000000001 /* SystemAppearanceObserverTests.swift */; };
 		C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7B0FACE000000000000000D /* SystemCommandRunner.swift */; };
+		DAEE07FFB2294BFFBA6DB0C4 /* SystemKeyboardInputSourceReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48C1653D619F4D59AD20A735 /* SystemKeyboardInputSourceReader.swift */; };
 		A71100000000000000000003 /* SystemTailscaleStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71100000000000000000004 /* SystemTailscaleStatusProvider.swift */; };
 		A71100000000000000000005 /* SystemTailscaleStatusProviderError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71100000000000000000006 /* SystemTailscaleStatusProviderError.swift */; };
 		FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */; };
@@ -3904,6 +3908,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		E89950040000000000000002 /* KeyboardCopyModeGridMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeGridMetrics.swift; sourceTree = "<group>"; };
 		E89950030000000000000002 /* KeyboardCopyModeResolvedCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeResolvedCell.swift; sourceTree = "<group>"; };
 		E89950020000000000000002 /* KeyboardCopyModeSelectionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardCopyModeSelectionKind.swift; sourceTree = "<group>"; };
+		7C9BECC62EEF4EB28370BF0A /* KeyboardInputSourceReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardInputSourceReading.swift; sourceTree = "<group>"; };
 		A50012F4 /* KeyboardLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayout.swift; sourceTree = "<group>"; };
 		A17DB6000000000000000002 /* KeyboardLayoutDebugInputSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/KeyboardLayoutDebugInputSource.swift; sourceTree = "<group>"; };
 		F9417B000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutModifierTranslationMode.swift; sourceTree = "<group>"; };
@@ -4599,8 +4604,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		D75280020000000000000002 /* SidebarProfilingSignposts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProfilingSignposts.swift; sourceTree = "<group>"; };
 		C0DE48000000000000000002 /* SidebarProviderMenuRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarProviderMenuRegressionTests.swift; sourceTree = "<group>"; };
 		B9000131A1B2C3D4E5F60719 /* SidebarPullRequestInteractivityUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarPullRequestInteractivityUITests.swift; sourceTree = "<group>"; };
+		8FBC83E889A2467898DE26E3 /* SidebarResizerCursorReleaseScheduler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarResizerCursorReleaseScheduler.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarResizerOcclusionResolver.swift; sourceTree = "<group>"; };
 		5B0C00010000000000000004 /* SidebarResizerOcclusionResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizerOcclusionResolverTests.swift; sourceTree = "<group>"; };
+		584D48D7C81043BBAF6D2ECF /* SidebarResizerPointerButtonState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarResizerPointerButtonState.swift; sourceTree = "<group>"; };
 		818DBCD4AB69EB72573E8138 /* SidebarResizeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarResizeUITests.swift; sourceTree = "<group>"; };
 		AABBCC000000000000000207 /* SidebarRowAccessibilityModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/SidebarRowAccessibilityModifier.swift; sourceTree = "<group>"; };
 		B804B02E000000000000002E /* SidebarRowChecklistAddRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/Cells/SidebarRowChecklistAddRow.swift; sourceTree = "<group>"; };
@@ -4806,6 +4813,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A7206F020000000000000001 /* SystemAppearanceObserverEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverEnvironment.swift; sourceTree = "<group>"; };
 		A7206B020000000000000001 /* SystemAppearanceObserverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemAppearanceObserverTests.swift; sourceTree = "<group>"; };
 		C7B0FACE000000000000000D /* SystemCommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCommandRunner.swift; sourceTree = "<group>"; };
+		48C1653D619F4D59AD20A735 /* SystemKeyboardInputSourceReader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemKeyboardInputSourceReader.swift; sourceTree = "<group>"; };
 		A71100000000000000000004 /* SystemTailscaleStatusProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemTailscaleStatusProvider.swift; sourceTree = "<group>"; };
 		A71100000000000000000006 /* SystemTailscaleStatusProviderError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SystemTailscaleStatusProviderError.swift; sourceTree = "<group>"; };
 		65154DD251384EE0A2C8923A /* SystemWideHotkeyShortcutPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemWideHotkeyShortcutPolicyTests.swift; sourceTree = "<group>"; };
@@ -6024,7 +6032,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */,
 				A5001901A1B2C3D4E5F60718 /* WindowBackgroundComposition.swift */,
 				D1614EAD3CCF70A177A51BD1 /* SidebarState.swift */,
+				8FBC83E889A2467898DE26E3 /* SidebarResizerCursorReleaseScheduler.swift */,
 				5B0C00010000000000000002 /* SidebarResizerOcclusionResolver.swift */,
+				584D48D7C81043BBAF6D2ECF /* SidebarResizerPointerButtonState.swift */,
 				C0DEFF200000000000000002 /* CommandPaletteOverlay.swift */,
 				C0DEF4110000000000000002 /* CommandPaletteSettingsToggle.swift */,
 				9DAB808A8EC74C40B95F7672 /* GhosttySurfaceConfigurationRefresh.swift */,
@@ -6120,6 +6130,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F9417B000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift */,
 				F9417B000000000000000004 /* KeyboardLayoutSnapshotKey.swift */,
 				F9417B000000000000000005 /* KeyboardLayoutSystemLoader.swift */,
+				7C9BECC62EEF4EB28370BF0A /* KeyboardInputSourceReading.swift */,
+				48C1653D619F4D59AD20A735 /* SystemKeyboardInputSourceReader.swift */,
 				F9417B000000000000000006 /* KeyboardShortcutSnapshot.swift */,
 				F9417B000000000000000007 /* PaneDropTargetOverlaySnapshot.swift */,
 				F9417B000000000000000008 /* BrowserBackgroundPreloadHost.swift */,
@@ -9311,6 +9323,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				E89950040000000000000001 /* KeyboardCopyModeGridMetrics.swift in Sources */,
 				E89950030000000000000001 /* KeyboardCopyModeResolvedCell.swift in Sources */,
 				E89950020000000000000001 /* KeyboardCopyModeSelectionKind.swift in Sources */,
+				15A66D19EF9B48BD82DA1B05 /* KeyboardInputSourceReading.swift in Sources */,
 				A50012F5 /* KeyboardLayout.swift in Sources */,
 				A17DB6000000000000000001 /* KeyboardLayoutDebugInputSource.swift in Sources */,
 				F9417A000000000000000003 /* KeyboardLayoutModifierTranslationMode.swift in Sources */,
@@ -9775,7 +9788,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEF0A30000000000000001 /* SidebarPortDisplayText.swift in Sources */,
 				C0DEA7710000000000000005 /* SidebarProBadge.swift in Sources */,
 				D75280020000000000000001 /* SidebarProfilingSignposts.swift in Sources */,
+				690FD8D3C3C1482F9E862972 /* SidebarResizerCursorReleaseScheduler.swift in Sources */,
 				5B0C00010000000000000001 /* SidebarResizerOcclusionResolver.swift in Sources */,
+				066211E712D04AC0ADC2DBA4 /* SidebarResizerPointerButtonState.swift in Sources */,
 				AABBCC000000000000000208 /* SidebarRowAccessibilityModifier.swift in Sources */,
 				B804A02E000000000000002E /* SidebarRowChecklistAddRow.swift in Sources */,
 				B804A02F000000000000002F /* SidebarRowChecklistAttachmentButton.swift in Sources */,
@@ -9928,6 +9943,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A7206A010000000000000001 /* SystemAppearanceObserver.swift in Sources */,
 				A7206F010000000000000001 /* SystemAppearanceObserverEnvironment.swift in Sources */,
 				C7B0FACE000000000000000C /* SystemCommandRunner.swift in Sources */,
+				DAEE07FFB2294BFFBA6DB0C4 /* SystemKeyboardInputSourceReader.swift in Sources */,
 				A71100000000000000000003 /* SystemTailscaleStatusProvider.swift in Sources */,
 				A71100000000000000000005 /* SystemTailscaleStatusProviderError.swift in Sources */,
 				C9A5720DC9A5720DC9A5720D /* TabItemView+WorkspaceContextMenu.swift in Sources */,
