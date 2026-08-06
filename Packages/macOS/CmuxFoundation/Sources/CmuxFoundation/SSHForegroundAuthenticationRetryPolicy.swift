@@ -7,6 +7,34 @@ internal import Foundation
 /// The persistent PTY wrappers therefore need stderr context before deciding
 /// whether an initial authentication attempt belongs in their reconnect loop.
 public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
+    static let groupStateFileNames = [
+        "identity",
+        "identity.new",
+        "anchor",
+        "cancel",
+        "processes",
+        "processes.stopped",
+        "owned",
+        "owned.next",
+        "groups",
+        "groups.next",
+        "groups.resume",
+        "frozen",
+        "individuals",
+        "ordered",
+        "signaled.groups",
+        "signaled.pids",
+        "reaper.failed",
+        "reaper.failed.new",
+    ]
+
+    static let reaperLockStateFileNames = [
+        "owner",
+        "owner.new",
+        "publisher",
+        "publisher.new",
+    ]
+
     /// Maximum consecutive transport failures before foreground auth surfaces the outage.
     public let maximumConsecutiveTransientFailures = 20
 
@@ -67,26 +95,43 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     ///
     /// - Returns: A shell command that removes every file owned by the group-state protocol.
     public func processGroupStateRemovalShellCommand() -> String {
-        let fileNames = [
-            "identity",
-            "identity.new",
-            "anchor",
-            "cancel",
-            "processes",
-            "processes.stopped",
-            "owned",
-            "owned.next",
-            "groups",
-            "groups.next",
-            "groups.resume",
-            "frozen",
-            "individuals",
-            "ordered",
-            "signaled.groups",
-            "signaled.pids",
-            "reaper.failed",
-            "reaper.failed.new",
-        ]
+        let reaperLockStateArguments = Self.reaperLockStateFileNames
+            .map { "\"$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock/\($0)\"" }
+            .joined(separator: " ")
+        return [
+            "/bin/rm -f -- \(reaperLockStateArguments) 2>/dev/null || true",
+            "/bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock\" 2>/dev/null || true",
+            groupStateFileRemovalShellCommand(includingCancellationMarker: true),
+        ].joined(separator: "; ")
+    }
+
+    /// Builds the shared cleanup body for one authentication group directory.
+    ///
+    /// The caller wraps this body in its entrypoint-specific shell function.
+    /// Published process ownership is terminated before bounded state is removed,
+    /// and a live reaper retains the directory until it finishes.
+    ///
+    /// - Parameter terminatesPublishedGroup: Whether this entrypoint runs foreground authentication.
+    /// - Returns: A shell function body that consumes `CMUX_SSH_AUTH_GROUP_DIR`.
+    public func authenticationGroupDirectoryCleanupShellBody(
+        terminatesPublishedGroup: Bool
+    ) -> String {
+        let publishedCleanup = terminatesPublishedGroup
+            ? publishedAuthenticationCleanupShellCommand()
+            : ":"
+        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR;"
+    }
+
+    private func publishedAuthenticationCleanupShellCommand() -> String {
+        "if [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then cmux_ssh_terminate_owned_auth_group; if [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then cmux_ssh_launch_owned_auth_group_reaper \"$CMUX_SSH_AUTH_GROUP_DIR\"; fi; fi"
+    }
+
+    private func groupStateFileRemovalShellCommand(
+        includingCancellationMarker: Bool
+    ) -> String {
+        let fileNames = Self.groupStateFileNames.filter {
+            includingCancellationMarker || $0 != "cancel"
+        }
         let arguments = fileNames
             .map { "\"$CMUX_SSH_AUTH_GROUP_DIR/\($0)\"" }
             .joined(separator: " ")
@@ -121,6 +166,35 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         \#(ownedProcessGroupTerminationShellFunctions())
 
+        cmux_ssh_auth_recorded_process_is_live() {
+          cmux_ssh_auth_record_file="$1"
+          if [ ! -s "$cmux_ssh_auth_record_file" ]; then return 1; fi
+          cmux_ssh_auth_record=$(/bin/cat -- "$cmux_ssh_auth_record_file" 2>/dev/null || true)
+          cmux_ssh_auth_record_pid=${cmux_ssh_auth_record%%|*}
+          cmux_ssh_auth_record_identity=${cmux_ssh_auth_record#*|}
+          if [ "$cmux_ssh_auth_record_identity" = "$cmux_ssh_auth_record" ]; then return 1; fi
+          case "$cmux_ssh_auth_record_pid" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_record_identity" in
+            ''|*[!A-Za-z0-9_:|]*) return 1 ;;
+          esac
+          [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_record_pid")" = \
+            "$cmux_ssh_auth_record_identity" ]
+        }
+
+        cmux_ssh_auth_reclaim_stale_reaper_lock() {
+          cmux_ssh_auth_stale_lock="$1"
+          if [ ! -d "$cmux_ssh_auth_stale_lock" ]; then return 0; fi
+          if cmux_ssh_auth_recorded_process_is_live "$cmux_ssh_auth_stale_lock/owner" || \
+            cmux_ssh_auth_recorded_process_is_live "$cmux_ssh_auth_stale_lock/publisher"; then
+            return 1
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_stale_lock/owner" \
+            "$cmux_ssh_auth_stale_lock/owner.new" \
+            "$cmux_ssh_auth_stale_lock/publisher" \
+            "$cmux_ssh_auth_stale_lock/publisher.new" 2>/dev/null || true
+          /bin/rmdir "$cmux_ssh_auth_stale_lock" 2>/dev/null
+        }
+
         cmux_ssh_launch_owned_auth_group_reaper() {
           cmux_ssh_auth_reaper_group_dir="$1"
           cmux_ssh_auth_reaper_expected_dir_identity="$(/usr/bin/id -u):700"
@@ -133,11 +207,48 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
           case "$cmux_ssh_auth_reaper_caller_group" in ''|*[!0-9]*) return 0 ;; esac
           cmux_ssh_auth_reaper_lock="$cmux_ssh_auth_reaper_group_dir/reaper.lock"
-          /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || return 0
+          if ! /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null; then
+            cmux_ssh_auth_reclaim_stale_reaper_lock "$cmux_ssh_auth_reaper_lock" || return 0
+            /bin/mkdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || return 0
+          fi
+          cmux_ssh_auth_reaper_publisher_identity=$(cmux_ssh_auth_identity "$$")
+          if [ -z "$cmux_ssh_auth_reaper_publisher_identity" ] || ! \
+            printf '%s|%s\n' "$$" "$cmux_ssh_auth_reaper_publisher_identity" \
+              > "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" \
+              "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null; then
+            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+            return 0
+          fi
+          printf 'cleanup-pending\n' \
+            > "$cmux_ssh_auth_reaper_group_dir/reaper.failed.new" 2>/dev/null || {
+              /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true
+              /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+              return 0
+            }
+          /bin/mv -f -- "$cmux_ssh_auth_reaper_group_dir/reaper.failed.new" \
+            "$cmux_ssh_auth_reaper_group_dir/reaper.failed" 2>/dev/null || {
+              /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true
+              /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+              return 0
+            }
           (
             trap '' HUP INT TERM
             CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_reaper_group_dir"
             export CMUX_SSH_AUTH_GROUP_DIR
+            cmux_ssh_auth_reaper_owner_attempt=0
+            while [ ! -s "$cmux_ssh_auth_reaper_lock/owner" ] && \
+              [ "$cmux_ssh_auth_reaper_owner_attempt" -lt 100 ]; do
+              /bin/sleep 0.01
+              cmux_ssh_auth_reaper_owner_attempt=$((cmux_ssh_auth_reaper_owner_attempt + 1))
+            done
+            if [ ! -s "$cmux_ssh_auth_reaper_lock/owner" ]; then
+              /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
+                "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
+              /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+              exit 0
+            fi
             cmux_ssh_auth_reaper_attempt=0
             cmux_ssh_auth_reaper_delay=1
             while [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ] && \
@@ -162,11 +273,32 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" \
                 "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" 2>/dev/null || true
             fi
+            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/owner" \
+              "$cmux_ssh_auth_reaper_lock/owner.new" \
+              "$cmux_ssh_auth_reaper_lock/publisher" \
+              "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
             if [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
               /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
             fi
           ) </dev/null >/dev/null 2>&1 &
+          cmux_ssh_auth_reaper_pid=$!
+          cmux_ssh_auth_reaper_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_reaper_pid")
+          if [ -z "$cmux_ssh_auth_reaper_identity" ] || ! \
+            printf '%s|%s\n' "$cmux_ssh_auth_reaper_pid" "$cmux_ssh_auth_reaper_identity" \
+              > "$cmux_ssh_auth_reaper_lock/owner.new" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_reaper_lock/owner.new" \
+              "$cmux_ssh_auth_reaper_lock/owner" 2>/dev/null; then
+            /bin/kill -KILL "$cmux_ssh_auth_reaper_pid" >/dev/null 2>&1 || true
+            wait "$cmux_ssh_auth_reaper_pid" 2>/dev/null || true
+            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/owner.new" \
+              "$cmux_ssh_auth_reaper_lock/publisher" \
+              "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+            return 0
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
+            "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
         }
 
         cmux_ssh_resume_failed_auth_group_reapers() {
@@ -192,8 +324,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' "$cmux_ssh_auth_group_dir" 2>/dev/null || true)
           if [ "$cmux_ssh_auth_observed_dir_identity" != "$cmux_ssh_auth_expected_dir_identity" ]; then exit 0; fi
           cmux_ssh_auth_group_file="$cmux_ssh_auth_group_dir/identity"
-          cmux_ssh_auth_group_anchor_fifo="$cmux_ssh_auth_group_dir/anchor"
-          cmux_ssh_auth_group_publish_file="$cmux_ssh_auth_group_dir/identity.new"
           cmux_ssh_auth_group_cancel_file="$cmux_ssh_auth_group_dir/cancel"
           cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_group_dir/processes"
           cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_group_dir/processes.stopped"
@@ -207,8 +337,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_ordered_processes="$cmux_ssh_auth_group_dir/ordered"
           cmux_ssh_auth_signaled_groups="$cmux_ssh_auth_group_dir/signaled.groups"
           cmux_ssh_auth_signaled_processes="$cmux_ssh_auth_group_dir/signaled.pids"
-          cmux_ssh_auth_reaper_failed="$cmux_ssh_auth_group_dir/reaper.failed"
-          cmux_ssh_auth_reaper_failed_publish="$cmux_ssh_auth_group_dir/reaper.failed.new"
           cmux_ssh_auth_remove_cancel=0
           cmux_ssh_auth_cleanup_started=0
           cmux_ssh_auth_cleanup_complete=0
@@ -234,16 +362,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               fi
             fi
             if [ "$cmux_ssh_auth_preserve_group_state" = 1 ]; then return; fi
-            /bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_anchor_fifo" \
-              "$cmux_ssh_auth_group_publish_file" "$cmux_ssh_auth_process_snapshot" \
-              "$cmux_ssh_auth_poststop_snapshot" \
-              "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_next_owned_processes" \
-              "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_next_owned_groups" \
-              "$cmux_ssh_auth_resume_groups" "$cmux_ssh_auth_frozen_processes" \
-              "$cmux_ssh_auth_individual_processes" "$cmux_ssh_auth_ordered_processes" \
-              "$cmux_ssh_auth_signaled_groups" "$cmux_ssh_auth_signaled_processes" \
-              "$cmux_ssh_auth_reaper_failed" "$cmux_ssh_auth_reaper_failed_publish" \
-              2>/dev/null || true
+            \#(groupStateFileRemovalShellCommand(includingCancellationMarker: false))
             if [ "$cmux_ssh_auth_remove_cancel" = 1 ]; then
               /bin/rm -f -- "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || true
             fi

@@ -326,6 +326,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
         cmux_ssh_auth_force_frozen_processes() {
           cmux_ssh_auth_deadline_allows_work || return 1
+          if [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then return 0; fi
           cmux_ssh_auth_order_children_first "$cmux_ssh_auth_frozen_processes" \
             "$cmux_ssh_auth_ordered_processes" || return 1
           if [ ! -s "$cmux_ssh_auth_ordered_processes" ]; then return 1; fi
