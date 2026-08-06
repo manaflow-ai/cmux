@@ -104,10 +104,43 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_process_pid="$1"
             cmux_ssh_auth_process_parent_pid="$2"
             cmux_ssh_auth_process_snapshot=$(/bin/ps -o ppid= -o state= -p "$cmux_ssh_auth_process_pid" 2>/dev/null) || exit 1
-            set -- $cmux_ssh_auth_process_snapshot
-            if [ "$#" -lt 2 ] || [ "$1" != "$cmux_ssh_auth_process_parent_pid" ]; then exit 1; fi
-            case "$2" in *Z*) exit 1 ;; esac
+            if ! printf '%s\n' "$cmux_ssh_auth_process_snapshot" | (
+              IFS=' ' read -r cmux_ssh_auth_process_observed_parent cmux_ssh_auth_process_state
+              if [ "$cmux_ssh_auth_process_observed_parent" != "$cmux_ssh_auth_process_parent_pid" ]; then exit 1; fi
+              case "$cmux_ssh_auth_process_state" in ''|*Z*) exit 1 ;; esac
+            ); then
+              exit 1
+            fi
             /bin/kill -0 "$cmux_ssh_auth_process_pid" >/dev/null 2>&1
+          )
+
+          cmux_ssh_stop_auth_tree_members() (
+            printf '%s\n' "$1" | (
+              cmux_ssh_auth_tree_all_stopped=1
+              while IFS=' ' read -r cmux_ssh_auth_tree_member_depth cmux_ssh_auth_tree_member_pid cmux_ssh_auth_tree_member_state; do
+                if [ -z "$cmux_ssh_auth_tree_member_pid" ]; then continue; fi
+                case "$cmux_ssh_auth_tree_member_state" in *T*) ;; *) cmux_ssh_auth_tree_all_stopped= ;; esac
+                kill -STOP "$cmux_ssh_auth_tree_member_pid" >/dev/null 2>&1 || true
+              done
+              [ -n "$cmux_ssh_auth_tree_all_stopped" ]
+            )
+          )
+
+          cmux_ssh_resume_auth_tree_members() (
+            printf '%s\n' "$1" | while IFS=' ' read -r cmux_ssh_auth_tree_member_depth cmux_ssh_auth_tree_member_pid cmux_ssh_auth_tree_member_state; do
+              if [ -n "$cmux_ssh_auth_tree_member_pid" ]; then
+                kill -CONT "$cmux_ssh_auth_tree_member_pid" >/dev/null 2>&1 || true
+              fi
+            done
+          )
+
+          cmux_ssh_kill_auth_tree_members() (
+            printf '%s\n' "$1" | while IFS=' ' read -r cmux_ssh_auth_tree_member_depth cmux_ssh_auth_tree_member_pid cmux_ssh_auth_tree_member_state; do
+              if [ -n "$cmux_ssh_auth_tree_member_pid" ]; then
+                kill -KILL "$cmux_ssh_auth_tree_member_pid" >/dev/null 2>&1 || true
+                kill -CONT "$cmux_ssh_auth_tree_member_pid" >/dev/null 2>&1 || true
+              fi
+            done
           )
 
           cmux_ssh_force_terminate_auth_process() (
@@ -115,10 +148,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_tree_parent_pid="$2"
             cmux_ssh_auth_tree_freeze_attempt=0
             cmux_ssh_auth_tree_members=
+            cmux_ssh_auth_tree_frozen_members=
             while [ "$cmux_ssh_auth_tree_freeze_attempt" -lt 8 ]; do
               # Freeze parent-first, then resnapshot to catch children spawned before STOP landed.
-              cmux_ssh_auth_tree_snapshot=$(/bin/ps -axo pid=,ppid=,state= 2>/dev/null) || exit 0
-              cmux_ssh_auth_tree_members=$(printf '%s\n' "$cmux_ssh_auth_tree_snapshot" | /usr/bin/awk \
+              cmux_ssh_auth_tree_snapshot=$(/bin/ps -axo pid=,ppid=,state= 2>/dev/null) || {
+                cmux_ssh_resume_auth_tree_members "$cmux_ssh_auth_tree_frozen_members"
+                exit 0
+              }
+              cmux_ssh_auth_tree_next_members=$(printf '%s\n' "$cmux_ssh_auth_tree_snapshot" | /usr/bin/awk \
                 -v cmux_root="$cmux_ssh_auth_tree_pid" \
                 -v cmux_root_parent="$cmux_ssh_auth_tree_parent_pid" '
                   {
@@ -152,29 +189,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                     }
                   }
                 ' | /usr/bin/sort -n -k1,1 -k2,2n)
-              if [ -z "$cmux_ssh_auth_tree_members" ]; then exit 0; fi
-
-              cmux_ssh_auth_tree_all_stopped=1
-              set -- $cmux_ssh_auth_tree_members
-              while [ "$#" -ge 3 ]; do
-                cmux_ssh_auth_tree_member_pid="$2"
-                cmux_ssh_auth_tree_member_state="$3"
-                shift 3
-                case "$cmux_ssh_auth_tree_member_state" in *T*) ;; *) cmux_ssh_auth_tree_all_stopped= ;; esac
-                kill -STOP "$cmux_ssh_auth_tree_member_pid" >/dev/null 2>&1 || true
-              done
-              if [ -n "$cmux_ssh_auth_tree_all_stopped" ]; then break; fi
+              if [ -z "$cmux_ssh_auth_tree_next_members" ]; then
+                cmux_ssh_resume_auth_tree_members "$cmux_ssh_auth_tree_frozen_members"
+                exit 0
+              fi
+              cmux_ssh_auth_tree_members="$cmux_ssh_auth_tree_next_members"
+              cmux_ssh_auth_tree_frozen_members="$cmux_ssh_auth_tree_members"
+              if cmux_ssh_stop_auth_tree_members "$cmux_ssh_auth_tree_members"; then break; fi
               cmux_ssh_auth_tree_freeze_attempt=$((cmux_ssh_auth_tree_freeze_attempt + 1))
             done
 
-            cmux_ssh_auth_tree_members=$(printf '%s\n' "$cmux_ssh_auth_tree_members" | /usr/bin/sort -nr -k1,1 -k2,2nr)
-            set -- $cmux_ssh_auth_tree_members
-            while [ "$#" -ge 3 ]; do
-              cmux_ssh_auth_tree_member_pid="$2"
-              shift 3
-              kill -KILL "$cmux_ssh_auth_tree_member_pid" >/dev/null 2>&1 || true
-              kill -CONT "$cmux_ssh_auth_tree_member_pid" >/dev/null 2>&1 || true
-            done
+            cmux_ssh_auth_tree_kill_order=$(printf '%s\n' "$cmux_ssh_auth_tree_members" | /usr/bin/sort -nr -k1,1 -k2,2nr) || {
+              cmux_ssh_resume_auth_tree_members "$cmux_ssh_auth_tree_frozen_members"
+              exit 0
+            }
+            if [ -z "$cmux_ssh_auth_tree_kill_order" ]; then
+              cmux_ssh_resume_auth_tree_members "$cmux_ssh_auth_tree_frozen_members"
+              exit 0
+            fi
+            cmux_ssh_kill_auth_tree_members "$cmux_ssh_auth_tree_kill_order"
           )
 
           cmux_ssh_terminate_auth_process() (
@@ -216,11 +249,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_terminate_auth_process "$cmux_ssh_auth_tree_child" "$cmux_ssh_auth_tree_pid" || {
                 cmux_ssh_auth_tree_child_status=$?
                 if [ "$cmux_ssh_auth_tree_child_status" -eq "$cmux_ssh_auth_cleanup_expired_status" ]; then
+                  /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
                   exit "$cmux_ssh_auth_cleanup_expired_status"
                 fi
               }
             done
             if ! cmux_ssh_auth_cleanup_has_time; then
+              /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
               exit "$cmux_ssh_auth_cleanup_expired_status"
             fi
 
@@ -248,6 +283,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_terminate_auth_process "$cmux_ssh_auth_tree_child" "$cmux_ssh_auth_tree_pid" || {
                 cmux_ssh_auth_tree_child_status=$?
                 if [ "$cmux_ssh_auth_tree_child_status" -eq "$cmux_ssh_auth_cleanup_expired_status" ]; then
+                  /bin/kill -CONT "$cmux_ssh_auth_tree_pid" >/dev/null 2>&1 || true
                   exit "$cmux_ssh_auth_cleanup_expired_status"
                 fi
               }
