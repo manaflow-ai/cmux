@@ -120,6 +120,22 @@ extension BrowserPanel {
     })()
     """
 
+    /// Replays one phone pointer input on the streamed panel.
+    /// - Parameter input: Page-point pointer input from the phone.
+    /// - Returns: The focus-assist outcome for clicks (0 when none ran).
+    func replayMobileBrowserPointer(_ input: MobileBrowserPointerInput) async throws -> Int {
+        try MobileBrowserInputReplayer().replayPointer(input, in: webView)
+        return 0
+    }
+
+    /// Replays one phone key input on the streamed panel.
+    /// - Parameter input: A key token and modifiers from the phone.
+    /// - Returns: `true` when the key was delivered.
+    func replayMobileBrowserKey(_ input: MobileBrowserKeyInput) async throws -> Bool {
+        try MobileBrowserInputReplayer().replayKey(input, in: webView)
+        return true
+    }
+
     func addMobileBrowserStreamSignalHandler(
         id handlerID: UUID,
         handler: @escaping (MobileBrowserPanelNativeSignal) -> Void

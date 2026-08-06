@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Darwin
 import Testing
+import CMUXMobileCore
 import CmuxBrowser
 
 #if canImport(cmux_DEV)
@@ -4495,5 +4496,60 @@ final class OmnibarNativeTextFieldCaretTests: XCTestCase {
             NSRange(location: 0, length: textLength),
             "Explicit omnibar focus requests such as Cmd+L must still select the whole URL"
         )
+    }
+}
+
+@MainActor
+final class MobileBrowserStreamInputFocusTests: XCTestCase {
+    /// Loads a panel whose page is one fixed-position text field at the origin.
+    private func loadInputTestPanel() async throws -> BrowserPanel {
+        let panel = BrowserPanel(workspaceId: UUID())
+        panel.webView.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test/mobile-focus"))
+        let loaded = expectation(description: "input test page loaded")
+        let previousDelegate = panel.webView.navigationDelegate
+        let loadDelegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        panel.webView.navigationDelegate = loadDelegate
+        defer { panel.webView.navigationDelegate = previousDelegate }
+        panel.webView.loadHTMLString(
+            """
+            <!doctype html><html><body style="margin:0">
+            <input id="field" style="position:fixed;left:0;top:0;width:200px;height:60px">
+            </body></html>
+            """,
+            baseURL: baseURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error { throw error }
+        return panel
+    }
+
+    private func activeElementID(_ panel: BrowserPanel) async -> String {
+        let value = try? await panel.webView.evaluateJavaScript(
+            "document.activeElement ? (document.activeElement.id || document.activeElement.tagName) : 'none'",
+            contentWorld: .page
+        )
+        return (value as? String) ?? "none"
+    }
+
+    func testReplayedClickFocusesEditableUnderTap() async throws {
+        // RED: replayed phone clicks reach the page as DOM events, but WebKit
+        // refuses to move field focus for clicks in a window that is never key
+        // (the offscreen render host), so a tapped text field never focuses,
+        // the phone keyboard never rises, and backspace falls through as
+        // page-level history back-navigation.
+        let panel = try await loadInputTestPanel()
+        defer { panel.close() }
+        let click = MobileBrowserPointerInput(
+            panelID: panel.id.uuidString,
+            kind: .click,
+            x: 100,
+            y: 30,
+            clickCount: 1,
+            button: .left
+        )
+        _ = try await panel.replayMobileBrowserPointer(click)
+        let active = await activeElementID(panel)
+        XCTAssertEqual(active, "field", "A replayed click on a text field must focus it")
     }
 }
