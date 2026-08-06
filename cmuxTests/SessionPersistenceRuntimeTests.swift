@@ -111,6 +111,31 @@ struct SessionPersistenceRuntimeTests {
     }
 
     @Test
+    func cancelledRefreshDoesNotPublishLateIndexes() async {
+        let runtime = SessionPersistenceRuntime()
+        let refreshStarted = SessionPersistenceLifecycleSaveGate()
+        let allowRefreshToFinish = SessionPersistenceLifecycleSaveGate()
+        let refreshTask = Task { @MainActor in
+            await runtime.refresh {
+                await refreshStarted.open()
+                await allowRefreshToFinish.wait()
+                return ProcessDetectedResumeIndexes(
+                    restorableAgentIndex: .empty,
+                    surfaceResumeBindingIndex: SurfaceResumeBindingIndex(bindingsByPanel: [:])
+                )
+            }
+        }
+        await refreshStarted.wait()
+
+        runtime.cancelPendingRefresh()
+        await allowRefreshToFinish.open()
+        _ = await refreshTask.value
+
+        #expect(runtime.latest == nil)
+        #expect(runtime.urgentSavePlan().surfaceResumeBindingIndex == nil)
+    }
+
+    @Test
     func repeatedAutosaveReusesLargeTextBoxDraftStorage() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)

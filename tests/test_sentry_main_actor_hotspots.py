@@ -176,3 +176,27 @@ def test_media_playback_message_handler_uses_webkit_ui_actor_directly():
 
     assert "MainActor.assumeIsolated" not in handler
     assert "onReport(report)" in handler
+
+
+def test_file_explorer_reconciliation_uses_linear_depth_queue():
+    reconciliation = source_slice(
+        "Sources/FileExplorerView.swift",
+        "private func startExpandedOutlineReconciliation",
+        "private func finishExpandedOutlineReconciliation",
+    )
+
+    assert ".sorted" not in reconciliation
+    assert "FileExplorerExpandedPathReconciliationQueue" in reconciliation
+
+
+def test_session_persistence_prewarm_has_cancellable_app_owner():
+    app_delegate = (ROOT / "Sources/AppDelegate.swift").read_text()
+    prewarm = source_slice(
+        "Sources/AppDelegate.swift",
+        "private func prewarmProcessDetectedResumeIndexesForLifecycleSave",
+        "private func disableSuddenTerminationIfNeeded",
+    )
+
+    assert "sessionPersistencePrewarmTask: Task<Void, Never>?" in app_delegate
+    assert "sessionPersistencePrewarmTask = Task" in prewarm
+    assert "cancelSessionPersistencePrewarm()" in app_delegate
