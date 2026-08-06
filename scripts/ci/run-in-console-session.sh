@@ -27,6 +27,13 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
+# App-host CI redirects Apple and XDG state while retaining the console user's
+# real HOME for Xcode and the GUI login session. Never let a reused runner's
+# personal SSH agent leak into tests that model agent forwarding explicitly.
+if [ -n "${CFFIXED_USER_HOME:-}" ]; then
+  unset SSH_AUTH_SOCK
+fi
+
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
 if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
@@ -43,7 +50,8 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
     CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS \
-    CMUX_APP_HOST_XCODEBUILD_ATTEMPTS)
+    CMUX_APP_HOST_XCODEBUILD_ATTEMPTS \
+    CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
   env_pairs=()
   for var in "${forward[@]}"; do
     if [ -n "${!var+set}" ]; then

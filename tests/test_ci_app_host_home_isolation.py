@@ -26,6 +26,9 @@ def main() -> int:
         "Core Foundation home redirect": (
             'echo "CFFIXED_USER_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
         ),
+        "XDG configuration redirect": (
+            'echo "XDG_CONFIG_HOME=$APP_HOST_HOME/.config" >> "$GITHUB_ENV"'
+        ),
         "console-user write access": 'chmod -R a+rwX "$APP_HOST_HOME"',
         "real Cargo toolchain home": 'echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"',
         "real rustup toolchain home": 'echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"',
@@ -35,8 +38,13 @@ def main() -> int:
 
     require(
         CONSOLE_WRAPPER,
-        "CFFIXED_USER_HOME CARGO_HOME RUSTUP_HOME",
+        "CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME",
         "console-session environment forwarding",
+    )
+    require(
+        CONSOLE_WRAPPER,
+        "unset SSH_AUTH_SOCK",
+        "ambient SSH agent removal",
     )
     require(
         CONSOLE_WRAPPER,
