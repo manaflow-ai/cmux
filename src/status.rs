@@ -46,7 +46,7 @@ pub fn render(value: &Value, team_name: &str, team_id: &str) {
                 &format!(
                     "Usage cached {age}s ago{}",
                     cache_max
-                        .map(|max| format!(" (refreshes within {max}s)"))
+                        .map(|max| format!(" ({max}s refresh target)"))
                         .unwrap_or_default()
                 ),
             )

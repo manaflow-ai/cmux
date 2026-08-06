@@ -12,6 +12,9 @@ use crate::config::{self, Config};
 
 const DEFAULT_API_URL: &str = "https://coderouter.dev";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+// OpenAI's model catalog hides all current models from very old client
+// versions. This is a protocol compatibility version, not coderouter's version.
+const CODEX_MODEL_CATALOG_CLIENT_VERSION: &str = "0.146.0";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -323,7 +326,7 @@ pub fn codex_models() -> Result<Vec<CodexModel>, Error> {
             .get(format!(
                 "{}/models?client_version={}",
                 current.openai_base_url.trim_end_matches('/'),
-                env!("CARGO_PKG_VERSION"),
+                CODEX_MODEL_CATALOG_CLIENT_VERSION,
             ))
             .bearer_auth(&current.route_token)
             .send()
