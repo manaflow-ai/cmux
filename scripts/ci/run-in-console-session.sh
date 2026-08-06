@@ -42,15 +42,26 @@ prepare_app_host_home_for_console_user() {
   local console_user="$1"
   [ -n "${CFFIXED_USER_HOME:-}" ] || return 0
 
-  cmux_resolve_app_host_isolation \
-    "$CFFIXED_USER_HOME" "${XDG_CONFIG_HOME:-}" || return 1
-
   if [ -z "${RUNNER_TEMP:-}" ]; then
     echo "FAIL: app-host isolation requires a runner temporary directory" >&2
     return 1
   fi
 
-  local app_host_home runner_temp
+  # A previous invocation may already have made the mode-700 home console-user
+  # owned. Resolve it through the passwordless sudo boundary before validating
+  # and handing it back to that same user.
+  local app_host_home app_host_xdg_config_home runner_temp
+  app_host_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$CFFIXED_USER_HOME")" || {
+    echo "FAIL: app-host isolation directory is unavailable" >&2
+    return 1
+  }
+  app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "${XDG_CONFIG_HOME:-}")" || {
+    echo "FAIL: app-host XDG configuration directory is unavailable" >&2
+    return 1
+  }
+  cmux_validate_resolved_app_host_isolation \
+    "$app_host_home" "$app_host_xdg_config_home" || return 1
+
   app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
   runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
     echo "FAIL: runner temporary directory is unavailable" >&2
@@ -87,7 +98,7 @@ if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
     CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS \
     CMUX_XCODEBUILD_NONINTERACTIVE_TIMEOUT_SECONDS \
     CMUX_APP_HOST_XCODEBUILD_ATTEMPTS \
-    CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
+    CMUX_CI_APP_HOST_ISOLATION_REQUIRED CFFIXED_USER_HOME XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME)
   env_pairs=()
   for var in "${forward[@]}"; do
     if [ -n "${!var+set}" ]; then

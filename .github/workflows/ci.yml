@@ -481,6 +481,9 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     env:
+      # This independent job-level marker makes every app-host wrapper fail
+      # closed if a setup step or environment handoff loses either redirect.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -1117,6 +1120,10 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_compacted_feed.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
+
+      - name: Clean up isolated app-host home
+        if: ${{ always() }}
+        run: scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
 
   tests:
     name: tests

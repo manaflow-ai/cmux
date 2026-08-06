@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ci_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/ci/app-host-isolation.sh
+source "$ci_script_dir/app-host-isolation.sh"
+
+if [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" != "1" ]; then
+  echo "FAIL: refusing app-host cleanup without the mandatory CI isolation marker" >&2
+  exit 1
+fi
+
+# The setup step may fail before publishing either redirect. In that case it
+# created no discoverable target, so there is nothing safe to remove.
+if [ -z "${CFFIXED_USER_HOME:-}" ] && [ -z "${XDG_CONFIG_HOME:-}" ]; then
+  echo "App-host isolation home was not published; cleanup skipped"
+  exit 0
+fi
+if [ -z "${CFFIXED_USER_HOME:-}" ] || [ -z "${XDG_CONFIG_HOME:-}" ]; then
+  echo "FAIL: refusing app-host cleanup with incomplete isolation redirects" >&2
+  exit 1
+fi
+
+# A prior cleanup or failed test may already have removed both paths.
+if [ ! -e "$CFFIXED_USER_HOME" ] && [ ! -L "$CFFIXED_USER_HOME" ]; then
+  if [ ! -e "$XDG_CONFIG_HOME" ] && [ ! -L "$XDG_CONFIG_HOME" ]; then
+    echo "App-host isolation home is already absent"
+    exit 0
+  fi
+  echo "FAIL: app-host home is absent while its XDG redirect remains" >&2
+  exit 1
+fi
+
+cmux_resolve_app_host_isolation \
+  "$CFFIXED_USER_HOME" "$XDG_CONFIG_HOME" || exit 1
+app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
+
+if [ -z "${RUNNER_TEMP:-}" ]; then
+  echo "FAIL: app-host cleanup requires the runner temporary directory" >&2
+  exit 1
+fi
+runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
+  echo "FAIL: runner temporary directory is unavailable" >&2
+  exit 1
+}
+
+case "$app_host_home" in
+  "$runner_temp"/*) ;;
+  *)
+    echo "FAIL: refusing to clean an app-host home outside runner temp" >&2
+    exit 1
+    ;;
+esac
+case "${app_host_home##*/}" in
+  ah-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+  *)
+    echo "FAIL: refusing to clean a path without the app-host home name" >&2
+    exit 1
+    ;;
+esac
+
+if [ -z "${CMUX_DERIVED_DATA_PATH:-}" ]; then
+  echo "FAIL: app-host cleanup requires the shard DerivedData path" >&2
+  exit 1
+fi
+derived_data_path="$(cd "$CMUX_DERIVED_DATA_PATH" 2>/dev/null && pwd -P)" || {
+  echo "FAIL: shard DerivedData directory is unavailable" >&2
+  exit 1
+}
+case "$derived_data_path" in
+  "$runner_temp"/*) ;;
+  *)
+    echo "FAIL: refusing to inspect app hosts outside runner temp" >&2
+    exit 1
+    ;;
+esac
+
+scoped_app_host_pids() {
+  local pid command
+  while read -r pid command; do
+    case "$command" in
+      "$derived_data_path"/Build/Products/*"/cmux DEV"*) printf '%s\n' "$pid" ;;
+    esac
+  done < <(ps -axo pid=,command=)
+}
+
+# Only terminate app hosts built by this shard. A broader RUNNER_TEMP match can
+# race another workflow after it acquires the machine-wide app-host lock.
+app_host_pids="$(scoped_app_host_pids)"
+if [ -n "$app_host_pids" ]; then
+  # shellcheck disable=SC2086
+  kill $app_host_pids 2>/dev/null || true
+  remaining_pids="$app_host_pids"
+  attempts=0
+  while [ -n "$remaining_pids" ] && [ "$attempts" -lt 20 ]; do
+    sleep 0.1
+    remaining_pids="$(scoped_app_host_pids)"
+    attempts=$((attempts + 1))
+  done
+  if [ -n "$remaining_pids" ]; then
+    # shellcheck disable=SC2086
+    kill -KILL $remaining_pids 2>/dev/null || true
+    sleep 0.1
+  fi
+  if [ -n "$(scoped_app_host_pids)" ]; then
+    echo "FAIL: shard app-host processes did not stop before cleanup" >&2
+    exit 1
+  fi
+fi
+
+rm -rf -- "$app_host_home"
+if [ -e "$app_host_home" ] || [ -L "$app_host_home" ]; then
+  echo "FAIL: isolated app-host home still exists after cleanup" >&2
+  exit 1
+fi
+echo "Removed isolated app-host home: $app_host_home"
