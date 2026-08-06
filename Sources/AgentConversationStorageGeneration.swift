@@ -1,15 +1,17 @@
 import Darwin
 import Foundation
 
-/// Stable identity for one regular-file generation. Content writes keep this
-/// identity, while an atomic replacement at the same path does not.
+/// Identity and mutation state for one regular-file generation.
 struct AgentConversationStorageGeneration: Equatable, Sendable {
     let device: UInt64
     let inode: UInt64
     let mode: UInt32
     let owner: UInt32
+    let size: Int64
     let birthSeconds: Int64
     let birthNanoseconds: Int64
+    let modificationSeconds: Int64
+    let modificationNanoseconds: Int64
 
     static func capture(atPath path: String) -> Self? {
         captureStorage(atPath: path)?.generation
@@ -81,12 +83,36 @@ struct AgentConversationStorageGeneration: Equatable, Sendable {
         )
     }
 
+    static func captureOptionalRegularFile(
+        atPath path: String
+    ) -> (isValid: Bool, generation: Self?) {
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else {
+            return errno == ENOENT ? (true, nil) : (false, nil)
+        }
+        defer { _ = Darwin.close(descriptor) }
+
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG,
+              metadata.st_size >= 0 else {
+            return (false, nil)
+        }
+        return (true, Self(metadata: metadata))
+    }
+
     private init(metadata: stat) {
         device = UInt64(metadata.st_dev)
         inode = UInt64(metadata.st_ino)
         mode = UInt32(metadata.st_mode)
         owner = UInt32(metadata.st_uid)
+        size = Int64(metadata.st_size)
         birthSeconds = Int64(metadata.st_birthtimespec.tv_sec)
         birthNanoseconds = Int64(metadata.st_birthtimespec.tv_nsec)
+        modificationSeconds = Int64(metadata.st_mtimespec.tv_sec)
+        modificationNanoseconds = Int64(metadata.st_mtimespec.tv_nsec)
     }
 }

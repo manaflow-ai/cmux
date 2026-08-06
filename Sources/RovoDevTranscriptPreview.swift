@@ -53,17 +53,18 @@ enum RovoDevTranscriptPreview {
         }
         let handle = snapshot.handle
         defer { try? handle.close() }
+        let expectedByteCount = Int(snapshot.endOffset)
         var data = Data()
-        data.reserveCapacity(min(Int(snapshot.endOffset), maxJSONBytes))
-        while data.count <= maxJSONBytes {
-            let remaining = maxJSONBytes + 1 - data.count
+        data.reserveCapacity(expectedByteCount)
+        while data.count < expectedByteCount {
+            let remaining = expectedByteCount - data.count
             guard let chunk = try handle.read(upToCount: min(64 * 1024, remaining)),
                   !chunk.isEmpty else {
-                break
+                return nil
             }
             data.append(chunk)
         }
-        return data.count <= maxJSONBytes ? data : nil
+        return data.count == expectedByteCount ? data : nil
     }
 
     private static func parseContextObject(

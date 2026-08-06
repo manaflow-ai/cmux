@@ -20,6 +20,8 @@ nonisolated struct AgentConversationTransferIdentity: Equatable, Sendable {
     let sessionId: String
     let storagePath: String
     let storageGeneration: AgentConversationStorageGeneration
+    let databaseWriteAheadLogGeneration: AgentConversationStorageGeneration?
+    let databaseRollbackJournalGeneration: AgentConversationStorageGeneration?
 }
 
 /// Process generation recorded synchronously by the panel's hook/runtime path.
@@ -127,11 +129,32 @@ nonisolated struct AgentConversationSource: Sendable {
               ) else {
             return nil
         }
+        let databaseWriteAheadLogGeneration: AgentConversationStorageGeneration?
+        let databaseRollbackJournalGeneration: AgentConversationStorageGeneration?
+        switch kind {
+        case .opencode, .hermesAgent:
+            // WAL and rollback journals carry transaction content. SQLite's
+            // shared-memory sidecar only carries reader/writer lock state.
+            let writeAheadLog = AgentConversationStorageGeneration
+                .captureOptionalRegularFile(atPath: storage.path + "-wal")
+            let rollbackJournal = AgentConversationStorageGeneration
+                .captureOptionalRegularFile(atPath: storage.path + "-journal")
+            guard writeAheadLog.isValid, rollbackJournal.isValid else {
+                return nil
+            }
+            databaseWriteAheadLogGeneration = writeAheadLog.generation
+            databaseRollbackJournalGeneration = rollbackJournal.generation
+        default:
+            databaseWriteAheadLogGeneration = nil
+            databaseRollbackJournalGeneration = nil
+        }
         return AgentConversationTransferIdentity(
             kind: kind,
             sessionId: sessionId,
             storagePath: storage.path,
-            storageGeneration: storage.generation
+            storageGeneration: storage.generation,
+            databaseWriteAheadLogGeneration: databaseWriteAheadLogGeneration,
+            databaseRollbackJournalGeneration: databaseRollbackJournalGeneration
         )
     }
 
