@@ -584,6 +584,49 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerVisibilitySwitchesKeepShownAndHiddenMacsInOneSection() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        let shownToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-2"]
+        let hiddenToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-1"]
+        XCTAssertTrue(shownToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(hiddenToggle.waitForExistence(timeout: 3))
+        waitForValue("1", on: shownToggle)
+        waitForValue("0", on: hiddenToggle)
+        XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+
+        shownToggle.tap()
+        waitForValue("0", on: shownToggle)
+        XCTAssertTrue(
+            app.staticTexts["Studio Mac"].exists,
+            "Turning a computer off must keep it in the same list."
+        )
+
+        hiddenToggle.tap()
+        waitForValue("1", on: hiddenToggle)
+        XCTAssertTrue(
+            app.staticTexts["Preview Mac"].exists,
+            "Turning a computer on must update its switch without moving it to another section."
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-visibility-switches-unified-section"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testHiddenComputersForgetSwipeConfirmsWithoutRemovingRow() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
