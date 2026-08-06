@@ -66,10 +66,10 @@ public struct ScrubberDenylists: Sendable {
         "bearer",
     ]
 
-    /// Short or marker-free credential key aliases matched WHOLE (not as
-    /// substrings), so they don't redact innocuous keys that merely contain them
-    /// (e.g. `sid` must not match `inside`/`aside`; `su` must not match
-    /// `issue`/`consumer`).
+    /// Short or marker-free credential key aliases matched as a whole key or a
+    /// punctuation-delimited key component (not as substrings), so they don't
+    /// redact innocuous keys that merely contain them (e.g. `sid` must not match
+    /// `inside`/`aside`; `su` must not match `issue`/`consumer`).
     ///
     /// These are stored **already normalized** the same way
     /// `SentryScrubber.isSensitiveKey(_:)` normalizes (lowercase, strip

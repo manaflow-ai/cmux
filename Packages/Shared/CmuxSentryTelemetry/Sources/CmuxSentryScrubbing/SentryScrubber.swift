@@ -343,6 +343,14 @@ public struct SentryScrubber: Sendable {
         for marker in sensitiveKeyMarkers where normalized.contains(marker) {
             return true
         }
+        // Exact aliases such as `sid` and `su` may appear as a leaf after a
+        // punctuation boundary (`x-sid`, `vendor.sid`). Match whole components
+        // without regressing to substring behavior that would redact `inside`.
+        for component in key.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            if sensitiveKeyExactMarkers.contains(normalizedSensitiveKey(String(component))) {
+                return true
+            }
+        }
         return false
     }
 
