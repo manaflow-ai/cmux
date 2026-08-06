@@ -128,3 +128,15 @@ def test_sidebar_drag_end_does_not_forward_optional_appkit_selector():
 
     assert "super.draggingEnded" not in drag_end
     assert "workspaceController?.reorderDropSessionEnded()" in drag_end
+
+
+def test_quicklook_retirement_does_not_close_inactive_preview():
+    retirement = source_slice(
+        "Sources/Panels/FilePreviewQuickLookContainerView.swift",
+        "private func retireLivePreview",
+        "\n    }\n}",
+    )
+
+    assert "previewView.previewItem = nil" in retirement
+    assert "previewView.removeFromSuperview()" in retirement
+    assert "previewView.close()" not in retirement
