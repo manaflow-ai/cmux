@@ -312,21 +312,13 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
         cmux_ssh_auth_force_frozen_processes() {
           if [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then return 0; fi
-          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_frozen_processes" \
-            "$cmux_ssh_auth_ordered_processes" || return 1
-          while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
-            cmux_ssh_auth_started cmux_ssh_auth_state; do
-            case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
-              *[!A-Za-z0-9_:]*|:*|*:) continue ;;
-            esac
-            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
-            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" = "$cmux_ssh_auth_expected_identity" ]; then
-              /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
-                /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            else
-              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            fi
-          done < "$cmux_ssh_auth_ordered_processes"
+          /usr/bin/awk '$1 ~ /^[0-9]+$/ && $1 != 0 && !cmux_seen[$1]++ { print $1 }' \
+            "$cmux_ssh_auth_frozen_processes" > "$cmux_ssh_auth_ordered_processes" || return 1
+          if [ ! -s "$cmux_ssh_auth_ordered_processes" ]; then return 0; fi
+          /usr/bin/xargs /bin/kill -KILL < "$cmux_ssh_auth_ordered_processes" \
+            >/dev/null 2>&1 || \
+            /usr/bin/xargs /bin/kill -CONT < "$cmux_ssh_auth_ordered_processes" \
+              >/dev/null 2>&1 || true
         }
         """#
     }

@@ -139,15 +139,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_group_state_cleanup() {
             if [ "$cmux_ssh_auth_cleanup_started" = 1 ] && \
               [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
-              if cmux_ssh_auth_deadline_allows_work; then
-                if ! cmux_ssh_auth_force_owned_processes >/dev/null 2>&1; then
-                  if cmux_ssh_auth_deadline_allows_work; then
-                    cmux_ssh_auth_force_frozen_processes || cmux_ssh_auth_resume_signaled_processes
-                  else
-                    cmux_ssh_auth_resume_signaled_processes
-                  fi
-                fi
-              else
+              if ! cmux_ssh_auth_deadline_allows_work || \
+                ! cmux_ssh_auth_force_owned_processes >/dev/null 2>&1; then
+                cmux_ssh_auth_force_frozen_processes >/dev/null 2>&1 || true
                 cmux_ssh_auth_resume_signaled_processes
               fi
             fi
