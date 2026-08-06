@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import CmuxSettings
 import CmuxSettingsUI
 import CmuxSidebar
@@ -24,22 +25,7 @@ struct CustomSidebarPanelView: View {
     @State private var completedFocusFlashStartedAt: Date?
 
     var body: some View {
-        Group {
-            if isVisibleInUI {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    CustomSidebarSurface(
-                        fileURL: panel.fileURL,
-                        dataContext: customSidebarDataContext(now: timeline.date),
-                        dispatch: makeCmuxSidebarActionDispatch(),
-                        contentInsets: CustomSidebarContentInsets.zero,
-                        rendersInProcess: customSidebarRenderer == .inProcess,
-                        client: $renderWorkerClient
-                    )
-                }
-            } else {
-                Color.clear
-            }
-        }
+        content
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(sidebarBackdrop)
         .environment(\.colorScheme, windowAppearance.sidebarContentColorScheme)
@@ -66,6 +52,36 @@ struct CustomSidebarPanelView: View {
         }
         .onDisappear {
             shutdownRenderWorkerClient()
+        }
+    }
+
+    /// The pane's content: a hosted page for a web source, the interpreter otherwise.
+    ///
+    /// `cmux sidebar open board` resolves the same file the picker does, so a `.html` or `.url`
+    /// sidebar has to render as a page here too. Routing it through the interpreter — which is what
+    /// happened before web sources were resolvable by name — produced an empty pane for a sidebar
+    /// that worked in the rail.
+    ///
+    /// A pane has no floating window chrome over it, so no insets, and no focus bridge: the bridge
+    /// exists for the workspace rail, and a pane sitting beside the terminals it would select is not
+    /// that.
+    @ViewBuilder
+    private var content: some View {
+        if !isVisibleInUI {
+            Color.clear
+        } else if case let .web(webSource)? = CustomSidebarSource.classify(fileURL: panel.fileURL) {
+            CustomSidebarWebView(source: webSource)
+        } else {
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarSurface(
+                    fileURL: panel.fileURL,
+                    dataContext: customSidebarDataContext(now: timeline.date),
+                    dispatch: makeCmuxSidebarActionDispatch(),
+                    contentInsets: CustomSidebarContentInsets.zero,
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $renderWorkerClient
+                )
+            }
         }
     }
 

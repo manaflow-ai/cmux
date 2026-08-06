@@ -1,3 +1,4 @@
+public import CmuxFoundation
 public import Foundation
 
 /// The one source a web sidebar's focus bridge is armed for.

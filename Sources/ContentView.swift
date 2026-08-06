@@ -10246,8 +10246,7 @@ enum CmuxExtensionSidebarSelection {
     ///
     /// Interpreted sources keep precedence over web ones so an existing `.swift` sidebar is never
     /// shadowed by an `.html` file that happens to share its name.
-    static let customSidebarFileExtensions: [String] =
-        ["swift", "json"] + CustomSidebarSource.webFileExtensions
+    static let customSidebarFileExtensions: [String] = CustomSidebarSource.fileExtensions
 
     private static func isValidCustomSidebarFileBaseName(_ name: String) -> Bool {
         guard !name.isEmpty, name != ".", name != ".." else { return false }

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-@testable import CmuxSidebar
+@testable import CmuxFoundation
 
 @Suite("CustomSidebarWebSource")
 struct CustomSidebarWebSourceTests {
