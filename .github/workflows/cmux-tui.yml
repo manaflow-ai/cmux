@@ -123,7 +123,7 @@ jobs:
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
             echo "Running valgrind for $bin"
-            valgrind_args=()
+            valgrind_args=(--track-origins=yes)
             test_args=()
             case "$(basename "$bin")" in
               pty-*|cmux_tui_core-*)
@@ -134,12 +134,22 @@ jobs:
                 # wall-clock timeout races without increasing coverage.
                 test_args+=(--test-threads=1)
                 ;;
-              relay_wss_diagnostic-*)
+              terminal_host_recovery-*)
+                # Valgrind instruments this client harness but not the hidden
+                # terminal-host child it launches. The normal-speed child can
+                # fill the socket while the instrumented reader is descheduled,
+                # correctly triggering the production stalled-client timeout
+                # mid-frame. Normal Linux and macOS CI retain this ordering test;
+                # every other recovery case remains under Valgrind.
+                test_args+=(--skip exit_follows_all_final_pty_bytes_on_the_live_stream)
+                ;;
+              direct_wss_e2e-*|relay_wss_diagnostic-*)
                 # ring's AES-GCM backend exposes initialized output through a
                 # partially initialized SIMD buffer. Valgrind reports its
                 # padding at Rustls writev. Keep leak and address checks for
-                # this binary while scoping undefined-value suppression to it.
-                valgrind_args+=(--undef-value-errors=no)
+                # TLS integration binaries while scoping undefined-value
+                # suppression to those binaries.
+                valgrind_args=(--undef-value-errors=no)
                 ;;
             esac
             if ! valgrind \
@@ -148,7 +158,6 @@ jobs:
               --leak-check=full \
               --show-leak-kinds=definite \
               --errors-for-leak-kinds=definite \
-              --track-origins=yes \
               -- "$bin" "${test_args[@]}"; then
               echo "Valgrind failed for $bin" >&2
               exit 1
