@@ -69,7 +69,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "while :; do",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
             "    cmux_ssh_attach_auth_launching=1",
-            "    CMUX_SSH_AUTH_GROUP_DIR=$(umask 077; /usr/bin/mktemp -d \"${TMPDIR:-/tmp}/cmux-ssh-auth-group.XXXXXX\") || exit 255",
+            "    CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir) || exit 255",
             "    export CMUX_SSH_AUTH_GROUP_DIR",
             "    ( cmux_ssh_attach_foreground_auth ) <&0 &",
             "    cmux_ssh_attach_auth_pid=$!",

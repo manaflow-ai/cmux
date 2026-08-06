@@ -5,6 +5,9 @@ import Testing
 @testable import CmuxFoundation
 
 struct SSHPTYAttachRetryScriptBuilderTests {
+    private static let authenticationGroupFactoryStub =
+        "cmux_ssh_auth_create_group_dir() { umask 077; /usr/bin/mktemp -d \"${TMPDIR:-/tmp}/cmux-ssh-auth-group.XXXXXX\"; }"
+
     @Test func finalAuthenticationCleanupRemovesEveryStateFile() {
         let script = SSHPTYAttachRetryScriptBuilder().lines(
             command: "cmux_test_attach",
@@ -20,6 +23,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; " +
                 "cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_dir"
         ))
+        #expect(script.contains("CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)"))
     }
 
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {
@@ -32,6 +36,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             reauthenticates: true
         )
         let script = ([
+            Self.authenticationGroupFactoryStub,
             "cmux_ssh_attach_auth_pid=",
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
@@ -101,6 +106,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             reauthenticates: true
         )
         let script = ([
+            Self.authenticationGroupFactoryStub,
             "cmux_ssh_attach_auth_pid=",
             "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
             "sleep() { printf 'sleep:%s\\n' \"$1\" >> \"$CMUX_TEST_LOG\"; }",
@@ -159,6 +165,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             reauthenticates: reauthenticates
         )
         let script = ([
+            Self.authenticationGroupFactoryStub,
             "cmux_ssh_attach_signal_exit() {",
             "  cmux_ssh_attach_signal_status=\"$1\"",
             "  cmux_ssh_attach_signal_name=\"$2\"",

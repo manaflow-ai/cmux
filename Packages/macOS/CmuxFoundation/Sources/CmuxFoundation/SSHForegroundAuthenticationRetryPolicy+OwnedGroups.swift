@@ -13,6 +13,27 @@ extension SSHForegroundAuthenticationRetryPolicy {
           [ "$cmux_ssh_auth_now" -lt "$cmux_ssh_auth_deadline_millis" ]
         }
 
+        cmux_ssh_auth_deadline_allows_signal() {
+          if [ "${cmux_ssh_auth_signal_deadline:-}" != \
+            "$cmux_ssh_auth_deadline_millis" ]; then
+            cmux_ssh_auth_signal_deadline="$cmux_ssh_auth_deadline_millis"
+            cmux_ssh_auth_signal_budget=0
+          fi
+          case "${cmux_ssh_auth_signal_budget:-}" in
+            ''|*[!0-9]*) cmux_ssh_auth_signal_budget=0 ;;
+          esac
+          if [ "$cmux_ssh_auth_signal_budget" -le 0 ]; then
+            cmux_ssh_auth_deadline_allows_work || return 1
+            # Each unchecked operation is one nonblocking kill(2) plus a
+            # bounded file append. Refresh the wall clock every fourth signal
+            # without paying one process launch per PID.
+            cmux_ssh_auth_signal_budget=3
+          else
+            cmux_ssh_auth_signal_budget=$((cmux_ssh_auth_signal_budget - 1))
+          fi
+          return 0
+        }
+
         cmux_ssh_auth_take_process_snapshot() {
           cmux_ssh_auth_snapshot_now="$(cmux_ssh_auth_now_millis)" || return 1
           case "$cmux_ssh_auth_snapshot_now:$cmux_ssh_auth_deadline_millis" in
@@ -167,6 +188,26 @@ extension SSHForegroundAuthenticationRetryPolicy {
           /bin/mv -f -- "$cmux_ssh_auth_next_owned_groups" "$cmux_ssh_auth_owned_groups"
         }
 
+        cmux_ssh_auth_filter_current_processes() {
+          cmux_ssh_auth_filter_snapshot="$1"
+          cmux_ssh_auth_filter_candidates="$2"
+          cmux_ssh_auth_filter_output="$3"
+          cmux_ssh_auth_filter_require_stopped="$4"
+          /usr/bin/awk -v cmux_require_stopped="$cmux_ssh_auth_filter_require_stopped" '
+            FILENAME == ARGV[1] && NF >= 9 && $4 !~ /Z/ {
+              cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+              cmux_current[$1 SUBSEP $2 SUBSEP $3 SUBSEP cmux_started] = $4
+              next
+            }
+            FILENAME == ARGV[2] && NF >= 5 {
+              cmux_key = $1 SUBSEP $2 SUBSEP $3 SUBSEP $4
+              if (cmux_key in cmux_current &&
+                  (!cmux_require_stopped || cmux_current[cmux_key] ~ /T/)) print
+            }
+          ' "$cmux_ssh_auth_filter_snapshot" "$cmux_ssh_auth_filter_candidates" \
+            > "$cmux_ssh_auth_filter_output"
+        }
+
         cmux_ssh_auth_revalidate_stopped_groups() {
           /usr/bin/awk '
             FILENAME == ARGV[1] {
@@ -218,6 +259,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
           cmux_ssh_auth_select_exclusive_groups || return 1
 
           while IFS= read -r cmux_ssh_auth_group; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
             if /bin/kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1; then
               if ! printf '%s\n' "$cmux_ssh_auth_group" >> "$cmux_ssh_auth_signaled_groups"; then
@@ -232,25 +274,23 @@ extension SSHForegroundAuthenticationRetryPolicy {
             !($3 in cmux_exclusive) { print }
           ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
             > "$cmux_ssh_auth_individual_processes" || return 1
-          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_individual_processes" \
+          cmux_ssh_auth_filter_current_processes "$cmux_ssh_auth_process_snapshot" \
+            "$cmux_ssh_auth_individual_processes" \
+            "$cmux_ssh_auth_next_owned_processes" 0 || return 1
+          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_next_owned_processes" \
             "$cmux_ssh_auth_ordered_processes" || return 1
           while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
             cmux_ssh_auth_started cmux_ssh_auth_state; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) continue ;;
             esac
-            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
-            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" != "$cmux_ssh_auth_expected_identity" ]; then
-              continue
-            fi
             /bin/kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
             if ! printf '%s\n' "$cmux_ssh_auth_pid" >> "$cmux_ssh_auth_signaled_processes"; then
               /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
               return 1
             fi
-            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" != "$cmux_ssh_auth_expected_identity" ]; then
-              /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            elif ! printf '%s %s %s %s %s\n' "$cmux_ssh_auth_pid" \
+            if ! printf '%s %s %s %s %s\n' "$cmux_ssh_auth_pid" \
               "$cmux_ssh_auth_parent" "$cmux_ssh_auth_group" "$cmux_ssh_auth_started" \
               "$cmux_ssh_auth_state" >> "$cmux_ssh_auth_frozen_processes"; then
               /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
@@ -282,6 +322,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
           cmux_ssh_auth_select_exclusive_groups || return 1
 
           while IFS= read -r cmux_ssh_auth_group; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
             /bin/kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || \
               /bin/kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
@@ -292,20 +333,19 @@ extension SSHForegroundAuthenticationRetryPolicy {
             !($3 in cmux_exclusive) { print }
           ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
             > "$cmux_ssh_auth_individual_processes" || return 1
-          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_individual_processes" \
+          cmux_ssh_auth_filter_current_processes "$cmux_ssh_auth_process_snapshot" \
+            "$cmux_ssh_auth_individual_processes" \
+            "$cmux_ssh_auth_next_owned_processes" 0 || return 1
+          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_next_owned_processes" \
             "$cmux_ssh_auth_ordered_processes" || return 1
           while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
             cmux_ssh_auth_started cmux_ssh_auth_state; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) continue ;;
             esac
-            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
-            if [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")" = "$cmux_ssh_auth_expected_identity" ]; then
-              /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
-                /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            else
+            /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || \
               /bin/kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-            fi
           done < "$cmux_ssh_auth_ordered_processes"
         }
 
@@ -327,22 +367,29 @@ extension SSHForegroundAuthenticationRetryPolicy {
         cmux_ssh_auth_force_frozen_processes() {
           cmux_ssh_auth_deadline_allows_work || return 1
           if [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then return 0; fi
-          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_frozen_processes" \
+          cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
+          cmux_ssh_auth_filter_current_processes "$cmux_ssh_auth_process_snapshot" \
+            "$cmux_ssh_auth_frozen_processes" \
+            "$cmux_ssh_auth_next_owned_processes" 1 || return 1
+          cmux_ssh_auth_frozen_expected=$(/usr/bin/awk 'NF >= 5 { count += 1 } END { print count + 0 }' \
+            "$cmux_ssh_auth_frozen_processes") || return 1
+          cmux_ssh_auth_frozen_current=$(/usr/bin/awk 'NF >= 5 { count += 1 } END { print count + 0 }' \
+            "$cmux_ssh_auth_next_owned_processes") || return 1
+          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_next_owned_processes" \
             "$cmux_ssh_auth_ordered_processes" || return 1
           if [ ! -s "$cmux_ssh_auth_ordered_processes" ]; then return 1; fi
-          cmux_ssh_auth_frozen_incomplete=0
+          if [ "$cmux_ssh_auth_frozen_current" = "$cmux_ssh_auth_frozen_expected" ]; then
+            cmux_ssh_auth_frozen_incomplete=0
+          else
+            cmux_ssh_auth_frozen_incomplete=1
+          fi
           while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent \
             cmux_ssh_auth_group cmux_ssh_auth_started cmux_ssh_auth_state; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) cmux_ssh_auth_frozen_incomplete=1; continue ;;
             esac
-            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
-            if [ "$(cmux_ssh_auth_stopped_identity "$cmux_ssh_auth_pid")" = \
-              "$cmux_ssh_auth_expected_identity" ]; then
-              /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || return 1
-            else
-              cmux_ssh_auth_frozen_incomplete=1
-            fi
+            /bin/kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || return 1
           done < "$cmux_ssh_auth_ordered_processes"
           [ "$cmux_ssh_auth_frozen_incomplete" = 0 ]
         }

@@ -465,7 +465,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(policy.processTreeTerminationShellFunction())
         cmux_ssh_auth_now_millis() {
           cmux_test_now=$(/bin/cat "$CMUX_TEST_CLOCK_FILE") || return 1
-          cmux_test_now=$((cmux_test_now + 200))
+          cmux_test_now=$((cmux_test_now + 50))
           printf '%s\\n' "$cmux_test_now" > "$CMUX_TEST_CLOCK_FILE" || return 1
           case "${cmux_ssh_auth_deadline_millis:-}" in
             ''|*[!0-9]*) ;;
@@ -553,6 +553,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_deadline_allows_work() { return 0; }
         cmux_ssh_auth_process_snapshot="$CMUX_TEST_ORDERED"
         cmux_ssh_auth_owned_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_CURRENT"
         cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
         cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
         if cmux_ssh_auth_force_frozen_processes; then exit 96; fi
@@ -566,6 +567,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
             "CMUX_TEST_FROZEN": frozenFile.path,
             "CMUX_TEST_ORDERED": orderedFile.path,
         ]) { _, override in override }
@@ -590,25 +592,23 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        cmux_ssh_auth_deadline_allows_work() {
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() {
           cmux_test_deadline_calls=$(/bin/cat "$CMUX_TEST_DEADLINE_CALLS") || return 1
           cmux_test_deadline_calls=$((cmux_test_deadline_calls + 1))
           printf '%s\n' "$cmux_test_deadline_calls" > "$CMUX_TEST_DEADLINE_CALLS" || return 1
-          [ "$cmux_test_deadline_calls" -le 2 ]
+          [ "$cmux_test_deadline_calls" -le 1 ]
         }
-        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '101 1 2 S Thu Jan 1 00:00:00 1970\n102 1 2 S Thu Jan 1 00:00:00 1970\n103 1 2 S Thu Jan 1 00:00:00 1970\n' > "$1"
+        }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
         cmux_ssh_auth_select_exclusive_groups() { : > "$cmux_ssh_auth_owned_groups"; }
         cmux_ssh_auth_order_children_first() {
           /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"
         }
-        cmux_ssh_auth_identity() {
-          printf x >> "$CMUX_TEST_IDENTITY_CALLS"
-          printf '1|2|started\n'
-        }
         printf '0\n' > "$CMUX_TEST_DEADLINE_CALLS"
-        : > "$CMUX_TEST_IDENTITY_CALLS"
-        printf '101 1 2 started S\n102 1 2 started S\n103 1 2 started S\n' \
+        printf '101 1 2 Thu_Jan_1_00:00:00_1970 S\n102 1 2 Thu_Jan_1_00:00:00_1970 S\n103 1 2 Thu_Jan_1_00:00:00_1970 S\n' \
           > "$CMUX_TEST_OWNED"
         : > "$CMUX_TEST_GROUPS"
         cmux_ssh_auth_caller_group=3
@@ -620,14 +620,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
         cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
         if cmux_ssh_auth_force_owned_processes; then exit 98; fi
-        test "$(/usr/bin/wc -c < "$CMUX_TEST_IDENTITY_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 1 || exit 97
+        test "$(/bin/cat "$CMUX_TEST_DEADLINE_CALLS")" -eq 2 || exit 97
         """
 
         let result = try runShellCommand(command, environment: [
             "CMUX_TEST_DEADLINE_CALLS": root.appendingPathComponent("deadline-calls").path,
             "CMUX_TEST_GROUPS": root.appendingPathComponent("groups").path,
             "CMUX_TEST_GROUPS_NEXT": root.appendingPathComponent("groups.next").path,
-            "CMUX_TEST_IDENTITY_CALLS": root.appendingPathComponent("identity-calls").path,
             "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
             "CMUX_TEST_ORDERED": root.appendingPathComponent("ordered").path,
             "CMUX_TEST_OWNED": root.appendingPathComponent("owned").path,
@@ -923,6 +922,66 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
+    @Test func authenticationGroupFactoryRegistersBeforeReturningDirectory() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-factory-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_group=$(cmux_ssh_auth_create_group_dir) || exit 99
+        test -d "$cmux_test_group" || exit 98
+        test "$(/usr/bin/stat -f '%u:%Lp' "$cmux_test_group")" = \
+          "$(/usr/bin/id -u):700" || exit 97
+        /usr/bin/grep -Fxq "$cmux_test_group" \
+          "$TMPDIR/cmux-ssh-auth-recovery/queue.0" || exit 96
+        cmux_test_created=$(/bin/cat "$cmux_test_group/created") || exit 95
+        case "$cmux_test_created" in ''|*[!0-9]*) exit 94 ;; esac
+        """
+
+        let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test func recoveryQueueSerializesConcurrentEnqueues() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-concurrent-queue-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        : > "$CMUX_TEST_FAILURES"
+        cmux_test_index=0
+        while [ "$cmux_test_index" -lt 16 ]; do
+          (
+            cmux_ssh_auth_recovery_enqueue \
+              "$TMPDIR/cmux-ssh-auth-group.concurrent-$cmux_test_index" || \
+              printf x >> "$CMUX_TEST_FAILURES"
+          ) &
+          cmux_test_index=$((cmux_test_index + 1))
+        done
+        wait
+        test ! -s "$CMUX_TEST_FAILURES" || exit 99
+        /bin/cat "$TMPDIR/cmux-ssh-auth-recovery/queue.0" \
+          "$TMPDIR/cmux-ssh-auth-recovery/queue.1" > "$CMUX_TEST_ENTRIES" || exit 98
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_ENTRIES" | /usr/bin/tr -d '[:space:]')" -eq 16 || exit 97
+        test "$(/usr/bin/sort -u "$CMUX_TEST_ENTRIES" | /usr/bin/wc -l | /usr/bin/tr -d '[:space:]')" -eq 16 || exit 96
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_ENTRIES": root.appendingPathComponent("entries").path,
+            "CMUX_TEST_FAILURES": root.appendingPathComponent("failures").path,
+            "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func laterRecoverySweepReclaimsFailedAuthenticationGroup() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1147,7 +1206,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-recovery-batch-\(UUID().uuidString)", isDirectory: true)
         let callsFile = root.appendingPathComponent("calls")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        for index in 0..<65 {
+        for index in 0..<9 {
             let groupDirectory = root.appendingPathComponent(
                 String(format: "cmux-ssh-auth-group.%02d", index),
                 isDirectory: true
@@ -1173,11 +1232,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_ssh_auth_recovery_enqueue "$cmux_test_group_dir" || exit 99
         done
         cmux_ssh_resume_failed_auth_group_reapers || exit 98
-        test "$(/usr/bin/wc -l < "$CMUX_TEST_RECOVERY_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 64 || exit 97
-        /usr/bin/grep -qx 'cmux-ssh-auth-group.64' "$CMUX_TEST_RECOVERY_CALLS" && exit 96
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_RECOVERY_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 8 || exit 97
+        /usr/bin/grep -qx 'cmux-ssh-auth-group.08' "$CMUX_TEST_RECOVERY_CALLS" && exit 96
         : > "$CMUX_TEST_RECOVERY_CALLS"
         cmux_ssh_resume_failed_auth_group_reapers || exit 95
-        /usr/bin/grep -qx 'cmux-ssh-auth-group.64' "$CMUX_TEST_RECOVERY_CALLS" || exit 94
+        /usr/bin/grep -qx 'cmux-ssh-auth-group.08' "$CMUX_TEST_RECOVERY_CALLS" || exit 94
         """
 
         let result = try runShellCommand(command, environment: [
@@ -1440,6 +1499,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
         let pidLog = root.appendingPathComponent("pids")
+        let cleanupTimingFile = root.appendingPathComponent("cleanup-timing")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
@@ -1481,7 +1541,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        /usr/bin/perl -MTime::HiRes=time -e 'printf "%.9f\\n", time' \
+          > "$CMUX_TEST_CLEANUP_TIMING" || exit 97
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        /usr/bin/perl -MTime::HiRes=time -e 'printf "%.9f\\n", time' \
+          >> "$CMUX_TEST_CLEANUP_TIMING" || exit 96
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
 
@@ -1490,6 +1554,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
+            "CMUX_TEST_CLEANUP_TIMING": cleanupTimingFile.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
@@ -1500,10 +1565,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { removeStandardErrorCapture(stderrCapture) }
         process.standardError = stderrCapture.handle
 
-        let startedAt = Date.now
         try process.run()
         try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
-        let elapsed = Date.now.timeIntervalSince(startedAt)
+        let cleanupTimestamps = try String(contentsOf: cleanupTimingFile, encoding: .utf8)
+            .split(separator: "\n")
+            .compactMap { TimeInterval($0) }
+        let cleanupStartedAt = try #require(cleanupTimestamps.first)
+        let cleanupFinishedAt = try #require(cleanupTimestamps.last)
+        let elapsed = cleanupFinishedAt - cleanupStartedAt
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")

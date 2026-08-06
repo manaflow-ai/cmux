@@ -10,6 +10,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     static let groupStateFileNames = [
         "identity",
         "identity.new",
+        "created",
+        "created.new",
         "publisher",
         "publisher.new",
         "anchor",
@@ -28,8 +30,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "signaled.pids",
         "reaper.failed",
         "reaper.failed.new",
-        "recovery.recent",
-        "recovery.recent.new",
         "orphaned",
         "orphaned.new",
     ]
@@ -287,6 +287,32 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           [ $((cmux_ssh_auth_orphan_now - cmux_ssh_auth_orphaned_at)) -ge 86400 ]
         }
 
+        cmux_ssh_auth_group_creation_retention_expired() {
+          cmux_ssh_auth_created_group_dir="$1"
+          cmux_ssh_auth_created_now=$(/bin/date +%s 2>/dev/null || true)
+          cmux_ssh_auth_created_at=$(/bin/cat -- \
+            "$cmux_ssh_auth_created_group_dir/created" 2>/dev/null || true)
+          case "$cmux_ssh_auth_created_now" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_created_at" in ''|*[!0-9]*)
+            cmux_ssh_auth_created_at=
+            ;;
+          esac
+          if [ "${#cmux_ssh_auth_created_at}" -gt 12 ]; then
+            cmux_ssh_auth_created_at=
+          elif [ -n "$cmux_ssh_auth_created_at" ] && \
+            [ "$cmux_ssh_auth_created_at" -gt "$cmux_ssh_auth_created_now" ]; then
+            cmux_ssh_auth_created_at=
+          fi
+          if [ -z "$cmux_ssh_auth_created_at" ]; then
+            (umask 077; printf '%s\n' "$cmux_ssh_auth_created_now" \
+              > "$cmux_ssh_auth_created_group_dir/created.new") 2>/dev/null && \
+              /bin/mv -f -- "$cmux_ssh_auth_created_group_dir/created.new" \
+                "$cmux_ssh_auth_created_group_dir/created" 2>/dev/null || true
+            return 1
+          fi
+          [ $((cmux_ssh_auth_created_now - cmux_ssh_auth_created_at)) -ge 86400 ]
+        }
+
         cmux_ssh_launch_owned_auth_group_reaper() {
           CMUX_SSH_AUTH_REAPER_LAUNCHED=0
           cmux_ssh_auth_reaper_group_dir="$1"
@@ -397,24 +423,309 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           return 0
         }
 
+        cmux_ssh_auth_recovery_prepare() {
+          cmux_ssh_auth_recovery_base="${TMPDIR:-/tmp}"
+          cmux_ssh_auth_recovery_root="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-recovery"
+          if [ -L "$cmux_ssh_auth_recovery_root" ]; then return 1; fi
+          if [ ! -d "$cmux_ssh_auth_recovery_root" ]; then
+            (umask 077; /bin/mkdir "$cmux_ssh_auth_recovery_root") 2>/dev/null || \
+              [ -d "$cmux_ssh_auth_recovery_root" ] || return 1
+          fi
+          if [ -L "$cmux_ssh_auth_recovery_root" ]; then return 1; fi
+          cmux_ssh_auth_recovery_expected_root_identity="$(/usr/bin/id -u):700"
+          cmux_ssh_auth_recovery_observed_root_identity=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_recovery_root" 2>/dev/null || true)
+          [ "$cmux_ssh_auth_recovery_observed_root_identity" = \
+            "$cmux_ssh_auth_recovery_expected_root_identity" ]
+        }
+
+        cmux_ssh_auth_recovery_group_path_is_valid() {
+          cmux_ssh_auth_recovery_candidate="$1"
+          case "$cmux_ssh_auth_recovery_candidate" in
+            "$cmux_ssh_auth_recovery_base"/cmux-ssh-auth-group.*)
+              cmux_ssh_auth_recovery_suffix=${cmux_ssh_auth_recovery_candidate##*/cmux-ssh-auth-group.}
+              case "$cmux_ssh_auth_recovery_suffix" in
+                ''|*[!A-Za-z0-9._-]*) return 1 ;;
+              esac
+              ;;
+            *) return 1 ;;
+          esac
+          return 0
+        }
+
+        cmux_ssh_auth_recovery_lock() {
+          cmux_ssh_auth_recovery_prepare || return 1
+          exec 9>> "$cmux_ssh_auth_recovery_root/lock" || return 1
+          if ! /usr/bin/lockf -s -t 1 9; then
+            exec 9>&-
+            return 1
+          fi
+        }
+
+        cmux_ssh_auth_recovery_unlock() {
+          exec 9>&-
+        }
+
+        cmux_ssh_auth_recovery_read_index() {
+          cmux_ssh_auth_recovery_index=$(/bin/cat -- "$1" 2>/dev/null || true)
+          case "$cmux_ssh_auth_recovery_index" in
+            ''|*[!0-9]*) printf '0\n' ;;
+            *)
+              if [ "${#cmux_ssh_auth_recovery_index}" -gt 12 ]; then
+                printf '0\n'
+              else
+                printf '%s\n' "$cmux_ssh_auth_recovery_index"
+              fi
+              ;;
+          esac
+        }
+
+        cmux_ssh_auth_recovery_write_index_locked() {
+          cmux_ssh_auth_recovery_index_file="$1"
+          cmux_ssh_auth_recovery_index_value="$2"
+          printf '%s\n' "$cmux_ssh_auth_recovery_index_value" \
+            > "$cmux_ssh_auth_recovery_index_file.new" 2>/dev/null && \
+            /bin/mv -f -- "$cmux_ssh_auth_recovery_index_file.new" \
+              "$cmux_ssh_auth_recovery_index_file" 2>/dev/null
+        }
+
+        cmux_ssh_auth_recovery_append_locked() {
+          cmux_ssh_auth_recovery_append_group="$1"
+          cmux_ssh_auth_recovery_group_path_is_valid \
+            "$cmux_ssh_auth_recovery_append_group" || return 1
+          cmux_ssh_auth_recovery_write_index=$(cmux_ssh_auth_recovery_read_index \
+            "$cmux_ssh_auth_recovery_root/write.index")
+          cmux_ssh_auth_recovery_write_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_write_index"
+          if [ -L "$cmux_ssh_auth_recovery_write_segment" ]; then return 1; fi
+          cmux_ssh_auth_recovery_segment_count=0
+          if [ -f "$cmux_ssh_auth_recovery_write_segment" ]; then
+            cmux_ssh_auth_recovery_segment_count=$(/usr/bin/awk '
+              NR == 8 { print 8; cmux_printed = 1; exit }
+              END { if (!cmux_printed) print NR + 0 }
+            ' "$cmux_ssh_auth_recovery_write_segment" 2>/dev/null || printf '64\n')
+          fi
+          case "$cmux_ssh_auth_recovery_segment_count" in
+            ''|*[!0-9]*) return 1 ;;
+          esac
+          if [ "$cmux_ssh_auth_recovery_segment_count" -ge 8 ]; then
+            cmux_ssh_auth_recovery_write_index=$((cmux_ssh_auth_recovery_write_index + 1))
+            cmux_ssh_auth_recovery_write_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_write_index"
+            if [ -L "$cmux_ssh_auth_recovery_write_segment" ]; then return 1; fi
+          fi
+          cmux_ssh_auth_recovery_write_index_locked \
+            "$cmux_ssh_auth_recovery_root/write.index" \
+            "$cmux_ssh_auth_recovery_write_index" || return 1
+          printf '%s\n' "$cmux_ssh_auth_recovery_append_group" \
+            >> "$cmux_ssh_auth_recovery_write_segment" 2>/dev/null
+        }
+
+        cmux_ssh_auth_recovery_enqueue() {
+          cmux_ssh_auth_recovery_prepare || return 1
+          cmux_ssh_auth_recovery_group_path_is_valid "$1" || return 1
+          cmux_ssh_auth_recovery_lock || return 1
+          cmux_ssh_auth_recovery_append_locked "$1"
+          cmux_ssh_auth_recovery_enqueue_status=$?
+          cmux_ssh_auth_recovery_unlock
+          return "$cmux_ssh_auth_recovery_enqueue_status"
+        }
+
+        cmux_ssh_auth_create_group_dir() {
+          cmux_ssh_auth_recovery_prepare || return 1
+          cmux_ssh_auth_create_uuid=$(/usr/bin/uuidgen 2>/dev/null | \
+            /usr/bin/tr '[:upper:]' '[:lower:]') || return 1
+          case "$cmux_ssh_auth_create_uuid" in
+            ''|*[!a-z0-9-]*) return 1 ;;
+          esac
+          cmux_ssh_auth_create_dir="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-group.$cmux_ssh_auth_create_uuid"
+          cmux_ssh_auth_recovery_group_path_is_valid "$cmux_ssh_auth_create_dir" || return 1
+          cmux_ssh_auth_recovery_lock || return 1
+          if ! cmux_ssh_auth_recovery_append_locked "$cmux_ssh_auth_create_dir" || \
+            ! (umask 077; /bin/mkdir "$cmux_ssh_auth_create_dir") 2>/dev/null; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          cmux_ssh_auth_create_now=$(/bin/date +%s 2>/dev/null || true)
+          case "$cmux_ssh_auth_create_now" in
+            ''|*[!0-9]*)
+              /bin/rmdir "$cmux_ssh_auth_create_dir" 2>/dev/null || true
+              cmux_ssh_auth_recovery_unlock
+              return 1
+              ;;
+          esac
+          if ! printf '%s\n' "$cmux_ssh_auth_create_now" \
+            > "$cmux_ssh_auth_create_dir/created.new" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_create_dir/created.new" \
+              "$cmux_ssh_auth_create_dir/created" 2>/dev/null; then
+            /bin/rm -f -- "$cmux_ssh_auth_create_dir/created.new" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_create_dir" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          cmux_ssh_auth_recovery_unlock
+          printf '%s\n' "$cmux_ssh_auth_create_dir"
+        }
+
+        cmux_ssh_auth_recovery_claim_segment() {
+          CMUX_SSH_AUTH_RECOVERY_SEGMENT=
+          CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX=
+          CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD=
+          cmux_ssh_auth_recovery_lock || return 1
+          cmux_ssh_auth_recovery_read_index_value=$(cmux_ssh_auth_recovery_read_index \
+            "$cmux_ssh_auth_recovery_root/read.index")
+          cmux_ssh_auth_recovery_write_index_value=$(cmux_ssh_auth_recovery_read_index \
+            "$cmux_ssh_auth_recovery_root/write.index")
+          if [ "$cmux_ssh_auth_recovery_read_index_value" -gt \
+            "$cmux_ssh_auth_recovery_write_index_value" ]; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          cmux_ssh_auth_recovery_segment="$cmux_ssh_auth_recovery_root/queue.$cmux_ssh_auth_recovery_read_index_value"
+          if [ "$cmux_ssh_auth_recovery_read_index_value" = \
+            "$cmux_ssh_auth_recovery_write_index_value" ]; then
+            if [ ! -s "$cmux_ssh_auth_recovery_segment" ]; then
+              cmux_ssh_auth_recovery_unlock
+              return 1
+            fi
+            cmux_ssh_auth_recovery_next_write=$((cmux_ssh_auth_recovery_write_index_value + 1))
+            if ! cmux_ssh_auth_recovery_write_index_locked \
+              "$cmux_ssh_auth_recovery_root/write.index" \
+              "$cmux_ssh_auth_recovery_next_write"; then
+              cmux_ssh_auth_recovery_unlock
+              return 1
+            fi
+          elif [ ! -s "$cmux_ssh_auth_recovery_segment" ]; then
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_segment" \
+              "$cmux_ssh_auth_recovery_segment.claim" \
+              "$cmux_ssh_auth_recovery_segment.claim.new" \
+              "$cmux_ssh_auth_recovery_segment.priority" \
+              "$cmux_ssh_auth_recovery_segment.retry" 2>/dev/null || true
+            cmux_ssh_auth_recovery_next_read=$((cmux_ssh_auth_recovery_read_index_value + 1))
+            cmux_ssh_auth_recovery_write_index_locked \
+              "$cmux_ssh_auth_recovery_root/read.index" \
+              "$cmux_ssh_auth_recovery_next_read" || true
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          if [ -L "$cmux_ssh_auth_recovery_segment" ]; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          cmux_ssh_auth_recovery_claim="$cmux_ssh_auth_recovery_segment.claim"
+          if cmux_ssh_auth_recorded_process_is_live "$cmux_ssh_auth_recovery_claim"; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_recovery_claim" \
+            "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || true
+          cmux_ssh_auth_recovery_claim_identity=$(cmux_ssh_auth_identity "$$")
+          if [ -z "$cmux_ssh_auth_recovery_claim_identity" ]; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          cmux_ssh_auth_recovery_claim_record="$$|$cmux_ssh_auth_recovery_claim_identity"
+          if ! printf '%s\n' "$cmux_ssh_auth_recovery_claim_record" \
+            > "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_recovery_claim.new" \
+              "$cmux_ssh_auth_recovery_claim" 2>/dev/null; then
+            /bin/rm -f -- "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          CMUX_SSH_AUTH_RECOVERY_SEGMENT="$cmux_ssh_auth_recovery_segment"
+          CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX="$cmux_ssh_auth_recovery_read_index_value"
+          CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD="$cmux_ssh_auth_recovery_claim_record"
+          cmux_ssh_auth_recovery_unlock
+          return 0
+        }
+
+        cmux_ssh_auth_recovery_complete_segment() {
+          cmux_ssh_auth_recovery_lock || return 1
+          cmux_ssh_auth_recovery_current_read=$(cmux_ssh_auth_recovery_read_index \
+            "$cmux_ssh_auth_recovery_root/read.index")
+          cmux_ssh_auth_recovery_observed_claim=$(/bin/cat -- \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_recovery_current_read" != \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX" ] || \
+            [ "$cmux_ssh_auth_recovery_observed_claim" != \
+              "$CMUX_SSH_AUTH_RECOVERY_CLAIM_RECORD" ]; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          for cmux_ssh_auth_recovery_requeue_file in \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"; do
+            cmux_ssh_auth_recovery_requeue_count=0
+            while IFS= read -r cmux_ssh_auth_recovery_requeue_group; do
+              cmux_ssh_auth_recovery_requeue_count=$((cmux_ssh_auth_recovery_requeue_count + 1))
+              if [ "$cmux_ssh_auth_recovery_requeue_count" -gt 8 ]; then
+                cmux_ssh_auth_recovery_unlock
+                return 1
+              fi
+              cmux_ssh_auth_recovery_append_locked \
+                "$cmux_ssh_auth_recovery_requeue_group" || {
+                  cmux_ssh_auth_recovery_unlock
+                  return 1
+                }
+            done < "$cmux_ssh_auth_recovery_requeue_file"
+          done
+          /bin/rm -f -- "$CMUX_SSH_AUTH_RECOVERY_SEGMENT" \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim" \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.claim.new" \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" \
+            "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry" 2>/dev/null || true
+          cmux_ssh_auth_recovery_next_read=$((CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX + 1))
+          if ! cmux_ssh_auth_recovery_write_index_locked \
+            "$cmux_ssh_auth_recovery_root/read.index" \
+            "$cmux_ssh_auth_recovery_next_read"; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          cmux_ssh_auth_recovery_unlock
+          return 0
+        }
+
         cmux_ssh_resume_failed_auth_group_reapers() {
-          cmux_ssh_auth_recovery_root="${TMPDIR:-/tmp}"
+          cmux_ssh_auth_recovery_claim_segment || return 0
+          : > "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority" 2>/dev/null || return 0
+          : > "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry" 2>/dev/null || return 0
           cmux_ssh_auth_recovery_count=0
+          cmux_ssh_auth_recovery_processed=0
           cmux_ssh_auth_recovery_expected_dir_identity="$(/usr/bin/id -u):700"
-          for cmux_ssh_auth_recovery_group_dir in \
-            "$cmux_ssh_auth_recovery_root"/cmux-ssh-auth-group.*; do
-            if [ ! -d "$cmux_ssh_auth_recovery_group_dir" ] || \
-              [ ! -s "$cmux_ssh_auth_recovery_group_dir/identity" ]; then continue; fi
+          while IFS= read -r cmux_ssh_auth_recovery_group_dir; do
+            cmux_ssh_auth_recovery_processed=$((cmux_ssh_auth_recovery_processed + 1))
+            if [ "$cmux_ssh_auth_recovery_processed" -gt 8 ]; then break; fi
+            if ! cmux_ssh_auth_recovery_group_path_is_valid \
+              "$cmux_ssh_auth_recovery_group_dir" || \
+              [ ! -d "$cmux_ssh_auth_recovery_group_dir" ] || \
+              [ -L "$cmux_ssh_auth_recovery_group_dir" ]; then continue; fi
             cmux_ssh_auth_recovery_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
               "$cmux_ssh_auth_recovery_group_dir" 2>/dev/null || true)
             if [ "$cmux_ssh_auth_recovery_observed_dir_identity" != \
               "$cmux_ssh_auth_recovery_expected_dir_identity" ]; then continue; fi
             if [ "$cmux_ssh_auth_recovery_group_dir" = \
-              "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then continue; fi
+              "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then
+              printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+                >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              continue
+            fi
+            if [ ! -s "$cmux_ssh_auth_recovery_group_dir/identity" ]; then
+              if cmux_ssh_auth_group_creation_retention_expired \
+                "$cmux_ssh_auth_recovery_group_dir"; then
+                (CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_recovery_group_dir"
+                  \#(processGroupStateRemovalShellCommand())
+                  /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true)
+              else
+                printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+                  >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              fi
+              continue
+            fi
             if cmux_ssh_auth_group_publisher_is_live \
               "$cmux_ssh_auth_recovery_group_dir"; then
               /bin/rm -f -- "$cmux_ssh_auth_recovery_group_dir/orphaned" \
                 "$cmux_ssh_auth_recovery_group_dir/orphaned.new" 2>/dev/null || true
+              printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+                >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
               continue
             fi
             if cmux_ssh_auth_group_anchor_is_live \
@@ -428,30 +739,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true)
               continue
             fi
-            if [ -e "$cmux_ssh_auth_recovery_group_dir/recovery.recent" ]; then
+            if [ "$cmux_ssh_auth_recovery_count" -ge 8 ]; then
+              printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+                >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.priority"
               continue
             fi
             cmux_ssh_launch_owned_auth_group_reaper "$cmux_ssh_auth_recovery_group_dir"
-            if [ "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" != 1 ]; then continue; fi
-            cmux_ssh_auth_recovery_count=$((cmux_ssh_auth_recovery_count + 1))
-            printf 'attempted\n' \
-              > "$cmux_ssh_auth_recovery_group_dir/recovery.recent.new" 2>/dev/null && \
-              /bin/mv -f -- "$cmux_ssh_auth_recovery_group_dir/recovery.recent.new" \
-                "$cmux_ssh_auth_recovery_group_dir/recovery.recent" 2>/dev/null || true
-            if [ "$cmux_ssh_auth_recovery_count" -ge 8 ]; then break; fi
-          done
-          if [ "$cmux_ssh_auth_recovery_count" -lt 8 ]; then
-            for cmux_ssh_auth_recovery_group_dir in \
-              "$cmux_ssh_auth_recovery_root"/cmux-ssh-auth-group.*; do
-              if [ ! -d "$cmux_ssh_auth_recovery_group_dir" ]; then continue; fi
-              cmux_ssh_auth_recovery_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
-                "$cmux_ssh_auth_recovery_group_dir" 2>/dev/null || true)
-              if [ "$cmux_ssh_auth_recovery_observed_dir_identity" != \
-                "$cmux_ssh_auth_recovery_expected_dir_identity" ]; then continue; fi
-              /bin/rm -f -- "$cmux_ssh_auth_recovery_group_dir/recovery.recent" \
-                "$cmux_ssh_auth_recovery_group_dir/recovery.recent.new" 2>/dev/null || true
-            done
-          fi
+            if [ "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" = 1 ]; then
+              cmux_ssh_auth_recovery_count=$((cmux_ssh_auth_recovery_count + 1))
+            fi
+            printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+              >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+          done < "$CMUX_SSH_AUTH_RECOVERY_SEGMENT"
+          cmux_ssh_auth_recovery_complete_segment || true
           return 0
         }
 
