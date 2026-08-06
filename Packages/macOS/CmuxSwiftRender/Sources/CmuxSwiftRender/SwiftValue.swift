@@ -7,6 +7,7 @@ import Foundation
 /// identifiers, string interpolations, loop sequences, and `if` conditions
 /// to these.
 public enum SwiftValue: Codable, Sendable, Equatable {
+    case null
     case int(Int)
     case double(Double)
     case string(String)
@@ -18,6 +19,7 @@ public enum SwiftValue: Codable, Sendable, Equatable {
     /// How the value renders inside a string interpolation.
     public var displayString: String {
         switch self {
+        case .null: return "nil"
         case let .int(value): return String(value)
         case let .double(value): return String(value)
         case let .string(value): return value
@@ -38,8 +40,8 @@ public enum SwiftValue: Codable, Sendable, Equatable {
             if name == "count" { return .int(values.count) }
             if name == "isEmpty" { return .bool(values.isEmpty) }
             if name == "indices" { return .array(values.indices.map { .int($0) }) }
-            if name == "first" { return values.first }
-            if name == "last" { return values.last }
+            if name == "first" { return values.first ?? .null }
+            if name == "last" { return values.last ?? .null }
             return nil
         case let .string(value):
             if name == "count" { return .int(value.count) }
