@@ -8026,7 +8026,7 @@ mod unix {
                 queued_bytes: Arc::new(AtomicUsize::new(0)),
                 queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                 shutdown: Arc::new(host_socket),
-                max_queued_bytes: usize::MAX,
+                max_queued_bytes: 0,
             };
 
             let gap = state.subscribe(10, tap).unwrap_err();
@@ -8040,7 +8040,7 @@ mod unix {
         #[test]
         fn smart_noisy_neighbor_is_evicted_without_stalling_other_renderers() {
             let state = SmartStreamState::new();
-            let tap = |_capacity| {
+            let tap = |capacity| {
                 let (host_socket, _client_socket) = UnixStream::pair().unwrap();
                 let (sender, receiver) = mpsc_channel();
                 (
@@ -8049,7 +8049,8 @@ mod unix {
                         queued_bytes: Arc::new(AtomicUsize::new(0)),
                         queued_output_bytes: Arc::new(AtomicUsize::new(0)),
                         shutdown: Arc::new(host_socket),
-                        max_queued_bytes: usize::MAX,
+                        max_queued_bytes: capacity
+                            * (crate::terminal_host_protocol::HEADER_LEN + 1),
                     },
                     receiver,
                 )
