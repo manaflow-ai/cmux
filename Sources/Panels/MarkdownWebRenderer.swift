@@ -660,11 +660,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return direct
             }
             // A wiki link that isn't a plain sibling resolves against the
-            // enclosing Obsidian vault (by note name), if there is one.
+            // enclosing anchor folder (Obsidian vault or Git repo) by note name.
             guard wikiLink else { return nil }
             return MarkdownPanelFileLinkResolver.resolveVaultWikiLink(
                 rawPath: trimmed,
-                relativeToMarkdownFile: filePath
+                relativeToMarkdownFile: filePath,
+                anchorMarkerName: MarkdownWikiLinkAnchorSettings.markerFolderName()
             )
         }
 

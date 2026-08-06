@@ -21,11 +21,15 @@ enum MarkdownPanelFileLinkResolver {
     /// directory containing `.obsidian`). Returns `nil` when the current file is
     /// not inside an Obsidian vault or no matching note exists, so non-vault
     /// markdown keeps today's sibling-only behavior.
-    static func resolveVaultWikiLink(rawPath: String, relativeToMarkdownFile markdownFilePath: String) -> String? {
+    static func resolveVaultWikiLink(
+        rawPath: String,
+        relativeToMarkdownFile markdownFilePath: String,
+        anchorMarkerName: String = ".obsidian"
+    ) -> String? {
         let stripped = stripFragmentAndQuery(rawPath)
         guard !stripped.isEmpty, !(stripped as NSString).isAbsolutePath else { return nil }
         guard isMarkdownPathLike(stripped) else { return nil }
-        guard let vaultRoot = vaultRoot(forMarkdownFile: markdownFilePath) else { return nil }
+        guard let vaultRoot = vaultRoot(forMarkdownFile: markdownFilePath, markerName: anchorMarkerName) else { return nil }
 
         // Prefer an exact relative subpath under the vault root, so a qualified
         // link like `[[folder/Note]]` beats a bare-name match elsewhere.
@@ -40,15 +44,18 @@ enum MarkdownPanelFileLinkResolver {
     }
 
     /// Nearest ancestor of `markdownFilePath` (inclusive of its directory) that
-    /// contains an `.obsidian` directory, i.e. the Obsidian vault root.
-    static func vaultRoot(forMarkdownFile markdownFilePath: String) -> String? {
+    /// contains `markerName` (e.g. `.obsidian` for an Obsidian vault, `.git` for
+    /// a Git repository) — the anchor for wiki-link resolution.
+    ///
+    /// The marker is matched as a file *or* directory: `.obsidian` is always a
+    /// directory, but `.git` is a file in worktrees and submodules.
+    static func vaultRoot(forMarkdownFile markdownFilePath: String, markerName: String = ".obsidian") -> String? {
         let fm = FileManager.default
         var dir = (markdownFilePath as NSString).deletingLastPathComponent
         var guardCount = 0
         while !dir.isEmpty, dir != "/", guardCount < 64 {
-            var isDir: ObjCBool = false
-            let obsidian = (dir as NSString).appendingPathComponent(".obsidian")
-            if fm.fileExists(atPath: obsidian, isDirectory: &isDir), isDir.boolValue {
+            let marker = (dir as NSString).appendingPathComponent(markerName)
+            if fm.fileExists(atPath: marker) {
                 return dir
             }
             let parent = (dir as NSString).deletingLastPathComponent

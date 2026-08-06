@@ -1384,6 +1384,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
 		A50014F9 /* MarkdownWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F8 /* MarkdownWebSupport.swift */; };
+		F5A1D00F0000000000000001 /* MarkdownWikiLinkAnchorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A1D00F0000000000000002 /* MarkdownWikiLinkAnchorSettings.swift */; };
 		D9155002D9155002D9155002 /* MarkdownWikiLinkRenderingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9155001D9155001D9155001 /* MarkdownWikiLinkRenderingTests.swift */; };
 		F5A1D00E0000000000000001 /* MarkdownWikiLinksSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A1D00E0000000000000002 /* MarkdownWikiLinksSettings.swift */; };
 		7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */; };
@@ -4207,6 +4208,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
 		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
+		F5A1D00F0000000000000002 /* MarkdownWikiLinkAnchorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWikiLinkAnchorSettings.swift; sourceTree = "<group>"; };
 		D9155001D9155001D9155001 /* MarkdownWikiLinkRenderingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownWikiLinkRenderingTests.swift; sourceTree = "<group>"; };
 		F5A1D00E0000000000000002 /* MarkdownWikiLinksSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWikiLinksSettings.swift; sourceTree = "<group>"; };
 		7490D0027490D0027490D002 /* MemoryPressureFootprintSampling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MemoryPressureFootprintSampling.swift; sourceTree = "<group>"; };
@@ -7332,6 +7334,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
 				F5168A030000000000000002 /* MarkdownFontSizeSettings.swift */,
 				F5A1D00E0000000000000002 /* MarkdownWikiLinksSettings.swift */,
+				F5A1D00F0000000000000002 /* MarkdownWikiLinkAnchorSettings.swift */,
 				F5168A040000000000000002 /* MarkdownFontFamily.swift */,
 				F5168A070000000000000002 /* MarkdownFontFamilyCache.swift */,
 				F5168A050000000000000002 /* MarkdownMaxWidthSettings.swift */,
@@ -9881,6 +9884,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
 				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
 					A50014F9 /* MarkdownWebSupport.swift in Sources */,
+				F5A1D00F0000000000000001 /* MarkdownWikiLinkAnchorSettings.swift in Sources */,
 				F5A1D00E0000000000000001 /* MarkdownWikiLinksSettings.swift in Sources */,
 				7490C0027490C0027490C002 /* MemoryPressureFootprintSampling.swift in Sources */,
 				7490C0037490C0037490C003 /* MemoryPressureFootprintThresholds.swift in Sources */,

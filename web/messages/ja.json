@@ -1829,7 +1829,8 @@
           "fontSize": "新しく開く Markdown ビューアの本文フォントサイズの既定値（ポイント単位）です。Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
           "fontFamily": "新しく開く Markdown ビューアの本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
           "maxWidth": "新しく開く Markdown ビューアの読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
-          "wikiLinks": "Markdown ビューアで Wiki スタイルのリンク（[[Note]]、[[Note|Label]]）を解釈します。Obsidian のようなボールト内では、ボールト内のどこにあっても対応するノートに解決します。通常のクリックは現在のペインで開き、Cmd クリックは新しいタブで開きます。既定ではオフで、[[...]] を含む通常の Markdown はそのまま文字として表示されます。"
+          "wikiLinks": "Markdown ビューアで Wiki スタイルのリンク（[[Note]]、[[Note|Label]]）を解釈します。アンカーフォルダ（wikiLinkAnchor を参照）配下のどこにあっても対応するノートに解決します。通常のクリックは現在のペインで開き、Cmd クリックは新しいタブで開きます。既定ではオフで、[[...]] を含む通常の Markdown はそのまま文字として表示されます。",
+          "wikiLinkAnchor": "Wiki リンクを解決する際に、ノートの最上位を決めるマーカーフォルダです。\"obsidian\"（.obsidian を含む最も近い上位ディレクトリ）または \"git\"（.git を含む最も近い上位）を指定します。一致するものがない場合、リンクは同じフォルダ内のファイルのみに解決されます。wikiLinks が有効な場合に適用されます。"
         },
         "canvas": {
           "paneGap": "キャンバスレイアウトのペイン間の間隔（ポイント単位）。スナップ、整列、新規ペインの配置はすべてこの間隔を使用します。",
@@ -1867,7 +1868,8 @@
       "exampleMarkdownFontSizeZoom": "Cmd-+ / Cmd-- / Cmd-0 でその場で拡大・縮小できます。",
       "exampleMarkdownFontFamily": "本文フォントファミリーの既定値です。空のままにするとシステムの Markdown フォントスタックを使います。",
       "exampleMarkdownMaxWidth": "読み取りカラム最大幅の既定値（CSS ピクセル単位）です。",
-      "exampleMarkdownWikiLinks": "[[Note]] / [[Note|Label]] の Wiki リンクを解釈し、Obsidian ボールト内のどこにあっても対応するノートに解決します。",
+      "exampleMarkdownWikiLinks": "[[Note]] / [[Note|Label]] の Wiki リンクを解釈し、アンカーフォルダ配下のどこにあってもノートに解決します。",
+      "exampleMarkdownWikiLinkAnchor": "Wiki リンクのアンカーフォルダ: \"obsidian\"（最も近い .obsidian）または \"git\"（最も近い .git）。",
       "exampleFileEditorWordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。",
       "exampleFileExplorerDoubleClickAction": "ファイルをダブルクリックしたときの動作: preview（既定）、defaultEditor（macOS の既定アプリ）、preferredEditor（app.preferredEditor コマンド）。",
       "shortcutsWhenIntro": "アクションごとの任意のコンテキスト述語（VS Code スタイルの when 句）で、cmux のアクション ID をキーにします。バインディングは、その句が成立するときだけ発火し、同じキーストロークの他のバインディングともそのときだけ競合します。句を省略すると、アクションの組み込みコンテキストが維持されます。句で使える語彙:",

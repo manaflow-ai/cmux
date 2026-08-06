@@ -155968,19 +155968,87 @@
         }
       }
     },
+    "settings.app.markdownWikiLinkAnchor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiki Link Anchor Folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiki リンクのアンカーフォルダ"
+          }
+        }
+      }
+    },
+    "settings.app.markdownWikiLinkAnchor.git": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git repository (.git)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git リポジトリ（.git）"
+          }
+        }
+      }
+    },
+    "settings.app.markdownWikiLinkAnchor.obsidian": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obsidian vault (.obsidian)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obsidian ボールト（.obsidian）"
+          }
+        }
+      }
+    },
+    "settings.app.markdownWikiLinkAnchor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The marker that anchors the top of your notes when resolving [[Wiki]] links: the nearest ancestor folder containing an Obsidian vault (.obsidian) or a Git repository (.git). Without a match, links resolve only to files in the same folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[Wiki]] リンクを解決する際に、ノートの最上位を決めるマーカーです。Obsidian ボールト（.obsidian）または Git リポジトリ（.git）を含む最も近い上位フォルダを使います。一致するものがない場合、リンクは同じフォルダ内のファイルのみに解決されます。"
+          }
+        }
+      }
+    },
     "settings.app.markdownWikiLinks": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Markdown Viewer Wiki Links"
+            "value": "Wiki Links"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Markdown ビューアの Wiki リンク"
+            "value": "Wiki リンク"
           }
         }
       }
@@ -155991,13 +156059,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parse [[Note]] and [[Note|Label]] links in the viewer, resolving to notes anywhere in the enclosing Obsidian vault. A plain click opens the note in the current pane; Cmd-click opens a new tab. Off by default so ordinary [[...]] text renders literally."
+            "value": "Parse [[Note]] and [[Note|Label]] links in the viewer, resolving to notes anywhere under the anchor folder set below. A plain click opens the note in the current pane; Cmd-click opens a new tab. Off by default so ordinary [[...]] text renders literally."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[[Note]] や [[Note|Label]] のリンクをビューアで解釈し、Obsidian ボールト内のどこにあっても対応するノートに解決します。通常のクリックは現在のペインで開き、Cmd クリックは新しいタブで開きます。既定ではオフで、通常の [[...]] はそのまま文字として表示されます。"
+            "value": "[[Note]] や [[Note|Label]] のリンクをビューアで解釈し、下で設定したアンカーフォルダ配下のどこにあってもノートに解決します。通常のクリックは現在のペインで開き、Cmd クリックは新しいタブで開きます。既定ではオフで、通常の [[...]] はそのまま文字として表示されます。"
           }
         }
       }

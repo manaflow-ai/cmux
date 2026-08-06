@@ -13,6 +13,7 @@ public struct MarkdownSection: View {
     @State private var fontFamily: DefaultsValueModel<String>
     @State private var maxWidth: DefaultsValueModel<Int>
     @State private var wikiLinks: DefaultsValueModel<Bool>
+    @State private var wikiLinkAnchor: DefaultsValueModel<MarkdownWikiLinkAnchor>
 
     private static let columnWidth: CGFloat = 196
 
@@ -27,6 +28,7 @@ public struct MarkdownSection: View {
         _fontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _maxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
         _wikiLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.wikiLinks))
+        _wikiLinkAnchor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.wikiLinkAnchor))
     }
 
     public var body: some View {
@@ -43,6 +45,8 @@ public struct MarkdownSection: View {
                 fontFamilyRow
                 SettingsCardDivider()
                 wikiLinksRow
+                SettingsCardDivider()
+                wikiLinkAnchorRow
             }
         }
         .task { startObservingSettings() }
@@ -50,7 +54,7 @@ public struct MarkdownSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
-            openMarkdown, fontSize, fontFamily, maxWidth, wikiLinks,
+            openMarkdown, fontSize, fontFamily, maxWidth, wikiLinks, wikiLinkAnchor,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -138,13 +142,32 @@ public struct MarkdownSection: View {
     private var wikiLinksRow: some View {
         SettingsCardRow(
             configurationReview: .json("markdown.wikiLinks"),
-            String(localized: "settings.app.markdownWikiLinks", defaultValue: "Markdown Viewer Wiki Links"),
-            subtitle: String(localized: "settings.app.markdownWikiLinks.subtitle", defaultValue: "Parse [[Note]] and [[Note|Label]] links in the viewer, resolving to notes anywhere in the enclosing Obsidian vault. A plain click opens the note in the current pane; Cmd-click opens a new tab. Off by default so ordinary [[...]] text renders literally.")
+            String(localized: "settings.app.markdownWikiLinks", defaultValue: "Wiki Links"),
+            subtitle: String(localized: "settings.app.markdownWikiLinks.subtitle", defaultValue: "Parse [[Note]] and [[Note|Label]] links in the viewer, resolving to notes anywhere under the anchor folder set below. A plain click opens the note in the current pane; Cmd-click opens a new tab. Off by default so ordinary [[...]] text renders literally.")
         ) {
             Toggle("", isOn: Binding(get: { wikiLinks.current }, set: { wikiLinks.set($0) }))
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsMarkdownWikiLinksToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var wikiLinkAnchorRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("markdown.wikiLinkAnchor"),
+            String(localized: "settings.app.markdownWikiLinkAnchor", defaultValue: "Wiki Link Anchor Folder"),
+            subtitle: String(localized: "settings.app.markdownWikiLinkAnchor.subtitle", defaultValue: "The marker that anchors the top of your notes when resolving [[Wiki]] links: the nearest ancestor folder containing an Obsidian vault (.obsidian) or a Git repository (.git). Without a match, links resolve only to files in the same folder."),
+            controlWidth: Self.columnWidth
+        ) {
+            Picker("", selection: Binding(get: { wikiLinkAnchor.current }, set: { wikiLinkAnchor.set($0) })) {
+                Text(String(localized: "settings.app.markdownWikiLinkAnchor.obsidian", defaultValue: "Obsidian vault (.obsidian)")).tag(MarkdownWikiLinkAnchor.obsidian)
+                Text(String(localized: "settings.app.markdownWikiLinkAnchor.git", defaultValue: "Git repository (.git)")).tag(MarkdownWikiLinkAnchor.git)
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .disabled(!wikiLinks.current)
+            .accessibilityIdentifier("SettingsMarkdownWikiLinkAnchorPicker")
         }
     }
 }

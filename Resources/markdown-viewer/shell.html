@@ -158,7 +158,7 @@ body {
   color: var(--fgColor-accent);
   border-bottom-color: var(--fgColor-accent);
 }
-.markdown-body a[data-cmux-file-exists="1"]::after,
+.markdown-body a[data-cmux-file-exists="1"]:not(.cmux-wikilink)::after,
 .markdown-body code[data-cmux-file][data-cmux-file-exists="1"]::after {
   content: " ↗";
   font-size: 0.82em;
@@ -1841,13 +1841,15 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  // Wiki links carry no openable-file affordance (no ↗) and resolve against
+  // the whole vault, so don't scan on hover/focus — they open on click.
   contentEl.addEventListener('mouseover', function(ev) {
     var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
-    if (el) { resolveMarkdownCandidate(el, false); }
+    if (el && !isWikiLinkElement(el)) { resolveMarkdownCandidate(el, false); }
   });
   contentEl.addEventListener('focusin', function(ev) {
     var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
-    if (el) { resolveMarkdownCandidate(el, false); }
+    if (el && !isWikiLinkElement(el)) { resolveMarkdownCandidate(el, false); }
   });
   contentEl.addEventListener('click', function(ev) {
     if (ev.target && ev.target.closest && ev.target.closest('.cmux-remote-image-placeholder')) {
