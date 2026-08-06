@@ -1,9 +1,9 @@
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 use serde_json::{Value, json};
@@ -977,6 +977,100 @@ fn journal_subscription_negotiates_then_sends_the_resource_envelope() {
     assert_eq!(lifecycle.len(), 2);
     assert_eq!(lifecycle[0]["type"], "response");
     assert_eq!(lifecycle[1]["type"], "stream_end");
+    let _ = fs::remove_file(&socket);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn journal_subscription_sigint_exits_immediately_and_cleanly() {
+    let dir = unique_temp_dir("journal-subscribe-sigint");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let listener = transport::listen(&socket).unwrap();
+    let server = std::thread::spawn(move || {
+        let mut stream = listener.accept().unwrap();
+        let read_half = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(read_half);
+
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let identify: Value = serde_json::from_str(&line).unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "id":identify["id"],
+                "ok":true,
+                "data":{
+                    "app":"cmux-tui",
+                    "protocol":10,
+                    "capabilities":["session-journal-v1"],
+                    "session":"journal-sigint"
+                }
+            })
+        )
+        .unwrap();
+        stream.flush().unwrap();
+
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let subscribe: Value = serde_json::from_str(&line).unwrap();
+        writeln!(
+            stream,
+            "{}",
+            json!({
+                "protocol":"cmux.protocol/1",
+                "type":"response",
+                "id":subscribe["id"],
+                "ok":true,
+                "result":{"stream_id":subscribe["params"]["stream_id"]}
+            })
+        )
+        .unwrap();
+        stream.flush().unwrap();
+
+        line.clear();
+        let _ = reader.read_line(&mut line);
+    });
+
+    let mut child = Command::new(bin())
+        .args(["--jsonl", "--socket"])
+        .arg(&socket)
+        .args(["session", "current", "journal", "subscribe"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut accepted = String::new();
+    stdout.read_line(&mut accepted).unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&accepted).unwrap()["type"], "response");
+
+    let started = Instant::now();
+    let pid = libc::pid_t::try_from(child.id()).unwrap();
+    assert_eq!(unsafe { libc::kill(pid, libc::SIGINT) }, 0);
+    let deadline = started + Duration::from_millis(100);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("journal subscriber did not exit within 100 ms of SIGINT");
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    let elapsed = started.elapsed();
+    let mut stderr = String::new();
+    child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+    assert!(status.success(), "SIGINT exit was {status:?}: {stderr}");
+    assert!(stderr.is_empty(), "SIGINT wrote a transport error: {stderr}");
+    assert!(elapsed < Duration::from_millis(100), "SIGINT exit took {elapsed:?}");
+
+    server.join().unwrap();
     let _ = fs::remove_file(&socket);
     fs::remove_dir_all(dir).unwrap();
 }
