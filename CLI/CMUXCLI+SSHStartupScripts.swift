@@ -383,6 +383,7 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
+            hasOneTimeCommand ? "cmux_ssh_resume_failed_auth_group_reapers" : ":",
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]

@@ -111,10 +111,23 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             }'
         }
 
+        cmux_ssh_auth_stopped_identity() {
+          /usr/bin/env LC_ALL=C LANG=C /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
+            /usr/bin/awk 'NF >= 8 && $3 ~ /T/ && $3 !~ /Z/ {
+              cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
+              print $1 "|" $2 "|" cmux_started
+            }'
+        }
+
         \#(ownedProcessGroupTerminationShellFunctions())
 
         cmux_ssh_launch_owned_auth_group_reaper() {
           cmux_ssh_auth_reaper_group_dir="$1"
+          cmux_ssh_auth_reaper_expected_dir_identity="$(/usr/bin/id -u):700"
+          cmux_ssh_auth_reaper_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_reaper_group_dir" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_reaper_observed_dir_identity" != \
+            "$cmux_ssh_auth_reaper_expected_dir_identity" ]; then return 0; fi
           if [ ! -s "$cmux_ssh_auth_reaper_group_dir/identity" ]; then return 0; fi
           cmux_ssh_auth_reaper_caller_group=$(/usr/bin/env LC_ALL=C LANG=C \
             /bin/ps -o pgid= -p "$$" 2>/dev/null | /usr/bin/tr -d '[:space:]')
@@ -142,6 +155,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 > "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" 2>/dev/null || true
               /bin/mv -f -- "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" \
                 "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" 2>/dev/null || true
+              /usr/bin/logger -t cmux \
+                "SSH authentication cleanup deferred: $CMUX_SSH_AUTH_GROUP_DIR" \
+                >/dev/null 2>&1 || true
             else
               /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" \
                 "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" 2>/dev/null || true
@@ -151,6 +167,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
             fi
           ) </dev/null >/dev/null 2>&1 &
+        }
+
+        cmux_ssh_resume_failed_auth_group_reapers() {
+          cmux_ssh_auth_recovery_root="${TMPDIR:-/tmp}"
+          cmux_ssh_auth_recovery_count=0
+          for cmux_ssh_auth_recovery_marker in \
+            "$cmux_ssh_auth_recovery_root"/cmux-ssh-auth-group.*/reaper.failed; do
+            if [ ! -f "$cmux_ssh_auth_recovery_marker" ]; then continue; fi
+            cmux_ssh_auth_recovery_group_dir=${cmux_ssh_auth_recovery_marker%/reaper.failed}
+            if [ "$cmux_ssh_auth_recovery_group_dir" = \
+              "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then continue; fi
+            cmux_ssh_launch_owned_auth_group_reaper "$cmux_ssh_auth_recovery_group_dir"
+            cmux_ssh_auth_recovery_count=$((cmux_ssh_auth_recovery_count + 1))
+            if [ "$cmux_ssh_auth_recovery_count" -ge 8 ]; then break; fi
+          done
+          return 0
         }
 
         cmux_ssh_terminate_owned_auth_group() (
@@ -189,12 +221,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 cmux_ssh_auth_cleanup_complete=1
               else
                 cmux_ssh_auth_deadline_millis="$cmux_ssh_auth_hard_deadline_millis"
-                if cmux_ssh_auth_force_frozen_processes >/dev/null 2>&1; then
+                if cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" \
+                  >/dev/null 2>&1 && \
+                  cmux_ssh_auth_expand_owned_processes >/dev/null 2>&1 && \
+                  cmux_ssh_auth_freeze_owned_processes >/dev/null 2>&1 && \
+                  cmux_ssh_auth_force_frozen_processes >/dev/null 2>&1; then
                   cmux_ssh_auth_cleanup_complete=1
                 else
                   cmux_ssh_auth_preserve_group_state=1
+                  cmux_ssh_auth_resume_signaled_processes
                 fi
-                cmux_ssh_auth_resume_signaled_processes
               fi
             fi
             if [ "$cmux_ssh_auth_preserve_group_state" = 1 ]; then return; fi
