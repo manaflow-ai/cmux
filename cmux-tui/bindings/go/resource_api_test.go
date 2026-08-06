@@ -295,25 +295,42 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	); !errors.Is(err, ErrProtocol) {
 		t.Fatalf("invalid copy mode error = %T %v", err, err)
 	}
-	if _, err := decodeValue[TerminalSnapshot](
+	legacyAttached, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
 				`"title":"legacy","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"running"}`,
 		),
-		"terminal snapshot missing tab_ids",
-	); !errors.Is(err, ErrProtocol) {
-		t.Fatalf("missing attached tab_ids error = %T %v", err, err)
+		"legacy attached terminal snapshot",
+	)
+	if err != nil || len(legacyAttached.TabIDs) != 1 {
+		t.Fatalf("legacy attached terminal = %#v, %v", legacyAttached, err)
 	}
-	if _, err := decodeValue[TerminalSnapshot](
+	legacyDetached, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":null,`+
 				`"title":"legacy","cols":80,"rows":24,`+
 				`"running":true,"lifecycle":"running"}`,
 		),
-		"detached terminal snapshot missing tab_ids",
-	); !errors.Is(err, ErrProtocol) {
-		t.Fatalf("missing detached tab_ids error = %T %v", err, err)
+		"legacy detached terminal snapshot",
+	)
+	if err != nil || legacyDetached.TabIDs == nil || len(legacyDetached.TabIDs) != 0 {
+		t.Fatalf("legacy detached terminal = %#v, %v", legacyDetached, err)
+	}
+	dualPlacement, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
+				`"title":"dual","cols":80,"rows":24,"running":true,`+
+				`"lifecycle":"running"}`,
+		),
+		"dual terminal placement",
+	)
+	if err != nil || len(dualPlacement.TabIDs) != 1 {
+		t.Fatalf("dual terminal placement = %#v, %v", dualPlacement, err)
 	}
 	terminal, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
@@ -461,7 +478,14 @@ func TestTerminalSnapshotsRejectMalformedViewIdentities(t *testing.T) {
 	}{
 		{name: "missing tab_ids", fields: map[string]any{}},
 		{name: "empty projected identity", fields: map[string]any{"tab_ids": []any{""}}},
-		{name: "legacy alias", fields: map[string]any{"tab_id": nil, "tab_ids": []any{}}},
+		{name: "null tab_ids", fields: map[string]any{"tab_ids": nil}},
+		{
+			name: "inconsistent legacy alias",
+			fields: map[string]any{
+				"tab_id":  "tab_11111111111111111111111111111111",
+				"tab_ids": []any{"tab_00000000000000000000000000000006"},
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -507,7 +507,7 @@ public final class ResourceApiTest {
             "terminal snapshot exposes typed lifecycle and exit"
         );
         expect(
-            IllegalArgumentException.class,
+            ProtocolError.class,
             () -> Client.decodeTerminal(Map.of(
                 "id", "term_" + HEX,
                 "title", "missing views",
@@ -520,15 +520,52 @@ public final class ResourceApiTest {
         Map<String, Object> missingDetachedViews = new LinkedHashMap<>();
         missingDetachedViews.put("id", "term_" + HEX);
         missingDetachedViews.put("tab_id", null);
-        missingDetachedViews.put("tab_ids", List.of());
         missingDetachedViews.put("title", "missing detached views");
         missingDetachedViews.put("cols", 80);
         missingDetachedViews.put("rows", 24);
         missingDetachedViews.put("running", true);
         missingDetachedViews.put("lifecycle", "running");
+        require(
+            Client.decodeTerminal(missingDetachedViews).tabIds().isEmpty(),
+            "legacy detached terminal synthesizes empty tab_ids"
+        );
+        require(
+            Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "title", "legacy attached",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            )).tabIds().equals(List.of(new Ids.TabId("tab_" + HEX))),
+            "legacy attached terminal synthesizes tab_ids"
+        );
+        require(
+            Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "tab_ids", List.of("tab_" + HEX),
+                "title", "dual placement",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            )).tabIds().size() == 1,
+            "consistent dual terminal placement is accepted"
+        );
         expect(
             ProtocolError.class,
-            () -> Client.decodeTerminal(missingDetachedViews)
+            () -> Client.decodeTerminal(Map.of(
+                "id", "term_" + HEX,
+                "tab_id", "tab_" + HEX,
+                "tab_ids", List.of(),
+                "title", "inconsistent",
+                "cols", 80,
+                "rows", 24,
+                "running", true,
+                "lifecycle", "running"
+            ))
         );
         expect(
             IllegalArgumentException.class,

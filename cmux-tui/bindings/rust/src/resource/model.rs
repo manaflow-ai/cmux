@@ -499,7 +499,10 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
         #[serde(deny_unknown_fields)]
         struct Wire {
             id: TerminalId,
-            tab_ids: Vec<TabId>,
+            #[serde(default, deserialize_with = "deserialize_present_nullable")]
+            tab_id: Option<Option<TabId>>,
+            #[serde(default, deserialize_with = "deserialize_present_nullable")]
+            tab_ids: Option<Option<Vec<TabId>>>,
             title: String,
             #[serde(default, deserialize_with = "deserialize_optional_non_null")]
             cwd: Option<String>,
@@ -526,9 +529,30 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
                 "terminal exit must be present exactly when lifecycle is exited",
             ));
         }
+        let tab_ids = match (wire.tab_id, wire.tab_ids) {
+            (_, Some(None)) => {
+                return Err(serde::de::Error::custom("terminal tab_ids must be an array"));
+            }
+            (legacy, Some(Some(tab_ids))) => {
+                if let Some(legacy) = legacy {
+                    if legacy.as_ref() != tab_ids.first() {
+                        return Err(serde::de::Error::custom(
+                            "terminal tab_id must be the first tab_ids item",
+                        ));
+                    }
+                }
+                tab_ids
+            }
+            (Some(legacy), None) => legacy.into_iter().collect(),
+            (None, None) => {
+                return Err(serde::de::Error::custom(
+                    "terminal snapshot requires tab_ids or tab_id",
+                ));
+            }
+        };
         Ok(Self {
             id: wire.id,
-            tab_ids: wire.tab_ids,
+            tab_ids,
             title: wire.title,
             cwd: wire.cwd,
             cols: wire.cols,
@@ -1399,6 +1423,14 @@ where
     T: Deserialize<'de>,
 {
     Option::<T>::deserialize(deserializer)
+}
+
+fn deserialize_present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
 }
 
 fn deserialize_generation<'de, D>(deserializer: D) -> Result<String, D::Error>

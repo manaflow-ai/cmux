@@ -2224,11 +2224,30 @@ public final class Client implements AutoCloseable {
                 )
             ));
         }
-        List<Ids.TabId> tabIds = decodeIds(
-            fields.get("tab_ids"),
-            "terminal tab_ids",
-            Ids.TabId::new
-        );
+        boolean hasTabId = fields.containsKey("tab_id");
+        boolean hasTabIds = fields.containsKey("tab_ids");
+        if (!hasTabId && !hasTabIds) {
+            throw new ProtocolError(
+                "terminal snapshot requires tab_ids or tab_id"
+            );
+        }
+        Optional<Ids.TabId> legacyTabId = hasTabId
+            ? requiredNullableExactId(fields, "tab_id", Ids.TabId::new)
+            : Optional.empty();
+        List<Ids.TabId> tabIds = hasTabIds
+            ? decodeIds(
+                fields.get("tab_ids"),
+                "terminal tab_ids",
+                Ids.TabId::new
+            )
+            : legacyTabId.map(List::of).orElseGet(List::of);
+        if (hasTabId && !Objects.equals(
+                legacyTabId.orElse(null),
+                tabIds.isEmpty() ? null : tabIds.get(0))) {
+            throw new ProtocolError(
+                "terminal tab_id must be the first tab_ids item"
+            );
+        }
         return new Snapshots.TerminalSnapshot(
             new Ids.TerminalId(Wire.string(fields.get("id"), "terminal id")),
             tabIds,
@@ -2242,6 +2261,7 @@ public final class Client implements AutoCloseable {
             snapshotExtra(
                 fields,
                 "id",
+                "tab_id",
                 "tab_ids",
                 Wire.TITLE,
                 Wire.CWD,

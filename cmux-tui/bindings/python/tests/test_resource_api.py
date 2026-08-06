@@ -1261,10 +1261,11 @@ class ResourceApiTests(unittest.TestCase):
         self.assertEqual(snapshot.lifecycle, "exited")
         self.assertIsInstance(snapshot.exit.outcome, cmux.TerminalExitCode)
 
-    def test_terminal_snapshot_requires_complete_view_ownership(self) -> None:
+    def test_terminal_snapshot_accepts_protocol_one_tab_id_alias(self) -> None:
         responses = [
             {
                 "id": str(TERMINAL),
+                "tab_id": str(TAB),
                 "title": "attached",
                 "cols": 80,
                 "rows": 24,
@@ -1274,24 +1275,41 @@ class ResourceApiTests(unittest.TestCase):
             {
                 "id": str(TERMINAL),
                 "tab_id": None,
-                "tab_ids": [],
                 "title": "detached",
                 "cols": 80,
                 "rows": 24,
                 "running": True,
                 "lifecycle": "running",
             },
+            {
+                "id": str(TERMINAL),
+                "tab_id": str(TAB),
+                "tab_ids": [str(TAB)],
+                "title": "dual",
+                "cols": 80,
+                "rows": 24,
+                "running": True,
+                "lifecycle": "running",
+            },
         ]
+        expected = [(TAB,), (), (TAB,)]
+        for response, tab_ids in zip(responses, expected):
+            def handler(connection, _index, response=response):
+                request = next(frames(connection))
+                ok(connection, request, response)
 
-        def handler(connection, _index):
-            request = next(frames(connection))
-            ok(connection, request, responses.pop(0))
-
-        for _ in responses.copy():
             with UnixJsonServer(handler) as server:
                 with Client(server.path) as client:
-                    with self.assertRaises(cmux.ProtocolError):
-                        client.session(SESSION).terminal(TERMINAL).refresh()
+                    snapshot = client.session(SESSION).terminal(TERMINAL).refresh()
+            self.assertEqual(snapshot.tab_ids, tab_ids)
+
+        invalid = dict(responses[0])
+        invalid.pop("tab_id")
+        with self.assertRaises(cmux.ProtocolError):
+            cmux.resources._terminal_snapshot(invalid)
+        inconsistent = {**responses[0], "tab_ids": []}
+        with self.assertRaises(cmux.ProtocolError):
+            cmux.resources._terminal_snapshot(inconsistent)
 
     def test_sync_request_options_apply_one_call_deadline(self) -> None:
         def handler(connection, _index):

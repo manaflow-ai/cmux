@@ -810,12 +810,25 @@ def _tab_snapshot(value: Any) -> TabSnapshot:
 
 def _terminal_snapshot(value: Any) -> TerminalSnapshot:
     payload = _unwrap_resource(value, ("terminal",))
-    raw_tab_ids = payload.get("tab_ids")
-    if not isinstance(raw_tab_ids, list):
-        raise ProtocolError("terminal tab_ids must be an array")
-    tab_ids = tuple(
-        _required_id({"id": item}, ("id",), TabId) for item in raw_tab_ids
-    )
+    has_tab_id = "tab_id" in payload
+    has_tab_ids = "tab_ids" in payload
+    if not has_tab_id and not has_tab_ids:
+        raise ProtocolError("terminal snapshot requires tab_ids or tab_id")
+    legacy_tab_id = None
+    if has_tab_id and payload["tab_id"] is not None:
+        legacy_tab_id = _required_id(payload, ("tab_id",), TabId)
+    if has_tab_ids:
+        raw_tab_ids = payload["tab_ids"]
+        if not isinstance(raw_tab_ids, list):
+            raise ProtocolError("terminal tab_ids must be an array")
+        tab_ids = tuple(
+            _required_id({"id": item}, ("id",), TabId)
+            for item in raw_tab_ids
+        )
+    else:
+        tab_ids = () if legacy_tab_id is None else (legacy_tab_id,)
+    if has_tab_id and legacy_tab_id != (tab_ids[0] if tab_ids else None):
+        raise ProtocolError("terminal tab_id must be the first tab_ids item")
     lifecycle = _required_enum(
         payload,
         "lifecycle",
@@ -840,6 +853,7 @@ def _terminal_snapshot(value: Any) -> TerminalSnapshot:
             payload,
             TerminalId,
             (
+                "tab_id",
                 "tab_ids",
                 "title",
                 "cwd",

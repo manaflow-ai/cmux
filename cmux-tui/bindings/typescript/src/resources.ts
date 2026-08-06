@@ -561,13 +561,30 @@ function tabSnapshot(value: unknown): TabSnapshot {
 
 function terminalSnapshot(value: unknown): TerminalSnapshot {
   const payload = unwrap(value, ["terminal"]);
-  const rawTabIds = payload.tab_ids;
-  if (!Array.isArray(rawTabIds)) {
-    throw new CmuxProtocolError("terminal tab_ids must be an array");
+  const hasLegacyTabId = Object.hasOwn(payload, "tab_id");
+  const hasTabIds = Object.hasOwn(payload, "tab_ids");
+  if (!hasLegacyTabId && !hasTabIds) {
+    throw new CmuxProtocolError("terminal snapshot requires tab_ids or tab_id");
   }
-  const tabIds = Object.freeze(
-    rawTabIds.map((item) => requiredId({ id: item }, ["id"], tabId)),
-  );
+  const legacyTabId = hasLegacyTabId
+    ? requiredNullableId(payload, "tab_id", tabId)
+    : undefined;
+  let decodedTabIds: TabId[];
+  if (hasTabIds) {
+    const rawTabIds = payload.tab_ids;
+    if (!Array.isArray(rawTabIds)) {
+      throw new CmuxProtocolError("terminal tab_ids must be an array");
+    }
+    decodedTabIds = rawTabIds.map(
+      (item) => requiredId({ id: item }, ["id"], tabId),
+    );
+  } else {
+    decodedTabIds = legacyTabId === null ? [] : [legacyTabId as TabId];
+  }
+  const tabIds = Object.freeze(decodedTabIds);
+  if (hasLegacyTabId && legacyTabId !== (tabIds[0] ?? null)) {
+    throw new CmuxProtocolError("terminal tab_id must be the first tab_ids item");
+  }
   const running = requiredBoolean(payload, "running");
   const lifecycle = requiredEnum(
     payload,
@@ -592,7 +609,7 @@ function terminalSnapshot(value: unknown): TerminalSnapshot {
       payload,
       terminalId,
       [
-        "tab_ids", "title", "cwd", "cols", "rows", "running", "lifecycle",
+        "tab_id", "tab_ids", "title", "cwd", "cols", "rows", "running", "lifecycle",
         "exit",
       ],
     ),
