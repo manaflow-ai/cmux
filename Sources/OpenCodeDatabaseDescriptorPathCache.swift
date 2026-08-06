@@ -23,6 +23,13 @@ actor OpenCodeDatabaseDescriptorPathCache {
     private let maximumEntryCount = 64
     private let maximumConcurrentProbeCount = 2
     private let cacheTTL: TimeInterval = 60
+    private let pendingProbeObserver: (@Sendable (_ reuseCompletedResult: Bool) -> Void)?
+
+    init(
+        pendingProbeObserver: (@Sendable (_ reuseCompletedResult: Bool) -> Void)? = nil
+    ) {
+        self.pendingProbeObserver = pendingProbeObserver
+    }
 
     func resolve(
         processID: Int,
@@ -38,6 +45,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
             environment: environment
         )
         if let pendingProbe = pendingProbes[key] {
+            pendingProbeObserver?(reuseCompletedResult)
             return await pendingProbe.task.value
         }
         let now = Date()

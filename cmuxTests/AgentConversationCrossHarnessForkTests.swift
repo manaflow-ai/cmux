@@ -1694,6 +1694,56 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func freshOpenCodeDescriptorProbeDoesNotJoinOlderPendingProbe() async {
+        let oldProbeStarted = DispatchSemaphore(value: 0)
+        let freshRequestSawPendingProbe = DispatchSemaphore(value: 0)
+        let releaseOldProbe = DispatchSemaphore(value: 0)
+        let cache = OpenCodeDatabaseDescriptorPathCache(
+            pendingProbeObserver: { reuseCompletedResult in
+                if !reuseCompletedResult {
+                    freshRequestSawPendingProbe.signal()
+                }
+            }
+        )
+        let processID = Int(ProcessInfo.processInfo.processIdentifier)
+        let environment = ["HOME": "/tmp/opencode-descriptor-overlap"]
+
+        let oldProbe = Task {
+            await cache.resolve(
+                processID: processID,
+                environment: environment,
+                reuseCompletedResult: true
+            ) {
+                oldProbeStarted.signal()
+                _ = releaseOldProbe.wait(timeout: .now() + 2)
+                return "/tmp/old-opencode.db"
+            }
+        }
+        let oldProbeDidStart = await Task.detached {
+            oldProbeStarted.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(oldProbeDidStart)
+
+        let freshProbe = Task {
+            await cache.resolve(
+                processID: processID,
+                environment: environment,
+                reuseCompletedResult: false
+            ) {
+                "/tmp/fresh-opencode.db"
+            }
+        }
+        let freshRequestDidSeePendingProbe = await Task.detached {
+            freshRequestSawPendingProbe.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(freshRequestDidSeePendingProbe)
+        releaseOldProbe.signal()
+
+        #expect(await oldProbe.value == "/tmp/old-opencode.db")
+        #expect(await freshProbe.value == "/tmp/fresh-opencode.db")
+    }
+
+    @Test
     func freshTransferSnapshotRejectsCrossWorkspacePanelAlias() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
