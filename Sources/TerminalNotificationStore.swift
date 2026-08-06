@@ -13,6 +13,16 @@ nonisolated private let terminalNotificationLogger = Logger(
     category: "notification"
 )
 
+extension TerminalNotificationStore {
+    nonisolated static func shouldAttemptPhoneForward(
+        effects _: TerminalNotificationPolicyEffects,
+        phoneForwardingEnabled: Bool,
+        categoryAllowsDelivery: Bool
+    ) -> Bool {
+        phoneForwardingEnabled && categoryAllowsDelivery
+    }
+}
+
 // UNUserNotificationCenter.removeDeliveredNotifications(withIdentifiers:) and
 // removePendingNotificationRequests(withIdentifiers:) perform synchronous XPC to
 // usernoted under the hood. When usernoted is slow, this blocks the calling thread
@@ -920,6 +930,9 @@ final class TerminalNotificationStore: ObservableObject {
             resolvedHooks: resolvedHooks
         )
         if policyContext.hooks.isEmpty, preRegisteredPolicyRequestId == nil {
+            inFlightPolicyRequests.discardPending(
+                forDeliveryIdentityOf: policyContext.request
+            )
             applyNotification(
                 request: policyContext.request,
                 effects: TerminalNotificationPolicyEffects(),
@@ -1270,48 +1283,20 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
-            // A newer notification for this tab+surface superseded the old one
-            // and its Mac banner was just cleared. When a replacement banner
-            // push is expected, DEFER the phone-banner dismiss until that push
-            // is actually queued (see ``deliverNotificationSideEffects``): the
-            // phone must never lose its only banner to a dismissal whose
-            // replacement was throttled. When no replacement will be forwarded
-            // (suppressed/focused, non-desktop effects, forwarding off, or the
-            // `.onlyWhenAway` presence gate suppressing it while the Mac is
-            // active), emit the dismiss immediately — nothing is coming to
-            // replace the banner, and the Mac is not showing one either, so
-            // deferring would just leave the stale banner stuck until a later
-            // forward. Only the burst throttle is a legitimate defer-and-flush
-            // case, which is why ``PhonePushClient/willForwardReplacement()``
-            // mirrors the real send gate but ignores that throttle.
-            let replacementWillForward = !shouldSuppressExternalDelivery
-                && effects.desktop
-                && PhonePushClient.shared.willForwardReplacement()
-            if replacementWillForward {
-                // The superseded entries already left the store; tombstone them
-                // now so the reconcile sweep stays correct while the dismiss is
-                // deferred.
-                recordDismissTombstones(ids: idsToClear.compactMap { UUID(uuidString: $0) })
-                supersededPhoneDismissBuffer.stash(
-                    ids: idsToClear,
-                    forKey: SupersededPhoneDismissBuffer.key(
-                        tabId: notification.tabId,
-                        surfaceId: notification.surfaceId
-                    )
+            // Decide replacement admission exactly once in the side-effect
+            // chokepoint below. Until then, retain the superseded ids so the
+            // actual queue result determines whether dismissal is immediate or
+            // ordered after the replacement.
+            recordDismissTombstones(
+                ids: idsToClear.compactMap { UUID(uuidString: $0) }
+            )
+            supersededPhoneDismissBuffer.stash(
+                ids: idsToClear,
+                forKey: SupersededPhoneDismissBuffer.key(
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId
                 )
-            } else {
-                // Also drain anything still parked for this key from an earlier
-                // throttled supersede; this emit is its last guaranteed ride.
-                emitNotificationsDismissed(
-                    ids: idsToClear,
-                    drainedSuperseded: supersededPhoneDismissBuffer.flush(
-                        forKey: SupersededPhoneDismissBuffer.key(
-                            tabId: notification.tabId,
-                            surfaceId: notification.surfaceId
-                        )
-                    )
-                )
-            }
+            )
         }
         deliverNotificationSideEffects(
             notification,
@@ -1335,47 +1320,41 @@ final class TerminalNotificationStore: ObservableObject {
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects
     ) {
-        guard effects.desktop || effects.sound || effects.command else {
-#if DEBUG
-            cmuxDebugLog(
-                "notification.store.sideEffects.skip workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") reason=noEffects"
-            )
-#endif
-            return
-        }
 #if DEBUG
         cmuxDebugLog(
             "notification.store.sideEffects workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
         )
 #endif
-        if shouldSuppressExternalDelivery {
-            suppressedNotificationFeedbackHandler(self, notification, effects)
-        } else {
-            notificationDeliveryHandler(self, notification, effects)
-            // Mirror to the user's iPhone (opt-in, off by default). Only on the
-            // desktop-delivery path so it matches what the Mac actually shows;
-            // suppressed/focused notifications are not forwarded. The badge is
-            // the authoritative unread total at send time (the store was already
-            // mutated above, so it includes this notification); the server
-            // stamps it as `aps.badge` so the icon badge is SET, not incremented.
-            if effects.desktop {
-                let queued = PhonePushClient.shared.forward(notification, badgeCount: indexes.unreadCount)
-                // Only once the replacement banner push is queued is it safe to
-                // clear the superseded banners it replaces (deferred from
-                // `recordNotification`); a throttled push leaves them stashed
-                // for the next successful forward of this tab/surface.
-                if queued {
-                    let superseded = supersededPhoneDismissBuffer.flush(
-                        forKey: SupersededPhoneDismissBuffer.key(
-                            tabId: notification.tabId,
-                            surfaceId: notification.surfaceId
-                        )
-                    )
-                    if !superseded.isEmpty {
-                        emitNotificationsDismissed(ids: superseded)
-                    }
-                }
+        if effects.desktop || effects.sound || effects.command {
+            if shouldSuppressExternalDelivery {
+                suppressedNotificationFeedbackHandler(self, notification, effects)
+            } else {
+                notificationDeliveryHandler(self, notification, effects)
             }
+        }
+
+        let key = SupersededPhoneDismissBuffer.key(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId
+        )
+        let shouldAttemptPhone = !shouldSuppressExternalDelivery
+            && Self.shouldAttemptPhoneForward(
+                effects: effects,
+                phoneForwardingEnabled: PhonePushClient.shared
+                    .configuration().forwardingEnabled,
+                categoryAllowsDelivery: true
+            )
+        if shouldAttemptPhone {
+            PhonePushClient.shared.forward(
+                notification,
+                badgeCount: indexes.unreadCount
+            )
+        }
+        let superseded = supersededPhoneDismissBuffer.flush(forKey: key)
+        if !superseded.isEmpty {
+            // The replacement enqueue above and this dismissal enter the same
+            // serial delivery queue synchronously, so ordering already holds.
+            emitNotificationsDismissed(ids: superseded)
         }
     }
 

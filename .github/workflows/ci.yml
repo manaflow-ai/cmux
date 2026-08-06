@@ -259,6 +259,7 @@ jobs:
 
       - name: Validate SwiftPM lockfile policy
         run: |
+          python3 tests/test_package_resolved_policy_remote_inputs.py
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
@@ -267,6 +268,9 @@ jobs:
 
       - name: Validate sidebar lazy-layout guard
         run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
+
+      - name: Validate focused Dock shortcut routing guard
+        run: python3 tests/test_dock_shortcut_routing_guard.py
 
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
@@ -1064,6 +1068,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_issue_8743_path_directory_shadowing.py
           python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
           python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
