@@ -175,6 +175,37 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         #expect(keyboardUp == 1)
     }
 
+    @Test("the floor holds the window-correct seat while the surface's own frame breathes")
+    func floorStaysWindowCorrectWhenTheSurfaceFrameChanges() throws {
+        let harness = try makeHarness(attached: false)
+        defer { tearDown(harness) }
+
+        // Attach with the bottom edge respecting a 34pt indicator inset — the
+        // shape the host gives the surface while the keyboard is down.
+        harness.view.frame = CGRect(x: 0, y: 0, width: 402, height: Self.windowHeight - 34)
+        harness.window.addSubview(harness.view)
+        harness.window.isHidden = false
+        harness.view.setNeedsLayout()
+        harness.view.layoutIfNeeded()
+
+        // The keyboard rises while the frame is still short (mid-transition
+        // conversion territory: this is where the device build seeded a floor
+        // 34pt shy of the settled truth).
+        deliverKeyboardTransition(coveringBottom: Self.keyboardHeight, to: harness)
+
+        // Safe-area propagation then extends the surface to the window bottom.
+        harness.view.frame = CGRect(x: 0, y: 0, width: 402, height: Self.windowHeight)
+        harness.view.setNeedsLayout()
+        harness.view.layoutIfNeeded()
+
+        // The bars must already sit at the window-correct keyboard top — the
+        // late +34 pop the dogfood recordings showed is exactly this assertion
+        // failing at the old view-anchored floor.
+        let dockBottom = Self.windowHeight - Self.keyboardHeight
+        let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
+        #expect(abs(composerMaxY - dockBottom) <= 1)
+    }
+
     @Test("a fresh toolbar is born in the keyboard-down state")
     func freshToolbarShowsTheShowKeyboardToggle() throws {
         let harness = try makeHarness()
