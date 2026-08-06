@@ -233,6 +233,47 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
+    func installedTargetDiscoverySkipsCmuxCodexCommandShim() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shimDirectory = root
+            .appendingPathComponent("cmux-cli-shims", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let realDirectory = root.appendingPathComponent("real", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: shimDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: realDirectory,
+            withIntermediateDirectories: true
+        )
+        let shim = shimDirectory.appendingPathComponent("codex")
+        let realExecutable = realDirectory.appendingPathComponent("codex")
+        try writeVersionExecutable(shim, output: "cmux codex shim")
+        try writeVersionExecutable(realExecutable, output: "codex-cli 0.146.1")
+
+        let targets = await AgentConversationForkTargetDiscoverer(
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(shimDirectory.path):\(realDirectory.path)",
+                "CMUX_CODEX_WRAPPER_SHIM": shim.path,
+                "CMUX_CODEX_WRAPPER_SHIM_ROOT": shimDirectory.path,
+            ],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        let target = try #require(targets.first { $0.harness == .codex })
+        #expect(target.executablePath == realExecutable.path)
+        #expect(target.executableCandidates.map(\.executableURL.path) == [
+            realExecutable.path,
+        ])
+    }
+
+    @Test
     func installedTargetDiscoveryDoesNotExecuteCandidates() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

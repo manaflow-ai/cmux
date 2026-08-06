@@ -61,7 +61,29 @@ struct OpenCodeSessionResolverTests {
     }
 
     @Test
-    func relativeXDGDataHomeIsIgnored() {
+    func relativeDatabaseWithoutCapturedRootsIsNotTransferable() {
+        let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/current-cmux-home")
+
+        #expect(
+            resolver.capturedDatabasePath(env: [
+                "OPENCODE_DB": "custom.db",
+            ]) == nil
+        )
+    }
+
+    @Test
+    func tildeDataHomeWithoutCapturedHomeIsNotTransferable() {
+        let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/current-cmux-home")
+
+        #expect(
+            resolver.capturedDatabasePath(env: [
+                "XDG_DATA_HOME": "~/custom-data",
+            ]) == nil
+        )
+    }
+
+    @Test
+    func relativeXDGDataHomeIsNotTransferable() {
         let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
 
         #expect(
@@ -69,7 +91,7 @@ struct OpenCodeSessionResolverTests {
                 "HOME": "/tmp/custom-home",
                 "XDG_DATA_HOME": "relative-data",
                 "OPENCODE_DB": "custom.db",
-            ]) == "/tmp/custom-home/.local/share/opencode/custom.db"
+            ]) == nil
         )
     }
 
