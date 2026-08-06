@@ -68,3 +68,14 @@ def test_sidebar_row_actions_have_reference_identity():
 
     assert "final class SidebarAppKitRowActions" in model
     assert "struct SidebarAppKitRowActions" not in model
+
+
+def test_browser_background_preload_uses_os_safe_window_ordering():
+    panel = source_slice(
+        "Sources/Panels/BrowserPanel.swift",
+        "private func ensureBackgroundPreloadHostIfNeeded",
+        "private func shouldDeferPromptUntilInteractiveHost",
+    )
+
+    assert "window.orderFrontRegardless()" not in panel
+    assert "BrowserBackgroundPreloadHost.orderOnScreenIfSafe(window)" in panel
