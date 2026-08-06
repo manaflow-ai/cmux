@@ -45,6 +45,7 @@ public struct CustomSidebarWebInsets: Equatable, Sendable {
 public struct CustomSidebarWebView: NSViewRepresentable {
     private let source: CustomSidebarWebSource
     private let insets: CustomSidebarWebInsets
+    private let reloadToken: CustomSidebarWebReloadToken
     private let focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?
 
     /// Creates the hosted sidebar.
@@ -52,6 +53,9 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     /// - Parameters:
     ///   - source: The page to render.
     ///   - insets: How much of the sidebar the host's floating chrome covers.
+    ///   - reloadToken: Bumped by the host to force a re-fetch. Needed because `cmux sidebar
+    ///     reload` asks for exactly the case the source-changed check ignores: the same page, read
+    ///     again.
     ///   - focusWorkspace: Selects a workspace on the page's behalf and reports what happened.
     ///     Supplying it offers the focus bridge; whether the bridge is actually registered still
     ///     depends on the source arming a ``CustomSidebarFocusScope``, so a public page cannot get
@@ -59,10 +63,12 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     public init(
         source: CustomSidebarWebSource,
         insets: CustomSidebarWebInsets = .zero,
+        reloadToken: CustomSidebarWebReloadToken = .initial,
         focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)? = nil
     ) {
         self.source = source
         self.insets = insets
+        self.reloadToken = reloadToken
         self.focusWorkspace = focusWorkspace
     }
 
@@ -97,7 +103,12 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             ),
             webView: webView
         )
-        context.coordinator.apply(source: source, focusWorkspace: focusWorkspace, into: webView)
+        context.coordinator.apply(
+            source: source,
+            reloadToken: reloadToken,
+            focusWorkspace: focusWorkspace,
+            into: webView
+        )
         return container
     }
 
@@ -112,7 +123,12 @@ public struct CustomSidebarWebView: NSViewRepresentable {
                 completionHandler: nil
             )
         }
-        context.coordinator.apply(source: source, focusWorkspace: focusWorkspace, into: container.webView)
+        context.coordinator.apply(
+            source: source,
+            reloadToken: reloadToken,
+            focusWorkspace: focusWorkspace,
+            into: container.webView
+        )
     }
 
     public static func dismantleNSView(_ container: CustomSidebarWebContainerView, coordinator: Coordinator) {
@@ -167,6 +183,14 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, WKScriptMessageHandler {
         private var loadedSource: CustomSidebarWebSource?
+        private var loadedReloadToken = CustomSidebarWebReloadToken.initial
+        /// Number of page loads actually issued.
+        ///
+        /// The decision not to reload is as load-bearing as the decision to reload — the sidebar
+        /// updates about once a second — and `WKWebView.isLoading` cannot answer it: a load that was
+        /// never issued and one that already finished look identical. Counting the issue point is
+        /// the only place the distinction exists.
+        private(set) var issuedLoadCount = 0
         /// The scope the current source armed, or `nil` when nothing is armed.
         ///
         /// Mirrors exactly what is registered: non-`nil` iff the focus handler and the navigation
@@ -198,15 +222,17 @@ public struct CustomSidebarWebView: NSViewRepresentable {
         ///
         /// - Parameters:
         ///   - source: The page to render.
+        ///   - reloadToken: Bumped by the host when a reload was explicitly requested.
         ///   - focusWorkspace: The host's current focus implementation, or `nil` when it offers none.
         ///   - webView: The sidebar's web view.
         func apply(
             source: CustomSidebarWebSource,
+            reloadToken: CustomSidebarWebReloadToken = .initial,
             focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?,
             into webView: WKWebView
         ) {
             reconcileFocusBridge(for: source, focusWorkspace: focusWorkspace, in: webView)
-            load(source, into: webView)
+            load(source, reloadToken: reloadToken, into: webView)
         }
 
         /// Drops the bridge and the navigation lock when the sidebar is torn down.
@@ -219,14 +245,23 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             navigationLock = nil
         }
 
-        /// Loads only when the source actually changed.
+        /// Loads when the source changed, or when a reload was explicitly requested.
         ///
         /// `updateNSView` runs on unrelated SwiftUI invalidations — and the custom sidebar is
-        /// mounted inside a one-second `TimelineView` — so reloading unconditionally would discard
-        /// the page's scroll position, filter text, and open menus roughly once a second.
-        private func load(_ source: CustomSidebarWebSource, into webView: WKWebView) {
-            guard loadedSource != source else { return }
+        /// mounted inside a one-second `TimelineView` — so reloading on every update would discard
+        /// the page's scroll position, filter text, and open menus roughly once a second. But an
+        /// explicit `cmux sidebar reload` is precisely a request to re-fetch an unchanged source, so
+        /// the token has to be able to force what the source check would otherwise skip.
+        private func load(
+            _ source: CustomSidebarWebSource,
+            reloadToken: CustomSidebarWebReloadToken,
+            into webView: WKWebView
+        ) {
+            let reloadRequested = loadedReloadToken != reloadToken
+            loadedReloadToken = reloadToken
+            guard loadedSource != source || reloadRequested else { return }
             loadedSource = source
+            issuedLoadCount += 1
             // A reload replaces the document, so any previous full-bleed opt-in no longer applies;
             // the incoming page re-declares it or gets the safe default.
             container?.isFullBleed = false

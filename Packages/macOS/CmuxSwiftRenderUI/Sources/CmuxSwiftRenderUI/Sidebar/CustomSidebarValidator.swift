@@ -46,8 +46,12 @@ public struct CustomSidebarValidator {
     }
 
     /// Position of a file's extension in the shared resolution order, or `nil` if unrecognised.
+    ///
+    /// Matched exactly, not case-folded. Discovery reads the disk while name resolution builds
+    /// `<name>.<ext>` from this same lowercase list, so folding here would let discovery report a
+    /// `board.HTML` that resolution cannot then find on a case-sensitive volume.
     private static func resolutionRank(of url: URL) -> Int? {
-        CustomSidebarSource.fileExtensions.firstIndex(of: url.pathExtension.lowercased())
+        CustomSidebarSource.fileExtensions.firstIndex(of: url.pathExtension)
     }
 
     /// Validates every discovered sidebar, or one requested sidebar name.
@@ -73,7 +77,7 @@ public struct CustomSidebarValidator {
         dataContext: [String: SwiftValue]? = nil
     ) -> CustomSidebarValidationEntry {
         let name = fileURL.deletingPathExtension().lastPathComponent
-        guard let kind = CustomSidebarFileKind(fileURL: fileURL) else {
+        guard let kind = CustomSidebarFileKind(fileURL: fileURL), Self.resolutionRank(of: fileURL) != nil else {
             return CustomSidebarValidationEntry(
                 name: name,
                 fileURL: fileURL,
@@ -111,11 +115,24 @@ public struct CustomSidebarValidator {
                 let data = try Data(contentsOf: fileURL)
                 _ = try JSONDecoder().decode(DSLDocument.self, from: data)
             case .html:
-                // The page is validated by rendering it, not by parsing it here: HTML has no
-                // failure mode a parser could report that a browser would not simply recover from,
-                // and a "your markup is wrong" verdict from cmux would be wrong more often than the
-                // page is. Readability is the real question, and it is the one asked above.
-                break
+                // The markup is validated by rendering it, not by parsing it here: HTML has no
+                // failure a parser could report that a browser would not simply recover from, so a
+                // "your markup is wrong" verdict from cmux would be wrong more often than the page
+                // is. What can genuinely fail is getting at the bytes at all, and existence does not
+                // establish that — a directory exists, and so does a file the user cannot read.
+                // Both mount and render blank, which is the failure this command exists to pre-empt.
+                if isDirectory(fileURL) {
+                    return CustomSidebarValidationEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        errorMessage: String(
+                            localized: "sidebar.custom.validation.documentIsDirectory",
+                            defaultValue: "Sidebar .html path is a directory, not a document."
+                        )
+                    )
+                }
+                _ = try Data(contentsOf: fileURL)
             case .url:
                 if let problem = CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) {
                     return CustomSidebarValidationEntry(
@@ -161,6 +178,11 @@ public struct CustomSidebarValidator {
                 localized: "sidebar.custom.validation.urlFileEmpty",
                 defaultValue: "Sidebar .url file does not contain a URL."
             )
+        case .missingHost:
+            return String(
+                localized: "sidebar.custom.validation.urlFileNoHost",
+                defaultValue: "Sidebar .url file names no host to load."
+            )
         case let .unsupportedScheme(scheme):
             guard let scheme else {
                 return String(
@@ -176,6 +198,13 @@ public struct CustomSidebarValidator {
                 scheme
             )
         }
+    }
+
+    /// Whether a path is a directory.
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
+        return isDir.boolValue
     }
 
     /// Converts decoding and filesystem errors into sidebar-facing text.

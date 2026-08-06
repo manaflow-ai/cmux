@@ -25,29 +25,25 @@ struct CustomSidebarWebReloadTests {
         return (coordinator, webView)
     }
 
-    /// Whether a load was actually issued, observed through the web view's own loading state.
-    private func didLoad(_ webView: WKWebView) -> Bool {
-        webView.isLoading || webView.url != nil
-    }
-
     @Test("an unchanged source with an unchanged token does not reload")
     func unchangedUpdateDoesNotReload() {
         let (coordinator, webView) = makeCoordinator()
         coordinator.apply(source: source, focusWorkspace: nil, into: webView)
-        webView.stopLoading()
+        let afterFirst = coordinator.issuedLoadCount
 
         coordinator.apply(source: source, focusWorkspace: nil, into: webView)
+        coordinator.apply(source: source, focusWorkspace: nil, into: webView)
 
-        // The steady-state case: a SwiftUI update that carries no new intent must leave the page
-        // alone, or a sidebar loses its scroll position roughly once a second.
-        #expect(!webView.isLoading)
+        // The steady-state case: a SwiftUI update carrying no new intent must leave the page alone,
+        // or a sidebar loses its scroll position roughly once a second.
+        #expect(coordinator.issuedLoadCount == afterFirst)
     }
 
     @Test("an unchanged source with a bumped token reloads")
     func bumpedTokenReloadsUnchangedSource() {
         let (coordinator, webView) = makeCoordinator()
         coordinator.apply(source: source, focusWorkspace: nil, into: webView)
-        webView.stopLoading()
+        let afterFirst = coordinator.issuedLoadCount
 
         coordinator.apply(
             source: source,
@@ -56,7 +52,7 @@ struct CustomSidebarWebReloadTests {
             into: webView
         )
 
-        #expect(didLoad(webView))
+        #expect(coordinator.issuedLoadCount == afterFirst + 1)
     }
 
     @Test("each further bump reloads again")
@@ -65,11 +61,10 @@ struct CustomSidebarWebReloadTests {
         var token = CustomSidebarWebReloadToken.initial
         coordinator.apply(source: source, reloadToken: token, focusWorkspace: nil, into: webView)
 
-        for _ in 0..<3 {
-            webView.stopLoading()
+        for expected in 2...4 {
             token = token.bumped()
             coordinator.apply(source: source, reloadToken: token, focusWorkspace: nil, into: webView)
-            #expect(didLoad(webView))
+            #expect(coordinator.issuedLoadCount == expected)
         }
     }
 
@@ -84,7 +79,7 @@ struct CustomSidebarWebReloadTests {
 
         let (coordinator, webView) = makeCoordinator()
         coordinator.apply(source: .document(fileURL), focusWorkspace: nil, into: webView)
-        webView.stopLoading()
+        let afterFirst = coordinator.issuedLoadCount
 
         try "<!doctype html><title>two</title>".write(to: fileURL, atomically: true, encoding: .utf8)
         coordinator.apply(
@@ -94,7 +89,7 @@ struct CustomSidebarWebReloadTests {
             into: webView
         )
 
-        #expect(didLoad(webView))
+        #expect(coordinator.issuedLoadCount == afterFirst + 1)
     }
 
     // A reload must not quietly re-open a capability the source no longer earns, or the reverse.

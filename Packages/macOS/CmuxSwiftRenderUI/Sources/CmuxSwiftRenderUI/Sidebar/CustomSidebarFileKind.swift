@@ -16,9 +16,13 @@ public enum CustomSidebarFileKind: String, Sendable {
 
     /// Classifies a file by extension, or `nil` when it is not a sidebar file.
     ///
+    /// The extension is matched exactly, in lowercase, for the same reason the resolution order is:
+    /// name resolution builds `<name>.<ext>` from lowercase, so accepting `board.HTML` here would
+    /// mean reporting a sidebar that cannot be opened on a case-sensitive volume.
+    ///
     /// - Parameter fileURL: The candidate file.
     public init?(fileURL: URL) {
-        self.init(rawValue: fileURL.pathExtension.lowercased())
+        self.init(rawValue: fileURL.pathExtension)
     }
 
     /// Whether this kind renders through the interpreter rather than a web view.

@@ -65,16 +65,30 @@ struct CustomSidebarPanelView: View {
     /// A pane has no floating window chrome over it, so no insets, and no focus bridge: the bridge
     /// exists for the workspace rail, and a pane sitting beside the terminals it would select is not
     /// that.
+    ///
+    /// The file is re-resolved from the pane's *name* rather than captured at open, so a pane
+    /// follows `cmux sidebar reload` and a precedence flip the same way the rail does. When every
+    /// file backing the name is gone the pane keeps its last known file rather than blanking, since
+    /// a sidebar being edited in place is briefly absent from disk.
     @ViewBuilder
     private var content: some View {
         if !isVisibleInUI {
             Color.clear
-        } else if case let .web(webSource)? = CustomSidebarSource.classify(fileURL: panel.fileURL) {
-            CustomSidebarWebView(source: webSource)
+        } else {
+            CustomSidebarResolvedSourceView(sidebarName: panel.name) { resolvedURL, reloadToken in
+                resolvedContent(fileURL: resolvedURL ?? panel.fileURL, reloadToken: reloadToken)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func resolvedContent(fileURL: URL, reloadToken: CustomSidebarWebReloadToken) -> some View {
+        if case let .web(webSource)? = CustomSidebarSource.classify(fileURL: fileURL) {
+            CustomSidebarWebView(source: webSource, reloadToken: reloadToken)
         } else {
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 CustomSidebarSurface(
-                    fileURL: panel.fileURL,
+                    fileURL: fileURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets.zero,

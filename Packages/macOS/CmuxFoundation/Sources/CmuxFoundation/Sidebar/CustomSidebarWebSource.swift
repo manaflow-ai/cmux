@@ -16,6 +16,10 @@ public enum CustomSidebarWebSource: Equatable, Sendable {
     /// Only `http` and `https` are honoured. A `file://` target would let a dropped shortcut read
     /// anything on disk from inside the app's own window, and custom schemes can hand off to other
     /// applications entirely.
+    ///
+    /// The target must also name a host. `http:` and `http:///path` parse cleanly and report the
+    /// right scheme, so a scheme-only check accepts them — and then there is nothing to fetch, so
+    /// the sidebar mounts and renders blank with no error anywhere for the author to find.
     public static func remoteURL(fromURLFile fileURL: URL) -> URL? {
         guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
         for rawLine in contents.split(whereSeparator: \.isNewline) {
@@ -23,11 +27,22 @@ public enum CustomSidebarWebSource: Equatable, Sendable {
             if line.isEmpty || line.hasPrefix("[") || line.hasPrefix("#") { continue }
             let candidate = line.hasPrefix("URL=") ? String(line.dropFirst(4)) : line
             guard let url = URL(string: candidate.trimmingCharacters(in: .whitespaces)),
-                  let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https"
+                  isLoadable(url)
             else { continue }
             return url
         }
         return nil
+    }
+
+    /// Whether a URL is one a sidebar may load: `http`/`https` with a non-empty host.
+    ///
+    /// Shared with ``CustomSidebarWebSourceProblem`` so the "which URL" and "why not" answers cannot
+    /// disagree about the same file.
+    static func isLoadable(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return false
+        }
+        guard let host = url.host, !host.isEmpty else { return false }
+        return true
     }
 }

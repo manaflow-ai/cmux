@@ -16,6 +16,11 @@ public enum CustomSidebarWebSourceProblem: Equatable, Sendable {
     /// Carries the offending scheme when there was one, so the message can say `file` rather than
     /// leaving the author to work out which of several lines was rejected.
     case unsupportedScheme(String?)
+    /// The file named an `http`/`https` URL with no host, so there is nothing to fetch.
+    ///
+    /// Distinct from ``unsupportedScheme(_:)`` because the fix is different: the scheme is right and
+    /// the address is missing.
+    case missingHost
 
     /// Diagnoses a `.url` file, returning `nil` when it names a loadable page.
     ///
@@ -30,6 +35,7 @@ public enum CustomSidebarWebSourceProblem: Equatable, Sendable {
             return .unreadable
         }
         var rejectedScheme: String?
+        var sawHostlessWebURL = false
         var sawCandidate = false
         for rawLine in contents.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -39,10 +45,17 @@ public enum CustomSidebarWebSourceProblem: Equatable, Sendable {
                 continue
             }
             sawCandidate = true
+            if CustomSidebarWebSource.isLoadable(url) { return nil }
             guard let scheme = url.scheme?.lowercased() else { continue }
-            if scheme == "http" || scheme == "https" { return nil }
-            if rejectedScheme == nil { rejectedScheme = scheme }
+            if scheme == "http" || scheme == "https" {
+                sawHostlessWebURL = true
+            } else if rejectedScheme == nil {
+                rejectedScheme = scheme
+            }
         }
+        // A right-scheme-wrong-address line is the more useful thing to report, since the author was
+        // clearly trying to name a page.
+        if sawHostlessWebURL { return .missingHost }
         if let rejectedScheme { return .unsupportedScheme(rejectedScheme) }
         return sawCandidate ? .unsupportedScheme(nil) : .noURL
     }

@@ -11970,18 +11970,44 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId),
-                  case let .web(webSource)? = CustomSidebarSource.classify(fileURL: customSidebarURL) {
-            // A web-backed sidebar renders itself, so it needs no interpreter re-render tick. It
-            // does still sit under the same floating chrome as every other sidebar, so it is handed
-            // the same inset metrics the workspace list uses; sharing the constant is what stops the
-            // two from drifting when the titlebar metric changes.
+                  let customSidebarName = CmuxExtensionSidebarSelection.customSidebarName(
+                      forProviderId: effectiveExtensionSidebarProviderId
+                  ),
+                  CmuxExtensionSidebarSelection.customSidebarFileURL(forName: customSidebarName) != nil {
+            // Resolved by *name* on every reload rather than captured once, so `cmux sidebar reload`
+            // reaches a hosted page and a precedence flip (`board.html` gaining a `board.swift`, or
+            // losing it) switches renderer under the live rail.
+            CustomSidebarResolvedSourceView(sidebarName: customSidebarName) { resolvedURL, reloadToken in
+                customSidebarRailContent(fileURL: resolvedURL, reloadToken: reloadToken)
+            }
+            .id(customSidebarName)
+        } else {
+            TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
+                extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date)
+            }
+        }
+    }
+
+    /// Renders whichever file the custom sidebar name currently resolves to.
+    ///
+    /// A web source renders itself, so it needs no interpreter re-render tick. Either way the
+    /// sidebar sits under the same floating chrome, so both branches are handed the inset metrics
+    /// the workspace list uses; sharing the constant is what stops them drifting when the titlebar
+    /// metric changes.
+    @ViewBuilder
+    private func customSidebarRailContent(
+        fileURL: URL?,
+        reloadToken: CustomSidebarWebReloadToken
+    ) -> some View {
+        if let fileURL, case let .web(webSource)? = CustomSidebarSource.classify(fileURL: fileURL) {
             CustomSidebarWebView(
                 source: webSource,
                 insets: CustomSidebarWebInsets(
                     top: SidebarWorkspaceScrollInsets.workspaceList.top,
                     bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
                 ),
+                reloadToken: reloadToken,
                 // Offered for every web sidebar; the package registers the handler only for a
                 // source that arms a focus scope, so a page on the open internet never sees it.
                 // Routing through the shared control path is what lets a click here select a
@@ -11999,8 +12025,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-        } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+        } else if let fileURL {
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
@@ -12015,7 +12040,7 @@ struct VerticalTabsSidebar: View, Equatable {
             // unmount).
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 CustomSidebarSurface(
-                    fileURL: customSidebarURL,
+                    fileURL: fileURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets(
@@ -12033,10 +12058,7 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         } else {
-            TimelineView(.periodic(from: .now, by: 30)) { timeline in
-                let model = extensionSidebarRenderModel(renderContext: renderContext, now: timeline.date)
-                extensionSidebarTimelineContent(renderContext: renderContext, model: model, now: timeline.date)
-            }
+            Color.clear
         }
     }
 

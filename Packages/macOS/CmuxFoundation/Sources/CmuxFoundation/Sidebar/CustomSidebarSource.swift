@@ -29,10 +29,17 @@ public enum CustomSidebarSource: Equatable, Sendable {
 
     /// Classifies an already-resolved custom sidebar file.
     ///
-    /// Returns `nil` only for an unrecognised extension; callers treat that as "no sidebar" rather
-    /// than guessing, so a stray file in the sidebars directory cannot render as something else.
+    /// Returns `nil` for an unrecognised extension or a `.url` file naming nothing loadable;
+    /// callers treat that as "no sidebar" rather than guessing, so a stray file in the sidebars
+    /// directory cannot render as something else.
+    ///
+    /// The extension is matched exactly, in lowercase. Case-folding it would be friendlier right
+    /// here and wrong one step later: resolution builds `<name>.<ext>` from the lowercase list
+    /// while discovery reads whatever is on disk, so a folded `board.HTML` is a file the CLI lists
+    /// and then cannot open on a case-sensitive volume. Refusing it outright keeps every path in
+    /// agreement on every filesystem.
     public static func classify(fileURL: URL) -> CustomSidebarSource? {
-        switch fileURL.pathExtension.lowercased() {
+        switch fileURL.pathExtension {
         case "swift", "json":
             return .interpreted(fileURL)
         case "html":

@@ -19,6 +19,16 @@ extension CmuxExtensionSidebarSelection {
     }
     #endif
 
+    /// The sidebar name a custom-sidebar provider id refers to, or `nil` when the id is not one.
+    ///
+    /// The rail resolves by name on every reload rather than holding a file, so it needs the name
+    /// the provider id encodes. Extracting it here keeps the prefix known to one file.
+    static func customSidebarName(forProviderId providerId: String) -> String? {
+        guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
+        let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
+        return name.isEmpty ? nil : name
+    }
+
     static func customSidebarFileURL(forName name: String) -> URL? {
         customSidebarFileURL(forName: name, sidebarsDirectory: customSidebarsDirectory)
     }
