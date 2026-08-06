@@ -166,6 +166,6 @@ def test_closed_panel_history_uses_read_only_terminal_capture():
         "private func terminalSnapshotScrollback(",
     )
 
-    assert "allowVTExport: false" in close_history
+    assert "allowTerminalVTExport: false" in close_history
     assert "allowTerminalVTExport: Bool = true" in session_snapshot
     assert "allowVTExport: allowTerminalVTExport" in session_snapshot

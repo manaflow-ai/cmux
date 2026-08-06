@@ -348,6 +348,7 @@ extension Workspace {
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
+        allowTerminalVTExport: Bool = true,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
         resumeBinding: SurfaceResumeBindingSnapshot?,
         terminalFontSizeSnapshotProjection:
@@ -567,7 +568,8 @@ extension Workspace {
                 ? TerminalController.shared.readTerminalTextForSnapshot(
                     terminalPanel: terminalPanel,
                     includeScrollback: true,
-                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
+                    lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal,
+                    allowVTExport: allowTerminalVTExport
                 )
                 : nil
             let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
@@ -802,6 +804,7 @@ extension Workspace {
         guard let snapshot = sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
+            allowTerminalVTExport: false,
             restorableAgentObservation: restorableAgentObservation,
             resumeBinding: effectiveSurfaceResumeBinding(
                 panelId: panelId,
