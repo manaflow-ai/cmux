@@ -72,8 +72,8 @@ struct OnboardingConnectionView: View {
             return L10n.string(
                 "mobile.onboarding.connect.tailscaleBody",
                 defaultValue: """
-                Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. \
-                On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here.
+                Connect only over Tailscale. Install it on both devices, join the same network, then scan the \
+                pairing code shown by cmux on your Mac.
                 """
             )
         }

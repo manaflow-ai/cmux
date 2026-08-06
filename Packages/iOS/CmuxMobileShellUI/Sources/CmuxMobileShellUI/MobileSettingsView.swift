@@ -1,4 +1,5 @@
 #if os(iOS)
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -119,6 +120,18 @@ struct MobileSettingsView: View {
                                 L10n.string("mobile.settings.mac", defaultValue: "Computer"),
                                 value: connectedHostName
                             )
+                        }
+                        if let store,
+                           store.connectionState == .connected,
+                           let routeKind = store.activeRoute?.kind {
+                            LabeledContent(
+                                L10n.string(
+                                    "mobile.settings.activeTransport",
+                                    defaultValue: "Active Transport"
+                                ),
+                                value: activeTransportName(routeKind)
+                            )
+                            .accessibilityIdentifier("MobileSettingsActiveTransport")
                         }
                     }
                 }
@@ -501,6 +514,31 @@ struct MobileSettingsView: View {
             }
         }
         .accessibilityIdentifier("MobileSettingsView")
+    }
+
+    private func activeTransportName(_ kind: CmxAttachTransportKind) -> String {
+        switch kind {
+        case .tailscale:
+            L10n.string(
+                "mobile.settings.activeTransport.tailscale",
+                defaultValue: "Tailscale"
+            )
+        case .iroh:
+            L10n.string(
+                "mobile.settings.activeTransport.iroh",
+                defaultValue: "Iroh"
+            )
+        case .websocket:
+            L10n.string(
+                "mobile.settings.activeTransport.websocket",
+                defaultValue: "WebSocket"
+            )
+        case .debugLoopback:
+            L10n.string(
+                "mobile.settings.activeTransport.simulator",
+                defaultValue: "Simulator"
+            )
+        }
     }
 
     @MainActor
