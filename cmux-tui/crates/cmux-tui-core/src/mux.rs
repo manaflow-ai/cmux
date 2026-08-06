@@ -23603,9 +23603,7 @@ mod tests {
         let (observed_tx, observed_rx) = std::sync::mpsc::sync_channel(1);
         *mux.workspace_delta_before_emit.lock().unwrap() = Some(Arc::new(move |revision| {
             let mux = weak_mux.upgrade().expect("mux remains alive through publication");
-            observed_tx
-                .send((revision, mux.workspace_registry.try_lock().is_err()))
-                .unwrap();
+            observed_tx.send((revision, mux.workspace_registry.try_lock().is_err())).unwrap();
         }));
 
         let placement = mux.create_empty_workspace(None, None, None).unwrap();
