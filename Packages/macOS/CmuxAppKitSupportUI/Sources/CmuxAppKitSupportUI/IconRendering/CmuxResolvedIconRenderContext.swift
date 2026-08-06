@@ -15,9 +15,10 @@ public final class CmuxResolvedIconRenderContext {
     private var insertionOrder: [CmuxResolvedIconReusableRenderKey] = []
 
     /// Creates an isolated render owner with a bounded reusable-image cache.
+    ///
+    /// Nonpositive limits disable cross-view caching while preserving rendering.
     public init(cacheLimit: Int = 128) {
-        precondition(cacheLimit > 0)
-        self.limit = cacheLimit
+        self.limit = max(0, cacheLimit)
     }
 
     func render(
@@ -25,6 +26,10 @@ public final class CmuxResolvedIconRenderContext {
         appearance: NSAppearance,
         renderKey: CmuxResolvedIconRenderKey
     ) -> Result<NSImage, CmuxResolvedIconRenderFailure> {
+        guard limit > 0 else {
+            return renderer.render(for: request, appearance: appearance)
+        }
+
         if let reusableKey = renderKey.reusableKey,
            let cachedImage = image(for: reusableKey, matching: renderKey) {
             return .success(cachedImage)
