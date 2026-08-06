@@ -1705,8 +1705,9 @@ impl Drop for TerminalExitStateQueryGuard<'_> {
 
 /// The multiplexer. Shared by frontends and the control socket server.
 pub struct Mux {
-    /// Serializes durable workspace commits and their in-memory/event
-    /// projection. Lock order is always registry, then state.
+    /// Serializes durable workspace commits, their in-memory projection, and
+    /// publication of revisioned workspace deltas. Lock order is always
+    /// registry, then state.
     workspace_registry: Mutex<WorkspaceRegistry>,
     state: Mutex<State>,
     subscribers: MuxEventBroadcaster,
@@ -4752,6 +4753,16 @@ impl Mux {
         if selection_resync {
             self.emit(MuxEvent::TreeSelectionChanged);
         }
+    }
+
+    fn emit_committed_workspace_delta(
+        &self,
+        _registry: &MutexGuard<'_, WorkspaceRegistry>,
+        delta: TreeDelta,
+        selection_resync: bool,
+    ) {
+        debug_assert!(delta.workspace_revision.is_some());
+        self.emit_tree_delta(delta, selection_resync);
     }
 
     fn emit_empty_if_current(&self, workspace_revision: Option<u64>) {
@@ -9232,11 +9243,11 @@ impl Mux {
                 selection_resync,
             )
         };
+        self.emit_committed_workspace_delta(&registry, delta, selection_resync);
         drop(registry);
         if project_resource {
             self.publish_resource_event();
         }
-        self.emit_tree_delta(delta, selection_resync);
         Ok(placement)
     }
 
@@ -10195,7 +10206,8 @@ impl Mux {
                 }
             };
             let selection_resync = delta.index.is_some_and(|index| index > 0);
-            self.emit_tree_delta(delta, selection_resync);
+            self.emit_committed_workspace_delta(&registry, delta, selection_resync);
+            drop(registry);
             self.reap_if_dead(&surface);
             return Ok(surface);
         };
@@ -11108,6 +11120,7 @@ impl Mux {
             let result = workspace_mutation_result(&commit)?;
             (removed, delta, empty_revision, selection_resync, result)
         };
+        self.emit_committed_workspace_delta(&registry, delta, selection_resync);
         drop(registry);
         if project_resource {
             self.publish_resource_event();
@@ -11118,7 +11131,6 @@ impl Mux {
                 surface.kill();
             }
         }
-        self.emit_tree_delta(delta, selection_resync);
         self.emit_empty_if_current(empty_revision);
         Ok(result)
     }
@@ -11313,9 +11325,9 @@ impl Mux {
                 workspace_mutation_result(&commit)?,
             )
         };
+        self.emit_committed_workspace_delta(&registry, renamed, false);
         drop(registry);
         self.publish_resource_event();
-        self.emit(MuxEvent::TreeDelta(renamed));
         Ok(result)
     }
 
@@ -13338,9 +13350,9 @@ impl Mux {
                 workspace_mutation_result(&commit)?,
             )
         };
+        self.emit_committed_workspace_delta(&registry, delta, false);
         drop(registry);
         self.publish_resource_event();
-        self.emit(MuxEvent::TreeDelta(delta));
         Ok(result)
     }
 
