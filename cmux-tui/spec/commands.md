@@ -699,7 +699,6 @@ Params:
 | `layout` | `DeclarativeLayout` | required | Must contain at least one pane |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
-
 Result:
 
 ```text
@@ -1217,20 +1216,40 @@ Params:
 | `name` | `string` | default null | New terminal tab name |
 | `cols` | `uint16` | default null | Paired with `rows`; final value clamped to at least 1 |
 | `rows` | `uint16` | default null | Paired with `cols`; final value clamped to at least 1 |
+| `terminal_id` | `string` | default generated | Caller-reserved canonical 32-character terminal UUID; requires mutation identity |
+| `origin` | `string` | paired with `mutation_id` | Stable frontend/profile identity reused for retries |
+| `mutation_id` | `string` | paired with `origin` | Stable logical creation id reused for retries |
+| `expected_generation` | `string` | optional | Compare-and-swap guard for the daemon boot UUID |
+| `expected_revision` | `uint64` | optional | Compare-and-swap guard for the resource projection revision |
 
 Result:
 
 ```text
-object{surface:Id,pane:Id,screen:Id,workspace:Id,key:string}
+object{
+  surface:Id|null,terminal_id:string,terminal_incarnation:string|null,
+  pane:Id|null,screen:Id|null,workspace:Id|null,key:string,
+  lifecycle:"launching"|"adopting"|"running"|"exited"|"tombstoned",
+  exit:TerminalExit|null,
+  already_exited:bool,terminal_revision:uint64,replayed:bool,
+  registry_id:string,generation:string
+}
 ```
+
+If the child exits before creation returns, the request still succeeds with
+`already_exited:true`, exact durable `exit` metadata, and null live-placement
+fields. Retrying with the same `origin`, `mutation_id`, and logical request
+returns the same terminal and exit record without recreating its tab or
+process. Reusing a mutation identity with different parameters is an error.
 
 Errors include missing, unknown, or mismatched workspace selectors; mutually exclusive or empty commands; PTY spawn failures; and malformed requests.
 
 Example:
 
 ```json
-{"id":10,"cmd":"create-terminal","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","command":"htop","cwd":"/tmp"}
-{"id":10,"ok":true,"data":{"surface":15,"pane":14,"screen":13,"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f"}}
+{"id":10,"cmd":"create-terminal","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","command":"htop","cwd":"/tmp","terminal_id":"00000000000040008000000000000001","origin":"ios-demo","mutation_id":"create-monitor"}
+{"id":10,"ok":true,"data":{"surface":15,"terminal_id":"00000000000040008000000000000001","terminal_incarnation":"00000000000040008000000000000002","pane":14,"screen":13,"workspace":12,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","lifecycle":"running","exit":null,"already_exited":false,"terminal_revision":4,"replayed":false,"registry_id":"71f24185-113a-4eb0-9286-1e20743e7e05","generation":"37928442-1982-40b6-bf80-c1ea50ca8bf8"}}
+{"id":11,"cmd":"create-terminal","key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","command":"exit 7","terminal_id":"00000000000040008000000000000003","origin":"ios-demo","mutation_id":"create-short-job"}
+{"id":11,"ok":true,"data":{"surface":null,"terminal_id":"00000000000040008000000000000003","terminal_incarnation":null,"pane":null,"screen":null,"workspace":null,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":7},"exited_at_ms":1785900000000},"already_exited":true,"terminal_revision":6,"replayed":false,"registry_id":"71f24185-113a-4eb0-9286-1e20743e7e05","generation":"37928442-1982-40b6-bf80-c1ea50ca8bf8"}}
 ```
 
 ### new-screen
@@ -3057,7 +3076,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Spawns a command in a new PTY tab and returns the new surface id. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. `key` assigns that workspace a caller-owned stable identity so detached or provider-backed frontends can reconcile it after a display-name change. Initial dimensions follow [Sizing](#sizing).
+Spawns a command in a new PTY tab. `argv` executes directly without a shell. `command` executes through the session shell as `shell -lc <command>`. Exactly one of `argv` or `command` is required. By default the tab is created in the active pane. With `pane`, it is created in that pane. With `new_workspace:true`, a new workspace is created instead. `key` assigns that workspace a caller-owned stable identity so detached or provider-backed frontends can reconcile it after a display-name change. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -3076,8 +3095,21 @@ Params:
 Result:
 
 ```text
-object{surface:Id,pane:Id,screen:Id,workspace:Id}
+object{
+  surface:Id|null,terminal_id:string,terminal_incarnation:string|null,
+  pane:Id|null,screen:Id|null,workspace:Id|null,
+  lifecycle:"running"|"exited",exit:TerminalExit|null,
+  terminal_revision:uint64,already_exited:bool
+}
 ```
+
+If the child exits before `run` returns, the request succeeds with
+`already_exited:true`, exact durable `exit` metadata, and null live-placement
+fields. The terminal remains resolvable by `terminal_id` for exit inspection.
+
+`run` carries no mutation identity and is not idempotent. Retrying after a
+lost response starts a second process and creates a second durable terminal.
+Use `create-terminal` when creation must be safe to retry.
 
 Errors:
 
@@ -3106,9 +3138,11 @@ Example:
 
 ```json
 {"id":102,"cmd":"run","argv":["python3","-m","http.server"],"cwd":"/tmp","name":"server"}
-{"id":102,"ok":true,"data":{"surface":31,"pane":2,"screen":3,"workspace":4}}
+{"id":102,"ok":true,"data":{"surface":31,"terminal_id":"00000000000040008000000000000004","terminal_incarnation":"00000000000040008000000000000005","pane":2,"screen":3,"workspace":4,"lifecycle":"running","exit":null,"terminal_revision":7,"already_exited":false}}
 {"id":103,"cmd":"run","argv":["/bin/zsh","-l"],"new_workspace":true,"key":"workspace-019c","name":"cloud"}
-{"id":103,"ok":true,"data":{"surface":32,"pane":5,"screen":6,"workspace":7}}
+{"id":103,"ok":true,"data":{"surface":32,"terminal_id":"00000000000040008000000000000006","terminal_incarnation":"00000000000040008000000000000007","pane":5,"screen":6,"workspace":7,"lifecycle":"running","exit":null,"terminal_revision":8,"already_exited":false}}
+{"id":104,"cmd":"run","command":"exit 9"}
+{"id":104,"ok":true,"data":{"surface":null,"terminal_id":"00000000000040008000000000000008","terminal_incarnation":null,"pane":null,"screen":null,"workspace":null,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":9},"exited_at_ms":1785900001000},"terminal_revision":10,"already_exited":true}}
 ```
 
 ### create-surface-with-receipt

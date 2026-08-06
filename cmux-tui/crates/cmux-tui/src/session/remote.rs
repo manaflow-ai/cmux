@@ -8,7 +8,7 @@ use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -1397,6 +1397,12 @@ impl RemoteFrameLogs {
     }
 }
 
+#[derive(Default)]
+struct ExitedSurfaceState {
+    ids: HashSet<SurfaceId>,
+    handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
+}
+
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
@@ -1404,6 +1410,7 @@ pub struct RemoteSession {
     attach_progress: AtomicU64,
     shutdown: AtomicBool,
     surfaces: Mutex<HashMap<SurfaceId, Arc<RemoteSurface>>>,
+    exited_surfaces: Mutex<ExitedSurfaceState>,
     surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
@@ -1739,6 +1746,7 @@ impl RemoteSession {
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
+            exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
@@ -2205,7 +2213,10 @@ impl RemoteSession {
             }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
-                    self.surface_overflow_recovery.lock().unwrap().remove(&id);
+                    // Retire the mirror immediately. The authoritative tree
+                    // refresh may lag this event, but input and reattach must
+                    // already fail closed for a known-exited surface.
+                    self.drop_surface(id);
                     self.tree_stale.store(true, Ordering::Release);
                     self.emit(MuxEvent::SurfaceExited(id));
                 }
@@ -3170,9 +3181,22 @@ impl RemoteSession {
     pub fn retire_surface(&self, id: SurfaceId) {
         let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
         self.retired_surfaces.lock().unwrap().insert(id);
-        self.surfaces.lock().unwrap().remove(&id);
+        let surface = self.surfaces.lock().unwrap().remove(&id);
+        let mut exited = self.exited_surfaces.lock().unwrap();
+        exited.ids.insert(id);
+        if let Some(surface) = surface {
+            exited.handles.insert(id, Arc::downgrade(&surface));
+        }
         self.surface_leases.lock().unwrap().remove(&id);
         self.surface_overflow_recovery.lock().unwrap().remove(&id);
+    }
+
+    pub fn drop_surface(&self, id: SurfaceId) {
+        self.retire_surface(id);
+    }
+
+    pub fn surface_is_exited(&self, id: SurfaceId) -> bool {
+        self.exited_surfaces.lock().unwrap().ids.contains(&id)
     }
 
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
@@ -3228,6 +3252,7 @@ impl RemoteSession {
             .lock()
             .unwrap()
             .retain(|surface_id| live_surface_ids.contains(surface_id));
+        self.prune_exited_surfaces(&live_surface_ids);
         self.surface_overflow_recovery
             .lock()
             .unwrap()
@@ -3242,6 +3267,20 @@ impl RemoteSession {
             surface.update_browser_source(browser_source_from_tree(&tree, id));
         }
         Ok(tree)
+    }
+
+    fn prune_exited_surfaces(&self, live_surface_ids: &HashSet<SurfaceId>) {
+        let mut exited = self.exited_surfaces.lock().unwrap();
+        let retained_handles = exited
+            .handles
+            .iter()
+            .filter_map(|(&id, surface)| (surface.strong_count() > 0).then_some(id))
+            .collect::<HashSet<_>>();
+        exited.ids.retain(|id| live_surface_ids.contains(id) || retained_handles.contains(id));
+        let retained_ids = exited.ids.clone();
+        exited
+            .handles
+            .retain(|id, surface| retained_ids.contains(id) && surface.strong_count() > 0);
     }
 
     pub fn invalidate_tree(&self) {
@@ -3590,6 +3629,7 @@ fn test_session_with_writer(
         attach_progress: AtomicU64::new(0),
         shutdown: AtomicBool::new(false),
         surfaces: Mutex::new(HashMap::new()),
+        exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
         surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
@@ -3614,7 +3654,7 @@ fn test_session_with_writer(
 
 #[cfg(test)]
 struct DeferredAttachTestWriter {
-    session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+    session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
     attach_started: std::sync::mpsc::SyncSender<()>,
     release_attach: Option<Receiver<()>>,
     first_resize_failure: Option<(std::sync::mpsc::SyncSender<()>, Receiver<()>)>,
@@ -3708,7 +3748,7 @@ pub(super) fn test_session_with_deferred_attach() -> (Arc<RemoteSession>, Receiv
 #[cfg(test)]
 pub(super) fn test_session_with_missing_surface_attach(surface: SurfaceId) -> Arc<RemoteSession> {
     struct MissingSurfaceAttachWriter {
-        session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
         surface: SurfaceId,
     }
 
@@ -3723,7 +3763,7 @@ pub(super) fn test_session_with_missing_surface_attach(surface: SurfaceId) -> Ar
                 .lock()
                 .unwrap()
                 .as_ref()
-                .and_then(std::sync::Weak::upgrade)
+                .and_then(Weak::upgrade)
                 .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
             let response = session
                 .pending
@@ -3976,7 +4016,7 @@ pub(super) fn test_session_with_blocked_attach_transport_failure(
     struct BlockedAttachFailureWriter {
         reached: Arc<std::sync::Barrier>,
         release: Arc<std::sync::Barrier>,
-        session: Arc<Mutex<Option<std::sync::Weak<RemoteSession>>>>,
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
     }
 
     impl RemoteMessageWriter for BlockedAttachFailureWriter {
@@ -3993,7 +4033,7 @@ pub(super) fn test_session_with_blocked_attach_transport_failure(
                 .lock()
                 .unwrap()
                 .as_ref()
-                .and_then(std::sync::Weak::upgrade)
+                .and_then(Weak::upgrade)
                 .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
             let response = session
                 .pending
@@ -4600,6 +4640,7 @@ mod tests {
             attach_progress: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
             surfaces: Mutex::new(HashMap::new()),
+            exited_surfaces: Mutex::new(ExitedSurfaceState::default()),
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
@@ -5708,6 +5749,42 @@ mod tests {
         assert_eq!(release["cmd"], "detach-attached-view");
         assert_eq!(release["surface"], 7);
         assert_eq!(release["lease"], "test-view-lease");
+    }
+
+    #[test]
+    fn surface_exit_during_attach_retires_the_exact_mirror_before_return() {
+        let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || {
+            attaching.try_ensure_surface_with_kind(7, SurfaceKind::Pty, Some((80, 24)))
+        });
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        let mirror = session.surface(7).expect("attach did not stage its local mirror");
+
+        session.drop_surface(7);
+        release_attach_tx.send(()).unwrap();
+
+        assert!(matches!(worker.join().unwrap().unwrap(), RemoteSurfaceAttach::Retired));
+        assert!(!session.has_surface(7));
+        assert!(session.surface_is_exited(7));
+        assert!(crate::session::SurfaceHandle::Remote(mirror, session).is_dead());
+    }
+
+    #[test]
+    fn exited_marker_outlives_every_cached_remote_surface_handle() {
+        let session = super::test_session_with_provider_context(None, HashSet::new());
+        let surface = test_remote_surface(7);
+        session.surfaces.lock().unwrap().insert(7, surface.clone());
+        let handle = crate::session::SurfaceHandle::Remote(surface.clone(), session.clone());
+
+        session.drop_surface(7);
+        session.prune_exited_surfaces(&HashSet::new());
+
+        assert!(handle.is_dead());
+        drop(handle);
+        drop(surface);
+        session.prune_exited_surfaces(&HashSet::new());
+        assert!(!session.surface_is_exited(7));
     }
 
     #[cfg(unix)]
@@ -7837,6 +7914,25 @@ mod tests {
             reported_size: Mutex::new(None),
             browser: Mutex::new(RemoteBrowserState::default()),
         })
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn surface_exit_event_retires_the_mirror_before_tree_refresh() {
+        let (client, _server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let events = session.subscribe();
+        session.surfaces.lock().unwrap().insert(7, test_remote_surface(7));
+
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+
+        assert!(!session.has_surface(7));
+        assert!(session.surface_is_exited(7));
+        assert!(session.tree_is_stale());
+        assert!(matches!(
+            events.recv_timeout(Duration::from_secs(1)),
+            Ok(MuxEvent::SurfaceExited(7))
+        ));
     }
 
     #[cfg(unix)]

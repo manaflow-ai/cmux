@@ -303,6 +303,118 @@
         "tombstoned"
       ]
     },
+    "TerminalExitOutcome": {
+      "kind": "tagged_union",
+      "tag": "kind",
+      "variants": {
+        "exit": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "exit"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "code": {
+              "type": {
+                "kind": "scalar",
+                "name": "int32"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "signal": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "signal"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "signal": {
+              "type": {
+                "kind": "scalar",
+                "name": "int32"
+              },
+              "presence": "required",
+              "nullable": false,
+              "constraints": [
+                {
+                  "minimum": 1
+                }
+              ]
+            },
+            "core_dumped": {
+              "type": {
+                "kind": "scalar",
+                "name": "boolean"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "unknown": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "unknown"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "reason": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false,
+              "constraints": [
+                {
+                  "min_length": 1
+                }
+              ]
+            }
+          },
+          "additional_properties": false
+        }
+      }
+    },
+    "TerminalExit": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExitOutcome"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "exited_at_ms": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
     "TerminalKeyAction": {
       "kind": "enum",
       "values": [
@@ -1700,7 +1812,7 @@
         "exit": {
           "type": {
             "kind": "ref",
-            "name": "JsonValue"
+            "name": "TerminalExit"
           },
           "presence": "required",
           "nullable": true
@@ -2811,7 +2923,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -2819,7 +2931,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
         },
         "terminal_incarnation": {
           "type": {
@@ -2835,7 +2947,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -2843,7 +2955,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -2851,7 +2963,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "key": {
           "type": {
@@ -2863,11 +2975,20 @@
         },
         "lifecycle": {
           "type": {
-            "kind": "literal",
-            "value": "running"
+            "kind": "ref",
+            "name": "TerminalLifecycle"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExit"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 10
         },
         "terminal_revision": {
           "type": {
@@ -2876,6 +2997,15 @@
           },
           "presence": "required",
           "nullable": false
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
         },
         "replayed": {
           "type": {
@@ -3203,6 +3333,15 @@
             }
           ]
         },
+        "protocol_version": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
+        },
         "ttl_ms": {
           "type": {
             "kind": "scalar",
@@ -3268,7 +3407,7 @@
         "exit": {
           "type": {
             "kind": "ref",
-            "name": "JsonValue"
+            "name": "TerminalExit"
           },
           "presence": "required",
           "nullable": true
@@ -3530,7 +3669,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -3538,7 +3677,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true,
+          "nullable": false,
           "since": 9
         },
         "terminal_incarnation": {
@@ -3556,7 +3695,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -3564,7 +3703,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -3572,7 +3711,43 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
+        },
+        "lifecycle": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalLifecycle"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExit"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 10
+        },
+        "terminal_revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
         }
       },
       "additional_properties": false
@@ -5669,7 +5844,13 @@
             "presence": "optional",
             "nullable": true,
             "default": null,
-            "since": 9
+            "since": 9,
+            "constraints": [
+              {
+                "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+                "format": "32-character lowercase UUIDv4 hex without dashes"
+              }
+            ]
           },
           "origin": {
             "type": {
@@ -5716,7 +5897,8 @@
           "At least one of workspace and key must be supplied; when both are supplied they must identify the same workspace.",
           "argv and command are mutually exclusive and must be nonempty when supplied.",
           "cols and rows must be supplied together.",
-          "origin and mutation_id are either both present or both absent."
+          "origin and mutation_id are either both present or both absent.",
+          "terminal_id may be supplied only when origin and mutation_id are both present."
         ]
       },
       "result": {
@@ -7465,6 +7647,53 @@
       },
       "stream": null,
       "constraints": []
+    },
+    "mint-terminal-renderer-by-terminal": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": null,
+      "request": {
+        "kind": "object",
+        "fields": {
+          "terminal": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false,
+            "constraints": [
+              {
+                "pattern": "^term_[0-9a-f]{32}$"
+              }
+            ]
+          },
+          "ttl_ms": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": 30000,
+            "constraints": [
+              {
+                "minimum": 1,
+                "maximum": 60000
+              }
+            ]
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "MintTerminalRendererResult"
+      },
+      "stream": null,
+      "constraints": [
+        "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
+      ]
     },
     "set-cell-pixels": {
       "authority": "frontend",
