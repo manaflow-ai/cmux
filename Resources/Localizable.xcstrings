@@ -16465,6 +16465,12 @@
             "value": "キャンセル"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បោះបង់"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -16505,6 +16511,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "İptal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скасувати"
           }
         },
         "zh-Hans": {
@@ -18434,6 +18446,12 @@
             "value": "このタブのカスタム名を入力してください。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូលឈ្មោះផ្ទាល់ខ្លួនសម្រាប់ផ្ទាំងនេះ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18474,6 +18492,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bu sekme için özel bir ad girin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть власну назву для цієї вкладки."
           }
         },
         "zh-Hans": {
@@ -18547,6 +18571,12 @@
             "value": "タブ名"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឈ្មោះផ្ទាំង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18587,6 +18617,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sekme adı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Назва вкладки"
           }
         },
         "zh-Hans": {
@@ -18660,6 +18696,12 @@
             "value": "変更"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឈ្មោះ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18700,6 +18742,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейменувати"
           }
         },
         "zh-Hans": {
@@ -18773,6 +18821,12 @@
             "value": "タブ名を変更"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរឈ្មោះផ្ទាំង"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
@@ -18813,6 +18867,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sekmeyi Yeniden Adlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перейменувати вкладку"
           }
         },
         "zh-Hans": {
@@ -36843,6 +36903,131 @@
         }
       }
     },
+    "cli.help.irohDiag": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux iroh-diag\n\nاطبع تقرير اتصال Iroh للمضيف كمخطط زمني بلغة واضحة،\nوهي البيانات نفسها الموجودة في الإعدادات > الشبكات > تقرير الاتصال."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux iroh-diag\n\nIspiši izvještaj o Iroh vezi domaćina kao vremensku liniju razumljivim jezikom,\niste podatke kao Postavke > Mreža > Izvještaj o vezi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux iroh-diag\n\nUdskriv værtens Iroh-forbindelsesrapport som en tidslinje i almindeligt sprog,\nde samme data som Indstillinger > Netværk > Forbindelsesrapport."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux iroh-diag\n\nGibt den Iroh-Verbindungsbericht des Hosts als verständliche Zeitleiste aus,\ndieselben Daten wie Einstellungen > Netzwerk > Verbindungsbericht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nPrint the host's Iroh Connection Report as a plain-language timeline,\nthe same data as Settings > Networking > Connection Report."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nMuestra el informe de conexión Iroh del host como una cronología en lenguaje sencillo,\nlos mismos datos que Ajustes > Red > Informe de conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux iroh-diag\n\nAffiche le rapport de connexion Iroh de l’hôte sous forme de chronologie en langage clair,\nles mêmes données que Réglages > Réseau > Rapport de connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nStampa il rapporto di connessione Iroh dell’host come cronologia in linguaggio semplice,\ngli stessi dati di Impostazioni > Rete > Rapporto di connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux iroh-diag\n\nホストのIroh接続レポートを読みやすいタイムラインとして出力します。\n設定 > ネットワーク > 接続レポートと同じデータです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux iroh-diag\n\nបង្ហាញរបាយការណ៍ការតភ្ជាប់ Iroh របស់ម៉ាស៊ីនជាបន្ទាត់ពេលវេលាដែលងាយយល់\nជាទិន្នន័យដូចគ្នានឹង ការកំណត់ > បណ្តាញ > របាយការណ៍ការតភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux iroh-diag\n\n호스트의 Iroh 연결 보고서를 이해하기 쉬운 타임라인으로 출력합니다.\n설정 > 네트워킹 > 연결 보고서와 동일한 데이터입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux iroh-diag\n\nSkriv ut vertens Iroh-tilkoblingsrapport som en tidslinje i klart språk,\nde samme dataene som Innstillinger > Nettverk > Tilkoblingsrapport."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux iroh-diag\n\nWyświetla raport połączenia Iroh hosta jako oś czasu napisaną prostym językiem,\nte same dane co Ustawienia > Sieć > Raport połączenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux iroh-diag\n\nExibe o relatório de conexão Iroh do host como uma linha do tempo em linguagem simples,\nos mesmos dados de Ajustes > Rede > Relatório de conexão."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux iroh-diag\n\nВыводит отчет о подключении Iroh хоста в виде понятной временной шкалы,\nте же данные, что в Настройки > Сеть > Отчет о подключении."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux iroh-diag\n\nแสดงรายงานการเชื่อมต่อ Iroh ของโฮสต์เป็นไทม์ไลน์ที่อ่านเข้าใจง่าย\nเป็นข้อมูลเดียวกับ การตั้งค่า > เครือข่าย > รายงานการเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux iroh-diag\n\nAna bilgisayarın Iroh Bağlantı Raporunu anlaşılır bir zaman çizelgesi olarak yazdırır,\nAyarlar > Ağ > Bağlantı Raporu ile aynı verileri içerir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux iroh-diag\n\nВиводить звіт про підключення Iroh хоста як зрозумілу часову шкалу,\nті самі дані, що в Налаштування > Мережа > Звіт про підключення."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux iroh-diag\n\n以易读的时间线形式输出主机的 Iroh 连接报告，\n数据与“设置 > 网络 > 连接报告”相同。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux iroh-diag\n\n以易讀的時間軸形式輸出主機的 Iroh 連線報告，\n資料與「設定 > 網路 > 連線報告」相同。"
+          }
+        }
+      }
+    },
     "cli.help.jumpToUnread": {
       "extractionState": "manual",
       "localizations": {
@@ -48797,18 +48982,79 @@
         "ja": { "stringUnit": { "state": "translated", "value": "restore: 保存された作業ディレクトリにアクセスできません。アクセスを復元してから、再試行してください。" } }
       }
     },
+    "cli.help.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "da": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "de": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "en": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "es": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "it": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "km": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "th": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]" } }
+      }
+    },
     "cli.restore.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\nReplace this CLI process with the persisted surface process. New\nrecords preserve argv, environment, and cwd as structured values;\ncommand-only records from older builds use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nこの CLI プロセスを保存されたサーフェスプロセスで置き換えます。新しい\nレコードでは argv、環境、cwd が構造化された値として保持されます。\n旧ビルドのコマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n             cmux restore <kind> <checkpoint-id> --surface <id|ref>\n             cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n             cmux restore --surface [id|ref]\n\nاستبدل عملية CLI هذه بعملية السطح المحفوظة. تحفظ السجلات الجديدة وسيطات التشغيل وcwd\nكقيم منظّمة؛ وتستخدم السجلات التي تحتوي على أمر فقط من الإصدارات الأقدم غلافًا متوافقًا.\nعند عدم تحديد id أو ref، يستخدم --surface سطح cmux الذي استدعى الأمر." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n          cmux restore --surface [id|ref]\n\nZamijeni ovaj CLI proces sačuvanim procesom površine. Novi zapisi čuvaju argumente\npokretanja i cwd kao strukturirane vrijednosti; zapisi samo s naredbom iz starijih\nverzija koriste kompatibilnu ljusku. Ako id ili ref nisu navedeni, --surface koristi\ncmux površinu koja je pozvala naredbu." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\nErstat denne CLI-proces med den gemte overfladeproces. Nye poster bevarer\nstartargumenter og cwd som strukturerede værdier; poster fra ældre builds, der kun\nindeholder en kommando, bruger en kompatibilitetsskal. Uden id eller ref bruger\n--surface den kaldende cmux-overflade." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n            cmux restore <kind> <checkpoint-id> --surface <id|ref>\n            cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n            cmux restore --surface [id|ref]\n\nErsetzt diesen CLI-Prozess durch den gespeicherten Surface-Prozess. Neue Datensätze\nbewahren Startargumente und cwd als strukturierte Werte auf; reine Befehlsdatensätze\nälterer Builds verwenden eine Kompatibilitäts-Shell. Ohne id oder ref verwendet\n--surface die aufrufende cmux-Surface." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\nReplace this CLI process with the persisted surface process. New\nrecords preserve launch arguments and cwd as structured values;\ncommand-only records from older builds use a compatibility shell.\nWith no id or ref, --surface uses the calling cmux surface." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n     cmux restore --surface [id|ref]\n\nReemplaza este proceso de CLI por el proceso de superficie guardado. Los registros\nnuevos conservan los argumentos de inicio y cwd como valores estructurados; los\nregistros de compilaciones anteriores que solo contienen un comando usan un shell de\ncompatibilidad. Sin id ni ref, --surface usa la superficie de cmux que realizó la llamada." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n              cmux restore --surface [id|ref]\n\nRemplace ce processus CLI par le processus de surface enregistré. Les nouveaux\nenregistrements conservent les arguments de lancement et cwd sous forme de valeurs\nstructurées ; les enregistrements des anciennes versions contenant uniquement une\ncommande utilisent un shell de compatibilité. Sans id ni ref, --surface utilise la\nsurface cmux appelante." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n     cmux restore --surface [id|ref]\n\nSostituisce questo processo CLI con il processo della superficie salvato. I nuovi\nrecord conservano gli argomenti di avvio e cwd come valori strutturati; i record delle\nversioni precedenti contenenti solo un comando usano una shell di compatibilità. Senza\nid o ref, --surface usa la superficie cmux chiamante." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nこの CLI プロセスを保存されたサーフェスプロセスで置き換えます。新しい\nレコードでは起動引数と cwd が構造化された値として保持されます。\n旧ビルドのコマンドのみのレコードでは互換シェルを使用します。\nid または ref を省略すると、--surface は呼び出し元の cmux サーフェスを使用します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់៖ cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n              cmux restore --surface [id|ref]\n\nជំនួសដំណើរការ CLI នេះដោយដំណើរការផ្ទៃដែលបានរក្សាទុក។ កំណត់ត្រាថ្មីរក្សាទុកអាគុយម៉ង់ចាប់ផ្តើម\nនិង cwd ជាតម្លៃមានរចនាសម្ព័ន្ធ; កំណត់ត្រាដែលមានតែពាក្យបញ្ជាពី build ចាស់ប្រើ shell\nសម្រាប់ភាពត្រូវគ្នា។ បើមិនបញ្ជាក់ id ឬ ref ទេ --surface ប្រើផ្ទៃ cmux ដែលហៅពាក្យបញ្ជា។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n       cmux restore --surface [id|ref]\n\n이 CLI 프로세스를 저장된 서피스 프로세스로 교체합니다. 새 레코드는 실행 인수와 cwd를\n구조화된 값으로 보존하며, 이전 빌드의 명령 전용 레코드는 호환 셸을 사용합니다. id 또는\nref를 생략하면 --surface는 호출한 cmux 서피스를 사용합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\nErstatt denne CLI-prosessen med den lagrede overflateprosessen. Nye oppføringer bevarer\nstartargumenter og cwd som strukturerte verdier; oppføringer fra eldre bygg som bare\ninneholder en kommando, bruker et kompatibilitetsskall. Uten id eller ref bruker\n--surface den kallende cmux-overflaten." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n        cmux restore --surface [id|ref]\n\nZastępuje ten proces CLI zapisanym procesem powierzchni. Nowe rekordy zachowują\nargumenty uruchomienia i cwd jako wartości strukturalne; rekordy ze starszych\nkompilacji zawierające tylko polecenie używają powłoki zgodności. Bez id ani ref opcja\n--surface używa wywołującej powierzchni cmux." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n     cmux restore --surface [id|ref]\n\nSubstitui este processo da CLI pelo processo de superfície persistido. Novos registros\npreservam os argumentos de inicialização e cwd como valores estruturados; registros de\nbuilds anteriores que contêm apenas um comando usam um shell de compatibilidade. Sem id\nou ref, --surface usa a superfície do cmux que fez a chamada." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n               cmux restore <kind> <checkpoint-id> --surface <id|ref>\n               cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n               cmux restore --surface [id|ref]\n\nЗаменяет этот процесс CLI сохранённым процессом поверхности. Новые записи сохраняют\nаргументы запуска и cwd как структурированные значения; записи старых сборок,\nсодержащие только команду, используют оболочку совместимости. Если id или ref не\nуказаны, --surface использует вызывающую поверхность cmux." } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n          cmux restore --surface [id|ref]\n\nแทนที่โปรเซส CLI นี้ด้วยโปรเซสพื้นผิวที่บันทึกไว้ ระเบียนใหม่จะเก็บอาร์กิวเมนต์การเปิดใช้และ cwd\nเป็นค่าที่มีโครงสร้าง ส่วนระเบียนจากบิลด์เก่าที่มีเฉพาะคำสั่งจะใช้เชลล์เพื่อความเข้ากันได้\nหากไม่ระบุ id หรือ ref ตัวเลือก --surface จะใช้พื้นผิว cmux ที่เรียกคำสั่ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n          cmux restore --surface [id|ref]\n\nBu CLI işlemini kalıcı yüzey işlemiyle değiştirir. Yeni kayıtlar başlatma bağımsız\ndeğişkenlerini ve cwd değerini yapılandırılmış değerler olarak korur; eski\nderlemelerdeki yalnızca komut içeren kayıtlar uyumluluk kabuğu kullanır. id veya ref\nverilmezse --surface, çağıran cmux yüzeyini kullanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n              cmux restore --surface [id|ref]\n\nЗамінює цей процес CLI збереженим процесом поверхні. Нові записи зберігають аргументи\nзапуску та cwd як структуровані значення; записи старих збірок, що містять лише\nкоманду, використовують оболонку сумісності. Якщо id або ref не вказано, --surface\nвикористовує поверхню cmux, що викликала команду." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\n将此 CLI 进程替换为已持久化的表面进程。新记录以结构化值保存启动参数和 cwd；\n旧版本中仅含命令的记录使用兼容 shell。未提供 id 或 ref 时，--surface 使用调用方的\ncmux 表面。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>\n      cmux restore --surface [id|ref]\n\n將此 CLI 行程替換為已持久化的介面行程。新記錄會以結構化值保留啟動引數和 cwd；\n舊版本中僅含命令的記錄會使用相容 shell。未提供 id 或 ref 時，--surface 會使用呼叫端的\ncmux 介面。" } }
       }
     },
     "cli.restore.usage.positional": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore <kind> <checkpoint-id>" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore <kind> <checkpoint-id>" } }
+        "ar": { "stringUnit": { "state": "translated", "value": "الاستخدام: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n             cmux restore <kind> <checkpoint-id> --surface <id|ref>\n             cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Upotreba: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Verwendung: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n            cmux restore <kind> <checkpoint-id> --surface <id|ref>\n            cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utilisation : cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការប្រើប្រាស់៖ cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용법: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n       cmux restore <kind> <checkpoint-id> --surface <id|ref>\n       cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użycie: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n        cmux restore <kind> <checkpoint-id> --surface <id|ref>\n        cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Uso: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n     cmux restore <kind> <checkpoint-id> --surface <id|ref>\n     cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использование: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n               cmux restore <kind> <checkpoint-id> --surface <id|ref>\n               cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "th": { "stringUnit": { "state": "translated", "value": "การใช้งาน: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kullanım: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n          cmux restore <kind> <checkpoint-id> --surface <id|ref>\n          cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використання: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n              cmux restore <kind> <checkpoint-id> --surface <id|ref>\n              cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "用法：cmux restore [--surface <id|ref>] <kind> <checkpoint-id>\n      cmux restore <kind> <checkpoint-id> --surface <id|ref>\n      cmux restore --surface=<id|ref> <kind> <checkpoint-id>" } }
       }
     },
     "cli.restore.usage.surface": {
@@ -136828,16 +137074,124 @@
     "notifications.forwardToPhone.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل إشعارات الوكيل إلى تطبيق cmux على iPhone. تكون الميزة متوقفة افتراضيًا، ولا يتم رفع أي شيء إلا عند تشغيلها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalji obavještenja agenata u cmux aplikaciju za iPhone. Isključeno je po zadanim postavkama; ništa se ne šalje dok ovo ne uključite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send agentnotifikationer til cmux-appen på iPhone. Funktionen er slået fra som standard; intet uploades, medmindre den er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenmitteilungen an die cmux-App auf dem iPhone senden. Standardmäßig deaktiviert; ohne Aktivierung wird nichts hochgeladen."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."
+            "value": "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía notificaciones de agentes a la app cmux del iPhone. Está desactivado de forma predeterminada; no se carga nada a menos que lo actives."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyez les notifications des agents à l’app cmux sur iPhone. Cette option est désactivée par défaut ; rien n’est téléversé tant qu’elle ne l’est pas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia le notifiche degli agenti all’app cmux per iPhone. L’opzione è disattivata per impostazione predefinita; non viene caricato nulla finché non la attivi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントの通知を cmux の iPhone アプリに送信します。デフォルトはオフで、オンにしない限り何もアップロードされません。"
+            "value": "ローカルエージェントの通知を iPhone の cmux に送信します。デフォルトでオンです。この Mac からの転送を停止するにはオフにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើការជូនដំណឹងរបស់ភ្នាក់ងារទៅកម្មវិធី cmux លើ iPhone។ មុខងារនេះបិទតាមលំនាំដើម ហើយគ្មានអ្វីត្រូវបានផ្ទុកឡើងទេ លុះត្រាតែអ្នកបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 알림을 iPhone용 cmux 앱으로 보냅니다. 기본적으로 꺼져 있으며, 이 설정을 켜기 전에는 아무것도 업로드되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send agentvarslinger til cmux-appen på iPhone. Funksjonen er av som standard; ingenting lastes opp med mindre den er slått på."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłaj powiadomienia agentów do aplikacji cmux na iPhonie. Funkcja jest domyślnie wyłączona; nic nie jest przesyłane, dopóki jej nie włączysz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie notificações dos agentes ao app cmux no iPhone. O recurso vem desativado; nada é enviado até que você o ative."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлять уведомления агентов в приложение cmux на iPhone. По умолчанию выключено; данные не загружаются, пока вы не включите эту функцию."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งการแจ้งเตือนของเอเจนต์ไปยังแอป cmux บน iPhone ปิดไว้ตามค่าเริ่มต้น และจะไม่มีการอัปโหลดข้อมูลจนกว่าจะเปิดใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aracı bildirimlerini iPhone’daki cmux uygulamasına gönderir. Varsayılan olarak kapalıdır; açılmadıkça hiçbir şey yüklenmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилати сповіщення агентів у застосунок cmux на iPhone. Типово вимкнено; нічого не завантажується, доки ви не ввімкнете цю функцію."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将代理通知发送到 iPhone 上的 cmux App。默认关闭；只有开启后才会上传内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將代理程式通知傳送到 iPhone 上的 cmux App。預設關閉；只有開啟後才會上傳內容。"
           }
         }
       }
@@ -136845,16 +137199,124 @@
     "notifications.forwardToPhone.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة توجيه الإشعارات إلى iPhone الخاص بي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedi obavještenja na moj iPhone"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videresend notifikationer til min iPhone"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitteilungen an mein iPhone weiterleiten"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Forward notifications to my iPhone"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reenviar notificaciones a mi iPhone"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transférer les notifications vers mon iPhone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inoltra le notifiche al mio iPhone"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "通知を iPhone に転送する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនការជូនដំណឹងទៅ iPhone របស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 iPhone으로 알림 전달"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videresend varslinger til min iPhone"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przekazuj powiadomienia na mój iPhone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encaminhar notificações para meu iPhone"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересылать уведомления на мой iPhone"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งต่อการแจ้งเตือนไปยัง iPhone ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildirimleri iPhone'uma ilet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пересилати сповіщення на мій iPhone"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将通知转发到我的 iPhone"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將通知轉寄到我的 iPhone"
           }
         }
       }
@@ -174572,6 +175034,159 @@
           "stringUnit": {
             "state": "translated",
             "value": "iOS アプリがローカルネットワーク上でこの Mac を検出し、同期できるようにします。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward Notifications to iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone に通知を転送"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stops this Mac from sending local agent alerts to mobile devices."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac からモバイルデバイスへのローカルエージェント通知の送信を停止します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.forwarding.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のローカルエージェント通知を iPhone や iPad の cmux に送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Notification Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知内容を非表示"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.hideContent.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends a generic message instead of agent and terminal text."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントやターミナルのテキストの代わりに一般的なメッセージを送信します。"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When to Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信するタイミング"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.onlyWhenAway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When Away"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "離席中のみ"
+          }
+        }
+      }
+    },
+    "settings.mobile.phonePush.mode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「常に」はすべてのローカルエージェント通知を送信します。「離席中」は、この Mac がロック中、スリープ中、またはアイドル状態になるまで待機します。"
           }
         }
       }
@@ -262589,6 +263204,381 @@
           "stringUnit": {
             "state": "translated",
             "value": "到達可能"
+          }
+        }
+      }
+    },
+    "push.hidden.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نشاط جديد في الوحدة الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova aktivnost u terminalu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Terminalaktivität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New terminal activity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva actividad en la terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvelle activité dans le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuova attività nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルアクティビティ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពស្ថានីយថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 터미널 활동"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ny terminalaktivitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nowa aktywność terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nova atividade no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Новая активность в терминале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มีกิจกรรมใหม่ในเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni terminal etkinliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нова активність у терміналі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的终端活动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新的終端活動"
+          }
+        }
+      }
+    },
+    "push.test.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل Mac تنبيهًا تجريبيًا إلى cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš Mac je poslao probno upozorenje u cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din Mac sendte en testadvarsel til cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Mac hat eine Testmitteilung an cmux gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac sent a test alert to cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu Mac envió una alerta de prueba a cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre Mac a envoyé une alerte de test à cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Mac ha inviato un avviso di prova a cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac から cmux にテスト通知が送信されました。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac របស់អ្នកបានផ្ញើការជូនដំណឹងសាកល្បងទៅ cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac에서 cmux로 테스트 알림을 보냈습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macen sendte et testvarsel til cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac wysłał alert testowy do cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu Mac enviou um alerta de teste ao cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac отправил тестовое уведомление в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac ของคุณส่งการแจ้งเตือนทดสอบไปยัง cmux แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac’iniz cmux’a bir test uyarısı gönderdi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ваш Mac надіслав тестове сповіщення в cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 发送测试提醒。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的 Mac 已向 cmux 傳送測試提醒。"
+          }
+        }
+      }
+    },
+    "push.test.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اختبار إشعارات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux test obavještenja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-notifikationstest"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Mitteilungstest"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Notification Test"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prueba de notificaciones de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test de notification cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test notifiche cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知テスト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការសាកល្បងការជូនដំណឹង cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 알림 테스트"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-varslingstest"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test powiadomień cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teste de notificações do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест уведомлений cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทดสอบการแจ้งเตือน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux bildirim testi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тест сповіщень cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知测试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 通知測試"
           }
         }
       }

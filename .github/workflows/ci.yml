@@ -259,6 +259,7 @@ jobs:
 
       - name: Validate SwiftPM lockfile policy
         run: |
+          python3 tests/test_package_resolved_policy_remote_inputs.py
           python3 tests/test_check_package_resolved_policy.py
           python3 scripts/check-package-resolved-policy.py
 
@@ -267,6 +268,9 @@ jobs:
 
       - name: Validate sidebar lazy-layout guard
         run: python3 tests/test_ci_sidebar_lazy_layout_guard.py
+
+      - name: Validate focused Dock shortcut routing guard
+        run: python3 tests/test_dock_shortcut_routing_guard.py
 
       - name: Validate bash prompt bootstrap composes with user PROMPT_COMMAND (starship)
         run: python3 tests/test_issue_5164_starship_prompt_composition.py
