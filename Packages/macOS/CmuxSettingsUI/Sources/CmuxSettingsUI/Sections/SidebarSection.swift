@@ -35,6 +35,7 @@ public struct SidebarSection: View {
     @State private var toolPosition: DefaultsValueModel<ToolSidebarPosition>
     @State private var rightMaxWidth: DefaultsValueModel<Double>
     @State private var rememberedRightMaxWidth: DefaultsValueModel<Double>
+    /// Creates the sidebar settings section backed by the supplied settings store.
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
@@ -75,6 +76,7 @@ public struct SidebarSection: View {
         .task { startObservingSettings() }
     }
 
+    /// Starts observation for every settings model rendered by this section.
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             matchTerminal,
@@ -507,6 +509,7 @@ public struct SidebarSection: View {
         }
     }
 
+    /// Returns the localized label for a tool-sidebar edge.
     private func toolPositionLabel(_ position: ToolSidebarPosition) -> String {
         switch position {
         case .left:

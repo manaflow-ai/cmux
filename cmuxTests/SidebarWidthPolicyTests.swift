@@ -194,6 +194,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertEqual(configuredMaximumWidth, 900, accuracy: 0.001)
     }
 
+    /// Verifies settings-file parsing accepts supported tool-sidebar positions only.
     func testSettingsFileStoreValidatesToolSidebarPosition() throws {
         let defaults = UserDefaults.standard
         let managedKey = SidebarCatalogSection().toolPosition.userDefaultsKey
@@ -223,6 +224,7 @@ final class SidebarWidthPolicyTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
 
+        /// Loads a single tool-position JSON value and returns the effective setting.
         func load(_ jsonValue: String) throws -> String? {
             defaults.set(ToolSidebarPosition.right.rawValue, forKey: managedKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)

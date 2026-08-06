@@ -31,6 +31,7 @@ struct SidebarResizerOcclusionResolver {
         return windowNumber > 0 ? windowNumber : nil
     }
 
+    /// Returns whether a point lies in an active leading or trailing sidebar divider band.
     func dividerBandContains(
         point: NSPoint,
         contentBounds: NSRect,

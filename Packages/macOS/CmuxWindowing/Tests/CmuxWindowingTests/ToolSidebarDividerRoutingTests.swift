@@ -9,6 +9,7 @@ struct ToolSidebarDividerRoutingTests {
         let isDock: Bool
     }
 
+    /// Verifies the workspace leading edge defines the divider with or without workspace chrome.
     @Test(arguments: [CGFloat(220), CGFloat(0)])
     func workspaceLeadingEdgeDefinesDivider(workspaceSidebarWidth: CGFloat) {
         let routing = ToolSidebarDividerRouting(minimumVisibleContentWidth: 24)
@@ -29,6 +30,7 @@ struct ToolSidebarDividerRoutingTests {
         )
     }
 
+    /// Verifies Dock geometry supplies a fallback divider during transient layout churn.
     @Test func dockTrailingEdgeIsFallbackDuringWorkspaceLayoutChurn() {
         let routing = ToolSidebarDividerRouting(minimumVisibleContentWidth: 24)
         let portals = [

@@ -665,6 +665,7 @@ final class WindowBrowserHostView: NSView {
         )
     }
 
+    /// Returns whether a browser-host pointer event should reach the SwiftUI sidebar resizer.
     private func shouldPassThroughToSidebarResizer(
         at point: NSPoint,
         dividerHit: DividerHit?,
@@ -3920,6 +3921,7 @@ enum BrowserWindowPortalRegistry {
         }
     }
 
+    /// Returns the browser portal associated with a window, creating it when needed.
     private static func portal(for window: NSWindow) -> WindowBrowserPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowBrowserPortalKey) as? WindowBrowserPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing

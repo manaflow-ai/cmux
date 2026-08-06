@@ -83,6 +83,7 @@ import Testing
         #expect(queryCount == 0)
     }
 
+    /// Verifies a left tool sidebar exposes leading-edge divider hit geometry.
     @Test func leftToolSidebarUsesLeadingEdgeHitGeometry() {
         let resolver = SidebarResizerOcclusionResolver { _ in 10 }
         let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
@@ -101,6 +102,7 @@ import Testing
         )
     }
 
+    /// Verifies a left tool sidebar rejects points unique to trailing-edge geometry.
     @Test func leftToolSidebarDoesNotUseTrailingEdgeHitGeometry() {
         let resolver = SidebarResizerOcclusionResolver { _ in 10 }
         let bounds = CGRect(x: 0, y: 0, width: 800, height: 600)

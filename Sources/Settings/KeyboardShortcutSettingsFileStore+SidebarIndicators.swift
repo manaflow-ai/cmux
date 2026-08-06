@@ -1,6 +1,7 @@
 import CmuxSettings
 
 extension CmuxSettingsFileStore {
+    /// Parses sidebar indicator and native tool-sidebar placement settings.
     func parseSidebarIndicatorPositionSettings(
         _ section: [String: Any],
         sourcePath: String,

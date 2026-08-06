@@ -1452,6 +1452,7 @@ struct ContentView: View {
         }
     }
 
+    /// Refreshes pointer pass-through state for whichever sidebar divider is visible.
     private func updateSidebarResizerBandState(using _: NSEvent? = nil) {
         guard sidebarState.isVisible || rightSidebarVisible,
               let window = observedWindow,
@@ -1817,6 +1818,7 @@ struct ContentView: View {
         return -max(0, min(titlebarPadding, hostingSafeAreaTop))
     }
 
+    /// Computes titlebar leading padding after accounting for sidebar reservations.
     nonisolated static func customTitlebarLeadingPadding(
         isFullScreen: Bool,
         isSidebarVisible: Bool,
@@ -1935,6 +1937,7 @@ struct ContentView: View {
             }
     }
 
+    /// Composes terminal content with the native tool-sidebar panel.
     private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
         // The right-sidebar shell remains in the view tree so its frame can
         // animate without SwiftUI insertion/removal. Cold hidden launches defer
@@ -1994,6 +1997,7 @@ struct ContentView: View {
         }
     }
 
+    /// Wraps the native tool-sidebar panel in its configured backdrop.
     private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
         let panel = sidebarPanelContainer(width: rightSidebarWidth, alignment: .trailing, role: .rightSidebar, appearance: appearance) {
             rightSidebarPanel(appearance: appearance)
@@ -2011,6 +2015,7 @@ struct ContentView: View {
         return panel
     }
 
+    /// Builds the native Files, Find, Vault, Feed, and Dock panel.
     private func rightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
         let fullscreenPlacement = Self.fullscreenControlsPlacement(
             isFullScreen: isFullScreen,
@@ -2185,6 +2190,7 @@ struct ContentView: View {
         )
     }
 
+    /// Builds the custom titlebar with edge-aware sidebar spacing.
     private func customTitlebar(
         appearance: WindowAppearanceSnapshot,
         leadingSidebarSpaceAlreadyReserved: Bool = false
@@ -2265,6 +2271,7 @@ struct ContentView: View {
         }
     }
 
+    /// Builds the workspace titlebar drag band beside the native tool sidebar.
     private func workspaceTitlebarBand(appearance: WindowAppearanceSnapshot) -> some View {
         Color.clear
             .frame(height: WindowChromeMetrics.appTitlebarHeight)
@@ -2621,6 +2628,7 @@ struct ContentView: View {
             )
     }
 
+    /// Orders workspace content and the native tool sidebar for the configured edge.
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
         let layout: AnyView
         // The legacy SwiftUI path uses HStack while matching so both sidebar
@@ -3451,6 +3459,7 @@ struct ContentView: View {
         return AnyView(view.cmuxAppearanceColorScheme(appearanceMode))
     }
 
+    /// Applies window chrome and synchronizes sidebar placement with portal hosts.
     @MainActor
     private func configureMainWindowChrome(
         _ window: NSWindow,

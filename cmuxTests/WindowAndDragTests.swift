@@ -1863,6 +1863,7 @@ final class WindowDragHandleHitTests: XCTestCase {
         )
     }
 
+    /// Verifies double-clicking empty tool-sidebar chrome performs the titlebar action.
     func testRightSidebarModeBarEmptySpaceDoubleClickPerformsTitlebarAction() {
         _ = NSApplication.shared
 

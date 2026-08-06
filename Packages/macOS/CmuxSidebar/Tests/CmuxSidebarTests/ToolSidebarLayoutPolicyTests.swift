@@ -4,6 +4,7 @@ import Testing
 
 @Suite("Tool sidebar layout policy")
 struct ToolSidebarLayoutPolicyTests {
+    /// Verifies only left placement orders the tool sidebar before workspace content.
     @Test func leftPlacementPrecedesWorkspaceContent() {
         let policy = ToolSidebarLayoutPolicy()
 
@@ -11,6 +12,7 @@ struct ToolSidebarLayoutPolicyTests {
         #expect(!policy.placesToolSidebarBeforeWorkspace(for: .right))
     }
 
+    /// Verifies a left mode bar clears traffic lights without a workspace sidebar.
     @Test func leftModeBarClearsTrafficLightsWhenWorkspaceSidebarIsHidden() {
         let policy = ToolSidebarModeBarLayoutPolicy()
 
@@ -26,6 +28,7 @@ struct ToolSidebarLayoutPolicyTests {
         )
     }
 
+    /// Verifies a left mode bar clears custom fullscreen controls.
     @Test func leftModeBarClearsFullscreenControlsWhenWorkspaceSidebarIsHidden() {
         let policy = ToolSidebarModeBarLayoutPolicy()
 
@@ -41,6 +44,7 @@ struct ToolSidebarLayoutPolicyTests {
         )
     }
 
+    /// Verifies compact padding is used when window controls cannot overlap the mode bar.
     @Test func modeBarUsesCompactPaddingWhenWindowControlsCannotOverlap() {
         let policy = ToolSidebarModeBarLayoutPolicy()
 

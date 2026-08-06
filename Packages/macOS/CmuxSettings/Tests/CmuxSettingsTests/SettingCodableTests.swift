@@ -26,6 +26,7 @@ struct SettingCodableTests {
         #expect(AppearanceMode.decodeFromJSON(encoded) == .dark)
     }
 
+    /// Verifies both supported positions round-trip and unknown values are rejected.
     @Test func toolSidebarPositionRoundTripsAndRejectsUnknownValues() {
         #expect(ToolSidebarPosition.decodeFromJSON("left") == .left)
         #expect(ToolSidebarPosition.decodeFromJSON("right") == .right)

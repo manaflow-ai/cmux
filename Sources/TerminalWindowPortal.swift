@@ -266,6 +266,7 @@ final class WindowTerminalHostView: NSView {
         return samples.contains { shouldPassThroughToChrome(at: $0, eventType: .cursorUpdate) }
     }
 
+    /// Returns whether a terminal-host pointer event should reach the SwiftUI sidebar resizer.
     private func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
         // The sidebar resizer handle is implemented in SwiftUI. When terminals
         // are portal-hosted, this AppKit host can otherwise sit above the handle
@@ -2506,6 +2507,7 @@ enum TerminalWindowPortalRegistry {
         }
     }
 
+    /// Returns the terminal portal associated with a window, creating it when needed.
     private static func portal(for window: NSWindow, syncLayout: Bool = true) -> WindowTerminalPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowTerminalPortalKey) as? WindowTerminalPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing

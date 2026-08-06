@@ -47,6 +47,7 @@ extension CmuxSettingsFileStore {
             }
     }
 
+    /// Builds the default settings-file sections shown in the generated template.
     private static func defaultTemplateSections() -> [[String: Any]] {
         let shortcutsBindings = Dictionary(
             uniqueKeysWithValues: KeyboardShortcutSettings.publicShortcutActions.map { action in

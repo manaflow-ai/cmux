@@ -102,6 +102,7 @@ struct SettingCatalogTests {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
     }
 
+    /// Verifies the tool sidebar defaults to the persisted right-edge setting.
     @Test func toolSidebarDefaultsToTheRight() {
         #expect(SettingCatalog().sidebar.toolPosition.defaultValue == .right)
         #expect(SettingCatalog().sidebar.toolPosition.id == "sidebar.toolPosition")
