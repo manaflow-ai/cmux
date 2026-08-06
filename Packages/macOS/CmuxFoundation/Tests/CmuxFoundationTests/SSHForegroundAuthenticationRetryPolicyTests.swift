@@ -581,6 +581,35 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
+    @Test func emptyFrozenProcessSetRequiresNoForce() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-empty-frozen-\(UUID().uuidString)", isDirectory: true)
+        let frozenFile = root.appendingPathComponent("frozen")
+        let orderedFile = root.appendingPathComponent("ordered")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data().write(to: frozenFile)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_force_frozen_processes
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FROZEN": frozenFile.path,
+                "CMUX_TEST_ORDERED": orderedFile.path,
+            ]
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func ordersDuplicateFrozenProcessRecordsWithoutCycling() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -631,6 +660,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-shared-handler-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
+        let termHandlerMarker = root.appendingPathComponent("term-handler")
         let replacementScript = root.appendingPathComponent("replacement.sh")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
@@ -646,7 +676,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        ( trap '/usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
+        ( trap ': > "$CMUX_TEST_TERM_HANDLER_MARKER"; /usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
@@ -656,7 +686,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
         wait "$cmux_test_auth_root" 2>/dev/null || true
-        /bin/sleep 0.1
+        test ! -e "$CMUX_TEST_TERM_HANDLER_MARKER"
         test ! -s "$CMUX_TEST_REPLACEMENT_PID"
         """
 
@@ -665,6 +695,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_TERM_HANDLER_MARKER": termHandlerMarker.path,
             "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
             "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
         ]) { _, override in override }
@@ -892,6 +923,54 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try waitForExit(process, stderrCapture: stderrCapture)
 
         #expect(process.terminationStatus == 0)
+    }
+
+    @Test func laterRecoverySweepReclaimsDeadReaperLockOwner() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-stale-reaper-lock-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("cmux-ssh-auth-group.test", isDirectory: true)
+        let lockDirectory = groupDirectory.appendingPathComponent("reaper.lock", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try fileManager.createDirectory(at: lockDirectory, withIntermediateDirectories: false)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "cleanup-incomplete attempts=3\n".write(
+            to: groupDirectory.appendingPathComponent("reaper.failed"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "999999|1|999999|Thu_Jan_1_00:00:00_1970\n".write(
+            to: lockDirectory.appendingPathComponent("owner"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() {
+          /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_resume_failed_auth_group_reapers
+        cmux_test_recovery_attempt=0
+        while [ -d "$TMPDIR/cmux-ssh-auth-group.test" ] && \
+          [ "$cmux_test_recovery_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_recovery_attempt=$((cmux_test_recovery_attempt + 1))
+        done
+        test ! -d "$TMPDIR/cmux-ssh-auth-group.test"
+        """
+
+        let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
     @Test(arguments: [("HUP", Int32(129)), ("INT", Int32(130)), ("TERM", Int32(143))])
@@ -1422,6 +1501,29 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             String(data: stderrData, encoding: .utf8) ?? "",
             temporaryFiles
         )
+    }
+
+    private func runShellCommand(
+        _ command: String,
+        environment overrides: [String: String] = [:]
+    ) throws -> (status: Int32, standardError: String) {
+        let process = Process()
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging(overrides) { _, override in
+            override
+        }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+        try stderrCapture.handle.close()
+        let standardError = (try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? ""
+        return (process.terminationStatus, standardError)
     }
 
     private func processGroupID(in record: URL) -> Int32? {

@@ -11,6 +11,27 @@ import Testing
 
 @Suite(.serialized)
 struct SSHForegroundAuthenticationMarkerCleanupTests {
+    @Test func installsAttachSignalTrapsAfterAuthenticationCleanupFunction() throws {
+        let command = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: "ssh-test-session",
+            foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+                destination: "ordering.example.test",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [],
+                token: "foreground-auth-token"
+            )
+        )
+        let cleanupDefinition = try #require(
+            command.range(of: "cmux_ssh_attach_remove_auth_group_dir()")
+        )
+        let firstSignalTrap = try #require(
+            command.range(of: "trap 'cmux_ssh_attach_signal_exit 129 HUP' HUP")
+        )
+
+        #expect(cleanupDefinition.lowerBound < firstSignalTrap.lowerBound)
+    }
+
     @Test func restoredAttachSignalTerminatesForegroundAuthenticationProcessTree() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
