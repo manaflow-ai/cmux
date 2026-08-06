@@ -187,6 +187,15 @@ jobs:
         working-directory: cmux-tui
         run: python3 scripts/smoke-attach.py
 
+      - name: Upload macOS debug binary
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-macos-debug
+          path: cmux-tui/target/debug/cmux-tui
+          if-no-files-found: error
+          retention-days: 3
+
   bindings-e2e:
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
