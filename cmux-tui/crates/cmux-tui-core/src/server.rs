@@ -11722,6 +11722,62 @@ mod tests {
     }
 
     #[test]
+    fn protocol_v1_is_rejected_before_returning_a_zero_view_terminal_snapshot() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        mux.surface_exited(surface.id);
+
+        let (writer, outbound) = captured_writer();
+        let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let current_request = serde_json::to_string(&json!({
+            "protocol":crate::resource::PROTOCOL,
+            "type":"request",
+            "id":"current-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &current_request, &writer, &scheduler));
+        let current_response = pop_json(&outbound);
+        assert_eq!(current_response["ok"], true);
+        let terminal = current_response["result"]["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("the actual response contains the durable exit receipt");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+
+        let legacy_request = serde_json::to_string(&json!({
+            "protocol":"cmux.protocol/1",
+            "type":"request",
+            "id":"legacy-zero-view-snapshot",
+            "operation":"session.snapshot",
+            "params":{"machine":"current","session":"current"},
+        }))
+        .unwrap();
+
+        assert!(handle_connection_message(&mux, client, &legacy_request, &writer, &scheduler));
+        let response = pop_json(&outbound);
+
+        assert_eq!(response["protocol"], crate::resource::PROTOCOL);
+        assert_eq!(response["type"], "response");
+        assert_eq!(response["id"], "legacy-zero-view-snapshot");
+        assert_eq!(response["ok"], false);
+        assert_eq!(response["error"]["code"], "validation.invalid");
+        assert_eq!(response["error"]["details"]["field"], "protocol");
+        assert!(response.get("result").is_none());
+
+        disconnect_client(&mux, client, false);
+        mux.shutdown();
+    }
+
+    #[test]
     fn terminal_waits_do_not_block_ping_or_stream_cancel_on_the_same_connection() {
         let mux = test_mux();
         let (writer, outbound) = captured_writer();
