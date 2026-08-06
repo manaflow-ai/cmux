@@ -12,6 +12,8 @@ extension TerminalController {
         switch method {
         case "mobile.browser.list":
             return v2MobileBrowserList(params: params)
+        case "mobile.browser.create":
+            return v2MobileBrowserCreate(params: params)
         case "mobile.browser.stream.start":
             guard let connectionID else {
                 return .err(code: "unavailable", message: "Browser streaming requires a mobile connection", data: nil)
@@ -166,6 +168,32 @@ extension TerminalController {
             }
         }
         return .ok(["panels": panels])
+    }
+
+    /// Creates a new browser panel in a workspace so the phone can stream it
+    /// immediately, mirroring `v2MobileTerminalCreate`. The panel is created
+    /// without stealing Mac focus; the caller starts the stream separately.
+    private func v2MobileBrowserCreate(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
+        }
+        if let error = mobileWorkspaceIDValidationError(params: params) {
+            return error
+        }
+        guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            return .err(code: "not_found", message: "Workspace not found", data: nil)
+        }
+        guard let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
+            return .err(code: "not_found", message: "Pane not found", data: nil)
+        }
+        guard let panel = workspace.newBrowserSurface(inPane: paneId, focus: false) else {
+            return .err(code: "unavailable", message: "Browser creation is unavailable", data: nil)
+        }
+        let encoder = MobileBrowserWireEncoder()
+        guard let payload = encoder.object(encoder.descriptor(panel: panel)) else {
+            return .err(code: "internal_error", message: "Browser creation is unavailable", data: nil)
+        }
+        return .ok(payload)
     }
 
     private func v2MobileBrowserPointerInput(
