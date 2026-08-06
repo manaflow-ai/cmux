@@ -66,8 +66,12 @@ struct SidebarWorkspaceRowModel: Equatable {
 }
 
 /// Behavior bundle for the row view; excluded from model equality.
+///
+/// Reference identity lets the row configuration, cell, and checklist share
+/// one closure bundle. Hover repaints then retain one object instead of
+/// copying and destroying every captured closure on the main event path.
 @MainActor
-struct SidebarAppKitRowActions {
+final class SidebarAppKitRowActions {
     let commands: SidebarWorkspaceRowCommands
     let onOpenStatusURL: (URL) -> Void
     let onOpenWorkspaceDescriptionURL: (URL) -> Void
@@ -104,6 +108,58 @@ struct SidebarAppKitRowActions {
     /// Opts this row's workspace out of the status feature (None).
     let hideTodoStatus: () -> Void
     let commitRename: (String) -> Void
+
+    init(
+        commands: SidebarWorkspaceRowCommands,
+        onOpenStatusURL: @escaping (URL) -> Void,
+        onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void,
+        onOpenPullRequest: @escaping (URL) -> Void,
+        onOpenPort: @escaping (Int) -> Void,
+        onToggleChecklistExpansion: @escaping () -> Void,
+        onToggleMetadataExpansion: @escaping () -> Void,
+        onToggleMarkdownExpansion: @escaping () -> Void,
+        onConsumeChecklistAddFieldActivation: @escaping () -> Void,
+        checklistSetItemState: @escaping (UUID, WorkspaceChecklistItem.State) -> Void,
+        checklistRemoveItem: @escaping (UUID) -> Void,
+        checklistAddItem: @escaping (String) -> Void,
+        checklistEditItem: @escaping (UUID, String) -> Void,
+        checklistMoveItem: @escaping (UUID, Int) -> Void,
+        checklistOpenPane: @escaping () -> Void,
+        checklistAddAttachments: @escaping (UUID) -> Void,
+        checklistRemoveAttachment: @escaping (UUID, UUID) -> Void,
+        checklistOpenAttachments: @escaping (UUID, UUID?) -> Void,
+        onChecklistPopoverPresentedChange: @escaping (Bool) -> Void,
+        onBeginChecklistItemEdit: @escaping (UUID?) -> Void,
+        onEndChecklistItemEdit: @escaping (UUID) -> Void,
+        applyTodoStatus: @escaping (WorkspaceTaskStatus?) -> Void,
+        hideTodoStatus: @escaping () -> Void,
+        commitRename: @escaping (String) -> Void
+    ) {
+        self.commands = commands
+        self.onOpenStatusURL = onOpenStatusURL
+        self.onOpenWorkspaceDescriptionURL = onOpenWorkspaceDescriptionURL
+        self.onOpenPullRequest = onOpenPullRequest
+        self.onOpenPort = onOpenPort
+        self.onToggleChecklistExpansion = onToggleChecklistExpansion
+        self.onToggleMetadataExpansion = onToggleMetadataExpansion
+        self.onToggleMarkdownExpansion = onToggleMarkdownExpansion
+        self.onConsumeChecklistAddFieldActivation = onConsumeChecklistAddFieldActivation
+        self.checklistSetItemState = checklistSetItemState
+        self.checklistRemoveItem = checklistRemoveItem
+        self.checklistAddItem = checklistAddItem
+        self.checklistEditItem = checklistEditItem
+        self.checklistMoveItem = checklistMoveItem
+        self.checklistOpenPane = checklistOpenPane
+        self.checklistAddAttachments = checklistAddAttachments
+        self.checklistRemoveAttachment = checklistRemoveAttachment
+        self.checklistOpenAttachments = checklistOpenAttachments
+        self.onChecklistPopoverPresentedChange = onChecklistPopoverPresentedChange
+        self.onBeginChecklistItemEdit = onBeginChecklistItemEdit
+        self.onEndChecklistItemEdit = onEndChecklistItemEdit
+        self.applyTodoStatus = applyTodoStatus
+        self.hideTodoStatus = hideTodoStatus
+        self.commitRename = commitRename
+    }
 }
 
 
