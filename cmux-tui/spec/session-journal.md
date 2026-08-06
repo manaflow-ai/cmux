@@ -192,6 +192,8 @@ cmux --session main --jsonl session current journal read \
   --kinds 'agent.*' --regex 'approval|question' --regex-field payload --ignore-case
 cmux --session main --jsonl session current journal subscribe
 cmux --session main --jsonl session current journal subscribe \
+  --kinds agent.turn.completed
+cmux --session main --jsonl session current journal subscribe \
   --from beginning --kinds 'agent.*,pane.*' --classes state,observation
 cmux --session main --jsonl session current journal subscribe \
   --cursor-session session_... --sequence 42
@@ -213,7 +215,10 @@ instead of the older `validation.invalid` envelope error.
 Quote kind prefixes containing `*` so shells such as zsh do not expand them.
 Regex uses Rust's linear-time regex engine. Patterns are limited to 1024 bytes,
 compiled once per subscription, and literal searches use the engine's
-vectorized prefilters when available.
+vectorized prefilters when available. A regex inspects only its selected field:
+`--regex-field payload` does not inspect `kind`. Filter completions with
+`--kinds agent.turn.completed`, or use `--regex-field record` when one regex
+must inspect both kind and payload.
 
 One session-local fanout tailer owns the persistent read-only WAL connection.
 It decodes each live record once into a ring bounded by 8,192 records and a
@@ -394,6 +399,12 @@ cmux agent hook install
 cmux agent hook status
 cmux agent hook uninstall
 ```
+
+Providers load hook configuration at process start. After installation, launch
+a new agent or restart an existing agent inside a cmux-tui terminal so it
+inherits `CMUX_TUI_SOCKET` and `CMUX_TUI_TERMINAL_ID`. Hooks invoked outside a
+cmux-tui terminal intentionally consume their provider input and exit without
+appending to an arbitrary session.
 
 An explicit provider list limits the operation, for example
 `cmux agent hook install codex claude gemini`. The built-in set is Codex,

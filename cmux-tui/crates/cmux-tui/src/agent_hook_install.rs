@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook-v1";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin-v1";
+const ACTIVATION_NOTE: &str = "Providers load hooks at process start; launch or restart agents inside a cmux-tui terminal so CMUX_TUI_SOCKET is inherited.";
 const MAX_CONFIG_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_HELPER_BYTES: u64 = 128 * 1024 * 1024;
 
@@ -346,16 +347,17 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
     } else {
         Vec::new()
     };
-    RunResult {
-        failed: !errors.is_empty(),
-        value: json!({
-            "action":action_name(plan.action),
-            "helper":helper,
-            "providers":results,
-            "skipped":skipped,
-            "errors":errors,
-        }),
+    let mut value = json!({
+        "action":action_name(plan.action),
+        "helper":helper,
+        "providers":results,
+        "skipped":skipped,
+        "errors":errors,
+    });
+    if plan.action != Action::Uninstall {
+        value["activation"] = Value::String(ACTIVATION_NOTE.into());
     }
+    RunResult { failed: !errors.is_empty(), value }
 }
 
 fn action_name(action: Action) -> &'static str {
@@ -1026,6 +1028,7 @@ mod tests {
         let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
         let first = run_with_context(&plan, &context);
         assert!(!first.failed, "{}", first.value);
+        assert_eq!(first.value["activation"], ACTIVATION_NOTE);
         let installed_once = fs::read(&config).unwrap();
         let second = run_with_context(&plan, &context);
         assert!(!second.failed, "{}", second.value);
