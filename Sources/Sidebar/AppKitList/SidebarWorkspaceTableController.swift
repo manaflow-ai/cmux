@@ -573,6 +573,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // so preserve the completed click by stable row identity.
             previewSelection(row: row, modifiers: modifiers, hitView: nil)
             deferredRowClick = click
+            // Request the apply the replay depends on. Fired only from a
+            // physical click (never from a replay re-park), so a request per
+            // click is the ceiling and a pathological apply cannot loop.
+#if DEBUG
+            cmuxDebugLog("sidebar.table.applyRequest row=\(row)")
+#endif
+            onDeferredRowClickAwaitingApply?()
         case .invalid:
             deferredRowClick = nil
         }
