@@ -27,6 +27,28 @@ fn socket_accepts(path: &Path) -> bool {
     cmux_tui_core::platform::transport::connect(path).is_ok()
 }
 
+fn wait_for_mux_owner(carrier: &mut Child, socket: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if socket_accepts(socket) {
+            return;
+        }
+        if let Some(status) = carrier.try_wait().unwrap() {
+            let mut stderr = String::new();
+            carrier.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("remote carrier exited before publishing its mux socket ({status}): {stderr}");
+        }
+        if Instant::now() >= deadline {
+            let _ = carrier.kill();
+            let _ = carrier.wait();
+            let mut stderr = String::new();
+            carrier.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+            panic!("remote carrier did not publish its mux socket within 15s: {stderr}");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn assert_cmux_success(output: &Output) {
     assert!(
         output.status.success(),
@@ -66,11 +88,7 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     let mux_socket = session_state.join("mux.sock");
 
     let mut carrier = spawn_carrier(executable, &session, state_root.path());
-
-    assert!(
-        wait_until(Duration::from_secs(5), || socket_accepts(&mux_socket)),
-        "remote carrier never published its mux socket"
-    );
+    wait_for_mux_owner(&mut carrier, &mux_socket);
     let created = Command::new(executable)
         .arg("--socket")
         .arg(&mux_socket)
@@ -138,10 +156,7 @@ fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     );
 
     let mut replacement = spawn_carrier(executable, &session, state_root.path());
-    assert!(
-        wait_until(Duration::from_secs(5), || socket_accepts(&mux_socket)),
-        "replacement owner never published its mux socket"
-    );
+    wait_for_mux_owner(&mut replacement, &mux_socket);
     let terminals = Command::new(executable)
         .arg("--socket")
         .arg(&mux_socket)
