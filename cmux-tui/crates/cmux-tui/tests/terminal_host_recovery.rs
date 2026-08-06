@@ -21,7 +21,8 @@ use cmux_tui_core::terminal_host_protocol::{
     PROTOCOL_VERSION, ProtocolError, RESIZE_ACK_CANONICAL_CHANGED, read_frame, write_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
-    TerminalHostLiveness, TerminalHostRecord, adopt_terminal_host, decode_terminal_color_overrides,
+    TerminalHostLiveness, TerminalHostRecord, acknowledge_terminal_host_exit_record,
+    adopt_terminal_host, decode_terminal_color_overrides, load_terminal_host_exit_records,
     load_terminal_host_records, remove_stale_terminal_host_record, terminal_host_record_liveness,
     terminal_host_root,
 };
@@ -515,9 +516,13 @@ fn terminal_host_survives_daemon_process_group_hangup() {
         terminal_host_record_liveness(&record_path, &record).unwrap(),
         TerminalHostLiveness::Live,
     );
-    let host = adopt_terminal_host(record, record_path).unwrap();
-    host.terminate().unwrap();
+    let mut host = adopt_terminal_host(record, record_path.clone()).unwrap();
+    let exit = host.terminate_and_wait_for_exit().unwrap();
     host.disconnect();
+    assert!(
+        acknowledge_terminal_host_exit_record(&record_path.with_extension("exit"), &exit).unwrap(),
+        "terminated host exit receipt was not acknowledged"
+    );
     wait_for_no_host_records(&harness.host_root());
 }
 
@@ -2823,6 +2828,38 @@ fn interrupted_public_creation_publishes_once_and_replays_stable_ids_after_two_r
 }
 
 #[test]
+fn rapid_public_create_close_acknowledges_every_exit_sidecar() {
+    let harness = RecoveryHarness::start("public-create-close-stress");
+    for index in 0..12 {
+        let created = resource_request(
+            &harness.socket,
+            &format!("rapid-create-{index}"),
+            "workspace.create",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "name":format!("Rapid close {index}"),
+                "initial_content":"terminal",
+                "correlation_key":format!("rapid-close-{index}"),
+            }),
+            Some(&format!("rapid-create-{index}")),
+        );
+        resource_request(
+            &harness.socket,
+            &format!("rapid-close-{index}"),
+            "terminal.close",
+            serde_json::json!({
+                "machine":"current",
+                "session":"current",
+                "terminal":created["value"]["terminal_id"],
+            }),
+            Some(&format!("rapid-close-{index}")),
+        );
+    }
+    wait_for_no_host_records(&harness.host_root());
+}
+
+#[test]
 fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
     let harness = RecoveryHarness::start("ctrl-d-exit");
     let created = request(
@@ -3157,12 +3194,16 @@ fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, Terminal
 fn wait_for_no_host_records(root: &Path) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
-        if load_terminal_host_records(root).unwrap().is_empty() {
+        if load_terminal_host_records(root).unwrap().is_empty()
+            && load_terminal_host_exit_records(root).unwrap().is_empty()
+        {
             return;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    panic!("terminal host record was not removed after close");
+    let records = load_terminal_host_records(root).unwrap();
+    let exits = load_terminal_host_exit_records(root).unwrap();
+    panic!("terminal host records or exit sidecars remained after close: {records:?}; {exits:?}");
 }
 
 fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {

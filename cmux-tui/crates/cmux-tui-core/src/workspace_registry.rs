@@ -69,7 +69,7 @@ use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
     migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
-    validate_resource_invariants,
+    resource_tabs_needs_multiview_migration, validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -697,6 +697,11 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 tx.commit()?;
             }
+        }
+        if migrate_existing_registry && resource_tabs_needs_multiview_migration(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_resource_tabs_to_multiview(&tx)?;
+            tx.commit()?;
         }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
             let tx = connection.unchecked_transaction()?;
@@ -1852,28 +1857,7 @@ fn migrate_resource_effect_pepper(
 /// origin `u`. The multiview browser-only partial index has origin `c`, so the
 /// distinction survives formatting and index names.
 fn normalize_journal_multiview_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let legacy_content_identity = {
-        let mut indexes = transaction.prepare("PRAGMA index_list(resource_tabs)")?;
-        let indexes = indexes
-            .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, String>(3)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut found = false;
-        for (name, origin) in indexes {
-            if origin != "u" {
-                continue;
-            }
-            let mut columns = transaction.prepare("SELECT name FROM pragma_index_info(?1)")?;
-            let columns = columns
-                .query_map([name], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            if columns == ["content_id"] {
-                found = true;
-                break;
-            }
-        }
-        found
-    };
-    if legacy_content_identity {
+    if resource_tabs_needs_multiview_migration(transaction)? {
         migrate_resource_tabs_to_multiview(transaction)?;
     }
     migrate_resource_events_to_session_journal(transaction)?;

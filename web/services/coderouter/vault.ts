@@ -17,7 +17,7 @@ export class CodeRouterVaultCorrupt extends Error {
 
 export async function readTeamVault(teamId: string): Promise<CodeRouterVault> {
   const team = await getStackServerApp().getTeam(teamId);
-  if (!team) throw new CodeRouterVaultUnavailable("Stack team not found");
+  if (!team) throw new CodeRouterVaultUnavailable("coderouter team not found");
   return parseVault(team.serverMetadata?.[METADATA_KEY]);
 }
 
@@ -26,7 +26,7 @@ export async function writeTeamVault(
   vault: CodeRouterVault,
 ): Promise<void> {
   const team = await getStackServerApp().getTeam(teamId);
-  if (!team) throw new CodeRouterVaultUnavailable("Stack team not found");
+  if (!team) throw new CodeRouterVaultUnavailable("coderouter team not found");
   const metadata = isRecord(team.serverMetadata)
     ? { ...team.serverMetadata }
     : {};
@@ -79,7 +79,7 @@ export function parseVault(value: unknown): CodeRouterVault {
     return { version: 1, accounts: {} };
   }
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.accounts)) {
-    throw new CodeRouterVaultCorrupt("invalid Stack CodeRouter vault");
+    throw new CodeRouterVaultCorrupt("invalid coderouter vault");
   }
   const accounts: Record<string, VaultAccount> = {};
   for (const [accountId, candidate] of Object.entries(value.accounts)) {
@@ -89,7 +89,7 @@ export function parseVault(value: unknown): CodeRouterVault {
       (candidate.revision as number) < 1 ||
       !isCredential(candidate.credential)
     ) {
-      throw new CodeRouterVaultCorrupt("invalid Stack CodeRouter vault account");
+      throw new CodeRouterVaultCorrupt("invalid coderouter vault account");
     }
     accounts[accountId] = {
       revision: candidate.revision as number,

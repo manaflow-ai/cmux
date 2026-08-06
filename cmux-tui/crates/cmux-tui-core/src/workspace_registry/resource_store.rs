@@ -220,6 +220,38 @@ pub(super) fn migrate_resource_tabs_to_multiview(
     Ok(())
 }
 
+/// Detect a pre-multiview or malformed development schema that needs the tab
+/// table rebuilt. Besides the old table-level `UNIQUE(content_id)` constraint,
+/// this catches a same-named non-unique browser index that would otherwise make
+/// `CREATE UNIQUE INDEX IF NOT EXISTS` silently preserve invalid browser views.
+pub(super) fn resource_tabs_needs_multiview_migration(
+    connection: &Connection,
+) -> anyhow::Result<bool> {
+    let mut indexes = connection
+        .prepare("SELECT name, [unique], partial FROM pragma_index_list('resource_tabs')")?;
+    let indexes = indexes
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut has_expected_browser_index = false;
+    for (name, unique, partial) in indexes {
+        let mut columns =
+            connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno ASC")?;
+        let columns = columns
+            .query_map([&name], |row| row.get::<_, Option<String>>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let indexes_content = columns.as_slice() == [Some("content_id".to_string())];
+        if unique && !partial && indexes_content {
+            return Ok(true);
+        }
+        if name == "live_resource_browser_view" && unique && partial && indexes_content {
+            has_expected_browser_index = true;
+        }
+    }
+    Ok(!has_expected_browser_index)
+}
+
 pub(super) fn migrate_resource_agent_projections(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
@@ -469,6 +501,24 @@ impl WorkspaceRegistry {
             .map(TerminalPublicId::parse)
             .transpose()
             .map_err(Into::into)
+    }
+
+    /// Return every live public terminal-to-host identity in one deterministic
+    /// bulk read instead of resolving each terminal with a separate query.
+    pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, public_id
+             FROM resource_terminals
+             WHERE deleted_revision IS NULL
+             ORDER BY created_revision ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .map(|row| {
+                let (terminal_id, public_id) = row?;
+                Ok((terminal_id, TerminalPublicId::parse(public_id)?))
+            })
+            .collect()
     }
 
     /// Resolve the immutable resource-to-host relationship, including after

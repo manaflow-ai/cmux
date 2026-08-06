@@ -103,25 +103,17 @@ fn socket_attach_surface_with_size(
     cols: u16,
     rows: u16,
 ) {
-    writeln!(
+    socket_request(
         writer,
-        "{}",
+        reader,
         serde_json::json!({
             "id": id,
             "cmd": "attach-surface",
             "surface": surface,
             "cols": cols,
             "rows": rows,
-        })
-    )
-    .unwrap();
-    loop {
-        let value = read_json_line(reader).expect("attach event or response");
-        if value["id"].as_u64() == Some(id) {
-            assert_eq!(value["ok"], true, "attach failed: {value}");
-            return;
-        }
-    }
+        }),
+    );
 }
 
 fn assert_vt_state_size(

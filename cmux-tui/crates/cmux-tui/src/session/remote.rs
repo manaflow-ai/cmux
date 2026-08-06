@@ -5773,23 +5773,44 @@ mod tests {
     #[test]
     fn begin_shutdown_waits_for_previously_accepted_input() {
         let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
         let session = blocking_test_session(stream);
         session.send_bytes(7, b"accepted").unwrap();
         control.wait_until_entered();
 
+        let sequence = session.interactive_writer.last_enqueued_sequence().unwrap().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        let (shutdown_started_tx, shutdown_started_rx) = channel();
+        session.pending.lock().unwrap().insert(
+            u64::MAX,
+            PendingRemoteRequest {
+                response: shutdown_started_tx,
+                progress: Arc::new(AtomicU64::new(0)),
+                attach_surface: None,
+            },
+        );
+
         let (finished_tx, finished_rx) = channel();
+        let shutdown_session = session.clone();
         let shutdown = std::thread::spawn(move || {
-            session.begin_shutdown();
+            shutdown_session.begin_shutdown();
             finished_tx.send(()).unwrap();
         });
+        let shutdown_notice = shutdown_started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(shutdown_notice["shutdown"], true);
         assert!(
-            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            matches!(finished_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
             "shutdown returned before previously accepted input was written"
         );
 
         control.release();
+        drop(writer_state);
         finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap();
         shutdown.join().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        assert!(writer_state.last_written_sequence >= sequence);
+        drop(writer_state);
+        assert!(!output.lock().unwrap().is_empty());
     }
 
     #[test]
