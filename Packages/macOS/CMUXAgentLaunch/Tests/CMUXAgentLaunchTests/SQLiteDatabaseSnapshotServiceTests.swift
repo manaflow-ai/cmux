@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import SQLite3
 import Testing
 @testable import CMUXAgentLaunch
 
@@ -27,6 +28,47 @@ struct SQLiteDatabaseSnapshotServiceTests {
                 from: source.path,
                 to: destination.path
             )
+        }
+    }
+
+    @Test("Rejects symlink sources instead of reopening their targets")
+    func rejectsSymlinkSource() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let sourceLink = root.appendingPathComponent("source-link.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeDatabase(at: source)
+        try FileManager.default.createSymbolicLink(at: sourceLink, withDestinationURL: source)
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.sqlite(
+                "cannot open source database"
+            )
+        ) {
+            try SQLiteDatabaseSnapshotService().copyDatabase(
+                from: sourceLink.path,
+                to: destination.path
+            )
+        }
+    }
+
+    private func makeDatabase(at url: URL) throws {
+        var database: OpaquePointer?
+        guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {
+            throw SQLiteDatabaseSnapshotError.sqlite("fixture open failed")
+        }
+        defer { sqlite3_close(database) }
+        guard sqlite3_exec(
+            database,
+            "CREATE TABLE records (value TEXT); INSERT INTO records VALUES ('private');",
+            nil,
+            nil,
+            nil
+        ) == SQLITE_OK else {
+            throw SQLiteDatabaseSnapshotError.sqlite("fixture setup failed")
         }
     }
 }

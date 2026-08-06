@@ -214,6 +214,27 @@ struct HermesAgentIndexTests {
         }
     }
 
+    @Test("Creates transcript snapshots with owner-only permissions")
+    func createsTranscriptSnapshotsWithOwnerOnlyPermissions() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
+        try makeHermesStateDB(at: dbURL)
+
+        let snapshot = try #require(try HermesAgentDatabaseSnapshotService().make(
+            stateDBPath: dbURL.path,
+            prefix: "cmux-hermes-private-test"
+        ))
+        defer { snapshot.remove() }
+        let directoryPermissions = try permissions(
+            at: snapshot.databaseURL.deletingLastPathComponent()
+        )
+        let databasePermissions = try permissions(at: snapshot.databaseURL)
+
+        #expect(directoryPermissions == 0o700)
+        #expect(databasePermissions == 0o600)
+    }
+
     @Test("Online backup stays consistent when the WAL changes between steps")
     func onlineBackupStaysConsistentAcrossConcurrentCommit() throws {
         let root = try temporaryDirectory()
@@ -290,6 +311,11 @@ struct HermesAgentIndexTests {
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func permissions(at url: URL) throws -> Int {
+        let value = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]
+        return try #require(value as? NSNumber).intValue & 0o777
     }
 
     private func makeHermesStateDB(at url: URL) throws {
