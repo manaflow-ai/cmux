@@ -14,7 +14,8 @@ enum SSHPTYAttachStartupCommandBuilder {
         sessionID: String? = nil,
         foregroundAuth: ForegroundAuth? = nil,
         remoteCommand: String? = nil,
-        requireExisting: Bool = true
+        requireExisting: Bool = true,
+        sshExecutable: String = "/usr/bin/ssh"
     ) -> String {
         let backoffBuilder = SSHRetryBackoffScriptBuilder(context: .attach)
         var lines = [
@@ -33,7 +34,10 @@ enum SSHPTYAttachStartupCommandBuilder {
             ]
         }
         if let foregroundAuth {
-            lines += foregroundAuthLines(foregroundAuth)
+            lines += foregroundAuthLines(
+                foregroundAuth,
+                sshExecutable: sshExecutable
+            )
             lines.append(
                 SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction()
             )
@@ -90,7 +94,10 @@ enum SSHPTYAttachStartupCommandBuilder {
         )
     }
 
-    private static func foregroundAuthLines(_ auth: ForegroundAuth) -> [String] {
+    private static func foregroundAuthLines(
+        _ auth: ForegroundAuth,
+        sshExecutable: String
+    ) -> [String] {
         let readinessInsideResolvedLock =
             foregroundAuthenticationReadyShellLines(
                 auth,
@@ -101,6 +108,7 @@ enum SSHPTYAttachStartupCommandBuilder {
         let (sshCommand, reportsReadiness) =
             sshForegroundAuthCommand(
                 auth,
+                sshExecutable: sshExecutable,
                 successShellLines: readinessInsideResolvedLock
             )
         var lines = [
@@ -126,10 +134,11 @@ enum SSHPTYAttachStartupCommandBuilder {
 
     private static func sshForegroundAuthCommand(
         _ auth: ForegroundAuth,
+        sshExecutable: String,
         successShellLines: [String]
     ) -> (command: String, reportsReadiness: Bool) {
         let sharingOptions = SSHConnectionSharingOptions()
-        var arguments = ["/usr/bin/ssh"]
+        var arguments = [sshExecutable]
         let options = SSHAgentSocketResolver().removingOptions(
             named: "RemoteCommand",
             from: sharingOptions.mergingDefaults(into: auth.sshOptions)
