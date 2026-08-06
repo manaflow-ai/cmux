@@ -1362,6 +1362,36 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test func recoveryCompletionFailureCannotLeaveLiveClaimOwner() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-claim-failure-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("cmux-ssh-auth-group.test", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_recovery_complete_segment() {
+          /bin/chmod 500 "$TMPDIR/cmux-ssh-auth-recovery" || exit 99
+          return 1
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_auth_recovery_enqueue "$TMPDIR/cmux-ssh-auth-group.test" || exit 98
+        cmux_ssh_resume_failed_auth_group_reapers || exit 97
+        /bin/chmod 700 "$TMPDIR/cmux-ssh-auth-recovery" || exit 96
+        test -s "$TMPDIR/cmux-ssh-auth-recovery/queue.0.claim" || exit 95
+        cmux_ssh_auth_recovery_claim_segment || exit 94
+        test "$CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX" = 0 || exit 93
+        """
+
+        let result = try runShellCommand(command, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func anchorValidationFailurePreservesPublishedOwnershipState() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
