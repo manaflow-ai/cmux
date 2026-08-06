@@ -7,42 +7,53 @@ import Foundation
 @testable import cmux
 #endif
 
+private func validateAppHostUserConfigurationHome(
+    environment: [String: String]
+) throws {
+    let expectedHome = try #require(
+        environment["CMUX_APP_HOST_EXPECTED_HOME"],
+        "The isolated app-host launch must publish its resolved home"
+    )
+    let expectedXDGConfigHome = try #require(
+        environment["CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME"],
+        "The isolated app-host launch must publish its resolved XDG config home"
+    )
+
+    #expect(environment["HOME"] == expectedHome)
+    #expect(environment["CFFIXED_USER_HOME"] == expectedHome)
+    #expect(environment["XDG_CONFIG_HOME"] == expectedXDGConfigHome)
+    #expect(FileManager.default.homeDirectoryForCurrentUser.path == expectedHome)
+    #expect(
+        FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first?.path
+            == URL(fileURLWithPath: expectedHome, isDirectory: true)
+                .appendingPathComponent(
+                    "Library/Application Support",
+                    isDirectory: true
+                ).path
+    )
+    #expect(
+        NSString(string: "~/Library/Application Support")
+            .expandingTildeInPath
+            == URL(fileURLWithPath: expectedHome, isDirectory: true)
+                .appendingPathComponent(
+                    "Library/Application Support",
+                    isDirectory: true
+                ).path
+    )
+}
+
 @Suite struct MacSentryStartupPolicyTests {
     @Test func appHostUsesSchemeScopedUserConfigurationHome() throws {
-        let environment = ProcessInfo.processInfo.environment
-        let expectedHome = try #require(
-            environment["CMUX_APP_HOST_EXPECTED_HOME"],
-            "The cmux-unit scheme must publish its resolved app-host home"
+        try validateAppHostUserConfigurationHome(
+            environment: ProcessInfo.processInfo.environment
         )
-        let expectedXDGConfigHome = try #require(
-            environment["CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME"],
-            "The cmux-unit scheme must publish its resolved XDG config home"
-        )
+    }
 
-        #expect(environment["HOME"] == expectedHome)
-        #expect(environment["CFFIXED_USER_HOME"] == expectedHome)
-        #expect(environment["XDG_CONFIG_HOME"] == expectedXDGConfigHome)
-        #expect(FileManager.default.homeDirectoryForCurrentUser.path == expectedHome)
-        #expect(
-            FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first?.path
-                == URL(fileURLWithPath: expectedHome, isDirectory: true)
-                    .appendingPathComponent(
-                        "Library/Application Support",
-                        isDirectory: true
-                    ).path
-        )
-        #expect(
-            NSString(string: "~/Library/Application Support")
-                .expandingTildeInPath
-                == URL(fileURLWithPath: expectedHome, isDirectory: true)
-                    .appendingPathComponent(
-                        "Library/Application Support",
-                        isDirectory: true
-                    ).path
-        )
+    @Test func appHostIsolationValidationIsOptIn() throws {
+        try validateAppHostUserConfigurationHome(environment: [:])
     }
 
     @Test func xctestLaunchDoesNotStartSentry() {
