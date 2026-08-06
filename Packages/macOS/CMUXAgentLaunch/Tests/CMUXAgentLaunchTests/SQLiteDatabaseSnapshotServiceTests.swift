@@ -284,7 +284,7 @@ struct SQLiteDatabaseSnapshotServiceTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source.db", isDirectory: false)
         let abandonedDirectory = root.appendingPathComponent(
-            ".cmux-sqlite-source-abandoned",
+            ".cmux-sqlite-source-\(UUID().uuidString)",
             isDirectory: true
         )
         let abandonedDatabase = abandonedDirectory.appendingPathComponent(
@@ -302,7 +302,8 @@ struct SQLiteDatabaseSnapshotServiceTests {
             attributes: [.posixPermissions: 0o700]
         )
         try #require(Darwin.link(source.path, abandonedDatabase.path) == 0)
-        try Data().write(to: lease, options: .withoutOverwriting)
+        try sourceBindingLeaseData(databaseName: source.lastPathComponent)
+            .write(to: lease, options: .withoutOverwriting)
         try FileManager.default.setAttributes(
             [
                 .posixPermissions: 0o600,
@@ -386,7 +387,8 @@ struct SQLiteDatabaseSnapshotServiceTests {
             withIntermediateDirectories: false,
             attributes: [.posixPermissions: 0o700]
         )
-        try Data().write(to: lease, options: .withoutOverwriting)
+        try sourceBindingLeaseData(databaseName: "source.db")
+            .write(to: lease, options: .withoutOverwriting)
         try Data("user data".utf8).write(to: marker, options: .withoutOverwriting)
         try FileManager.default.setAttributes(
             [
@@ -431,7 +433,8 @@ struct SQLiteDatabaseSnapshotServiceTests {
             withIntermediateDirectories: false,
             attributes: [.posixPermissions: 0o700]
         )
-        try Data().write(to: lease, options: .withoutOverwriting)
+        try sourceBindingLeaseData(databaseName: "source.db")
+            .write(to: lease, options: .withoutOverwriting)
         try Data("user data".utf8).write(to: marker, options: .withoutOverwriting)
         try FileManager.default.setAttributes(
             [
@@ -468,5 +471,15 @@ struct SQLiteDatabaseSnapshotServiceTests {
         ) == SQLITE_OK else {
             throw SQLiteDatabaseSnapshotError.sqlite("fixture setup failed")
         }
+    }
+
+    private func sourceBindingLeaseData(databaseName: String) throws -> Data {
+        try JSONSerialization.data(
+            withJSONObject: [
+                "databaseName": databaseName,
+                "version": 1,
+            ],
+            options: [.sortedKeys]
+        )
     }
 }

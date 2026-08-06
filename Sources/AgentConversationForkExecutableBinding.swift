@@ -8,6 +8,7 @@ import Foundation
 struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
     private static let cleanupDirectoryName = "cmux-transfer-bindings"
     private static let cleanupRecordTTL: TimeInterval = 24 * 60 * 60
+    private static let quarantineAttributeName = "com.apple.quarantine"
 
     let sourcePath: String
     let boundPath: String
@@ -35,6 +36,9 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
 
         sourcePath = sourceURL.path
         expectedContentSHA256 = identity.contentSHA256
+        guard Self.sourceIsQuarantineFree(atPath: sourceURL.path) else {
+            return nil
+        }
 
         guard let directoryURL = adjacentDirectoryURL else {
             guard let expectedShellStatSignature = Self.protectedSourceStatSignature(
@@ -160,6 +164,9 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
             )
             return """
             cmux_transfer_source=\(quotedSource)
+            if /usr/bin/xattr -p com.apple.quarantine -- "$cmux_transfer_source" >/dev/null 2>&1; then
+              exit 76
+            fi
             cmux_transfer_source_actual=$(/usr/bin/stat -f '%d:%i:%p:%z:%m:%c' -- "$cmux_transfer_source") || exit 76
             if [[ "$cmux_transfer_source_actual" != \(quotedExpectedStat) ]]; then
               exit 76
@@ -195,6 +202,9 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         )
         return """
         cmux_transfer_source=\(quotedSource)
+        if /usr/bin/xattr -p com.apple.quarantine -- "$cmux_transfer_source" >/dev/null 2>&1; then
+          exit 76
+        fi
         cmux_transfer_bound=\(quotedBound)
         cmux_transfer_staging=\(quotedStaging)
         cmux_transfer_record=\(quotedCleanupRecord)
@@ -211,6 +221,9 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
           exit 76
         fi
         if [[ ! -f "$cmux_transfer_staging" || -L "$cmux_transfer_staging" ]]; then
+          exit 76
+        fi
+        if /usr/bin/xattr -p com.apple.quarantine -- "$cmux_transfer_staging" >/dev/null 2>&1; then
           exit 76
         fi
         if ! (set -o noclobber; umask 077; /bin/cat -- "$cmux_transfer_staging" > "$cmux_transfer_bound"); then
@@ -286,6 +299,7 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         var sourceMetadata = stat()
         guard Darwin.fstat(sourceDescriptor, &sourceMetadata) == 0,
               sourceMetadata.st_mode & S_IFMT == S_IFREG,
+              Self.fileDescriptorIsQuarantineFree(sourceDescriptor),
               sourceMetadata.st_size >= 0,
               sourceMetadata.st_size
                 <= AgentConversationForkExecutableIdentity.maximumArtifactBytes,
@@ -329,8 +343,37 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
                 offset += written
             }
         }
-        return Darwin.fchmod(destinationDescriptor, S_IRUSR | S_IXUSR) == 0
+        return Self.fileDescriptorIsQuarantineFree(sourceDescriptor)
+            && Darwin.fchmod(destinationDescriptor, S_IRUSR | S_IXUSR) == 0
             && Darwin.fsync(destinationDescriptor) == 0
+    }
+
+    private static func sourceIsQuarantineFree(atPath path: String) -> Bool {
+        let descriptor = Darwin.open(
+            path,
+            O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
+        )
+        guard descriptor >= 0 else { return false }
+        defer { _ = Darwin.close(descriptor) }
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & S_IFMT == S_IFREG else {
+            return false
+        }
+        return fileDescriptorIsQuarantineFree(descriptor)
+    }
+
+    private static func fileDescriptorIsQuarantineFree(_ descriptor: Int32) -> Bool {
+        errno = 0
+        let result = Darwin.fgetxattr(
+            descriptor,
+            quarantineAttributeName,
+            nil,
+            0,
+            0,
+            0
+        )
+        return result < 0 && errno == ENOATTR
     }
 
     private static func protectedSourceStatSignature(

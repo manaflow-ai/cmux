@@ -17,6 +17,8 @@ import SQLite3
 public struct SQLiteDatabaseSnapshotService {
     private static let sourceBindingDirectoryPrefix = ".cmux-sqlite-source"
     private static let sourceBindingLeaseName = ".cmux-binding-lease"
+    private static let sourceBindingLeaseVersion = 1
+    private static let sourceBindingLeaseMaximumBytes: off_t = 4 * 1_024
     private static let abandonedSourceBindingGraceInterval: TimeInterval = 60
 
     private let fileManager: FileManager
@@ -369,7 +371,10 @@ public struct SQLiteDatabaseSnapshotService {
                 if Darwin.lstat(directory.path, &directoryMetadata) == 0,
                    directoryMetadata.st_dev == sourceMetadata.st_dev,
                    directoryMetadata.st_mode & S_IFMT == S_IFDIR,
-                   let leaseDescriptor = createSourceBindingLease(in: directory) {
+                   let leaseDescriptor = createSourceBindingLease(
+                       in: directory,
+                       databaseName: sourceURL.lastPathComponent
+                   ) {
                     try? fileManager.removeItem(at: temporaryDirectory)
                     return (directory, false, leaseDescriptor)
                 }
@@ -389,7 +394,21 @@ public struct SQLiteDatabaseSnapshotService {
         return (temporaryDirectory, true, nil)
     }
 
-    private func createSourceBindingLease(in directoryURL: URL) -> Int32? {
+    private func createSourceBindingLease(
+        in directoryURL: URL,
+        databaseName: String
+    ) -> Int32? {
+        guard Self.sourceBindingDatabaseNameIsValid(databaseName),
+              let contents = try? JSONSerialization.data(
+                  withJSONObject: [
+                      "databaseName": databaseName,
+                      "version": Self.sourceBindingLeaseVersion,
+                  ],
+                  options: [.sortedKeys]
+              ),
+              off_t(contents.count) <= Self.sourceBindingLeaseMaximumBytes else {
+            return nil
+        }
         let leaseURL = directoryURL.appendingPathComponent(
             Self.sourceBindingLeaseName,
             isDirectory: false
@@ -400,7 +419,24 @@ public struct SQLiteDatabaseSnapshotService {
             S_IRUSR | S_IWUSR
         )
         guard descriptor >= 0 else { return nil }
-        guard Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+        var offset = 0
+        while offset < contents.count {
+            let written = contents.withUnsafeBytes { bytes in
+                Darwin.write(
+                    descriptor,
+                    bytes.baseAddress?.advanced(by: offset),
+                    contents.count - offset
+                )
+            }
+            guard written > 0 else {
+                _ = Darwin.close(descriptor)
+                _ = Darwin.unlink(leaseURL.path)
+                return nil
+            }
+            offset += written
+        }
+        guard Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR) == 0,
+              Darwin.fsync(descriptor) == 0 else {
             _ = Darwin.close(descriptor)
             _ = Darwin.unlink(leaseURL.path)
             return nil
@@ -421,8 +457,8 @@ public struct SQLiteDatabaseSnapshotService {
         let oldestRemovableModificationTime = Date().timeIntervalSince1970
             - Self.abandonedSourceBindingGraceInterval
 
-        for candidate in candidates where candidate.lastPathComponent.hasPrefix(
-            Self.sourceBindingDirectoryPrefix + "-"
+        for candidate in candidates where Self.sourceBindingDirectoryNameIsGenerated(
+            candidate.lastPathComponent
         ) {
             var originalDirectoryMetadata = stat()
             guard Darwin.lstat(candidate.path, &originalDirectoryMetadata) == 0,
@@ -455,7 +491,11 @@ public struct SQLiteDatabaseSnapshotService {
                 && leaseMetadata.st_uid == Darwin.geteuid()
                 && leaseMetadata.st_mode & (S_IRWXG | S_IRWXO) == 0
                 && leaseMetadata.st_nlink == 1
-            guard leaseIsPrivate else {
+            guard leaseIsPrivate,
+                  let databaseName = Self.sourceBindingDatabaseName(
+                      fromLeaseDescriptor: leaseDescriptor,
+                      metadata: leaseMetadata
+                  ) else {
                 _ = Darwin.close(leaseDescriptor)
                 continue
             }
@@ -470,11 +510,94 @@ public struct SQLiteDatabaseSnapshotService {
                 && currentDirectoryMetadata.st_mode & S_IFMT == S_IFDIR
                 && currentDirectoryMetadata.st_uid == Darwin.geteuid()
                 && currentDirectoryMetadata.st_mode & (S_IRWXG | S_IRWXO) == 0
-            if directoryIsUnchanged {
-                try? fileManager.removeItem(at: candidate)
+            if directoryIsUnchanged,
+               let childURLs = try? fileManager.contentsOfDirectory(
+                   at: candidate,
+                   includingPropertiesForKeys: nil,
+                   options: [.skipsSubdirectoryDescendants]
+               ) {
+                let removableNames = Set([
+                    Self.sourceBindingLeaseName,
+                    databaseName,
+                    databaseName + "-wal",
+                    databaseName + "-shm",
+                    databaseName + "-journal",
+                ])
+                let childNames = Set(childURLs.map(\.lastPathComponent))
+                let artifactURLs = childURLs.filter {
+                    $0.lastPathComponent != Self.sourceBindingLeaseName
+                }
+                let artifactsAreRegularFiles = artifactURLs.allSatisfy { url in
+                    var metadata = stat()
+                    return Darwin.lstat(url.path, &metadata) == 0
+                        && metadata.st_mode & S_IFMT == S_IFREG
+                }
+                if childNames.isSubset(of: removableNames),
+                   artifactsAreRegularFiles {
+                    var removedEveryArtifact = true
+                    for artifactURL in artifactURLs {
+                        if Darwin.unlink(artifactURL.path) != 0 {
+                            removedEveryArtifact = false
+                            break
+                        }
+                    }
+                    if removedEveryArtifact {
+                        _ = Darwin.unlink(leaseURL.path)
+                        _ = Darwin.rmdir(candidate.path)
+                    }
+                }
             }
             _ = Darwin.close(leaseDescriptor)
         }
+    }
+
+    private static func sourceBindingDirectoryNameIsGenerated(_ name: String) -> Bool {
+        let prefix = sourceBindingDirectoryPrefix + "-"
+        guard name.hasPrefix(prefix) else { return false }
+        let token = String(name.dropFirst(prefix.count))
+        return UUID(uuidString: token)?.uuidString == token
+    }
+
+    private static func sourceBindingDatabaseNameIsValid(_ name: String) -> Bool {
+        !name.isEmpty
+            && name != "."
+            && name != ".."
+            && name != sourceBindingLeaseName
+            && !name.contains("/")
+            && URL(fileURLWithPath: name).lastPathComponent == name
+    }
+
+    private static func sourceBindingDatabaseName(
+        fromLeaseDescriptor descriptor: Int32,
+        metadata: stat
+    ) -> String? {
+        guard metadata.st_size > 0,
+              metadata.st_size <= sourceBindingLeaseMaximumBytes else {
+            return nil
+        }
+        var bytes = [UInt8](repeating: 0, count: Int(metadata.st_size))
+        var offset = 0
+        while offset < bytes.count {
+            let remainingByteCount = bytes.count - offset
+            let bytesRead = bytes.withUnsafeMutableBytes { buffer in
+                Darwin.pread(
+                    descriptor,
+                    buffer.baseAddress?.advanced(by: offset),
+                    remainingByteCount,
+                    off_t(offset)
+                )
+            }
+            guard bytesRead > 0 else { return nil }
+            offset += bytesRead
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(bytes)),
+              let manifest = object as? [String: Any],
+              manifest["version"] as? Int == sourceBindingLeaseVersion,
+              let databaseName = manifest["databaseName"] as? String,
+              sourceBindingDatabaseNameIsValid(databaseName) else {
+            return nil
+        }
+        return databaseName
     }
 
     private func fileSystemIsReadOnly(at path: String) -> Bool {

@@ -100,7 +100,22 @@ extension Workspace {
     }
 
     func hasAgentConversationTransferSource(forPanelId panelId: UUID) -> Bool {
-        agentConversationTransferSnapshot(forPanelId: panelId) != nil
+        hasAgentConversationTransferSource(
+            forPanelId: panelId,
+            liveAgentIndex: .shared
+        )
+    }
+
+    /// This read is safe from SwiftUI render and fingerprint evaluation. Live
+    /// index reconciliation belongs to the explicit availability lifecycle.
+    func hasAgentConversationTransferSource(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex
+    ) -> Bool {
+        agentConversationTransferSnapshotWithoutReconciliation(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        ) != nil
     }
 
     func agentConversationTransferSnapshot(
@@ -123,6 +138,20 @@ extension Workspace {
         if !allowsAgentContinuation(forPanelId: panelId),
            let observation = liveAgentIndex.index?.entry(workspaceId: id, panelId: panelId) {
             reconcileCompletedRestoredAgent(panelId: panelId, observation: observation)
+        }
+        return agentConversationTransferSnapshotWithoutReconciliation(
+            forPanelId: panelId,
+            liveAgentIndex: liveAgentIndex
+        )
+    }
+
+    private func agentConversationTransferSnapshotWithoutReconciliation(
+        forPanelId panelId: UUID,
+        liveAgentIndex: SharedLiveAgentIndex
+    ) -> SessionRestorableAgentSnapshot? {
+        guard panels[panelId] is TerminalPanel,
+              !isRemoteTerminalSurface(panelId) else {
+            return nil
         }
         guard allowsAgentContinuation(forPanelId: panelId) else { return nil }
 
