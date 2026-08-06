@@ -2405,7 +2405,8 @@ fn terminal_snapshot_accepts_protocol_one_tab_id_alias() {
     attached.as_object_mut().unwrap().remove("tab_ids");
     attached["tab_id"] = json!(TAB);
     let attached: TerminalSnapshot = serde_json::from_value(attached).unwrap();
-    assert_eq!(attached.tab_ids, vec![TabId::parse(TAB).unwrap()]);
+    assert_eq!(attached.tab_ids.len(), 1);
+    assert_eq!(attached.tab_ids[0].as_str(), TAB);
 
     let mut detached = terminal_snapshot();
     detached.as_object_mut().unwrap().remove("tab_ids");
