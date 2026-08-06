@@ -51,26 +51,53 @@ prepare_app_host_home_for_console_user() {
   [ -n "${CMUX_APP_HOST_HOME:-}" ] || return 0
   local app_host_xdg_config_home_input="${CMUX_APP_HOST_XDG_CONFIG_HOME:-${CMUX_APP_HOST_HOME%/}/.config}"
 
-  if [ -z "${RUNNER_TEMP:-}" ]; then
-    echo "FAIL: app-host isolation requires a runner temporary directory" >&2
-    return 1
-  fi
-
   # A previous invocation may already have made the mode-700 home console-user
   # owned. Resolve it through the passwordless sudo boundary before validating
   # and handing it back to that same user.
-  local app_host_home app_host_xdg_config_home runner_temp
+  local app_host_home app_host_xdg_config_home app_host_home_target
+  local app_host_home_name app_host_home_parent expected_app_host_home
+  local system_temp_root
+  system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)" || {
+    echo "FAIL: system temporary directory is unavailable" >&2
+    return 1
+  }
+  app_host_home_target="${CMUX_APP_HOST_HOME%/}"
+  app_host_home_name="${app_host_home_target##*/}"
+  case "$app_host_home_name" in
+    cmux-ah-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *)
+      echo "FAIL: refusing to prepare a path without the app-host home name" >&2
+      return 1
+      ;;
+  esac
+  app_host_home_parent="$(dirname "$app_host_home_target")"
+  app_host_home_parent="$(cd "$app_host_home_parent" 2>/dev/null && pwd -P)" || {
+    echo "FAIL: app-host isolation parent is unavailable" >&2
+    return 1
+  }
+  if [ "$app_host_home_parent" != "$system_temp_root" ]; then
+    echo "FAIL: app-host isolation directory is outside the system temporary directory" >&2
+    return 1
+  fi
+  expected_app_host_home="${system_temp_root%/}/$app_host_home_name"
+  if sudo -n test -L "$app_host_home_target"; then
+    echo "FAIL: refusing app-host preparation through a home symlink" >&2
+    return 1
+  fi
   if [ "$cleanup_requested" = "1" ] \
-    && ! sudo -n test -e "$CMUX_APP_HOST_HOME" \
-    && ! sudo -n test -L "$CMUX_APP_HOST_HOME"; then
+    && ! sudo -n test -e "$app_host_home_target"; then
     # Cleanup itself owns the already-absent case and can now run as the console
     # user without a mutable path for this preparation step to traverse.
     return 0
   fi
-  app_host_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$CMUX_APP_HOST_HOME")" || {
+  app_host_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_home_target")" || {
     echo "FAIL: app-host isolation directory is unavailable" >&2
     return 1
   }
+  if [ "$app_host_home" != "$expected_app_host_home" ]; then
+    echo "FAIL: app-host isolation directory changed identity" >&2
+    return 1
+  fi
   if [ "$cleanup_requested" != "1" ]; then
     app_host_xdg_config_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_xdg_config_home_input")" || {
       echo "FAIL: app-host XDG configuration directory is unavailable" >&2
@@ -79,28 +106,6 @@ prepare_app_host_home_for_console_user() {
     cmux_validate_resolved_app_host_isolation \
       "$app_host_home" "$app_host_xdg_config_home" || return 1
     app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
-  fi
-
-  runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
-    echo "FAIL: runner temporary directory is unavailable" >&2
-    return 1
-  }
-
-  case "$app_host_home" in
-    "$runner_temp"/*) ;;
-    *)
-      echo "FAIL: app-host isolation directory is outside the runner temporary directory" >&2
-      return 1
-      ;;
-  esac
-  if [ "$cleanup_requested" = "1" ]; then
-    case "${app_host_home##*/}" in
-      ah-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-      *)
-        echo "FAIL: refusing to prepare a path without the app-host home name" >&2
-        return 1
-        ;;
-    esac
   fi
 
   sudo -n chown -R "$console_user" "$app_host_home"

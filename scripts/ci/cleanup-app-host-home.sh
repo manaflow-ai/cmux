@@ -27,8 +27,36 @@ if [ -z "$app_host_home_input" ] || [ -z "$app_host_xdg_config_home_input" ]; th
   exit 1
 fi
 
+system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)" || {
+  echo "FAIL: system temporary directory is unavailable" >&2
+  exit 1
+}
+app_host_home_target="${app_host_home_input%/}"
+app_host_home_name="${app_host_home_target##*/}"
+case "$app_host_home_name" in
+  cmux-ah-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+  *)
+    echo "FAIL: refusing to clean a path without the app-host home name" >&2
+    exit 1
+    ;;
+esac
+app_host_home_parent="$(dirname "$app_host_home_target")"
+app_host_home_parent="$(cd "$app_host_home_parent" 2>/dev/null && pwd -P)" || {
+  echo "FAIL: app-host isolation parent is unavailable" >&2
+  exit 1
+}
+if [ "$app_host_home_parent" != "$system_temp_root" ]; then
+  echo "FAIL: refusing to clean an app-host home outside the system temporary directory" >&2
+  exit 1
+fi
+expected_app_host_home="${system_temp_root%/}/$app_host_home_name"
+if [ -L "$app_host_home_target" ]; then
+  echo "FAIL: refusing app-host cleanup through a home symlink" >&2
+  exit 1
+fi
+
 # A prior cleanup or failed test may already have removed both paths.
-if [ ! -e "$app_host_home_input" ] && [ ! -L "$app_host_home_input" ]; then
+if [ ! -e "$app_host_home_target" ]; then
   if [ ! -e "$app_host_xdg_config_home_input" ] && [ ! -L "$app_host_xdg_config_home_input" ]; then
     echo "App-host isolation home is already absent"
     exit 0
@@ -37,10 +65,14 @@ if [ ! -e "$app_host_home_input" ] && [ ! -L "$app_host_home_input" ]; then
   exit 1
 fi
 
-app_host_home="$(cd "$app_host_home_input" 2>/dev/null && pwd -P)" || {
+app_host_home="$(cd "$app_host_home_target" 2>/dev/null && pwd -P)" || {
   echo "FAIL: app-host isolation directory is unavailable" >&2
   exit 1
 }
+if [ "$app_host_home" != "$expected_app_host_home" ]; then
+  echo "FAIL: app-host isolation directory changed identity" >&2
+  exit 1
+fi
 # The app host owns this mutable leaf and may replace the directory with a file,
 # a dangling symlink, or nothing. Never traverse the leaf during cleanup.
 # Canonicalize its existing parent, require that parent to be the validated
@@ -73,21 +105,6 @@ runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
   echo "FAIL: runner temporary directory is unavailable" >&2
   exit 1
 }
-
-case "$app_host_home" in
-  "$runner_temp"/*) ;;
-  *)
-    echo "FAIL: refusing to clean an app-host home outside runner temp" >&2
-    exit 1
-    ;;
-esac
-case "${app_host_home##*/}" in
-  ah-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-  *)
-    echo "FAIL: refusing to clean a path without the app-host home name" >&2
-    exit 1
-    ;;
-esac
 
 if [ -z "${CMUX_DERIVED_DATA_PATH:-}" ]; then
   echo "FAIL: app-host cleanup requires the shard DerivedData path" >&2

@@ -561,7 +561,7 @@ jobs:
         run: |
           set -euo pipefail
           APP_HOST_KEY="$(printf '%s' "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${{ matrix.shard }}" | shasum -a 256 | cut -c1-12)"
-          APP_HOST_HOME="${RUNNER_TEMP}/ah-${APP_HOST_KEY}"
+          APP_HOST_HOME="/tmp/cmux-ah-${APP_HOST_KEY}"
           APP_HOST_CONFIG_SENTINEL="$APP_HOST_HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
           echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"
           rm -rf "$APP_HOST_HOME"
