@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
-use cmux_remote::daemon::{InboundLink, RemoteDaemon};
+use cmux_remote::daemon::{DaemonSessionPolicy, InboundLink, RemoteDaemon};
 use cmux_remote::identity::{AuthDatabase, default_state_dir};
 use cmux_remote::provider::LengthDelimitedLink;
 use cmux_remote::services::DaemonServices;
@@ -155,7 +155,11 @@ async fn serve_remote_link(options: RemoteLinkOptions) -> anyhow::Result<()> {
         .context("could not start Windows mux control socket")?;
     let mux_owner = MuxOwner { mux, socket: mux_socket.clone() };
 
-    let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+    let (daemon, mut accepted) = RemoteDaemon::with_policy(
+        auth,
+        SessionLimits::default(),
+        DaemonSessionPolicy::carrier_scoped(),
+    )?;
     let link = LengthDelimitedLink::new(
         "ssh-stdio",
         MAX_CARRIER_FRAME_BYTES,

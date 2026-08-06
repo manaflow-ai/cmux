@@ -108,7 +108,8 @@ impl fmt::Debug for InboundLink {
 pub struct DaemonSessionPolicy {
     /// How long a disconnected logical session retains replay state while it
     /// waits for an authenticated reconnect. This is always finite so crashed
-    /// clients cannot accumulate for the daemon's entire lifetime.
+    /// clients cannot accumulate for the daemon's entire lifetime. Zero makes
+    /// the logical session carrier-scoped and closes it on transport loss.
     pub resume_lease: Duration,
 }
 
@@ -119,10 +120,17 @@ impl Default for DaemonSessionPolicy {
 }
 
 impl DaemonSessionPolicy {
+    /// Closes a logical session as soon as its only carrier is lost. Use this
+    /// when a new carrier would necessarily start a different daemon process
+    /// and therefore cannot resume the in-memory session.
+    pub const fn carrier_scoped() -> Self {
+        Self { resume_lease: Duration::ZERO }
+    }
+
     fn validate(self) -> Result<Self, DaemonError> {
-        if self.resume_lease.is_zero() || self.resume_lease > MAX_RESUME_LEASE {
+        if self.resume_lease > MAX_RESUME_LEASE {
             return Err(DaemonError::Protocol(format!(
-                "resume lease must be greater than zero and at most {}s",
+                "resume lease must be at most {}s",
                 MAX_RESUME_LEASE.as_secs()
             )));
         }
@@ -560,6 +568,10 @@ impl ServerConnection {
 
     async fn note_transport_loss(&self, generation: u64) {
         let Some(owner) = self.owner.upgrade() else { return };
+        if owner.policy.resume_lease.is_zero() {
+            let _ = self.close().await;
+            return;
+        }
         let Some(connection) = self.self_weak.upgrade() else { return };
         let deadline = Instant::now() + owner.policy.resume_lease;
         let mut lifecycle = self.lifecycle.lock().await;
