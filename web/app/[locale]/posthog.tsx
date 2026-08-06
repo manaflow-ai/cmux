@@ -2,7 +2,7 @@
 
 import { PostHogProvider as PHProvider } from "posthog-js/react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, Suspense } from "react";
+import { useLayoutEffect, Suspense } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
   syncStackAnalyticsIdentity,
@@ -13,10 +13,25 @@ function PageviewTracker() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!pathname || !posthog) return;
 
     const controller = new AbortController();
+    // Drop every PostHog event while auth is unresolved. This covers
+    // autocapture and captures from other components, not only pageviews.
+    posthog.set_config({ before_send: () => null });
+    const identityStorage = {
+      getItem: (key: string) =>
+        window.sessionStorage.getItem(key) ?? window.localStorage.getItem(key),
+      setItem: (key: string, value: string) => {
+        window.sessionStorage.setItem(key, value);
+        window.localStorage.setItem(key, value);
+      },
+      removeItem: (key: string) => {
+        window.sessionStorage.removeItem(key);
+        window.localStorage.removeItem(key);
+      },
+    };
     const capturePageview = () => {
       let url = window.origin + pathname;
       const search = searchParams.toString();
@@ -24,7 +39,7 @@ function PageviewTracker() {
       posthog.capture("$pageview", { $current_url: url });
     };
     const clearUnresolvedIdentity = () => {
-      syncStackAnalyticsIdentity(posthog, window.localStorage, null);
+      syncStackAnalyticsIdentity(posthog, identityStorage, null);
     };
 
     // Resolve auth before each route's pageview. This preserves anonymous
@@ -43,6 +58,7 @@ function PageviewTracker() {
         const payload = await response.json() as {
           user?: { id?: unknown; plan?: unknown } | null;
         };
+        if (controller.signal.aborted) return;
         let identity: StackAnalyticsIdentity | null;
         if (payload.user === null) {
           identity = null;
@@ -57,7 +73,8 @@ function PageviewTracker() {
           }
           identity = { id: payload.user.id, plan };
         }
-        syncStackAnalyticsIdentity(posthog, window.localStorage, identity);
+        syncStackAnalyticsIdentity(posthog, identityStorage, identity);
+        posthog.set_config({ before_send: (event) => event });
         if (!controller.signal.aborted) capturePageview();
       })
       .catch(() => {
