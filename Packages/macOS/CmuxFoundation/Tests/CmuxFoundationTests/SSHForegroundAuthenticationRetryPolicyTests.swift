@@ -465,7 +465,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(policy.processTreeTerminationShellFunction())
         cmux_ssh_auth_now_millis() {
           cmux_test_now=$(/bin/cat "$CMUX_TEST_CLOCK_FILE") || return 1
-          cmux_test_now=$((cmux_test_now + 50))
+          cmux_test_now=$((cmux_test_now + 150))
           printf '%s\\n' "$cmux_test_now" > "$CMUX_TEST_CLOCK_FILE" || return 1
           case "${cmux_ssh_auth_deadline_millis:-}" in
             ''|*[!0-9]*) ;;

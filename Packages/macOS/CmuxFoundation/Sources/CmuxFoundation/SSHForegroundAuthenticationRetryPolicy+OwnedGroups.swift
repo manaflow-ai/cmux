@@ -78,6 +78,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
         }
 
         cmux_ssh_auth_expand_owned_processes() {
+          cmux_ssh_auth_expand_snapshot="${1:-$cmux_ssh_auth_process_snapshot}"
           /usr/bin/awk -v cmux_root_group="$cmux_ssh_auth_owned_group" '
             FILENAME == ARGV[1] {
               cmux_previous[$1 SUBSEP $4] = 1
@@ -115,7 +116,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
                   cmux_started[cmux_pid], cmux_state[cmux_pid]
               }
             }
-          ' "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_process_snapshot" \
+          ' "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_expand_snapshot" \
             > "$cmux_ssh_auth_next_owned_processes" || return 1
           /usr/bin/sort -n -k1,1 -o "$cmux_ssh_auth_next_owned_processes" \
             "$cmux_ssh_auth_next_owned_processes" || return 1
@@ -299,6 +300,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
           done < "$cmux_ssh_auth_ordered_processes"
 
           cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_poststop_snapshot" || return 1
+          cmux_ssh_auth_expand_owned_processes "$cmux_ssh_auth_poststop_snapshot" || return 1
           cmux_ssh_auth_revalidate_stopped_groups || return 1
           /usr/bin/awk '
             FILENAME == ARGV[1] { cmux_valid_group[$1] = 1; next }
@@ -366,32 +368,75 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
         cmux_ssh_auth_force_frozen_processes() {
           cmux_ssh_auth_deadline_allows_work || return 1
-          if [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then return 0; fi
-          cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
-          cmux_ssh_auth_filter_current_processes "$cmux_ssh_auth_process_snapshot" \
+          if [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then
+            if [ -n "${cmux_ssh_auth_owned_processes:-}" ] && \
+              [ -s "$cmux_ssh_auth_owned_processes" ]; then return 1; fi
+            return 0
+          fi
+          cmux_ssh_auth_force_snapshot="${1:-}"
+          if [ -z "$cmux_ssh_auth_force_snapshot" ]; then
+            cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
+            cmux_ssh_auth_force_snapshot="$cmux_ssh_auth_process_snapshot"
+          fi
+          cmux_ssh_auth_filter_current_processes "$cmux_ssh_auth_force_snapshot" \
             "$cmux_ssh_auth_frozen_processes" \
             "$cmux_ssh_auth_next_owned_processes" 1 || return 1
           cmux_ssh_auth_frozen_expected=$(/usr/bin/awk 'NF >= 5 { count += 1 } END { print count + 0 }' \
             "$cmux_ssh_auth_frozen_processes") || return 1
           cmux_ssh_auth_frozen_current=$(/usr/bin/awk 'NF >= 5 { count += 1 } END { print count + 0 }' \
             "$cmux_ssh_auth_next_owned_processes") || return 1
-          cmux_ssh_auth_order_children_first "$cmux_ssh_auth_next_owned_processes" \
-            "$cmux_ssh_auth_ordered_processes" || return 1
-          if [ ! -s "$cmux_ssh_auth_ordered_processes" ]; then return 1; fi
-          if [ "$cmux_ssh_auth_frozen_current" = "$cmux_ssh_auth_frozen_expected" ]; then
-            cmux_ssh_auth_frozen_incomplete=0
+          if [ -n "${cmux_ssh_auth_owned_processes:-}" ] && \
+            [ -f "$cmux_ssh_auth_owned_processes" ]; then
+            cmux_ssh_auth_owned_expected=$(/usr/bin/awk \
+              'NF >= 5 { count += 1 } END { print count + 0 }' \
+              "$cmux_ssh_auth_owned_processes") || return 1
           else
-            cmux_ssh_auth_frozen_incomplete=1
+            cmux_ssh_auth_owned_expected="$cmux_ssh_auth_frozen_expected"
           fi
-          while read -r cmux_ssh_auth_depth cmux_ssh_auth_pid cmux_ssh_auth_parent \
-            cmux_ssh_auth_group cmux_ssh_auth_started cmux_ssh_auth_state; do
-            cmux_ssh_auth_deadline_allows_signal || return 1
+          if [ "$cmux_ssh_auth_frozen_current" != "$cmux_ssh_auth_frozen_expected" ] || \
+            [ "$cmux_ssh_auth_frozen_expected" != "$cmux_ssh_auth_owned_expected" ]; then
+            return 1
+          fi
+
+          # Once every owned identity is stopped and validated, finish the
+          # bounded signal transaction without launching another clock process.
+          while IFS= read -r cmux_ssh_auth_group; do
+            case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
+            kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || return 1
+          done < "$cmux_ssh_auth_owned_groups"
+          /usr/bin/awk '
+            FILENAME == ARGV[1] { cmux_exclusive[$1] = 1; next }
+            !($3 in cmux_exclusive) { print }
+          ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_next_owned_processes" \
+            > "$cmux_ssh_auth_individual_processes" || return 1
+          while read -r cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
+            cmux_ssh_auth_started cmux_ssh_auth_state; do
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
-              *[!A-Za-z0-9_:]*|:*|*:) cmux_ssh_auth_frozen_incomplete=1; continue ;;
+              *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
             esac
             kill -KILL "$cmux_ssh_auth_pid" >/dev/null 2>&1 || return 1
-          done < "$cmux_ssh_auth_ordered_processes"
-          [ "$cmux_ssh_auth_frozen_incomplete" = 0 ]
+          done < "$cmux_ssh_auth_individual_processes"
+        }
+
+        cmux_ssh_auth_freeze_and_force_owned_processes() {
+          cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
+          cmux_ssh_auth_expand_owned_processes || return 1
+          cmux_ssh_auth_freeze_owned_processes || return 1
+          cmux_ssh_auth_force_frozen_processes "$cmux_ssh_auth_poststop_snapshot"
+        }
+
+        cmux_ssh_auth_run_cleanup_transactions() {
+          cmux_ssh_auth_transaction_attempt=0
+          while [ "$cmux_ssh_auth_transaction_attempt" -lt 4 ]; do
+            cmux_ssh_auth_deadline_allows_work || return 1
+            : > "$cmux_ssh_auth_frozen_processes" || return 1
+            : > "$cmux_ssh_auth_signaled_groups" || return 1
+            : > "$cmux_ssh_auth_signaled_processes" || return 1
+            if cmux_ssh_auth_freeze_and_force_owned_processes; then return 0; fi
+            cmux_ssh_auth_resume_signaled_processes
+            cmux_ssh_auth_transaction_attempt=$((cmux_ssh_auth_transaction_attempt + 1))
+          done
+          return 1
         }
         """#
     }

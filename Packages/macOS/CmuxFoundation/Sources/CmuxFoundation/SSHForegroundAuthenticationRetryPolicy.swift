@@ -797,21 +797,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_group_state_cleanup() {
             if [ "$cmux_ssh_auth_cleanup_started" = 1 ] && \
               [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
-              if cmux_ssh_auth_deadline_allows_work && \
-                cmux_ssh_auth_force_owned_processes >/dev/null 2>&1; then
+              cmux_ssh_auth_deadline_millis="$cmux_ssh_auth_hard_deadline_millis"
+              if cmux_ssh_auth_run_cleanup_transactions >/dev/null 2>&1; then
                 cmux_ssh_auth_cleanup_complete=1
               else
-                cmux_ssh_auth_deadline_millis="$cmux_ssh_auth_hard_deadline_millis"
-                if cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" \
-                  >/dev/null 2>&1 && \
-                  cmux_ssh_auth_expand_owned_processes >/dev/null 2>&1 && \
-                  cmux_ssh_auth_freeze_owned_processes >/dev/null 2>&1 && \
-                  cmux_ssh_auth_force_frozen_processes >/dev/null 2>&1; then
-                  cmux_ssh_auth_cleanup_complete=1
-                else
-                  cmux_ssh_auth_preserve_group_state=1
-                  cmux_ssh_auth_resume_signaled_processes
-                fi
+                cmux_ssh_auth_preserve_group_state=1
+                cmux_ssh_auth_resume_signaled_processes
               fi
             fi
             if [ "$cmux_ssh_auth_cleanup_complete" = 1 ]; then
@@ -873,15 +864,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 500))
           cmux_ssh_auth_hard_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 2000))
           cmux_ssh_auth_cleanup_started=1
-          cmux_ssh_auth_freeze_attempt=0
-          while [ "$cmux_ssh_auth_freeze_attempt" -lt 4 ]; do
-            cmux_ssh_auth_deadline_allows_work || exit 0
-            cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || exit 0
-            cmux_ssh_auth_expand_owned_processes || exit 0
-            cmux_ssh_auth_freeze_owned_processes || exit 0
-            cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
-          done
-          cmux_ssh_auth_force_owned_processes || exit 0
+          cmux_ssh_auth_run_cleanup_transactions || exit 0
           cmux_ssh_auth_cleanup_complete=1
         )
 
