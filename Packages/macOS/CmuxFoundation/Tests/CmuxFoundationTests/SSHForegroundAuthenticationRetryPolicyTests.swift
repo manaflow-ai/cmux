@@ -364,7 +364,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cleanupWorkerScript.path)
 
         let command = """
-        /bin/zsh "$CMUX_TEST_CLEANUP_WORKER" || exit 99
+        /bin/zsh "$CMUX_TEST_CLEANUP_WORKER"
+        cmux_test_cleanup_worker_status=$?
+        if [ "$cmux_test_cleanup_worker_status" -ne 0 ]; then
+          exit "$cmux_test_cleanup_worker_status"
+        fi
         cmux_test_cleanup_worker_pid=$(/bin/cat "$CMUX_TEST_CLEANUP_WORKER_PID") || exit 98
         /bin/kill -0 "$cmux_test_cleanup_worker_pid" >/dev/null 2>&1 && exit 97
         test -s "$CMUX_TEST_REAPER_PID" || exit 98
@@ -518,6 +522,54 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(elapsed < 3, "Deadline fallback took \(elapsed) seconds")
         #expect(Darwin.kill(leafPID, 0) != 0)
         #expect(processState.isEmpty, "Deadline fallback left a process behind: \(processState)")
+    }
+
+    @Test func hardDeadlineFallbackRevalidatesRecordedProcessIdentity() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-deadline-identity-\(UUID().uuidString)", isDirectory: true)
+        let frozenFile = root.appendingPathComponent("frozen")
+        let orderedFile = root.appendingPathComponent("ordered")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( trap '' HUP INT TERM; while :; do /bin/sleep 30; done ) &
+        cmux_test_victim_pid=$!
+        trap '/bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true; wait "$cmux_test_victim_pid" 2>/dev/null || true' EXIT
+        printf '%s 1 1 stale_identity S\n' "$cmux_test_victim_pid" > "$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        if cmux_ssh_auth_force_frozen_processes; then exit 96; fi
+        /bin/kill -0 "$cmux_test_victim_pid" >/dev/null 2>&1 || exit 97
+        trap - EXIT
+        /bin/kill -KILL "$cmux_test_victim_pid" >/dev/null 2>&1 || true
+        wait "$cmux_test_victim_pid" 2>/dev/null || true
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_FROZEN": frozenFile.path,
+            "CMUX_TEST_ORDERED": orderedFile.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
     }
 
     @Test func ordersDuplicateFrozenProcessRecordsWithoutCycling() throws {
@@ -761,6 +813,65 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_REAPER_CALLS": callsFile.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test func laterRecoverySweepReclaimsFailedAuthenticationGroup() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-sweep-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("cmux-ssh-auth-group.test", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        let allowCleanupFile = root.appendingPathComponent("allow-cleanup")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() {
+          printf x >> "$CMUX_TEST_REAPER_CALLS"
+          if [ -e "$CMUX_TEST_ALLOW_CLEANUP" ]; then
+            /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+          fi
+        }
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+        cmux_test_first_reaper=$!
+        wait "$cmux_test_first_reaper" || exit 97
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" || exit 96
+        : > "$CMUX_TEST_ALLOW_CLEANUP"
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_resume_failed_auth_group_reapers || exit 95
+        cmux_test_second_reaper=$!
+        wait "$cmux_test_second_reaper" || exit 94
+        test ! -d "$TMPDIR/cmux-ssh-auth-group.test" || exit 93
+        test "$(/usr/bin/wc -c < "$CMUX_TEST_REAPER_CALLS" | /usr/bin/tr -d '[:space:]')" -eq 4 || exit 92
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_ALLOW_CLEANUP": allowCleanupFile.path,
+            "CMUX_TEST_REAPER_CALLS": callsFile.path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "TMPDIR": root.path,
         ]) { _, override in override }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
