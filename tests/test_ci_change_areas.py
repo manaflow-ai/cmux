@@ -720,6 +720,13 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     assert block.index(step) < block.index("- name: Run unit tests")
 
 
+def test_app_host_tests_serialize_swift_testing_within_each_shard() -> None:
+    block = workflow_job_block("app-host-unit-tests")
+    job_configuration = block.split("    steps:", maxsplit=1)[0]
+
+    assert 'SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH: "1"' in job_configuration
+
+
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
     block = workflow_job_block("agent-session-web-resources")
 
