@@ -325,6 +325,44 @@ struct SQLiteDatabaseSnapshotServiceTests {
         #expect(sourceMetadata.st_nlink == 1)
     }
 
+    @Test("Preserves a same-volume binding while another snapshot holds its lease")
+    func preservesLeasedSameVolumeBinding() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let activeDirectory = root.appendingPathComponent(
+            ".cmux-sqlite-source-active",
+            isDirectory: true
+        )
+        let lease = activeDirectory.appendingPathComponent(
+            ".cmux-binding-lease",
+            isDirectory: false
+        )
+        try FileManager.default.createDirectory(
+            at: activeDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let leaseDescriptor = Darwin.open(
+            lease.path,
+            O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW | O_EXLOCK | O_NONBLOCK,
+            S_IRUSR | S_IWUSR
+        )
+        try #require(leaseDescriptor >= 0)
+        defer { _ = Darwin.close(leaseDescriptor) }
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1)],
+            ofItemAtPath: activeDirectory.path
+        )
+
+        SQLiteDatabaseSnapshotService().removeAbandonedSourceBindingDirectories(
+            in: root
+        )
+
+        #expect(FileManager.default.fileExists(atPath: activeDirectory.path))
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {

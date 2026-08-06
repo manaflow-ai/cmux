@@ -15,6 +15,10 @@ import SQLite3
 /// )
 /// ```
 public struct SQLiteDatabaseSnapshotService {
+    private static let sourceBindingDirectoryPrefix = ".cmux-sqlite-source"
+    private static let sourceBindingLeaseName = ".cmux-binding-lease"
+    private static let abandonedSourceBindingGraceInterval: TimeInterval = 60
+
     private let fileManager: FileManager
     private let pagesPerStep: Int32
     private let maximumDuration: Duration
@@ -92,7 +96,12 @@ public struct SQLiteDatabaseSnapshotService {
             path: sourcePath,
             maximumBytes: maximumBytes
         )
-        defer { try? fileManager.removeItem(at: boundSource.directoryURL) }
+        defer {
+            try? fileManager.removeItem(at: boundSource.directoryURL)
+            if let leaseDescriptor = boundSource.leaseDescriptor {
+                _ = Darwin.close(leaseDescriptor)
+            }
+        }
         try enforceMaximumSidecarBytes(
             databasePath: boundSource.databaseURL.path,
             maximumBytes: maximumBytes
@@ -244,7 +253,8 @@ public struct SQLiteDatabaseSnapshotService {
         maximumBytes: Int?
     ) throws -> (
         databaseURL: URL,
-        directoryURL: URL
+        directoryURL: URL,
+        leaseDescriptor: Int32?
     ) {
         let sourceURL = URL(fileURLWithPath: path).standardizedFileURL
         guard !sourceURL.lastPathComponent.isEmpty else {
@@ -302,9 +312,12 @@ public struct SQLiteDatabaseSnapshotService {
             }
             try rejectHotRollbackJournal(path: databaseURL.path + "-journal")
             try rejectHotRollbackJournal(path: sourceURL.path + "-journal")
-            return (databaseURL, directoryURL)
+            return (databaseURL, directoryURL, binding.leaseDescriptor)
         } catch {
             try? fileManager.removeItem(at: directoryURL)
+            if let leaseDescriptor = binding.leaseDescriptor {
+                _ = Darwin.close(leaseDescriptor)
+            }
             throw error
         }
     }
@@ -316,7 +329,11 @@ public struct SQLiteDatabaseSnapshotService {
     private func createPrivateSourceBindingDirectory(
         sourceURL: URL,
         sourceDescriptor: Int32
-    ) throws -> (directoryURL: URL, requiresCopy: Bool) {
+    ) throws -> (
+        directoryURL: URL,
+        requiresCopy: Bool,
+        leaseDescriptor: Int32?
+    ) {
         var sourceMetadata = stat()
         guard Darwin.fstat(sourceDescriptor, &sourceMetadata) == 0 else {
             throw SQLiteDatabaseSnapshotError.sqlite("cannot inspect source database")
@@ -333,7 +350,7 @@ public struct SQLiteDatabaseSnapshotService {
             )
         }
         if temporaryMetadata.st_dev == sourceMetadata.st_dev {
-            return (temporaryDirectory, false)
+            return (temporaryDirectory, false, nil)
         }
 
         var candidateParent = sourceURL.deletingLastPathComponent()
@@ -343,16 +360,18 @@ public struct SQLiteDatabaseSnapshotService {
                   parentMetadata.st_dev == sourceMetadata.st_dev else {
                 break
             }
+            removeAbandonedSourceBindingDirectories(in: candidateParent)
             if let directory = try? createPrivateDirectory(
                 in: candidateParent,
-                prefix: ".cmux-sqlite-source"
+                prefix: Self.sourceBindingDirectoryPrefix
             ) {
                 var directoryMetadata = stat()
                 if Darwin.lstat(directory.path, &directoryMetadata) == 0,
                    directoryMetadata.st_dev == sourceMetadata.st_dev,
-                   directoryMetadata.st_mode & S_IFMT == S_IFDIR {
+                   directoryMetadata.st_mode & S_IFMT == S_IFDIR,
+                   let leaseDescriptor = createSourceBindingLease(in: directory) {
                     try? fileManager.removeItem(at: temporaryDirectory)
-                    return (directory, false)
+                    return (directory, false, leaseDescriptor)
                 }
                 try? fileManager.removeItem(at: directory)
             }
@@ -367,7 +386,95 @@ public struct SQLiteDatabaseSnapshotService {
                 "cannot create same-volume source binding"
             )
         }
-        return (temporaryDirectory, true)
+        return (temporaryDirectory, true, nil)
+    }
+
+    private func createSourceBindingLease(in directoryURL: URL) -> Int32? {
+        let leaseURL = directoryURL.appendingPathComponent(
+            Self.sourceBindingLeaseName,
+            isDirectory: false
+        )
+        let descriptor = Darwin.open(
+            leaseURL.path,
+            O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW | O_EXLOCK | O_NONBLOCK,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else { return nil }
+        guard Darwin.fchmod(descriptor, S_IRUSR | S_IWUSR) == 0 else {
+            _ = Darwin.close(descriptor)
+            _ = Darwin.unlink(leaseURL.path)
+            return nil
+        }
+        return descriptor
+    }
+
+    /// Removes owner-private source bindings left behind by a killed process.
+    /// A short age gate closes the create-before-lock race, while the lease
+    /// prevents concurrent snapshot processes from deleting live bindings.
+    func removeAbandonedSourceBindingDirectories(in parentURL: URL) {
+        guard let candidates = try? fileManager.contentsOfDirectory(
+            at: parentURL,
+            includingPropertiesForKeys: nil
+        ) else {
+            return
+        }
+        let oldestRemovableModificationTime = Date().timeIntervalSince1970
+            - Self.abandonedSourceBindingGraceInterval
+
+        for candidate in candidates where candidate.lastPathComponent.hasPrefix(
+            Self.sourceBindingDirectoryPrefix + "-"
+        ) {
+            var originalDirectoryMetadata = stat()
+            guard Darwin.lstat(candidate.path, &originalDirectoryMetadata) == 0,
+                  originalDirectoryMetadata.st_mode & S_IFMT == S_IFDIR,
+                  originalDirectoryMetadata.st_uid == Darwin.geteuid(),
+                  originalDirectoryMetadata.st_mode & (S_IRWXG | S_IRWXO) == 0,
+                  TimeInterval(originalDirectoryMetadata.st_mtimespec.tv_sec)
+                    <= oldestRemovableModificationTime else {
+                continue
+            }
+
+            let leaseURL = candidate.appendingPathComponent(
+                Self.sourceBindingLeaseName,
+                isDirectory: false
+            )
+            let leaseDescriptor = Darwin.open(
+                leaseURL.path,
+                O_RDWR | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW | O_EXLOCK
+            )
+            guard leaseDescriptor >= 0 else {
+                if errno == ENOENT {
+                    _ = Darwin.rmdir(candidate.path)
+                }
+                continue
+            }
+
+            var leaseMetadata = stat()
+            let leaseIsPrivate = Darwin.fstat(leaseDescriptor, &leaseMetadata) == 0
+                && leaseMetadata.st_mode & S_IFMT == S_IFREG
+                && leaseMetadata.st_uid == Darwin.geteuid()
+                && leaseMetadata.st_mode & (S_IRWXG | S_IRWXO) == 0
+                && leaseMetadata.st_nlink == 1
+            guard leaseIsPrivate else {
+                _ = Darwin.close(leaseDescriptor)
+                continue
+            }
+
+            var currentDirectoryMetadata = stat()
+            let directoryIsUnchanged = Darwin.lstat(
+                candidate.path,
+                &currentDirectoryMetadata
+            ) == 0
+                && currentDirectoryMetadata.st_dev == originalDirectoryMetadata.st_dev
+                && currentDirectoryMetadata.st_ino == originalDirectoryMetadata.st_ino
+                && currentDirectoryMetadata.st_mode & S_IFMT == S_IFDIR
+                && currentDirectoryMetadata.st_uid == Darwin.geteuid()
+                && currentDirectoryMetadata.st_mode & (S_IRWXG | S_IRWXO) == 0
+            if directoryIsUnchanged {
+                try? fileManager.removeItem(at: candidate)
+            }
+            _ = Darwin.close(leaseDescriptor)
+        }
     }
 
     private func fileSystemIsReadOnly(at path: String) -> Bool {
