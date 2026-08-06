@@ -67,6 +67,14 @@ impl InboundLink {
         Self::new(link, InboundAuthEvidence::Network(peer))
     }
 
+    /// Marks a stdio carrier whose process was launched directly by an SSH
+    /// server after authenticating `principal`. Callers must not expose this
+    /// constructor through an unauthenticated local or network listener.
+    pub fn ssh_stdio(link: Box<dyn FrameLink>, principal: impl Into<String>) -> Option<Self> {
+        InboundAuthEvidence::verified_ssh_principal(principal)
+            .map(|evidence| Self::new(link, evidence))
+    }
+
     pub fn evidence(&self) -> &InboundAuthEvidence {
         &self.evidence
     }

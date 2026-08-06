@@ -1,7 +1,8 @@
+use std::collections::HashMap;
 use std::fmt;
 use std::process::Stdio;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -18,6 +19,61 @@ use crate::provider::{
 };
 
 const SSH_GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SshRemoteShell {
+    Posix,
+    WindowsCmd,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SshRemoteTarget {
+    pub binary: String,
+    pub shell: SshRemoteShell,
+}
+
+static RESOLVED_REMOTE_TARGETS: OnceLock<RwLock<HashMap<String, SshRemoteTarget>>> =
+    OnceLock::new();
+
+fn target_key(destination: &str, port: Option<u16>) -> String {
+    match port {
+        Some(port) => format!("{destination}:{port}"),
+        None => destination.to_owned(),
+    }
+}
+
+pub fn register_resolved_ssh_target(
+    destination: &str,
+    port: Option<u16>,
+    target: SshRemoteTarget,
+) -> Result<(), ProviderError> {
+    validate_remote_target(&target)?;
+    RESOLVED_REMOTE_TARGETS
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .write()
+        .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
+        .insert(target_key(destination, port), target);
+    Ok(())
+}
+
+fn resolved_ssh_target(
+    destination: &str,
+    port: Option<u16>,
+    fallback: &str,
+) -> Result<SshRemoteTarget, ProviderError> {
+    let target = RESOLVED_REMOTE_TARGETS
+        .get_or_init(|| RwLock::new(HashMap::new()))
+        .read()
+        .map_err(|_| ProviderError::Transport("SSH target registry is poisoned".into()))?
+        .get(&target_key(destination, port))
+        .cloned()
+        .unwrap_or_else(|| SshRemoteTarget {
+            binary: fallback.to_owned(),
+            shell: SshRemoteShell::Posix,
+        });
+    validate_remote_target(&target)?;
+    Ok(target)
+}
 
 #[derive(Debug, Clone)]
 pub struct SshProviderConfig {
@@ -87,10 +143,13 @@ impl TransportProvider for SshProvider {
             ));
         }
         let (destination, description) = ssh_destination(&request.endpoint)?;
+        let port = request.endpoint.port();
+        let target = resolved_ssh_target(&destination, port, &self.config.remote_binary)?;
         Ok(Arc::new(SshLinkGroup {
             description: description.clone(),
             destination,
-            port: request.endpoint.port(),
+            port,
+            target,
             config: self.config.clone(),
             evidence: CarrierEvidence::Ssh { destination: description },
             closed: AtomicBool::new(false),
@@ -132,6 +191,7 @@ struct SshLinkGroup {
     description: String,
     destination: String,
     port: Option<u16>,
+    target: SshRemoteTarget,
     config: SshProviderConfig,
     evidence: CarrierEvidence,
     closed: AtomicBool,
@@ -144,7 +204,10 @@ impl LinkGroup for SshLinkGroup {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::MULTI_STREAM
+        match self.target.shell {
+            SshRemoteShell::Posix => ProviderCapabilities::MULTI_STREAM,
+            SshRemoteShell::WindowsCmd => ProviderCapabilities::STREAM,
+        }
     }
 
     fn evidence(&self) -> &CarrierEvidence {
@@ -173,15 +236,26 @@ impl LinkGroup for SshLinkGroup {
             command.arg("-p").arg(port.to_string());
         }
         command.args(&self.config.extra_args);
-        command
-            .arg(&self.destination)
-            .arg(&self.config.remote_binary)
-            .arg("remote-link")
-            .arg("--stdio")
-            .arg("--session")
-            .arg(&self.config.remote_session);
-        if let Some(state_dir) = &self.config.remote_state_dir {
-            command.arg("--state-dir").arg(state_dir);
+        command.arg(&self.destination);
+        match self.target.shell {
+            SshRemoteShell::Posix => {
+                command
+                    .arg(&self.target.binary)
+                    .arg("remote-link")
+                    .arg("--stdio")
+                    .arg("--session")
+                    .arg(&self.config.remote_session);
+                if let Some(state_dir) = &self.config.remote_state_dir {
+                    command.arg("--state-dir").arg(state_dir);
+                }
+            }
+            SshRemoteShell::WindowsCmd => {
+                command.arg(windows_remote_link_command(
+                    &self.target.binary,
+                    &self.config.remote_session,
+                    self.config.remote_state_dir.as_deref(),
+                )?);
+            }
         }
         command
             .stdin(Stdio::piped())
@@ -270,6 +344,50 @@ fn validate_remote_word(value: &str) -> Result<(), ProviderError> {
     Ok(())
 }
 
+fn validate_remote_target(target: &SshRemoteTarget) -> Result<(), ProviderError> {
+    match target.shell {
+        SshRemoteShell::Posix => validate_remote_word(&target.binary),
+        SshRemoteShell::WindowsCmd => {
+            if target.binary.is_empty()
+                || !target
+                    .binary
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_./\\%:-".contains(&byte))
+            {
+                return Err(ProviderError::Configuration(
+                    "remote Windows binary must be a shell-safe path".into(),
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+fn windows_remote_link_command(
+    binary: &str,
+    session: &str,
+    state_dir: Option<&str>,
+) -> Result<String, ProviderError> {
+    validate_remote_target(&SshRemoteTarget {
+        binary: binary.to_owned(),
+        shell: SshRemoteShell::WindowsCmd,
+    })?;
+    validate_remote_word(session)?;
+    if let Some(state_dir) = state_dir {
+        validate_remote_target(&SshRemoteTarget {
+            binary: state_dir.to_owned(),
+            shell: SshRemoteShell::WindowsCmd,
+        })?;
+    }
+    let mut command = format!("\"{binary}\" remote-link --stdio --session {session}");
+    if let Some(state_dir) = state_dir {
+        command.push_str(" --state-dir \"");
+        command.push_str(state_dir);
+        command.push('"');
+    }
+    Ok(command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -322,6 +440,34 @@ mod tests {
         let error = ssh_destination(&endpoint).unwrap_err();
         assert!(
             matches!(error, ProviderError::Configuration(message) if message.contains("destination"))
+        );
+    }
+
+    #[test]
+    fn resolved_windows_targets_are_scoped_by_destination_and_port() {
+        let host = "windows-target-registry.test";
+        let target = SshRemoteTarget {
+            binary: r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe".into(),
+            shell: SshRemoteShell::WindowsCmd,
+        };
+        register_resolved_ssh_target(host, Some(2201), target.clone()).unwrap();
+
+        assert_eq!(resolved_ssh_target(host, Some(2201), "fallback").unwrap(), target);
+        assert_eq!(
+            resolved_ssh_target(host, Some(2202), "fallback").unwrap(),
+            SshRemoteTarget { binary: "fallback".into(), shell: SshRemoteShell::Posix }
+        );
+    }
+
+    #[test]
+    fn windows_remote_link_is_one_cmd_safe_command() {
+        let command =
+            windows_remote_link_command(r"%LOCALAPPDATA%\cmux\bin\cmux-tui.exe", "main", None)
+                .unwrap();
+
+        assert_eq!(
+            command,
+            r#""%LOCALAPPDATA%\cmux\bin\cmux-tui.exe" remote-link --stdio --session main"#
         );
     }
 }

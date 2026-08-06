@@ -32,13 +32,203 @@ pub fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Resu
     {
         unix::ensure_secure_directory(path, access)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        windows::ensure_secure_directory(path, access)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (path, access);
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "secure state directories require platform owner-access enforcement",
         ))
+    }
+}
+
+#[cfg(windows)]
+mod windows {
+    use std::ffi::c_void;
+    use std::fs;
+    use std::io;
+    use std::mem::size_of;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
+    use std::path::{Component, Path, PathBuf};
+
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_INSUFFICIENT_BUFFER, HANDLE};
+    use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
+    use windows_sys::Win32::Security::{
+        ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, AddAccessAllowedAceEx, CONTAINER_INHERIT_ACE,
+        DACL_SECURITY_INFORMATION, GetLengthSid, GetTokenInformation, InitializeAcl,
+        OBJECT_INHERIT_ACE, PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY, TOKEN_USER,
+        TokenUser,
+    };
+    use windows_sys::Win32::Storage::FileSystem::{FILE_ALL_ACCESS, FILE_ATTRIBUTE_REPARSE_POINT};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    use super::DirectoryAccess;
+
+    pub(super) fn ensure_secure_directory(path: &Path, access: DirectoryAccess) -> io::Result<()> {
+        validate_path(path)?;
+        fs::create_dir_all(path)?;
+        validate_local_app_data_path(path)?;
+        if matches!(access, DirectoryAccess::ManagedOwnerOnly) {
+            restrict_to_current_user(path)?;
+        }
+        Ok(())
+    }
+
+    fn validate_path(path: &Path) -> io::Result<()> {
+        if !path.is_absolute() {
+            return Err(invalid_path(path, "must be absolute"));
+        }
+        if path.components().any(|component| matches!(component, Component::ParentDir)) {
+            return Err(invalid_path(path, "must not contain '..' traversal"));
+        }
+        Ok(())
+    }
+
+    fn validate_local_app_data_path(path: &Path) -> io::Result<()> {
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .ok_or_else(|| invalid_path(path, "requires LOCALAPPDATA"))?;
+        let trusted_root = local_app_data.canonicalize()?;
+        let resolved = path.canonicalize()?;
+        if !path_starts_with_case_insensitive(&resolved, &trusted_root) {
+            return Err(invalid_path(path, "must stay within LOCALAPPDATA"));
+        }
+        let relative = resolved.strip_prefix(&trusted_root).map_err(|_| {
+            invalid_path(path, "could not resolve relative to the trusted profile directory")
+        })?;
+        let mut current = trusted_root;
+        for component in relative.components() {
+            current.push(component);
+            let metadata = fs::symlink_metadata(&current)?;
+            if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return Err(invalid_path(path, "contains a reparse-point component"));
+            }
+            if !metadata.is_dir() {
+                return Err(invalid_path(path, "contains a non-directory component"));
+            }
+        }
+        Ok(())
+    }
+
+    fn path_starts_with_case_insensitive(path: &Path, root: &Path) -> bool {
+        let mut path = path.components();
+        root.components().all(|expected| {
+            path.next().is_some_and(|actual| {
+                actual
+                    .as_os_str()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(&expected.as_os_str().to_string_lossy())
+            })
+        })
+    }
+
+    fn restrict_to_current_user(path: &Path) -> io::Result<()> {
+        let token = current_process_token()?;
+        let mut required = 0_u32;
+        // SAFETY: `token` is valid and the null-buffer query writes only the
+        // required byte count.
+        let queried = unsafe {
+            GetTokenInformation(token.0, TokenUser, std::ptr::null_mut(), 0, &mut required)
+        };
+        if queried != 0
+            || io::Error::last_os_error().raw_os_error() != Some(ERROR_INSUFFICIENT_BUFFER as i32)
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut token_user = vec![0_u64; usize::try_from(required).unwrap_or(0).div_ceil(8)];
+        // SAFETY: the aligned buffer contains at least `required` writable
+        // bytes and `token` remains open for this call.
+        if unsafe {
+            GetTokenInformation(
+                token.0,
+                TokenUser,
+                token_user.as_mut_ptr().cast(),
+                required,
+                &mut required,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: successful TokenUser lookup initialized a TOKEN_USER at the
+        // beginning of the aligned buffer.
+        let sid = unsafe { (*(token_user.as_ptr().cast::<TOKEN_USER>())).User.Sid };
+        // SAFETY: `sid` points into the live token information buffer.
+        let sid_length = unsafe { GetLengthSid(sid) };
+        if sid_length == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let acl_bytes = size_of::<ACL>()
+            .checked_add(size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>())
+            .and_then(|size| size.checked_add(sid_length as usize))
+            .ok_or_else(|| io::Error::other("Windows ACL size overflow"))?;
+        let mut acl_storage = vec![0_u32; acl_bytes.div_ceil(size_of::<u32>())];
+        let acl = acl_storage.as_mut_ptr().cast::<ACL>();
+        // SAFETY: `acl_storage` is aligned, writable, and at least `acl_bytes`.
+        if unsafe { InitializeAcl(acl, acl_bytes as u32, ACL_REVISION) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `acl` is initialized and has room for this ACE; `sid` stays
+        // live until SetNamedSecurityInfoW returns.
+        if unsafe {
+            AddAccessAllowedAceEx(
+                acl,
+                ACL_REVISION,
+                OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE,
+                FILE_ALL_ACCESS,
+                sid,
+            )
+        } == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        let mut encoded = path.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<_>>();
+        // SAFETY: `encoded` is a mutable NUL-terminated path and `acl` remains
+        // live for the duration of the synchronous call.
+        let status = unsafe {
+            SetNamedSecurityInfoW(
+                encoded.as_mut_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut::<c_void>() as PSID,
+                std::ptr::null_mut::<c_void>() as PSID,
+                acl,
+                std::ptr::null(),
+            )
+        };
+        if status == 0 { Ok(()) } else { Err(io::Error::from_raw_os_error(status as i32)) }
+    }
+
+    struct OwnedHandle(HANDLE);
+
+    impl Drop for OwnedHandle {
+        fn drop(&mut self) {
+            // SAFETY: this wrapper owns the real token handle.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    fn current_process_token() -> io::Result<OwnedHandle> {
+        let mut token = std::ptr::null_mut();
+        // SAFETY: `token` is writable and GetCurrentProcess returns the
+        // current process pseudo-handle.
+        if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(OwnedHandle(token))
+        }
+    }
+
+    fn invalid_path(path: &Path, reason: &str) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("insecure state directory {}: {reason}", path.display()),
+        )
     }
 }
 

@@ -2038,7 +2038,13 @@ pub fn default_state_dir() -> Option<PathBuf> {
             .map(PathBuf::from)
             .map(|home| home.join("Library/Application Support/cmux/remote"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .map(|local| local.join("cmux").join("remote"))
+    }
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
     {
         std::env::var_os("XDG_STATE_HOME")
             .map(PathBuf::from)

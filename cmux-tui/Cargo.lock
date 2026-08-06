@@ -604,8 +604,10 @@ dependencies = [
  "tokio-tungstenite",
  "tower",
  "tower-http",
+ "uds_windows",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
  "x25519-dalek",
  "zeroize",
 ]
