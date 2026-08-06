@@ -3,8 +3,43 @@ import { freshCredential } from "./refresh";
 import { readTeamVault } from "./vault";
 
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
+const USAGE_CACHE_MS = 15_000;
+const MAX_CACHED_TEAMS = 256;
+const usageCache = new Map<string, {
+  readonly expiresAt: number;
+  readonly accounts: Awaited<ReturnType<typeof loadAccountsWithUsage>>;
+}>();
+const usageRequests = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>
+>();
 
 export async function accountsWithUsage(teamId: string) {
+  const cached = usageCache.get(teamId);
+  if (cached && cached.expiresAt > Date.now()) return cached.accounts;
+  const pending = usageRequests.get(teamId);
+  if (pending) return await pending;
+
+  const request = loadAccountsWithUsage(teamId);
+  usageRequests.set(teamId, request);
+  try {
+    const accounts = await request;
+    if (usageCache.size >= MAX_CACHED_TEAMS && !usageCache.has(teamId)) {
+      const oldest = usageCache.keys().next().value;
+      if (oldest !== undefined) usageCache.delete(oldest);
+    }
+    usageCache.delete(teamId);
+    usageCache.set(teamId, {
+      expiresAt: Date.now() + USAGE_CACHE_MS,
+      accounts,
+    });
+    return accounts;
+  } finally {
+    usageRequests.delete(teamId);
+  }
+}
+
+async function loadAccountsWithUsage(teamId: string) {
   // The account list and encrypted credential snapshot are independent.
   // Fetch each exactly once and overlap their network round trips.
   const [accounts, vault] = await Promise.all([

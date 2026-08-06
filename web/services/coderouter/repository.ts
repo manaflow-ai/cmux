@@ -45,20 +45,15 @@ export async function authenticateRouteToken(
 ): Promise<{ teamId: string } | null> {
   if (!/^crt_[A-Za-z0-9_-]{40,}$/.test(token)) return null;
   const [row] = await cloudDb()
-    .select({ id: coderouterRouteTokens.id, teamId: coderouterRouteTokens.teamId })
-    .from(coderouterRouteTokens)
+    .update(coderouterRouteTokens)
+    .set({ lastUsedAt: now })
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
       gt(coderouterRouteTokens.expiresAt, now),
       isNull(coderouterRouteTokens.revokedAt),
     ))
-    .limit(1);
-  if (!row) return null;
-  await cloudDb()
-    .update(coderouterRouteTokens)
-    .set({ lastUsedAt: now })
-    .where(eq(coderouterRouteTokens.id, row.id));
-  return { teamId: row.teamId };
+    .returning({ teamId: coderouterRouteTokens.teamId });
+  return row ?? null;
 }
 
 export async function revokeRouteToken(
