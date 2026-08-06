@@ -32,7 +32,7 @@ actor AgentForkExecutableIdentityResolver {
                 deadline: deadline
             ),
             let binding = AgentConversationForkExecutableBinding(identity: identity),
-            binding.materializeImmutableCopy(deadline: deadline) else {
+            binding.prepareValidatedArtifact(deadline: deadline) else {
                 return nil
             }
             return (identity: identity, binding: binding)

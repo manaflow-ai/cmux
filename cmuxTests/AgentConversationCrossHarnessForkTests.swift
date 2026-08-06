@@ -449,7 +449,7 @@ struct AgentConversationCrossHarnessForkTests {
         defer { binding.removeArtifacts() }
 
         #expect(binding.boundPath == identity.realPath)
-        #expect(binding.materializeImmutableCopy())
+        #expect(binding.prepareValidatedArtifact())
         #expect(binding.boundArtifactIsValid())
 
         let process = Process()
