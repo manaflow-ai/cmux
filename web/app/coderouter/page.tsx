@@ -35,9 +35,14 @@ export default function CoderouterLandingPage() {
               cr codex
             </code>
             <span className="select-none rounded-lg bg-black px-4 py-2 font-mono text-xs text-white">
-              coming soon
+              private beta
             </span>
           </div>
+
+          <p className="mt-5 max-w-xl font-mono text-[11px] leading-5 text-black/40">
+            Codex and OpenCode Go are available now. Pi support is experimental.
+            Claude Max and API-key routing are coming soon.
+          </p>
 
           <div className="mt-20 grid max-w-3xl gap-px overflow-hidden rounded-xl border border-black/10 bg-black/10 sm:grid-cols-3">
             {[

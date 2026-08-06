@@ -1238,6 +1238,7 @@ jobs:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
+          retention-days: 1
 
       - name: Retry universal Ghostty CLI helper upload
         if: steps.upload-ghostty-cli-helper.outcome == 'failure'
@@ -1246,6 +1247,7 @@ jobs:
           name: cmux-ghostty-cli-helper
           path: ghostty-cli-helper/ghostty
           if-no-files-found: error
+          retention-days: 1
           overwrite: true
 
       - name: Select Xcode
