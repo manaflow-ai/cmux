@@ -745,7 +745,7 @@ def test_app_host_tests_configure_swift_testing_serialization_in_the_xcode_schem
     scheme_path = (
         ROOT / "cmux.xcodeproj" / "xcshareddata" / "xcschemes" / "cmux-unit.xcscheme"
     )
-    root = ET.parse(scheme_path).getroot()
+    root = ET.parse(scheme_path).getroot()  # noqa: S314 - parses a trusted, checked-in Xcode scheme
     variables = root.findall("./TestAction/EnvironmentVariables/EnvironmentVariable")
     serialization_variables = [
         variable
