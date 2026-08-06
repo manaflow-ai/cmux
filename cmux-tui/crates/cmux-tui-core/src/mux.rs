@@ -1989,6 +1989,8 @@ impl Mux {
         });
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
+        #[cfg(not(unix))]
+        mux.discard_unrecoverable_restored_terminals()?;
         #[cfg(unix)]
         mux.adopt_terminal_hosts()?;
         {
@@ -2009,6 +2011,51 @@ impl Mux {
             std::thread::sleep(Duration::from_millis(25));
         }
         Ok(mux)
+    }
+
+    /// A local PTY cannot outlive its owning process on platforms without
+    /// per-terminal hosts. Remove its durable tab during recovery instead of
+    /// presenting a topology entry with no runtime behind it.
+    #[cfg(not(unix))]
+    fn discard_unrecoverable_restored_terminals(self: &Arc<Self>) -> anyhow::Result<()> {
+        let terminals = self.workspace_registry.lock().unwrap().terminal_snapshot()?.terminals;
+        for terminal in terminals {
+            if terminal.lifecycle == TerminalLifecycle::Tombstoned {
+                continue;
+            }
+            let public_id = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_resource_id(&terminal.terminal_id)?;
+            let tab_id = public_id.and_then(|public_id| {
+                let state = self.state.lock().unwrap();
+                let slot =
+                    state.resource_indexes.content.get(&ContentPublicId::Terminal(public_id))?;
+                state.resource_indexes.tab_ids.get(slot).cloned()
+            });
+            if let Some(tab_id) = tab_id {
+                let selectors = crate::ResourceSelectors {
+                    tab: Some(tab_id.to_string()),
+                    ..Self::ordinary_resource_selectors()
+                };
+                let commit = self.commit_ordinary_topology_operation(
+                    ResourceOperation::TabClose,
+                    selectors,
+                    Map::new(),
+                )?;
+                self.emit_resource_topology_legacy_events(ResourceOperation::TabClose, &commit);
+            } else {
+                self.close_terminal_with_mutation(
+                    &terminal.terminal_id,
+                    terminal.incarnation.as_deref(),
+                    None,
+                    None,
+                    &WorkspaceMutation::local("cmux-tui-recovery"),
+                )?;
+            }
+        }
+        Ok(())
     }
 
     /// Rehydrate workspace rows that belong to an interrupted correlated

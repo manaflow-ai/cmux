@@ -1,14 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io;
+#[cfg(windows)]
+use std::net::Shutdown;
 use std::net::SocketAddr;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
+#[cfg(windows)]
+use std::{fs, thread};
 
 use axum::Router;
 use axum::extract::connect_info::{ConnectInfo, Connected};
@@ -35,9 +39,16 @@ use crate::identity::{AuthDatabase, IdentityError};
 use crate::link::{FrameLink, LaneMuxLink, LinkError, LinkRoute};
 use crate::observability::{ConnectionState, ServerConnectionSnapshot};
 use crate::provider::AxumWebSocketLink;
+#[cfg(windows)]
+use crate::provider::LengthDelimitedLink;
 use crate::session::{ReceivedFrame, ReliableSession, SessionError, SessionLimits};
 #[cfg(unix)]
 use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff};
+#[cfg(windows)]
+use crate::{
+    owner_lock::{OwnerFileLock, sibling_lock_path},
+    secure_directory::{DirectoryAccess, ensure_secure_directory},
+};
 
 const PENDING_LINK_TTL: Duration = Duration::from_secs(30);
 const MAX_PENDING_LINK_GROUPS: usize = 256;
@@ -87,6 +98,11 @@ impl InboundLink {
         let evidence =
             InboundAuthEvidence::verified_same_owner_kernel_peer(peer_uid, effective_uid)?;
         Some(Self::new(link, evidence))
+    }
+
+    #[cfg(windows)]
+    fn owner_only_local(link: Box<dyn FrameLink>) -> Self {
+        Self::new(link, InboundAuthEvidence::verified_owner_only_local())
     }
 
     fn into_parts(self) -> (Box<dyn FrameLink>, InboundAuthEvidence) {
@@ -1561,6 +1577,214 @@ pub async fn serve_unix_with_shutdown(
         }
     });
     Ok(UnixServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
+}
+
+#[cfg(windows)]
+pub struct WindowsLocalServer {
+    path: PathBuf,
+    shutdown: Arc<AtomicBool>,
+    finished: std::sync::mpsc::Receiver<Result<(), String>>,
+    completion: watch::Receiver<Option<Result<(), String>>>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+impl WindowsLocalServer {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Observe listener termination without owning the server. A resident
+    /// session owner uses this to stop itself if its carrier listener fails.
+    pub fn completion(&self) -> watch::Receiver<Option<Result<(), String>>> {
+        self.completion.clone()
+    }
+
+    pub fn shutdown(mut self) -> Result<(), DaemonError> {
+        self.request_shutdown();
+        let result = self
+            .finished
+            .recv_timeout(Duration::from_secs(5))
+            .map_err(|error| {
+                DaemonError::Protocol(format!("Windows local listener did not stop: {error}"))
+            })?
+            .map_err(DaemonError::Protocol);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        result
+    }
+
+    fn request_shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        let _ = uds_windows::UnixStream::connect(&self.path);
+    }
+}
+
+#[cfg(windows)]
+impl Drop for WindowsLocalServer {
+    fn drop(&mut self) {
+        self.request_shutdown();
+    }
+}
+
+/// Serve daemon carriers through a DACL-protected Windows Unix socket.
+///
+/// The socket path lock and protected parent directory are the authentication
+/// boundary for carrier auth. Network listeners must never use this evidence.
+#[cfg(windows)]
+pub async fn serve_windows_local(
+    daemon: Arc<RemoteDaemon>,
+    path: impl Into<PathBuf>,
+    maximum_frame_bytes: usize,
+) -> Result<WindowsLocalServer, DaemonError> {
+    let path = path.into();
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .ok_or_else(|| DaemonError::Protocol("Windows local socket path has no parent".into()))?;
+    ensure_secure_directory(parent, DirectoryAccess::ManagedOwnerOnly).map_err(|error| {
+        DaemonError::Protocol(format!(
+            "could not protect Windows local socket directory {}: {error}",
+            parent.display()
+        ))
+    })?;
+    let lock_path = sibling_lock_path(&path)
+        .map_err(|error| DaemonError::Protocol(format!("invalid Windows socket path: {error}")))?;
+    let path_lock = OwnerFileLock::try_acquire(&lock_path).map_err(|error| {
+        DaemonError::Protocol(format!(
+            "could not lease Windows local socket {}: {error}",
+            path.display()
+        ))
+    })?;
+    if path.exists() {
+        if uds_windows::UnixStream::connect(&path).is_ok() {
+            return Err(DaemonError::Protocol(format!(
+                "Windows local socket {} is already in use",
+                path.display()
+            )));
+        }
+        fs::remove_file(&path).map_err(|error| {
+            DaemonError::Protocol(format!("could not remove stale Windows socket: {error}"))
+        })?;
+    }
+    let listener = uds_windows::UnixListener::bind(&path).map_err(|error| {
+        DaemonError::Protocol(format!("could not bind Windows local socket: {error}"))
+    })?;
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let thread_shutdown = shutdown.clone();
+    let thread_path = path.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let (finished_tx, finished) = std::sync::mpsc::sync_channel(1);
+    let (completion_tx, completion) = watch::channel(None);
+    let thread = thread::Builder::new()
+        .name("windows-daemon-listener".into())
+        .spawn(move || {
+            let _path_lock = path_lock;
+            let result = loop {
+                match listener.accept() {
+                    Ok((stream, _)) if thread_shutdown.load(Ordering::Acquire) => {
+                        drop(stream);
+                        break Ok(());
+                    }
+                    Ok((stream, _)) => {
+                        let daemon = daemon.clone();
+                        let bridge_runtime = runtime.clone();
+                        runtime.spawn(async move {
+                            let inbound = match windows_local_inbound(
+                                stream,
+                                bridge_runtime,
+                                maximum_frame_bytes,
+                            ) {
+                                Ok(inbound) => inbound,
+                                Err(_) => return,
+                            };
+                            let _ = daemon.accept(inbound).await;
+                        });
+                    }
+                    Err(_) if thread_shutdown.load(Ordering::Acquire) => break Ok(()),
+                    Err(error) => {
+                        break Err(format!("Windows local listener accept failed: {error}"));
+                    }
+                }
+            };
+            let _ = fs::remove_file(&thread_path);
+            let _ = completion_tx.send(Some(result.clone()));
+            let _ = finished_tx.send(result);
+        })
+        .map_err(|error| {
+            DaemonError::Protocol(format!("could not start Windows listener thread: {error}"))
+        })?;
+    Ok(WindowsLocalServer { path, shutdown, finished, completion, thread: Some(thread) })
+}
+
+#[cfg(windows)]
+fn windows_local_inbound(
+    stream: uds_windows::UnixStream,
+    runtime: tokio::runtime::Handle,
+    maximum_frame_bytes: usize,
+) -> io::Result<InboundLink> {
+    let socket_reader = stream.try_clone()?;
+    let upload_shutdown = stream.try_clone()?;
+    let download_shutdown = stream.try_clone()?;
+    let (local, bridge) = tokio::io::duplex(maximum_frame_bytes.saturating_mul(2).max(8 * 1024));
+    let (local_reader, local_writer) = tokio::io::split(local);
+    let (bridge_reader, bridge_writer) = tokio::io::split(bridge);
+    let upload_runtime = runtime.clone();
+    tokio::task::spawn_blocking(move || {
+        let _ = copy_windows_socket_to_async(socket_reader, bridge_writer, upload_runtime);
+        let _ = upload_shutdown.shutdown(Shutdown::Both);
+    });
+    tokio::task::spawn_blocking(move || {
+        let _ = copy_async_to_windows_socket(bridge_reader, stream, runtime);
+        let _ = download_shutdown.shutdown(Shutdown::Both);
+    });
+    let link = LengthDelimitedLink::new(
+        "windows-owner-local",
+        maximum_frame_bytes,
+        local_reader,
+        local_writer,
+    );
+    Ok(InboundLink::owner_only_local(Box::new(link)))
+}
+
+#[cfg(windows)]
+fn copy_windows_socket_to_async(
+    mut socket: uds_windows::UnixStream,
+    mut destination: tokio::io::WriteHalf<tokio::io::DuplexStream>,
+    runtime: tokio::runtime::Handle,
+) -> io::Result<()> {
+    use std::io::Read as _;
+    use tokio::io::AsyncWriteExt as _;
+
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let size = socket.read(&mut buffer)?;
+        if size == 0 {
+            return runtime.block_on(destination.shutdown());
+        }
+        runtime.block_on(destination.write_all(&buffer[..size]))?;
+    }
+}
+
+#[cfg(windows)]
+fn copy_async_to_windows_socket(
+    mut source: tokio::io::ReadHalf<tokio::io::DuplexStream>,
+    mut socket: uds_windows::UnixStream,
+    runtime: tokio::runtime::Handle,
+) -> io::Result<()> {
+    use std::io::Write as _;
+    use tokio::io::AsyncReadExt as _;
+
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let size = runtime.block_on(source.read(&mut buffer))?;
+        if size == 0 {
+            return socket.shutdown(Shutdown::Write);
+        }
+        socket.write_all(&buffer[..size])?;
+        socket.flush()?;
+    }
 }
 
 #[derive(Debug)]

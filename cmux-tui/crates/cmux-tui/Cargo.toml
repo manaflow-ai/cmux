@@ -50,6 +50,9 @@ async-trait.workspace = true
 cmux-remote = { path = "../cmux-remote", default-features = false }
 cmux-remote-protocol.workspace = true
 tokio = { workspace = true, features = ["io-std"] }
+fs4.workspace = true
+uds_windows.workspace = true
+windows-sys = { version = "0.61", features = ["Win32_System_Threading"] }
 
 [dev-dependencies]
 tempfile = "3"

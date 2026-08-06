@@ -239,8 +239,17 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
                 |until| format!("{} · {until}", messages.recoverable_machine),
             )
         });
-        let subtitle = recoverable_subtitle.as_deref().unwrap_or_else(|| {
-            if machine.subtitle.is_empty() { status } else { &machine.subtitle }
+        let subtitle = recoverable_subtitle.as_deref().unwrap_or_else(|| match connection_phase {
+            crate::machine::MachineConnectionPhase::Connecting
+            | crate::machine::MachineConnectionPhase::Failed => status,
+            crate::machine::MachineConnectionPhase::Disconnected
+            | crate::machine::MachineConnectionPhase::Ready => {
+                if machine.subtitle.is_empty() {
+                    status
+                } else {
+                    &machine.subtitle
+                }
+            }
         });
         let indicator = if recoverable {
             Some(app.config.theme.notification_warning)

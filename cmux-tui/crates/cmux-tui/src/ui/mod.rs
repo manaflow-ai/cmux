@@ -203,6 +203,18 @@ fn draw_machine_transition(app: &mut App, frame: &mut Frame) -> bool {
     let status_width = status.width().min(area.width as usize);
     let status_x = area.x.saturating_add(area.width.saturating_sub(status_width as u16) / 2);
     buffer.set_stringn(status_x, center_y, status, status_width, style);
+    if phase == MachineConnectionPhase::Connecting {
+        let hint_y = center_y.saturating_add(1);
+        if hint_y >= area.y.saturating_add(area.height) {
+            return true;
+        }
+        let hint = catalog()
+            .sidebar
+            .connection_timeout_hint(crate::machine_runtime::MACHINE_CONNECTION_TIMEOUT_SECONDS);
+        let hint_width = hint.width().min(area.width as usize);
+        let hint_x = area.x.saturating_add(area.width.saturating_sub(hint_width as u16) / 2);
+        buffer.set_stringn(hint_x, hint_y, &hint, hint_width, style);
+    }
     true
 }
 

@@ -287,12 +287,12 @@ jobs:
         shell: bash
         run: |
           set +e
-          output="$(cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
+          output="$(timeout 15s cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe remote-link --stdio --session ci-smoke </dev/null 2>&1)"
           status=$?
           set -e
           printf '%s\n' "$output"
-          test "$status" -ne 0
-          grep -F "Windows SSH carrier was rejected" <<<"$output"
+          test "$status" -ne 124
+          cmux-tui/target/x86_64-pc-windows-gnu/debug/cmux-tui.exe remote-stop --session ci-smoke
 
       - name: Verify native Windows ConPTY terminal
         shell: bash

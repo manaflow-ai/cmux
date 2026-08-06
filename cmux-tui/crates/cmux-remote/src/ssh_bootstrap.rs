@@ -478,12 +478,6 @@ impl SshBootstrapper {
                 "remote state directory is not shell-safe".into(),
             ));
         }
-        // Native Windows currently owns its mux inside the SSH carrier
-        // process. There is no resident daemon to stop before launching the
-        // newly installed binary.
-        if matches!(target.shell, SshRemoteShell::WindowsCmd) {
-            return Ok(());
-        }
         let output = match target.shell {
             SshRemoteShell::Posix => match state_dir {
                 Some(state_dir) => {
@@ -502,7 +496,16 @@ impl SshBootstrapper {
                         .await?
                 }
             },
-            SshRemoteShell::WindowsCmd => unreachable!("Windows returned before remote stop"),
+            SshRemoteShell::WindowsCmd => {
+                let mut command =
+                    format!("\"{}\" remote-stop --session {}", target.binary, session);
+                if let Some(state_dir) = state_dir {
+                    command.push_str(" --state-dir \"");
+                    command.push_str(state_dir);
+                    command.push('"');
+                }
+                self.run_remote([command.as_str()]).await?
+            }
         };
         if output.status != 0 {
             return Err(BootstrapError::Remote {
@@ -983,17 +986,38 @@ mod tests {
         assert_eq!(resolved.target.binary, WINDOWS_REMOTE_BINARY);
     }
 
+    #[cfg(unix)]
     #[tokio::test]
-    async fn carrier_scoped_windows_target_has_no_daemon_to_stop() {
+    async fn resident_windows_target_stops_mux_owner_with_one_cmd_safe_command() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let script = directory.path().join("ssh");
+        let arguments = directory.path().join("arguments");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n", arguments.display()),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
         let mut config = SshBootstrapConfig::defaults("windows-host");
-        config.ssh_binary = "this-ssh-must-not-run".into();
+        config.ssh_binary = script.to_string_lossy().into_owned();
         let bootstrap = SshBootstrapper::new(config).unwrap();
         let target = SshRemoteTarget {
             binary: WINDOWS_REMOTE_BINARY.into(),
             shell: SshRemoteShell::WindowsCmd,
         };
 
-        bootstrap.stop_daemon_target(&target, "main", None).await.unwrap();
+        bootstrap
+            .stop_daemon_target(&target, "main", Some(r"%LOCALAPPDATA%\cmux\state"))
+            .await
+            .unwrap();
+
+        let arguments = fs::read_to_string(arguments).unwrap();
+        assert!(arguments.contains("windows-host\n"));
+        assert!(arguments.contains(
+            r#""%LOCALAPPDATA%\cmux\bin\cmux-tui.exe" remote-stop --session main --state-dir "%LOCALAPPDATA%\cmux\state""#
+        ));
     }
 
     #[test]

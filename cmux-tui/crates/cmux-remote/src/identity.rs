@@ -1488,7 +1488,9 @@ impl ServerAuthenticator for AuthDatabase {
                 if self.allow_carrier
                     && matches!(
                         &request.inbound,
-                        InboundAuthEvidence::Kernel(_) | InboundAuthEvidence::Ssh(_)
+                        InboundAuthEvidence::Kernel(_)
+                            | InboundAuthEvidence::OwnerOnlyLocal(_)
+                            | InboundAuthEvidence::Ssh(_)
                     ) =>
             {
                 Ok(AuthGrant {
