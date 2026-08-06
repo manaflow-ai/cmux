@@ -140,3 +140,15 @@ def test_quicklook_retirement_does_not_close_inactive_preview():
     assert "previewView.previewItem = nil" in retirement
     assert "previewView.removeFromSuperview()" in retirement
     assert "previewView.close()" not in retirement
+
+
+def test_portal_geometry_sync_defers_layout_to_appkit():
+    synchronization = source_slice(
+        "Sources/TerminalWindowPortal.swift",
+        "private func synchronizeLayoutHierarchy()",
+        "@discardableResult\n    private func synchronizeHostFrameToReference()",
+    )
+
+    assert ".layoutSubtreeIfNeeded()" not in synchronization
+    assert "installedContainerView?.needsLayout = true" in synchronization
+    assert "installedReferenceView?.needsLayout = true" in synchronization
