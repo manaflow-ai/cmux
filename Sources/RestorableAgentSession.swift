@@ -931,7 +931,8 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             temporaryDirectory: temporaryDirectory
         ).writeLauncherScript(
             command: command,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            retention: requireLauncherScript ? .sensitive : .standard
         ) else {
             return nil
         }

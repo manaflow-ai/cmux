@@ -8,6 +8,16 @@ nonisolated private let agentConversationForkRequestLogger = Logger(
 )
 
 extension Workspace {
+    func adoptConversationTransferLauncher(
+        _ input: PreparedAgentStartupInput?,
+        forPanelId panelId: UUID
+    ) {
+        OneShotTerminalLauncherOwnershipRegistry.shared.adopt(
+            input,
+            forPanelID: panelId
+        )
+    }
+
     /// Executes a validated request after the caller resolves the source snapshot.
     func forkAgentConversation(
         fromPanelId panelId: UUID,
@@ -87,9 +97,12 @@ extension Workspace {
         }
 
         if let initialTransferEvidence {
+            let postExportRefreshBoundary = liveAgentIndex
+                .conversationTransferRefreshBoundary()
             guard let refreshedEvidence = await liveAgentIndex.freshConversationTransferEvidence(
                 workspaceId: id,
-                panelId: panelId
+                panelId: panelId,
+                startedAfter: postExportRefreshBoundary
             ),
             Self.sameConversationTransferEvidence(
                 initialTransferEvidence,
@@ -143,14 +156,20 @@ extension Workspace {
         let startupInputOverride = preparedStartupInput?.text
 
         if let direction = request.destination.splitDirection {
-            let didFork = forkAgentConversation(
+            guard let destinationPanel = forkAgentConversation(
                 fromPanelId: panelId,
                 snapshot: snapshot,
                 direction: direction,
                 startupInputOverride: startupInputOverride
-            ) != nil
-            destinationOwnsLauncherScript = didFork
-            return didFork
+            ) else {
+                return false
+            }
+            adoptConversationTransferLauncher(
+                preparedStartupInput,
+                forPanelId: destinationPanel.id
+            )
+            destinationOwnsLauncherScript = true
+            return true
         }
 
         switch request.destination {
@@ -159,23 +178,35 @@ extension Workspace {
                   let paneId = paneId(forPanelId: panelId) else {
                 return false
             }
-            let didFork = forkAgentConversationToNewTab(
+            guard let destinationPanel = forkAgentConversationToNewTab(
                 fromPanelId: panelId,
                 snapshot: snapshot,
                 anchorTabId: anchorTabId,
                 paneId: paneId,
                 startupInputOverride: startupInputOverride
-            ) != nil
-            destinationOwnsLauncherScript = didFork
-            return didFork
+            ) else {
+                return false
+            }
+            adoptConversationTransferLauncher(
+                preparedStartupInput,
+                forPanelId: destinationPanel.id
+            )
+            destinationOwnsLauncherScript = true
+            return true
         case .newWorkspace:
-            let didFork = forkAgentConversationToNewWorkspace(
+            guard let destination = forkAgentConversationToNewWorkspace(
                 fromPanelId: panelId,
                 snapshot: snapshot,
                 startupInputOverride: startupInputOverride
+            ) else {
+                return false
+            }
+            destination.workspace.adoptConversationTransferLauncher(
+                preparedStartupInput,
+                forPanelId: destination.panelId
             )
-            destinationOwnsLauncherScript = didFork
-            return didFork
+            destinationOwnsLauncherScript = true
+            return true
         case .right, .left, .top, .bottom:
             return false
         }
@@ -258,14 +289,14 @@ extension Workspace {
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
         startupInputOverride: String?
-    ) -> Bool {
+    ) -> (workspace: Workspace, panelId: UUID)? {
         guard let owningTabManager,
               let launch = forkAgentWorkspaceLaunch(
                   fromPanelId: panelId,
                   snapshot: snapshot,
                   startupInputOverride: startupInputOverride
               ) else {
-            return false
+            return nil
         }
 
         let forkWorkspace = owningTabManager.addWorkspace(
@@ -287,6 +318,9 @@ extension Workspace {
            let forkPanelId = forkWorkspace.focusedPanelId {
             forkWorkspace.updatePanelDirectory(panelId: forkPanelId, directory: workingDirectory)
         }
-        return true
+        guard let forkPanelId = forkWorkspace.focusedPanelId else {
+            return nil
+        }
+        return (forkWorkspace, forkPanelId)
     }
 }

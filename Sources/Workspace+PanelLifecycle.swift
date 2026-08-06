@@ -423,6 +423,11 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
+        if !preservesTerminalForTransfer {
+            OneShotTerminalLauncherOwnershipRegistry.shared.discard(
+                forPanelID: panelId
+            )
+        }
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }

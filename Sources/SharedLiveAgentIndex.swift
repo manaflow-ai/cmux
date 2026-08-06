@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxWorkspaces
 
 /// Process-wide cache of `RestorableAgentSessionIndex` results for agent fork and restore paths.
 @MainActor
@@ -21,6 +22,7 @@ final class SharedLiveAgentIndex {
     )
     private typealias ConversationTransferRefresh = (
         id: UUID,
+        generation: UInt64,
         task: Task<SharedLiveAgentIndexLoader.LoadResult, Never>
     )
     typealias ConversationTransferEvidence = (
@@ -73,7 +75,8 @@ final class SharedLiveAgentIndex {
     private var liveAgentProcessFingerprint: Set<String> = []
     private var refreshTask: Task<Void, Never>?
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
-    private var conversationTransferRefresh: ConversationTransferRefresh?
+    private var conversationTransferRefreshes: [UInt64: ConversationTransferRefresh] = [:]
+    private var conversationTransferRefreshGeneration: UInt64 = 0
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
     private var forkExecutableWatchRecords: [ForkExecutableWatchKey: ForkExecutableWatchRecord] = [:]
     private var forkExecutableWatchKeysByProbeKey: [ForkProbeKey: ForkExecutableWatchKey] = [:]
@@ -271,7 +274,9 @@ final class SharedLiveAgentIndex {
     deinit {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
-        conversationTransferRefresh?.task.cancel()
+        for refresh in conversationTransferRefreshes.values {
+            refresh.task.cancel()
+        }
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
@@ -326,29 +331,43 @@ final class SharedLiveAgentIndex {
         )?.snapshot
     }
 
+    /// Marks the newest scan that may have started before an async export
+    /// completed. A validation scan requested with this boundary never joins
+    /// older work.
+    func conversationTransferRefreshBoundary() -> UInt64 {
+        conversationTransferRefreshGeneration
+    }
+
     /// Loads the exact conversation and process generation together so callers
     /// can compare authoritative evidence across a transcript export.
     func freshConversationTransferEvidence(
         workspaceId: UUID,
-        panelId: UUID
+        panelId: UUID,
+        startedAfter refreshBoundary: UInt64? = nil
     ) async -> ConversationTransferEvidence? {
         let refresh: ConversationTransferRefresh
-        if let inFlight = conversationTransferRefresh {
+        if let inFlight = conversationTransferRefreshes.values
+            .filter({ refresh in
+                refreshBoundary.map { refresh.generation > $0 } ?? true
+            })
+            .max(by: { $0.generation < $1.generation }) {
             refresh = inFlight
         } else {
+            conversationTransferRefreshGeneration &+= 1
             let indexLoader = self.indexLoader
             let created = ConversationTransferRefresh(
                 id: UUID(),
+                generation: conversationTransferRefreshGeneration,
                 task: Task.detached(priority: .utility) {
                     indexLoader()
                 }
             )
-            conversationTransferRefresh = created
+            conversationTransferRefreshes[created.generation] = created
             refresh = created
         }
         let result = await refresh.task.value
-        if conversationTransferRefresh?.id == refresh.id {
-            conversationTransferRefresh = nil
+        if conversationTransferRefreshes[refresh.generation]?.id == refresh.id {
+            conversationTransferRefreshes.removeValue(forKey: refresh.generation)
         }
         guard !Task.isCancelled else { return nil }
 

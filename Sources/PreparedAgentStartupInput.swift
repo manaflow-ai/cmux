@@ -3,7 +3,7 @@ import Foundation
 /// Holds startup text and owns any private launcher script until handoff.
 struct PreparedAgentStartupInput: Sendable {
     let text: String
-    private let launcherScriptURL: URL?
+    let launcherScriptURL: URL?
 
     init(text: String, launcherScriptURL: URL? = nil) {
         self.text = text
@@ -13,5 +13,12 @@ struct PreparedAgentStartupInput: Sendable {
     func removeLauncherScript(fileManager: FileManager = .default) {
         guard let launcherScriptURL else { return }
         try? fileManager.removeItem(at: launcherScriptURL)
+    }
+
+    func scheduleLauncherScriptRemoval() {
+        guard let launcherScriptURL else { return }
+        OneShotTerminalLauncherStore.scheduleSensitiveLauncherRemoval(
+            at: launcherScriptURL
+        )
     }
 }

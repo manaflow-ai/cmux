@@ -1361,6 +1361,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            Task {
+                await OneShotTerminalLauncherJanitor.shared.start()
+            }
         }
 
         claimAuthCallbackURLSchemes()
