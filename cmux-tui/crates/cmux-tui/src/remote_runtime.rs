@@ -127,7 +127,10 @@ impl DaemonCleanupPauseHandle {
 
     fn wait_until_reached(&self) {
         self.reached
-            .recv_timeout(Duration::from_secs(3))
+            // The daemon performs real filesystem and socket setup before it
+            // reaches this deterministic test hook. Keep the observation
+            // bounded without coupling it to parallel CI runner load.
+            .recv_timeout(Duration::from_secs(10))
             .expect("daemon shutdown did not reach the lifecycle cleanup pause");
     }
 

@@ -509,6 +509,7 @@ export const coderouterRouteTokens = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default("cli"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -519,6 +520,10 @@ export const coderouterRouteTokens = pgTable(
   (table) => [
     uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
     index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+    index("coderouter_route_tokens_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
   ],
 );
 
