@@ -332,6 +332,21 @@ struct MobileIrohRuntimeCompositionCooldownTests {
     }
 
     @Test
+    func liveMacDiscoveryForcesFreshBrokerSnapshotAfterActivation() async throws {
+        let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
+        await settleActivation(fixture) {
+            fixture.composition.runtime != nil
+        }
+
+        let activationDiscoveryCount = await fixture.broker.discoveryRequestCount()
+        #expect(activationDiscoveryCount == 1)
+
+        _ = await fixture.composition.discoverLiveMacs()
+
+        #expect(await fixture.broker.discoveryRequestCount() == activationDiscoveryCount + 1)
+    }
+
+    @Test
     func activeRuntimeRateLimitSurvivesCompositionRecreation() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
         await settleActivation(fixture) {
