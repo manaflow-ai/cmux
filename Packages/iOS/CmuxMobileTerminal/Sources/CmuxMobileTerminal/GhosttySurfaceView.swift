@@ -1013,6 +1013,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // its safe-area fallback with the keyboard up; the floor then lifts the dock
         // on the notification's own curve.
         updateDockedToolbarVisibility()
+        #if DEBUG
+        // Transition forensics for the bars-lag-the-keyboard class: one line per
+        // willChangeFrame with the notification frame, the tracker/guide/floor
+        // trio, and the animation duration, so a dogfood recording can be lined
+        // up against which source moved (or failed to move) the dock and when.
+        MobileDebugLog.anchormux(
+            "kb.willChange endMinY=\(Int(transition.endFrame.minY)) endH=\(Int(transition.endFrame.height))"
+                + " dur=\(String(format: "%.2f", transition.duration))"
+                + " trackerOverlap=\(Int(keyboardFrameTracker.overlap(in: self)))"
+                + " guideTop=\(Int(keyboardLayoutGuide.layoutFrame.minY))"
+                + " floor=\(Int(keyboardOverlapFloor)) visible=\(willBeVisible ? 1 : 0)"
+        )
+        #endif
         // The tracker (registered before any surface's handler) is the floor's
         // ONLY data source; this handler merely re-reads it on the keyboard's
         // own animation curve so a floor change moves like the keyboard. A
@@ -1047,7 +1060,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Installs the system keyboard guide as the primary keyboard geometry source.
     private func configureKeyboardLayoutGuide() {
         keyboardLayoutGuide.followsUndockedKeyboard = false
-        keyboardLayoutGuide.usesBottomSafeArea = true
+        // Pure keyboard tracking. With `usesBottomSafeArea = true` the guide's
+        // position is coupled to bottom-safe-area propagation, which lands at
+        // the END of a keyboard transition: on device the guide-constrained
+        // bars sat still while the keyboard rose over them, then snapped up
+        // after it settled (dogfood recording, 2026-08-05), and on the
+        // simulator the settled guide read the bottom inset (~34pt) below the
+        // notification frame. The keyboard-down seat above the home indicator
+        // that `usesBottomSafeArea` provided is expressed explicitly in
+        // `installBottomDockConstraints()` via a required safe-area cap.
+        keyboardLayoutGuide.usesBottomSafeArea = false
         // Create the process-wide tracker no later than the first surface, so a
         // keyboard transition that happens while THIS view is detached (workspace
         // switch) is still observed and can seat the keyboard floor on attach.
@@ -1070,6 +1092,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let composerBottomFloor = composerContainer.bottomAnchor.constraint(
             lessThanOrEqualTo: bottomAnchor
         )
+        // With the guide in pure keyboard mode its keyboard-DOWN position is the
+        // view's bottom edge, so the home-indicator seat is stated explicitly:
+        // the dock may never sink into the bottom safe area. While the keyboard
+        // is up, the guide equality and the keyboard floor are both stricter, so
+        // this cap only decides the keyboard-down seat.
+        let composerBottomSafeAreaCap = composerContainer.bottomAnchor.constraint(
+            lessThanOrEqualTo: safeAreaLayoutGuide.bottomAnchor
+        )
         let composerHeight = composerContainer.heightAnchor.constraint(equalToConstant: 0)
         let toolbarHeight = dockedToolbar.heightAnchor.constraint(equalToConstant: 0)
         composerBottomToKeyboardConstraint = composerBottom
@@ -1082,6 +1112,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             composerContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             composerBottom,
             composerBottomFloor,
+            composerBottomSafeAreaCap,
             composerHeight,
             dockedToolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             dockedToolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -1107,6 +1138,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard abs(clamped - keyboardOverlapFloor) > 0.25 else { return false }
         keyboardOverlapFloor = clamped
         composerBottomKeyboardFloorConstraint?.constant = -clamped
+        #if DEBUG
+        // Paired with kb.willChange: a kb.floor long after its kb.willChange is
+        // the late-snap signature (floor applied by layout catch-up, unanimated).
+        MobileDebugLog.anchormux("kb.floor \(Int(clamped))")
+        #endif
         setNeedsGeometrySync()
         return true
     }
