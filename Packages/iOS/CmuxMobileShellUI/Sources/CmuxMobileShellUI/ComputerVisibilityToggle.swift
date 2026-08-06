@@ -14,7 +14,7 @@ struct ComputerVisibilityToggle: View {
     let setVisible: @MainActor (Bool) async -> Void
 
     @State private var pendingValue: Bool?
-    @State private var actionTask: Task<Void, Never>?
+    @State private var isMutating = false
 
     private var displayedValue: Bool { pendingValue ?? isVisible }
 
@@ -30,7 +30,7 @@ struct ComputerVisibilityToggle: View {
             )
         )
         .labelsHidden()
-        .disabled(actionTask != nil)
+        .disabled(isMutating)
         .accessibilityLabel(
             String(
                 format: L10n.string(
@@ -42,18 +42,19 @@ struct ComputerVisibilityToggle: View {
         )
         .accessibilityIdentifier("MobileComputerVisibilityToggle-\(computerID)")
         .onChange(of: isVisible) { _, newValue in
-            guard actionTask == nil else { return }
+            guard !isMutating else { return }
             pendingValue = newValue
         }
     }
 
     private func beginMutation(_ newValue: Bool) {
-        guard actionTask == nil, newValue != displayedValue else { return }
+        guard !isMutating, newValue != displayedValue else { return }
         pendingValue = newValue
-        actionTask = Task { @MainActor in
+        isMutating = true
+        Task { @MainActor in
             await setVisible(newValue)
             pendingValue = nil
-            actionTask = nil
+            isMutating = false
         }
     }
 }
