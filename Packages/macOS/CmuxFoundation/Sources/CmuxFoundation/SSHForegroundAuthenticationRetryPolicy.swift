@@ -964,6 +964,69 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_cleanup_complete=1
         )
 
+        cmux_ssh_terminate_unpublished_auth_process_tree() (
+          cmux_ssh_auth_tree_root_pid="$1"
+          cmux_ssh_auth_tree_root_parent="$2"
+          cmux_ssh_auth_tree_root_group="$3"
+          cmux_ssh_auth_tree_root_started="$4"
+          case "$cmux_ssh_auth_tree_root_pid:$cmux_ssh_auth_tree_root_parent:$cmux_ssh_auth_tree_root_group:$cmux_ssh_auth_tree_root_started" in
+            *[!A-Za-z0-9_:]*|:*|*:) exit 1 ;;
+          esac
+
+          umask 077
+          cmux_ssh_auth_tree_state=$(/usr/bin/mktemp -d \
+            "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || exit 1
+          cmux_ssh_auth_tree_complete=0
+          cmux_ssh_auth_tree_cleanup() {
+            if [ "$cmux_ssh_auth_tree_complete" != 1 ]; then
+              cmux_ssh_auth_resume_signaled_processes
+            fi
+            /bin/rm -f -- \
+              "$cmux_ssh_auth_tree_state/processes" \
+              "$cmux_ssh_auth_tree_state/processes.stopped" \
+              "$cmux_ssh_auth_tree_state/owned" \
+              "$cmux_ssh_auth_tree_state/owned.next" \
+              "$cmux_ssh_auth_tree_state/groups" \
+              "$cmux_ssh_auth_tree_state/groups.next" \
+              "$cmux_ssh_auth_tree_state/groups.resume" \
+              "$cmux_ssh_auth_tree_state/frozen" \
+              "$cmux_ssh_auth_tree_state/individuals" \
+              "$cmux_ssh_auth_tree_state/ordered" \
+              "$cmux_ssh_auth_tree_state/signaled.groups" \
+              "$cmux_ssh_auth_tree_state/signaled.pids" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_tree_state" 2>/dev/null || true
+          }
+          trap 'cmux_ssh_auth_tree_cleanup' EXIT
+
+          cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_tree_state/processes"
+          cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_tree_state/processes.stopped"
+          cmux_ssh_auth_owned_processes="$cmux_ssh_auth_tree_state/owned"
+          cmux_ssh_auth_next_owned_processes="$cmux_ssh_auth_tree_state/owned.next"
+          cmux_ssh_auth_owned_groups="$cmux_ssh_auth_tree_state/groups"
+          cmux_ssh_auth_next_owned_groups="$cmux_ssh_auth_tree_state/groups.next"
+          cmux_ssh_auth_resume_groups="$cmux_ssh_auth_tree_state/groups.resume"
+          cmux_ssh_auth_frozen_processes="$cmux_ssh_auth_tree_state/frozen"
+          cmux_ssh_auth_individual_processes="$cmux_ssh_auth_tree_state/individuals"
+          cmux_ssh_auth_ordered_processes="$cmux_ssh_auth_tree_state/ordered"
+          cmux_ssh_auth_signaled_groups="$cmux_ssh_auth_tree_state/signaled.groups"
+          cmux_ssh_auth_signaled_processes="$cmux_ssh_auth_tree_state/signaled.pids"
+          cmux_ssh_auth_owned_group=0
+          # Treat the root's group as shared. The fallback then signals each
+          # validated member instead of risking the caller's process group.
+          cmux_ssh_auth_caller_group="$cmux_ssh_auth_tree_root_group"
+          printf '%s %s %s %s R\n' "$cmux_ssh_auth_tree_root_pid" \
+            "$cmux_ssh_auth_tree_root_parent" "$cmux_ssh_auth_tree_root_group" \
+            "$cmux_ssh_auth_tree_root_started" > "$cmux_ssh_auth_owned_processes" || exit 1
+          : > "$cmux_ssh_auth_frozen_processes" || exit 1
+          : > "$cmux_ssh_auth_signaled_groups" || exit 1
+          : > "$cmux_ssh_auth_signaled_processes" || exit 1
+          cmux_ssh_auth_tree_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
+          case "$cmux_ssh_auth_tree_started_millis" in ''|*[!0-9]*) exit 1 ;; esac
+          cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_tree_started_millis + 2000))
+          cmux_ssh_auth_run_cleanup_transactions || exit 1
+          cmux_ssh_auth_tree_complete=1
+        )
+
         cmux_ssh_terminate_auth_process_tree() (
           cmux_ssh_auth_root_pid="$1"
           cmux_ssh_auth_root_parent="$2"
@@ -987,8 +1050,27 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               ;;
           esac
 
-          cmux_ssh_terminate_owned_auth_group
           if [ -z "$cmux_ssh_auth_root_identity" ]; then exit 0; fi
+          if [ -z "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] || \
+            [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+            if cmux_ssh_terminate_unpublished_auth_process_tree \
+              "$cmux_ssh_auth_root_pid" "$cmux_ssh_auth_observed_parent" \
+              "$cmux_ssh_auth_root_group" "$cmux_ssh_auth_root_started"; then
+              # Publication can finish while the root snapshot is frozen. If it
+              # did, drain the durable group too; otherwise the validated root
+              # transaction already covered every pre-publication descendant.
+              if [ -n "${CMUX_SSH_AUTH_GROUP_DIR:-}" ] && \
+                [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+                cmux_ssh_terminate_owned_auth_group
+              fi
+            else
+              # A failed snapshot still gives publication its normal bounded
+              # handoff window and preserves durable state when it appears.
+              cmux_ssh_terminate_owned_auth_group
+            fi
+          else
+            cmux_ssh_terminate_owned_auth_group
+          fi
           cmux_ssh_auth_current_root_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_root_pid")
           if [ "$cmux_ssh_auth_current_root_identity" = "$cmux_ssh_auth_root_identity" ]; then
             kill -KILL "$cmux_ssh_auth_root_pid" >/dev/null 2>&1 || true
