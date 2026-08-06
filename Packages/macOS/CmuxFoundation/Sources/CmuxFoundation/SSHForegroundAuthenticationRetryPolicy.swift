@@ -89,21 +89,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_started_at=$(/bin/date +%s 2>/dev/null) || exit 0
           case "$cmux_ssh_auth_started_at" in ''|*[!0-9]*) exit 0 ;; esac
           cmux_ssh_auth_deadline=$((cmux_ssh_auth_started_at + 2))
+          cmux_ssh_auth_deadline_status=90
           for cmux_ssh_auth_file in \
             "$cmux_ssh_auth_frozen" "$cmux_ssh_auth_owned" "$cmux_ssh_auth_groups" \
             "$cmux_ssh_auth_force_groups" "$cmux_ssh_auth_shared"; do
             : > "$cmux_ssh_auth_file" || exit 0
           done
-
-          cmux_ssh_auth_has_time() {
-            cmux_ssh_auth_now=$(/bin/date +%s 2>/dev/null) || return 1
-            case "$cmux_ssh_auth_now" in ''|*[!0-9]*) return 1 ;; esac
-            [ "$cmux_ssh_auth_now" -lt "$cmux_ssh_auth_deadline" ]
-          }
-
-          cmux_ssh_auth_take_snapshot() {
-            /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= > "$cmux_ssh_auth_snapshot" 2>/dev/null
-          }
 
           cmux_ssh_auth_extract_tree() {
             /usr/bin/awk \
@@ -177,12 +168,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               /usr/bin/sort -n -k2,2n > "$cmux_ssh_auth_live"
           }
 
-        \#(processIdentityValidationShellFunction())
+        \#(processValidationShellFunctions())
 
           cmux_ssh_auth_freeze_file() {
             cmux_ssh_auth_freeze_source="$1"
             : > "$cmux_ssh_auth_frozen" || return 1
+            cmux_ssh_auth_freeze_count=0
             while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
+              if [ $((cmux_ssh_auth_freeze_count % 8)) -eq 0 ] && ! cmux_ssh_auth_has_time; then
+                return "$cmux_ssh_auth_deadline_status"
+              fi
+              cmux_ssh_auth_freeze_count=$((cmux_ssh_auth_freeze_count + 1))
               case "$cmux_pid:$cmux_parent:$cmux_group" in *[!0-9:]*) continue ;; esac
               cmux_ssh_auth_record_is_current "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" || continue
               cmux_did_stop=
@@ -204,17 +200,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 return 1
               fi
             done < "$cmux_ssh_auth_freeze_source"
-          }
-
-          cmux_ssh_auth_records_are_frozen() {
-            cmux_ssh_auth_observed="$1"
-            /usr/bin/awk '
-              FILENAME == ARGV[1] {
-                cmux_frozen[$2 SUBSEP $3 SUBSEP $4 SUBSEP $5] = 1
-                next
-              }
-              $6 !~ /T/ || !(($2 SUBSEP $3 SUBSEP $4 SUBSEP $5) in cmux_frozen) { exit 1 }
-            ' "$cmux_ssh_auth_frozen" "$cmux_ssh_auth_observed"
           }
 
           cmux_ssh_auth_resume_file() {
@@ -259,7 +244,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             /usr/bin/sort -nr -k1,1 -k2,2nr "$cmux_ssh_auth_record_source" | \
               while IFS=' ' read -r cmux_depth cmux_pid cmux_parent cmux_group cmux_started cmux_state; do
                 case "$cmux_pid" in ''|*[!0-9]*) continue ;; esac
-                cmux_ssh_auth_record_is_current "$cmux_pid" "$cmux_parent" "$cmux_group" "$cmux_started" || continue
                 kill -"$cmux_ssh_auth_record_signal" "$cmux_pid" >/dev/null 2>&1 || true
               done
           }
@@ -292,7 +276,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_take_snapshot || exit 0
             cmux_ssh_auth_extract_tree || exit 0
             if [ ! -s "$cmux_ssh_auth_members" ]; then exit 0; fi
-            cmux_ssh_auth_freeze_file "$cmux_ssh_auth_members" || exit 0
+            cmux_ssh_auth_freeze_status=0
+            cmux_ssh_auth_freeze_file "$cmux_ssh_auth_members" || cmux_ssh_auth_freeze_status=$?
+            if [ "$cmux_ssh_auth_freeze_status" -ne 0 ]; then
+              if [ "$cmux_ssh_auth_freeze_status" -eq "$cmux_ssh_auth_deadline_status" ]; then
+                cmux_ssh_auth_force_validated_frozen
+              fi
+              exit 0
+            fi
             cmux_ssh_auth_take_snapshot || exit 0
             cmux_ssh_auth_extract_tree || exit 0
             if [ ! -s "$cmux_ssh_auth_members" ]; then exit 0; fi
