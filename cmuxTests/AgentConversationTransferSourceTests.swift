@@ -904,7 +904,6 @@ struct AgentConversationTransferSourceTests {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .hermesAgent,
             sessionId: "relative-hermes-home",
-            workingDirectory: workingDirectory,
             launchCommand: AgentLaunchCommandSnapshot(
                 launcher: "hermes",
                 executablePath: "/opt/homebrew/bin/hermes",

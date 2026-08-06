@@ -2063,18 +2063,30 @@ struct AgentConversationCrossHarnessForkTests {
             ]
         )
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let loadedPanelKeys = OSAllocatedUnfairLock(
+            initialState: Set<RestorableAgentSessionIndex.PanelKey>()
+        )
         let loadStarted = DispatchSemaphore(value: 0)
         let releaseLoads = DispatchSemaphore(value: 0)
         let liveAgentIndex = SharedLiveAgentIndex(
             indexLoader: {
+                (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [firstKey, secondKey]
+                )
+            },
+            conversationTransferPanelIndexLoader: { panelKey in
                 loadCount.withLock { $0 += 1 }
+                loadedPanelKeys.withLock { $0.insert(panelKey) }
                 loadStarted.signal()
                 _ = releaseLoads.wait(timeout: .now() + 2)
                 return (
                     index: index,
                     liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
                     processScopeFingerprint: [],
-                    forkValidatedPanels: [firstKey, secondKey]
+                    forkValidatedPanels: [panelKey]
                 )
             },
             hookStoreDirectoryProvider: { fixture.path },
@@ -2106,6 +2118,7 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(await first.value?.sessionId == firstSnapshot.sessionId)
         #expect(await second.value?.sessionId == secondSnapshot.sessionId)
         #expect(loadCount.withLock { $0 } == 2)
+        #expect(loadedPanelKeys.withLock { $0 } == [firstKey, secondKey])
     }
 
     @Test

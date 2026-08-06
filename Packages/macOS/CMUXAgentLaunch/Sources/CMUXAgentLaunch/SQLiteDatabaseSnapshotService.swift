@@ -27,6 +27,9 @@ public struct SQLiteDatabaseSnapshotService {
     private let maximumDuration: Duration
     private let now: () -> ContinuousClock.Instant
     private let sourceValidatedObserver: (() throws -> Void)?
+    private let forceReadOnlySourceCopy: Bool
+    private let readOnlyCopyChunkSize: Int
+    private let readOnlyCopyChunkObserver: (() throws -> Void)?
     private let stepObserver: (() throws -> Void)?
 
     /// Creates a database snapshot service.
@@ -45,6 +48,9 @@ public struct SQLiteDatabaseSnapshotService {
         self.maximumDuration = maximumDuration
         self.now = now
         sourceValidatedObserver = nil
+        forceReadOnlySourceCopy = false
+        readOnlyCopyChunkSize = 64 * 1_024
+        readOnlyCopyChunkObserver = nil
         stepObserver = nil
     }
 
@@ -54,6 +60,9 @@ public struct SQLiteDatabaseSnapshotService {
         maximumDuration: Duration = .seconds(10),
         now: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now },
         sourceValidatedObserver: (() throws -> Void)? = nil,
+        forceReadOnlySourceCopy: Bool = false,
+        readOnlyCopyChunkSize: Int = 64 * 1_024,
+        readOnlyCopyChunkObserver: (() throws -> Void)? = nil,
         stepObserver: @escaping () throws -> Void
     ) {
         self.fileManager = fileManager
@@ -61,6 +70,9 @@ public struct SQLiteDatabaseSnapshotService {
         self.maximumDuration = maximumDuration
         self.now = now
         self.sourceValidatedObserver = sourceValidatedObserver
+        self.forceReadOnlySourceCopy = forceReadOnlySourceCopy
+        self.readOnlyCopyChunkSize = max(1, min(readOnlyCopyChunkSize, 1_024 * 1_024))
+        self.readOnlyCopyChunkObserver = readOnlyCopyChunkObserver
         self.stepObserver = stepObserver
     }
 
@@ -97,13 +109,19 @@ public struct SQLiteDatabaseSnapshotService {
         try validateSnapshotDestination(path: destinationPath)
         let boundSource = try bindSourceDatabase(
             path: sourcePath,
-            maximumBytes: maximumBytes
+            maximumBytes: maximumBytes,
+            startedAt: startedAt
         )
         defer {
             try? fileManager.removeItem(at: boundSource.directoryURL)
             if let leaseDescriptor = boundSource.leaseDescriptor {
                 _ = Darwin.close(leaseDescriptor)
             }
+        }
+        let sourceStabilityDescriptor = boundSource.sourceStabilityDescriptor
+        defer {
+            releaseRollbackWriterExclusion(sourceStabilityDescriptor)
+            _ = Darwin.close(sourceStabilityDescriptor)
         }
         try enforceMaximumSidecarBytes(
             databasePath: boundSource.databaseURL.path,
@@ -253,19 +271,36 @@ public struct SQLiteDatabaseSnapshotService {
     /// validation cannot redirect or block its path-based open.
     private func bindSourceDatabase(
         path: String,
-        maximumBytes: Int?
+        maximumBytes: Int?,
+        startedAt: ContinuousClock.Instant
     ) throws -> (
         databaseURL: URL,
         directoryURL: URL,
-        leaseDescriptor: Int32?
+        leaseDescriptor: Int32?,
+        sourceStabilityDescriptor: Int32
     ) {
         let sourceURL = URL(fileURLWithPath: path).standardizedFileURL
         guard !sourceURL.lastPathComponent.isEmpty else {
             throw SQLiteDatabaseSnapshotError.sqlite("cannot open source database")
         }
         let sourceDescriptor = try validatedRegularSourceDescriptor(path: sourceURL.path)
-        defer { _ = Darwin.close(sourceDescriptor) }
+        var transfersSourceDescriptor = false
+        defer {
+            if !transfersSourceDescriptor {
+                releaseRollbackWriterExclusion(sourceDescriptor)
+                _ = Darwin.close(sourceDescriptor)
+            }
+        }
         try sourceValidatedObserver?()
+        try acquireRollbackWriterExclusion(
+            sourceDescriptor,
+            startedAt: startedAt
+        )
+        guard validatedSourcePath(sourceURL.path, matches: sourceDescriptor) else {
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "source database changed while opening"
+            )
+        }
         try rejectHotRollbackJournal(path: sourceURL.path + "-journal")
 
         let binding = try createPrivateSourceBindingDirectory(
@@ -278,7 +313,8 @@ public struct SQLiteDatabaseSnapshotService {
                 try enforceReadOnlySourceCopyMaximumBytes(
                     sourcePath: sourceURL.path,
                     sourceDescriptor: sourceDescriptor,
-                    maximumBytes: maximumBytes
+                    maximumBytes: maximumBytes,
+                    startedAt: startedAt
                 )
             }
             let databaseURL = directoryURL.appendingPathComponent(
@@ -290,7 +326,8 @@ public struct SQLiteDatabaseSnapshotService {
                     from: sourceURL.path,
                     descriptor: sourceDescriptor,
                     to: databaseURL.path,
-                    label: "source database"
+                    label: "source database",
+                    startedAt: startedAt
                 )
             } else {
                 try linkValidatedFile(
@@ -304,7 +341,8 @@ public struct SQLiteDatabaseSnapshotService {
                 if binding.requiresCopy {
                     try copyOptionalReadOnlyFile(
                         from: sourceURL.path + suffix,
-                        to: databaseURL.path + suffix
+                        to: databaseURL.path + suffix,
+                        startedAt: startedAt
                     )
                 } else {
                     try linkOptionalRegularFile(
@@ -315,7 +353,13 @@ public struct SQLiteDatabaseSnapshotService {
             }
             try rejectHotRollbackJournal(path: databaseURL.path + "-journal")
             try rejectHotRollbackJournal(path: sourceURL.path + "-journal")
-            return (databaseURL, directoryURL, binding.leaseDescriptor)
+            transfersSourceDescriptor = true
+            return (
+                databaseURL,
+                directoryURL,
+                binding.leaseDescriptor,
+                sourceDescriptor
+            )
         } catch {
             try? fileManager.removeItem(at: directoryURL)
             if let leaseDescriptor = binding.leaseDescriptor {
@@ -357,7 +401,8 @@ public struct SQLiteDatabaseSnapshotService {
                 "cannot inspect private snapshot directory"
             )
         }
-        if temporaryMetadata.st_dev == sourceMetadata.st_dev {
+        if temporaryMetadata.st_dev == sourceMetadata.st_dev,
+           !forceReadOnlySourceCopy {
             guard let leaseDescriptor = createSourceBindingLease(
                 in: temporaryDirectory,
                 databaseName: sourceURL.lastPathComponent
@@ -371,7 +416,7 @@ public struct SQLiteDatabaseSnapshotService {
         }
 
         var candidateParent = sourceURL.deletingLastPathComponent()
-        while true {
+        while !forceReadOnlySourceCopy {
             var parentMetadata = stat()
             guard Darwin.lstat(candidateParent.path, &parentMetadata) == 0,
                   parentMetadata.st_dev == sourceMetadata.st_dev else {
@@ -402,7 +447,7 @@ public struct SQLiteDatabaseSnapshotService {
             candidateParent = nextParent
         }
 
-        guard fileSystemIsReadOnly(at: sourceURL.path) else {
+        guard forceReadOnlySourceCopy || fileSystemIsReadOnly(at: sourceURL.path) else {
             try? fileManager.removeItem(at: temporaryDirectory)
             throw SQLiteDatabaseSnapshotError.sqlite(
                 "cannot create same-volume source binding"
@@ -627,7 +672,8 @@ public struct SQLiteDatabaseSnapshotService {
 
     private func copyOptionalReadOnlyFile(
         from sourcePath: String,
-        to destinationPath: String
+        to destinationPath: String,
+        startedAt: ContinuousClock.Instant
     ) throws {
         let descriptor = Darwin.open(
             sourcePath,
@@ -652,7 +698,8 @@ public struct SQLiteDatabaseSnapshotService {
             from: sourcePath,
             descriptor: descriptor,
             to: destinationPath,
-            label: "source database sidecar"
+            label: "source database sidecar",
+            startedAt: startedAt
         )
     }
 
@@ -660,27 +707,87 @@ public struct SQLiteDatabaseSnapshotService {
         from sourcePath: String,
         descriptor: Int32,
         to destinationPath: String,
-        label: String
+        label: String,
+        startedAt: ContinuousClock.Instant
     ) throws {
         guard validatedSourcePath(sourcePath, matches: descriptor) else {
             throw SQLiteDatabaseSnapshotError.sqlite("\(label) changed while opening")
         }
-        do {
-            try fileManager.copyItem(atPath: sourcePath, toPath: destinationPath)
-        } catch {
+        let destinationDescriptor = Darwin.open(
+            destinationPath,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+            S_IRUSR | S_IWUSR
+        )
+        guard destinationDescriptor >= 0 else {
+            throw SQLiteDatabaseSnapshotError.sqlite("cannot copy \(label)")
+        }
+        var copyCompleted = false
+        defer {
+            _ = Darwin.close(destinationDescriptor)
+            if !copyCompleted {
+                _ = Darwin.unlink(destinationPath)
+            }
+        }
+
+        let buffer = UnsafeMutableRawBufferPointer.allocate(
+            byteCount: readOnlyCopyChunkSize,
+            alignment: MemoryLayout<UInt8>.alignment
+        )
+        defer { buffer.deallocate() }
+        var offset: off_t = 0
+        while true {
+            try Task.checkCancellation()
+            try checkDeadline(startedAt: startedAt)
+            let bytesRead = Darwin.pread(
+                descriptor,
+                buffer.baseAddress,
+                buffer.count,
+                offset
+            )
+            if bytesRead == 0 { break }
+            if bytesRead < 0 {
+                if errno == EINTR { continue }
+                throw SQLiteDatabaseSnapshotError.sqlite("cannot copy \(label)")
+            }
+
+            var written = 0
+            while written < bytesRead {
+                try Task.checkCancellation()
+                try checkDeadline(startedAt: startedAt)
+                let writeResult = Darwin.pwrite(
+                    destinationDescriptor,
+                    buffer.baseAddress?.advanced(by: written),
+                    bytesRead - written,
+                    offset + off_t(written)
+                )
+                if writeResult < 0 {
+                    if errno == EINTR { continue }
+                    throw SQLiteDatabaseSnapshotError.sqlite("cannot copy \(label)")
+                }
+                guard writeResult > 0 else {
+                    throw SQLiteDatabaseSnapshotError.sqlite("cannot copy \(label)")
+                }
+                written += writeResult
+            }
+            offset += off_t(bytesRead)
+            try readOnlyCopyChunkObserver?()
+        }
+        try Task.checkCancellation()
+        try checkDeadline(startedAt: startedAt)
+        guard Darwin.fsync(destinationDescriptor) == 0 else {
             throw SQLiteDatabaseSnapshotError.sqlite("cannot copy \(label)")
         }
         guard validatedSourcePath(sourcePath, matches: descriptor) else {
-            _ = Darwin.unlink(destinationPath)
             throw SQLiteDatabaseSnapshotError.sqlite("\(label) changed while opening")
         }
         var destinationMetadata = stat()
         guard Darwin.lstat(destinationPath, &destinationMetadata) == 0,
               destinationMetadata.st_mode & S_IFMT == S_IFREG,
+              destinationMetadata.st_size == offset,
               Darwin.chmod(destinationPath, S_IRUSR | S_IWUSR) == 0 else {
-            _ = Darwin.unlink(destinationPath)
             throw SQLiteDatabaseSnapshotError.sqlite("cannot secure \(label) copy")
         }
+        copyCompleted = true
     }
 
     private func validatedSourcePath(
@@ -699,11 +806,16 @@ public struct SQLiteDatabaseSnapshotService {
     private func enforceReadOnlySourceCopyMaximumBytes(
         sourcePath: String,
         sourceDescriptor: Int32,
-        maximumBytes: Int?
+        maximumBytes: Int?,
+        startedAt: ContinuousClock.Instant
     ) throws {
         guard let maximumBytes else { return }
+        try Task.checkCancellation()
+        try checkDeadline(startedAt: startedAt)
         var total = try regularFileSize(descriptor: sourceDescriptor)
         for suffix in ["-wal", "-shm", "-journal"] {
+            try Task.checkCancellation()
+            try checkDeadline(startedAt: startedAt)
             let descriptor = Darwin.open(
                 sourcePath + suffix,
                 O_RDONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW
@@ -826,11 +938,51 @@ public struct SQLiteDatabaseSnapshotService {
         let hotJournalMagic: [UInt8] = [
             0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7,
         ]
-        guard header != hotJournalMagic else {
-            throw SQLiteDatabaseSnapshotError.sqlite(
-                "source database has a hot rollback journal"
+        guard header == hotJournalMagic else { return }
+        throw SQLiteDatabaseSnapshotError.sqlite(
+            "source database has a hot rollback journal"
+        )
+    }
+
+    /// Prevents rollback-mode writers from reserving the database while cmux
+    /// binds and snapshots its inode. WAL-mode writers use the shared-memory
+    /// lock protocol instead, so SQLite's online backup can still follow them.
+    private func acquireRollbackWriterExclusion(
+        _ descriptor: Int32,
+        startedAt: ContinuousClock.Instant
+    ) throws {
+        let sqliteReservedByte: off_t = 0x4000_0001
+        while true {
+            try Task.checkCancellation()
+            try checkDeadline(startedAt: startedAt)
+            var lock = Darwin.flock(
+                l_start: sqliteReservedByte,
+                l_len: 1,
+                l_pid: 0,
+                l_type: Int16(F_RDLCK),
+                l_whence: Int16(SEEK_SET)
             )
+            if Darwin.fcntl(descriptor, F_OFD_SETLK, &lock) == 0 {
+                return
+            }
+            guard errno == EACCES || errno == EAGAIN else {
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "cannot stabilize source database"
+                )
+            }
+            _ = sqlite3_sleep(10)
         }
+    }
+
+    private func releaseRollbackWriterExclusion(_ descriptor: Int32) {
+        var lock = Darwin.flock(
+            l_start: 0x4000_0001,
+            l_len: 1,
+            l_pid: 0,
+            l_type: Int16(F_UNLCK),
+            l_whence: Int16(SEEK_SET)
+        )
+        _ = Darwin.fcntl(descriptor, F_OFD_SETLK, &lock)
     }
 
     private func linkValidatedFile(

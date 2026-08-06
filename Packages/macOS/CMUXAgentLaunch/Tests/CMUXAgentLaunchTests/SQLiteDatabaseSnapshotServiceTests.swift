@@ -159,30 +159,57 @@ struct SQLiteDatabaseSnapshotServiceTests {
         var database: OpaquePointer?
         try #require(sqlite3_open(source.path, &database) == SQLITE_OK)
         let openedDatabase = try #require(database)
-        defer {
-            _ = sqlite3_exec(openedDatabase, "ROLLBACK;", nil, nil, nil)
-            sqlite3_close(openedDatabase)
-        }
         try #require(sqlite3_exec(
             openedDatabase,
             """
             PRAGMA journal_mode = DELETE;
-            PRAGMA cache_size = 10;
-            PRAGMA cache_spill = ON;
             CREATE TABLE records (marker TEXT, payload BLOB);
             INSERT INTO records VALUES ('committed', randomblob(2097152));
-            BEGIN IMMEDIATE;
-            UPDATE records SET marker = 'uncommitted', payload = randomblob(2097152);
             """,
             nil,
             nil,
             nil
         ) == SQLITE_OK)
+        sqlite3_close(openedDatabase)
+
+        let writerInput = Pipe()
+        let writer = Process()
+        writer.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        writer.arguments = [source.path]
+        writer.standardInput = writerInput
+        writer.standardOutput = FileHandle.nullDevice
+        writer.standardError = FileHandle.nullDevice
+        try writer.run()
+        defer {
+            if writer.isRunning { writer.terminate() }
+            try? writerInput.fileHandleForWriting.close()
+        }
+        try writerInput.fileHandleForWriting.write(contentsOf: Data(
+            """
+            PRAGMA cache_size = 10;
+            PRAGMA cache_spill = ON;
+            BEGIN IMMEDIATE;
+            UPDATE records SET marker = 'uncommitted', payload = randomblob(2097152);
+
+            """.utf8
+        ))
         let journal = URL(fileURLWithPath: source.path + "-journal", isDirectory: false)
-        let journalHeader = try Data(contentsOf: journal).prefix(8)
-        #expect(Array(journalHeader) == [
+        let hotJournalMagic: [UInt8] = [
             0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7,
-        ])
+        ]
+        var journalHeader: [UInt8] = []
+        for _ in 0..<200 {
+            journalHeader = (try? Data(contentsOf: journal).prefix(8)).map(Array.init) ?? []
+            if journalHeader == hotJournalMagic { break }
+            usleep(10_000)
+        }
+        #expect(journalHeader == hotJournalMagic)
+
+        let commitInput = writerInput.fileHandleForWriting
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.1) {
+            try? commitInput.write(contentsOf: Data("COMMIT;\n.quit\n".utf8))
+            try? commitInput.close()
+        }
 
         try SQLiteDatabaseSnapshotService().copyDatabase(
             from: source.path,

@@ -1189,8 +1189,12 @@ struct RestorableAgentSessionIndex: Sendable {
         processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
-        }
+        },
+        restrictToPanelKey: PanelKey? = nil
     ) -> RestorableAgentSessionIndex {
+        let detectedSnapshots = restrictToPanelKey.map { requestedKey in
+            detectedSnapshots.filter { key, _ in key == requestedKey }
+        } ?? detectedSnapshots
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
@@ -1220,6 +1224,14 @@ struct RestorableAgentSessionIndex: Sendable {
             }
 
             for record in state.sessions.values {
+                if let restrictToPanelKey {
+                    guard UUID(uuidString: record.workspaceId)
+                            == restrictToPanelKey.workspaceId,
+                          UUID(uuidString: record.surfaceId)
+                            == restrictToPanelKey.panelId else {
+                        continue
+                    }
+                }
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(
                         record,

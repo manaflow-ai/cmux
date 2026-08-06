@@ -23,6 +23,7 @@ final class SharedLiveAgentIndex {
     private typealias ConversationTransferRefresh = (
         id: UUID,
         generation: UInt64,
+        panelKey: RestorableAgentSessionIndex.PanelKey,
         startedAfterBoundary: UInt64?,
         task: Task<SharedLiveAgentIndexLoader.LoadResult?, Never>
     )
@@ -192,7 +193,9 @@ final class SharedLiveAgentIndex {
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
     private let indexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
-    private let conversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult
+    private let conversationTransferPanelIndexLoader: @Sendable (
+        RestorableAgentSessionIndex.PanelKey
+    ) async -> SharedLiveAgentIndexLoader.LoadResult
     private let openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache
     private let forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver
     private let forkCapabilityProbeCache: ForkCapabilityProbeResultCache
@@ -204,6 +207,9 @@ final class SharedLiveAgentIndex {
     init(
         indexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         conversationTransferIndexLoader: (@Sendable () async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
+        conversationTransferPanelIndexLoader: (@Sendable (
+            RestorableAgentSessionIndex.PanelKey
+        ) async -> SharedLiveAgentIndexLoader.LoadResult)? = nil,
         openCodeDatabaseDescriptorPathCache: OpenCodeDatabaseDescriptorPathCache? = nil,
         forkExecutableIdentityResolver: AgentForkExecutableIdentityResolver = AgentForkExecutableIdentityResolver(),
         forkCapabilityProbeCache: ForkCapabilityProbeResultCache = ForkCapabilityProbeResultCache(),
@@ -229,17 +235,31 @@ final class SharedLiveAgentIndex {
                 openCodeDatabaseDescriptorPathCache: openCodeDatabaseDescriptorPathCache
             ).loadResult()
         }
-        let defaultConversationTransferIndexLoader: @Sendable () async -> SharedLiveAgentIndexLoader.LoadResult = {
+        let defaultConversationTransferPanelIndexLoader: @Sendable (
+            RestorableAgentSessionIndex.PanelKey
+        ) async -> SharedLiveAgentIndexLoader.LoadResult = { panelKey in
             await SharedLiveAgentIndexLoader(
                 openCodeDatabaseDescriptorPathCache: openCodeDatabaseDescriptorPathCache
             ).loadResult(
+                for: panelKey,
                 reuseCompletedOpenCodeDatabasePaths: false
             )
         }
         self.indexLoader = indexLoader ?? defaultIndexLoader
-        self.conversationTransferIndexLoader = conversationTransferIndexLoader
-            ?? indexLoader
-            ?? defaultConversationTransferIndexLoader
+        if let conversationTransferPanelIndexLoader {
+            self.conversationTransferPanelIndexLoader = conversationTransferPanelIndexLoader
+        } else if let conversationTransferIndexLoader {
+            self.conversationTransferPanelIndexLoader = { _ in
+                await conversationTransferIndexLoader()
+            }
+        } else if let indexLoader {
+            self.conversationTransferPanelIndexLoader = { _ in
+                await indexLoader()
+            }
+        } else {
+            self.conversationTransferPanelIndexLoader =
+                defaultConversationTransferPanelIndexLoader
+        }
         self.forkExecutableIdentityResolver = forkExecutableIdentityResolver
         self.forkCapabilityProbeCache = forkCapabilityProbeCache
         self.customForkSupportProvider = forkSupportProvider
@@ -373,9 +393,14 @@ final class SharedLiveAgentIndex {
         panelId: UUID,
         startedAfter refreshBoundary: UInt64? = nil
     ) async -> ConversationTransferEvidence? {
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
         let refresh: ConversationTransferRefresh
         if let inFlight = conversationTransferRefreshes.values
             .filter({ refresh in
+                guard refresh.panelKey == panelKey else { return false }
                 guard let refreshBoundary else { return true }
                 return refresh.startedAfterBoundary.map {
                     $0 >= refreshBoundary
@@ -384,7 +409,7 @@ final class SharedLiveAgentIndex {
             .max(by: { $0.generation < $1.generation }) {
             refresh = inFlight
         } else {
-            let created = makeConversationTransferRefresh()
+            let created = makeConversationTransferRefresh(panelKey: panelKey)
             conversationTransferRefreshes[created.generation] = created
             refresh = created
         }
@@ -395,10 +420,6 @@ final class SharedLiveAgentIndex {
         guard let result else { return nil }
         guard !Task.isCancelled else { return nil }
 
-        let panelKey = RestorableAgentSessionIndex.PanelKey(
-            workspaceId: workspaceId,
-            panelId: panelId
-        )
         guard result.forkValidatedPanels.contains(panelKey) else {
             return nil
         }
@@ -422,14 +443,18 @@ final class SharedLiveAgentIndex {
         )
     }
 
-    private func makeConversationTransferRefresh() -> ConversationTransferRefresh {
+    private func makeConversationTransferRefresh(
+        panelKey: RestorableAgentSessionIndex.PanelKey
+    ) -> ConversationTransferRefresh {
         conversationTransferRefreshGeneration &+= 1
         let generation = conversationTransferRefreshGeneration
         let id = UUID()
-        let indexLoader = conversationTransferIndexLoader
-        let predecessor = conversationTransferRefreshes.values.max {
-            $0.generation < $1.generation
-        }
+        let indexLoader = conversationTransferPanelIndexLoader
+        let predecessor = conversationTransferRefreshes.values
+            .filter { $0.panelKey == panelKey }
+            .max {
+                $0.generation < $1.generation
+            }
         let task: Task<SharedLiveAgentIndexLoader.LoadResult?, Never>
         let startedAfterBoundary: UInt64?
         if let predecessor {
@@ -446,7 +471,7 @@ final class SharedLiveAgentIndex {
                 }
                 let scanTask = Task.detached(priority: .utility) { () -> SharedLiveAgentIndexLoader.LoadResult? in
                     guard !Task.isCancelled else { return nil }
-                    return await indexLoader()
+                    return await indexLoader(panelKey)
                 }
                 return await withTaskCancellationHandler {
                     await scanTask.value
@@ -458,12 +483,13 @@ final class SharedLiveAgentIndex {
             startedAfterBoundary = conversationTransferRefreshBoundaryGeneration
             task = Task.detached(priority: .utility) {
                 guard !Task.isCancelled else { return nil }
-                return await indexLoader()
+                return await indexLoader(panelKey)
             }
         }
         return ConversationTransferRefresh(
             id: id,
             generation: generation,
+            panelKey: panelKey,
             startedAfterBoundary: startedAfterBoundary,
             task: task
         )

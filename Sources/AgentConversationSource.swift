@@ -58,6 +58,7 @@ nonisolated struct AgentConversationSource: Sendable {
         kind = snapshot.kind
         sessionId = snapshot.sessionId
         workingDirectory = snapshot.workingDirectory
+            ?? snapshot.launchCommand?.workingDirectory
         transcriptPath = snapshot.transcriptPath
         registration = snapshot.registration
         launchEnvironment = snapshot.launchCommand?.environment ?? [:]
@@ -196,10 +197,33 @@ nonisolated struct AgentConversationSource: Sendable {
               hasCapturedEnvironmentValue(for: ["HERMES_HOME", "HOME"]) else {
             return nil
         }
-        return URL(
-            fileURLWithPath: HermesAgentSessionResolver.stateDBPath(env: launchEnvironment),
-            isDirectory: false
+        let capturedHermesHome = launchEnvironment["HERMES_HOME"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if capturedHermesHome == "~" || capturedHermesHome?.hasPrefix("~/") == true {
+            guard hasCapturedEnvironmentValue(for: ["HOME"]) else { return nil }
+        }
+        let stateDatabasePath = HermesAgentSessionResolver.stateDBPath(
+            env: launchEnvironment
         )
+        if (stateDatabasePath as NSString).isAbsolutePath {
+            return URL(
+                fileURLWithPath: stateDatabasePath,
+                isDirectory: false
+            ).standardizedFileURL
+        }
+        guard let workingDirectory = workingDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !workingDirectory.isEmpty,
+            (workingDirectory as NSString).isAbsolutePath else {
+            return nil
+        }
+        return URL(
+            fileURLWithPath: workingDirectory,
+            isDirectory: true
+        ).appendingPathComponent(
+            stateDatabasePath,
+            isDirectory: false
+        ).standardizedFileURL
     }
 
     var openCodeDatabasePath: String? {
