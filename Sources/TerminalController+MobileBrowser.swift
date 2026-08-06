@@ -191,7 +191,7 @@ extension TerminalController {
         }
         let encoder = MobileBrowserWireEncoder()
         guard let payload = encoder.object(encoder.descriptor(panel: panel)) else {
-            return .err(code: "internal_error", message: "Failed to encode browser panel", data: nil)
+            return .err(code: "internal_error", message: "Browser creation is unavailable", data: nil)
         }
         return .ok(payload)
     }

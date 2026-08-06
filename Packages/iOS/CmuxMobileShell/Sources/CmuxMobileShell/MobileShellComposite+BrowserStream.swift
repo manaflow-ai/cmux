@@ -27,7 +27,14 @@ extension MobileShellComposite {
               supportsBrowserStreamCreate,
               let client = remoteClient else { return nil }
         guard let descriptor = try? await client.createMobileBrowserPanel(workspaceID: workspaceID),
-              remoteClient === client else { return nil }
+              remoteClient === client else {
+            // The Mac may have committed the panel even though the outcome was
+            // lost (timeout, decode failure, or a client swap mid-flight).
+            // Reconcile discovery so a committed panel surfaces in the picker
+            // instead of becoming an orphan the phone never learns about.
+            await refreshMobileBrowserPanels(workspaceID: workspaceID)
+            return nil
+        }
         browserStreamEvents?.browserPanelCreated(descriptor)
         return descriptor
     }
