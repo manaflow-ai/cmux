@@ -2456,10 +2456,6 @@ mod unix {
         max_queued_bytes: usize,
     }
 
-    fn host_tap_channel() -> (Sender<Frame>, Receiver<Frame>) {
-        mpsc_channel()
-    }
-
     impl HostTap {
         fn new(sender: Sender<Frame>, shutdown: Arc<UnixStream>, max_queued_bytes: usize) -> Self {
             Self {
@@ -2511,6 +2507,10 @@ mod unix {
                 self.close();
                 return false;
             }
+            // The byte reservations above are the queue's single admission
+            // limit. The channel itself must not add a scheduler-sensitive
+            // frame-count limit that disconnects a client while most of its
+            // declared byte budget is still free.
             match self.sender.send(frame) {
                 Ok(()) => true,
                 Err(_) => {
@@ -4077,10 +4077,10 @@ mod unix {
         write_frame(&mut stream, &hello_response)?;
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
-        // The atomic reservations bound retained memory by bytes. An
-        // additional fixed frame-count bound disconnects healthy readers
-        // when platforms split one modest PTY burst into many small reads.
-        let (sender, receiver) = host_tap_channel();
+        // Queue admission is bounded by HostTap's byte counters. An
+        // additional fixed-capacity channel would make harmless PTY read
+        // fragmentation observable as a client disconnect.
+        let (sender, receiver) = mpsc_channel();
         let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
         let (snapshot, colors, snapshot_sequence, _active_client_stream) = {
@@ -6321,19 +6321,7 @@ mod unix {
         }
 
         #[test]
-        fn host_tap_accepts_many_small_frames_within_its_byte_budget() {
-            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
-            let (sender, receiver) = host_tap_channel();
-            let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
-
-            for value in 0..1_024 {
-                assert!(tap.try_send(Frame::new(MessageKind::Output, vec![value as u8])));
-            }
-            assert_eq!(receiver.try_iter().count(), 1_024);
-        }
-
-        #[test]
-        fn host_tap_disconnected_queue_closes_the_client_socket() {
+        fn host_tap_disconnected_channel_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
             let (sender, receiver) = mpsc_channel();
@@ -6343,6 +6331,21 @@ mod unix {
             assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![1])));
             let mut byte = [0u8; 1];
             assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
+        }
+
+        #[test]
+        fn host_tap_frame_count_cannot_exhaust_client_below_byte_budget() {
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = mpsc_channel();
+            let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
+
+            for index in 0..257 {
+                assert!(
+                    tap.try_send(Frame::new(MessageKind::Output, vec![index as u8])),
+                    "frame {index} exhausted the client below its byte budget"
+                );
+            }
+            assert_eq!(receiver.try_iter().count(), 257);
         }
 
         #[test]

@@ -19,6 +19,7 @@ const ALGORITHM = "aes-256-gcm" as const;
 const DATA_KEY_BYTES = 32;
 const NONCE_BYTES = 12;
 const AUTH_TAG_BYTES = 16;
+const CREDENTIAL_REFRESH_SKEW_MS = 5 * 60 * 1_000;
 
 export type EncryptedCredential = {
   readonly accountId: string;
@@ -283,18 +284,57 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 let defaultKeyService: CredentialKeyService | undefined;
 
+type AwsCredentials = {
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+  readonly sessionToken?: string;
+  readonly expiration?: Date;
+};
+
+export function coalescingCredentialsProvider(
+  provider: () => Promise<AwsCredentials>,
+  now: () => number = Date.now,
+): () => Promise<AwsCredentials> {
+  let current: AwsCredentials | undefined;
+  let pending: Promise<AwsCredentials> | undefined;
+  return async () => {
+    if (
+      current &&
+      (!current.expiration ||
+        current.expiration.getTime() > now() + CREDENTIAL_REFRESH_SKEW_MS)
+    ) {
+      return current;
+    }
+    if (pending) return await pending;
+    pending = provider().then((credentials) => {
+      current = credentials;
+      return credentials;
+    });
+    try {
+      return await pending;
+    } finally {
+      pending = undefined;
+    }
+  };
+}
+
 function kmsKeyService(): CredentialKeyService {
   if (defaultKeyService) return defaultKeyService;
   const region = requiredEnv("AWS_REGION");
-  const roleArn = process.env.AWS_ROLE_ARN?.trim();
+  const runningOnVercel = Boolean(process.env.VERCEL);
+  const roleArn = runningOnVercel
+    ? requiredEnv("CODEROUTER_KMS_ROLE_ARN")
+    : undefined;
   const client = new KMSClient({
     region,
-    ...(process.env.VERCEL_OIDC_TOKEN && roleArn
+    ...(runningOnVercel && roleArn
       ? {
-        credentials: awsCredentialsProvider({
-          roleArn,
-          clientConfig: { region },
-        }),
+        credentials: coalescingCredentialsProvider(
+          awsCredentialsProvider({
+            roleArn,
+            clientConfig: { region },
+          }),
+        ),
       }
       : {}),
   });

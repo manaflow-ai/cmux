@@ -113,13 +113,25 @@ jobs:
           # otherwise-correct build; the guarded regression (events serialized
           # behind a 100ms read poll) inflates far past this bound anyway.
           CMUX_TEST_WS_LATENCY_BUDGET_MS: "2000"
-          # Process-exit and PTY-reader tests also use bounded polling. Keep
-          # their normal deadlines strict while allowing for instrumentation.
+          # Scale only test-harness observation windows under instrumentation;
+          # the production deadlines exercised inside them remain strict.
           CMUX_TEST_TIMEOUT_SCALE: "4"
           # Retain the full 128 MiB fairness workload under Valgrind with
           # explicit instrumentation-only bounds. Normal CI stays strict.
           CMUX_TEST_PERF_INSTRUMENTED: "valgrind"
         run: |
+          run_valgrind() {
+            local bin="$1"
+            shift
+            valgrind \
+              "${valgrind_args[@]}" \
+              --error-exitcode=1 \
+              --leak-check=full \
+              --show-leak-kinds=definite \
+              --errors-for-leak-kinds=definite \
+              -- "$bin" "$@"
+          }
+
           while IFS= read -r bin; do
             [ -n "$bin" ] || continue
             echo "Running valgrind for $bin"
@@ -132,6 +144,12 @@ jobs:
                 # work internally, so test-harness parallelism only creates
                 # scheduler starvation, shared-quota interference, and
                 # wall-clock timeout races without increasing coverage.
+                test_args+=(--test-threads=1)
+                ;;
+              cmux_remote-[[:xdigit:]]*)
+                # Remote-runtime tests also own real schedulers, sockets, and
+                # deadline checks. Serial execution prevents the instrumented
+                # harness from starving its own observation deadlines.
                 test_args+=(--test-threads=1)
                 ;;
               terminal_host_recovery-*)
@@ -152,13 +170,26 @@ jobs:
                 valgrind_args=(--undef-value-errors=no)
                 ;;
             esac
-            if ! valgrind \
-              "${valgrind_args[@]}" \
-              --error-exitcode=1 \
-              --leak-check=full \
-              --show-leak-kinds=definite \
-              --errors-for-leak-kinds=definite \
-              -- "$bin" "${test_args[@]}"; then
+
+            if [[ "$(basename "$bin")" == cmux_remote-[[:xdigit:]]* ]]; then
+              # Iroh's Rustls/ring and noq UDP paths expose initialized data
+              # through buffers with uninitialized SIMD or sockaddr padding.
+              # Run only those tests without undefined-value diagnostics while
+              # retaining address and leak checks. Every other remote test
+              # keeps the complete Valgrind diagnostic set.
+              if ! run_valgrind "$bin" --skip 'provider::iroh::' "${test_args[@]}"; then
+                echo "Valgrind failed for $bin outside the Iroh provider" >&2
+                exit 1
+              fi
+              valgrind_args=(--undef-value-errors=no)
+              if ! run_valgrind "$bin" 'provider::iroh::' "${test_args[@]}"; then
+                echo "Valgrind failed for $bin in the Iroh provider" >&2
+                exit 1
+              fi
+              continue
+            fi
+
+            if ! run_valgrind "$bin" "${test_args[@]}"; then
               echo "Valgrind failed for $bin" >&2
               exit 1
             fi
