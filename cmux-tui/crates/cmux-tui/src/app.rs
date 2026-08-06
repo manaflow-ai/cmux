@@ -19505,6 +19505,7 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 
 #[cfg(test)]
 mod tests {
+    use super::SidebarWidthOverrides;
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DeferredInput, DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome,
