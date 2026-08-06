@@ -25,6 +25,7 @@ members = [
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
+    "crates/cmux-terminal-host-protocol",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
@@ -72,6 +73,7 @@ cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-remote = { path = "crates/cmux-remote" }
+cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"

@@ -36,7 +36,7 @@ where
     reader.take(limit).read_until(b'\n', line).await
 }
 
-pub(crate) fn encode_line(message: u64, line: &[u8]) -> Result<Vec<Bytes>, MuxCodecError> {
+pub fn encode_line(message: u64, line: &[u8]) -> Result<Vec<Bytes>, MuxCodecError> {
     if line.len() > MAX_MUX_LINE_BYTES {
         return Err(MuxCodecError::LineTooLarge(line.len()));
     }
@@ -64,7 +64,7 @@ fn encode_part(message: u64, part: u32, parts: u32, payload: &[u8]) -> Bytes {
 }
 
 #[derive(Default)]
-pub(crate) struct MuxLineAssembler<R = ()> {
+pub struct MuxLineAssembler<R = ()> {
     lines: HashMap<u64, PartialLine<R>>,
     bytes: usize,
 }
@@ -93,9 +93,8 @@ impl<R> AssembledMuxLine<R> {
     }
 }
 
-#[cfg(test)]
 impl MuxLineAssembler<()> {
-    pub(crate) fn push(
+    pub fn push(
         &mut self,
         lane: Lane,
         packet: Bytes,
