@@ -103,6 +103,49 @@ fn assert_process_stays_running(child: &mut Child, duration: Duration, label: &s
 }
 
 #[test]
+fn windows_remote_stop_recovers_an_orphaned_mux_socket() {
+    let executable = env!("CARGO_BIN_EXE_cmux-tui");
+    let state_root = tempfile::tempdir().unwrap();
+    let session = format!("stale-owner-{}", std::process::id());
+    let mux_socket = state_root.path().join("sessions").join(&session).join("mux.sock");
+    let mut owner = spawn_owner(executable, &session, state_root.path());
+    wait_for_mux_owner(&mut owner, &mux_socket);
+
+    owner.kill().unwrap();
+    assert!(wait_for_exit(&mut owner, Duration::from_secs(5)), "remote owner did not terminate");
+    assert!(mux_socket.exists(), "forced owner exit did not leave an orphaned mux socket");
+    let error = match cmux_tui_core::platform::transport::connect(&mux_socket) {
+        Ok(_) => panic!("orphaned mux socket still accepted connections"),
+        Err(error) => error,
+    };
+    assert_eq!(
+        error.raw_os_error(),
+        Some(10_050),
+        "orphaned Windows AF_UNIX socket returned {error:?}"
+    );
+
+    let stop = Command::new(executable)
+        .args(["remote-stop", "--session", &session, "--state-dir"])
+        .arg(state_root.path())
+        .output()
+        .unwrap();
+    assert_cmux_success(&stop);
+
+    let mut replacement = spawn_owner(executable, &session, state_root.path());
+    wait_for_mux_owner(&mut replacement, &mux_socket);
+    let final_stop = Command::new(executable)
+        .args(["remote-stop", "--session", &session, "--state-dir"])
+        .arg(state_root.path())
+        .output()
+        .unwrap();
+    assert_cmux_success(&final_stop);
+    assert!(
+        wait_for_exit(&mut replacement, Duration::from_secs(5)),
+        "replacement owner did not exit"
+    );
+}
+
+#[test]
 fn windows_remote_carrier_exit_preserves_resident_mux_owner() {
     let executable = env!("CARGO_BIN_EXE_cmux-tui");
     let state_root = tempfile::tempdir().unwrap();
