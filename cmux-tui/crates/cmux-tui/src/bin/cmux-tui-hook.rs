@@ -301,12 +301,8 @@ mod tests {
     fn missing_session_socket_is_immediately_inactive() {
         let root = tempfile::tempdir().unwrap();
         let socket = root.path().join("missing.sock");
-        let result = append_once(
-            &socket,
-            b"{}\n",
-            "request_missing_socket",
-            Duration::from_millis(100),
-        );
+        let result =
+            append_once(&socket, b"{}\n", "request_missing_socket", Duration::from_millis(100));
 
         assert!(matches!(result, Err(AppendAttemptError::Fatal(_))));
     }
