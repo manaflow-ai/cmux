@@ -23,7 +23,8 @@ final class SharedLiveAgentIndex {
     private typealias ConversationTransferRefresh = (
         id: UUID,
         generation: UInt64,
-        task: Task<SharedLiveAgentIndexLoader.LoadResult, Never>
+        startedAfterBoundary: UInt64?,
+        task: Task<SharedLiveAgentIndexLoader.LoadResult?, Never>
     )
     typealias ConversationTransferEvidence = (
         snapshot: SessionRestorableAgentSnapshot,
@@ -77,6 +78,7 @@ final class SharedLiveAgentIndex {
     private var forkAvailabilityRefreshTask: Task<Void, Never>?
     private var conversationTransferRefreshes: [UInt64: ConversationTransferRefresh] = [:]
     private var conversationTransferRefreshGeneration: UInt64 = 0
+    private var conversationTransferRefreshBoundaryGeneration: UInt64 = 0
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
     private var forkExecutableWatchRecords: [ForkExecutableWatchKey: ForkExecutableWatchRecord] = [:]
     private var forkExecutableWatchKeysByProbeKey: [ForkProbeKey: ForkExecutableWatchKey] = [:]
@@ -342,11 +344,12 @@ final class SharedLiveAgentIndex {
         )?.snapshot
     }
 
-    /// Marks the newest scan that may have started before an async export
-    /// completed. A validation scan requested with this boundary never joins
-    /// older work.
+    /// Marks the current time boundary in the serialized transfer scan queue.
+    /// A validation scan requested with this boundary never joins work that
+    /// started before the boundary.
     func conversationTransferRefreshBoundary() -> UInt64 {
-        conversationTransferRefreshGeneration
+        conversationTransferRefreshBoundaryGeneration &+= 1
+        return conversationTransferRefreshBoundaryGeneration
     }
 
     /// Loads the exact conversation and process generation together so callers
@@ -359,20 +362,15 @@ final class SharedLiveAgentIndex {
         let refresh: ConversationTransferRefresh
         if let inFlight = conversationTransferRefreshes.values
             .filter({ refresh in
-                refreshBoundary.map { refresh.generation > $0 } ?? true
+                guard let refreshBoundary else { return true }
+                return refresh.startedAfterBoundary.map {
+                    $0 >= refreshBoundary
+                } ?? true
             })
             .max(by: { $0.generation < $1.generation }) {
             refresh = inFlight
         } else {
-            conversationTransferRefreshGeneration &+= 1
-            let indexLoader = conversationTransferIndexLoader
-            let created = ConversationTransferRefresh(
-                id: UUID(),
-                generation: conversationTransferRefreshGeneration,
-                task: Task.detached(priority: .utility) {
-                    await indexLoader()
-                }
-            )
+            let created = makeConversationTransferRefresh()
             conversationTransferRefreshes[created.generation] = created
             refresh = created
         }
@@ -380,6 +378,7 @@ final class SharedLiveAgentIndex {
         if conversationTransferRefreshes[refresh.generation]?.id == refresh.id {
             conversationTransferRefreshes.removeValue(forKey: refresh.generation)
         }
+        guard let result else { return nil }
         guard !Task.isCancelled else { return nil }
 
         let panelKey = RestorableAgentSessionIndex.PanelKey(
@@ -407,6 +406,66 @@ final class SharedLiveAgentIndex {
             entry.agentProcessIDs,
             entry.agentProcessIdentities
         )
+    }
+
+    private func makeConversationTransferRefresh() -> ConversationTransferRefresh {
+        conversationTransferRefreshGeneration &+= 1
+        let generation = conversationTransferRefreshGeneration
+        let id = UUID()
+        let indexLoader = conversationTransferIndexLoader
+        let predecessor = conversationTransferRefreshes.values.max {
+            $0.generation < $1.generation
+        }
+        let task: Task<SharedLiveAgentIndexLoader.LoadResult?, Never>
+        let startedAfterBoundary: UInt64?
+        if let predecessor {
+            startedAfterBoundary = nil
+            task = Task { @MainActor [weak self] in
+                _ = await predecessor.task.value
+                guard !Task.isCancelled,
+                      let self,
+                      self.markConversationTransferRefreshStarted(
+                          generation: generation,
+                          id: id
+                      ) else {
+                    return nil
+                }
+                let scanTask = Task.detached(priority: .utility) {
+                    guard !Task.isCancelled else { return nil }
+                    return await indexLoader()
+                }
+                return await withTaskCancellationHandler {
+                    await scanTask.value
+                } onCancel: {
+                    scanTask.cancel()
+                }
+            }
+        } else {
+            startedAfterBoundary = conversationTransferRefreshBoundaryGeneration
+            task = Task.detached(priority: .utility) {
+                guard !Task.isCancelled else { return nil }
+                return await indexLoader()
+            }
+        }
+        return ConversationTransferRefresh(
+            id: id,
+            generation: generation,
+            startedAfterBoundary: startedAfterBoundary,
+            task: task
+        )
+    }
+
+    private func markConversationTransferRefreshStarted(
+        generation: UInt64,
+        id: UUID
+    ) -> Bool {
+        guard var refresh = conversationTransferRefreshes[generation],
+              refresh.id == id else {
+            return false
+        }
+        refresh.startedAfterBoundary = conversationTransferRefreshBoundaryGeneration
+        conversationTransferRefreshes[generation] = refresh
+        return true
     }
 
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.

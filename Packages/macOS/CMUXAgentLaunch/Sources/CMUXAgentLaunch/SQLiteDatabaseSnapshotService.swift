@@ -341,8 +341,9 @@ public struct SQLiteDatabaseSnapshotService {
             throw SQLiteDatabaseSnapshotError.sqlite("cannot inspect source database")
         }
 
+        removeAbandonedSourceBindingDirectories(in: fileManager.temporaryDirectory)
         let temporaryDirectory = try createPrivateTemporaryDirectory(
-            prefix: "cmux-sqlite-source"
+            prefix: sqliteSourceBindingDirectoryPrefix
         )
         var temporaryMetadata = stat()
         guard Darwin.lstat(temporaryDirectory.path, &temporaryMetadata) == 0 else {
@@ -352,7 +353,16 @@ public struct SQLiteDatabaseSnapshotService {
             )
         }
         if temporaryMetadata.st_dev == sourceMetadata.st_dev {
-            return (temporaryDirectory, false, nil)
+            guard let leaseDescriptor = createSourceBindingLease(
+                in: temporaryDirectory,
+                databaseName: sourceURL.lastPathComponent
+            ) else {
+                try? fileManager.removeItem(at: temporaryDirectory)
+                throw SQLiteDatabaseSnapshotError.sqlite(
+                    "cannot create private source binding lease"
+                )
+            }
+            return (temporaryDirectory, false, leaseDescriptor)
         }
 
         var candidateParent = sourceURL.deletingLastPathComponent()
@@ -391,7 +401,16 @@ public struct SQLiteDatabaseSnapshotService {
                 "cannot create same-volume source binding"
             )
         }
-        return (temporaryDirectory, true, nil)
+        guard let leaseDescriptor = createSourceBindingLease(
+            in: temporaryDirectory,
+            databaseName: sourceURL.lastPathComponent
+        ) else {
+            try? fileManager.removeItem(at: temporaryDirectory)
+            throw SQLiteDatabaseSnapshotError.sqlite(
+                "cannot create private source binding lease"
+            )
+        }
+        return (temporaryDirectory, true, leaseDescriptor)
     }
 
     private func createSourceBindingLease(

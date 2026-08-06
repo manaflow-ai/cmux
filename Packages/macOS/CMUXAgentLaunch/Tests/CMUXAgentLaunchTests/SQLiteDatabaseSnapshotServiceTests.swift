@@ -253,6 +253,13 @@ struct SQLiteDatabaseSnapshotServiceTests {
                     includingPropertiesForKeys: nil
                 )
                 let binding = candidates.first { candidate in
+                    guard candidate.lastPathComponent.hasPrefix(
+                        ".cmux-sqlite-source-"
+                    ) || candidate.lastPathComponent.hasPrefix(
+                        "cmux-sqlite-source-"
+                    ) else {
+                        return false
+                    }
                     let database = candidate.appendingPathComponent(
                         source.lastPathComponent,
                         isDirectory: false

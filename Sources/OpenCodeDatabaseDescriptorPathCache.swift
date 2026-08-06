@@ -21,7 +21,11 @@ actor OpenCodeDatabaseDescriptorPathCache {
     private var pendingProbes: [String: PendingProbe] = [:]
     private var sequence: UInt64 = 0
     private let maximumEntryCount = 64
-    private let maximumConcurrentProbeCount = 2
+    private static let maximumConcurrentProbeCount = 2
+    private var availableProbePermitCount: Int
+    private var probePermitWaiters: [UInt64: CheckedContinuation<Void, Never>] = [:]
+    private var nextProbePermitWaiterID: UInt64 = 0
+    private var nextProbePermitWaiterToResume: UInt64 = 0
     private let cacheTTL: TimeInterval = 60
     private let pendingProbeObserver: (@Sendable (_ reuseCompletedResult: Bool) -> Void)?
 
@@ -29,6 +33,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
         pendingProbeObserver: (@Sendable (_ reuseCompletedResult: Bool) -> Void)? = nil
     ) {
         self.pendingProbeObserver = pendingProbeObserver
+        availableProbePermitCount = Self.maximumConcurrentProbeCount
     }
 
     func resolve(
@@ -44,37 +49,47 @@ actor OpenCodeDatabaseDescriptorPathCache {
             processIdentity: processIdentity,
             environment: environment
         )
-        if reuseCompletedResult,
-           let pendingProbe = pendingProbes[key] {
-            pendingProbeObserver?(true)
-            let path = await pendingProbe.task.value
-            guard !Task.isCancelled,
-                  AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
+        while true {
+            if reuseCompletedResult,
+               let pendingProbe = pendingProbes[key] {
+                pendingProbeObserver?(true)
+                let path = await pendingProbe.task.value
+                guard !Task.isCancelled,
+                      AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
+                    return nil
+                }
+                return path
+            }
+            while !reuseCompletedResult,
+                  let pendingProbe = pendingProbes[key] {
+                pendingProbeObserver?(false)
+                _ = await pendingProbe.task.value
+                if pendingProbes[key]?.id == pendingProbe.id {
+                    pendingProbes.removeValue(forKey: key)
+                }
+                guard !Task.isCancelled,
+                      AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
+                    return nil
+                }
+            }
+            let now = Date()
+            if reuseCompletedResult,
+               let entry = entries[key],
+               now.timeIntervalSince(entry.cachedAt) < cacheTTL {
+                return entry.path
+            }
+            entries.removeValue(forKey: key)
+            guard await acquireProbePermit() else { return nil }
+            guard AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
+                releaseProbePermit()
                 return nil
             }
-            return path
-        }
-        while !reuseCompletedResult,
-              let pendingProbe = pendingProbes[key] {
-            pendingProbeObserver?(false)
-            _ = await pendingProbe.task.value
-            if pendingProbes[key]?.id == pendingProbe.id {
-                pendingProbes.removeValue(forKey: key)
+            if pendingProbes[key] != nil
+                || reuseCompletedResult && entries[key] != nil {
+                releaseProbePermit()
+                continue
             }
-            guard !Task.isCancelled,
-                  AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
-                return nil
-            }
-        }
-        let now = Date()
-        if reuseCompletedResult,
-           let entry = entries[key],
-           now.timeIntervalSince(entry.cachedAt) < cacheTTL {
-            return entry.path
-        }
-        entries.removeValue(forKey: key)
-        guard pendingProbes.count < maximumConcurrentProbeCount else {
-            return nil
+            break
         }
 
         let pendingProbe = PendingProbe(
@@ -83,6 +98,7 @@ actor OpenCodeDatabaseDescriptorPathCache {
         )
         pendingProbes[key] = pendingProbe
         let path = await pendingProbe.task.value
+        releaseProbePermit()
         let ownsCompletedProbe = pendingProbes[key]?.id == pendingProbe.id
         if ownsCompletedProbe {
             pendingProbes.removeValue(forKey: key)
@@ -110,6 +126,42 @@ actor OpenCodeDatabaseDescriptorPathCache {
             entries.removeValue(forKey: oldestKey)
         }
         return path
+    }
+
+    private func acquireProbePermit() async -> Bool {
+        guard !Task.isCancelled else { return false }
+        if availableProbePermitCount > 0 {
+            availableProbePermitCount -= 1
+            return true
+        }
+        let waiterID = nextProbePermitWaiterID
+        nextProbePermitWaiterID &+= 1
+        await withCheckedContinuation { continuation in
+            probePermitWaiters[waiterID] = continuation
+        }
+        guard !Task.isCancelled else {
+            releaseProbePermit()
+            return false
+        }
+        return true
+    }
+
+    private func releaseProbePermit() {
+        while nextProbePermitWaiterToResume < nextProbePermitWaiterID {
+            let waiterID = nextProbePermitWaiterToResume
+            nextProbePermitWaiterToResume &+= 1
+            guard let continuation = probePermitWaiters.removeValue(
+                forKey: waiterID
+            ) else {
+                continue
+            }
+            continuation.resume()
+            return
+        }
+        availableProbePermitCount = min(
+            Self.maximumConcurrentProbeCount,
+            availableProbePermitCount + 1
+        )
     }
 
     private static func cacheKey(
