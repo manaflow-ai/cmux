@@ -81,6 +81,27 @@ struct MarkdownVaultLinkResolverTests {
         #expect(canonical(resolved) == canonical(vault.appendingPathComponent("Ambiguous.md").path))
     }
 
+    /// A directory (or bundle) whose name happens to equal the target must not
+    /// shadow a deeper regular file: the resolver skips non-regular-files even
+    /// though such a directory would otherwise win on shallower depth.
+    @Test
+    func skipsADirectoryNamedLikeTheNoteInFavorOfARealFile() throws {
+        let vault = try makeVault()
+        defer { try? FileManager.default.removeItem(at: vault) }
+        let fm = FileManager.default
+        // Shallow *directory* named `Shadow.md` — the trap.
+        try fm.createDirectory(at: vault.appendingPathComponent("Shadow.md"), withIntermediateDirectories: true)
+        // Deeper real note with the same leaf name.
+        try "# real".write(to: vault.appendingPathComponent("deep/nested/Shadow.md"), atomically: true, encoding: .utf8)
+        let source = vault.appendingPathComponent("01 - Current Work/Index.md").path
+
+        let resolved = MarkdownPanelFileLinkResolver.resolveVaultWikiLink(
+            rawPath: "Shadow.md",
+            relativeToMarkdownFile: source
+        )
+        #expect(canonical(resolved) == canonical(vault.appendingPathComponent("deep/nested/Shadow.md").path))
+    }
+
     @Test
     func returnsNilForMissingNote() throws {
         let vault = try makeVault()

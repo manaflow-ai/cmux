@@ -86,6 +86,11 @@ enum MarkdownPanelFileLinkResolver {
             scanned += 1
             if scanned > maxScan { break }
             guard url.lastPathComponent.lowercased() == wantedLower else { continue }
+            // `FileManager.enumerator` yields directories too, and has no depth
+            // ordering guarantee — so a directory (or bundle) literally named
+            // `Note.md` must not shadow a deeper regular `Note.md`.
+            let isRegularFile = (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile ?? false
+            guard isRegularFile else { continue }
             let depth = url.pathComponents.count
             if depth < bestDepth {
                 best = url.path
