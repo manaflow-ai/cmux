@@ -651,7 +651,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             requestedLibs.insert(lib)
 
             let assets = MarkdownViewerAssets.shared
-            let sources: [String]
+            let sources: [String?]
             switch lib {
             case "mermaid":
                 sources = [assets.lazyAsset(name: "mermaid.min", ext: "js")]
@@ -665,12 +665,16 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             default:
                 return
             }
+            guard sources.allSatisfy({ $0 != nil }) else {
+                requestedLibs.remove(lib)
+                return
+            }
 
             // Concatenate the bundled sources into a single evaluateJavaScript
             // call, then notify the page that the lib is ready. Any parse or
             // throw in the bundle surfaces through the completion handler.
             var injection = ""
-            for src in sources where !src.isEmpty {
+            for case let src? in sources where !src.isEmpty {
                 injection += src
                 injection += "\n;"
             }

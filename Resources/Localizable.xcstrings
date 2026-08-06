@@ -119571,6 +119571,40 @@
         }
       }
     },
+    "markdown.web.assetsUnavailableMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart cmux. If this keeps happening, reinstall the app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux を再起動してください。問題が続く場合は、アプリを再インストールしてください。"
+          }
+        }
+      }
+    },
+    "markdown.web.assetsUnavailableTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown preview unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdownプレビューを利用できません"
+          }
+        }
+      }
+    },
     "markdown.web.remoteImageBlocked": {
       "extractionState": "manual",
       "localizations": {
