@@ -585,8 +585,9 @@ final class AgentChatTranscriptService {
               !failedResolutions.contains(record.sessionID) else {
             return
         }
-        let key = transcriptBindingKey(for: record)
-        if pendingBoundedTailerResolutions[record.sessionID]?.key == key {
+        let key = Self.transcriptBindingKey(for: record)
+        if let pending = pendingBoundedTailerResolutions[record.sessionID],
+           pending.key == key {
             return
         }
         pendingBoundedTailerResolutions.removeValue(forKey: record.sessionID)?.task.cancel()
@@ -625,7 +626,7 @@ final class AgentChatTranscriptService {
             && transcriptBindingKey(for: lhs) == transcriptBindingKey(for: rhs)
     }
 
-    private func transcriptBindingKey(
+    private static func transcriptBindingKey(
         for record: AgentChatSessionRecord
     ) -> TranscriptBindingKey {
         (
