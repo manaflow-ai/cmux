@@ -251,6 +251,19 @@ describe("Stripe billing webhook route", () => {
     expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
   });
 
+  test("records a fully discounted checkout that requires no payment", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      payment_status: "no_payment_required",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(recordCheckoutCompletion).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+  });
+
   test("does not run personal Pro fulfillment for a team checkout", async () => {
     recordCheckoutCompletionResult = {
       scope: "team",
@@ -330,6 +343,53 @@ describe("Stripe billing webhook route", () => {
     expect(response.status).toBe(200);
     expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+  });
+
+  test("restores entitlement without revoking tokens after invoice recovery", async () => {
+    currentEvent = {
+      id: "evt_invoice_paid",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_1",
+          subscription: "sub_1",
+        },
+      },
+    };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(applySubscriptionUpdate).toHaveBeenCalledTimes(1);
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
+  });
+
+  test("does not revoke tokens when an invoice subscription is unmapped", async () => {
+    currentEvent = {
+      id: "evt_invoice_unmapped",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_1",
+          subscription: "sub_foreign",
+        },
+      },
+    };
+    applySubscriptionUpdateResult = { skipped: "subscription_unmapped" };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: "invoice_subscription_unmapped",
+    });
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
   });
 
   test("marks the event and returns 500 when processing fails", async () => {
