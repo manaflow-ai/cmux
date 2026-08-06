@@ -145,6 +145,35 @@ struct HermesFirstClassSupportTests {
         #expect(detected.isEmpty)
     }
 
+    @Test("An explicit Hermes owner prevents a bare pane from claiming the same state.db session")
+    func explicitAndBareProcessesDoNotShareOneSession() throws {
+        let explicitPanelID = UUID()
+        let fixture = try makeFixture { [StateRow("explicit-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let detected = try detectedHermesSnapshots(
+            fixture: fixture,
+            processes: [
+                hermesProcess(pid: 9_525, workspaceID: fixture.workspaceID, panelID: explicitPanelID),
+                hermesProcess(pid: 9_526, workspaceID: fixture.workspaceID, panelID: fixture.panelID),
+            ],
+            argumentsByPID: [
+                9_525: CmuxTopProcessArguments(
+                    arguments: [fixture.hermesExecutable, "--resume", "explicit-session"],
+                    environment: hermesEnvironment(fixture)
+                ),
+                9_526: CmuxTopProcessArguments(
+                    arguments: [fixture.hermesExecutable],
+                    environment: hermesEnvironment(fixture)
+                ),
+            ]
+        )
+
+        #expect(detected.count == 1)
+        #expect(detected[.init(workspaceId: fixture.workspaceID, panelId: explicitPanelID)]?.snapshot.sessionId == "explicit-session")
+        #expect(detected[.init(workspaceId: fixture.workspaceID, panelId: fixture.panelID)] == nil)
+    }
+
     @Test("Session index entries preserve Hermes cwd for filtering and resume")
     func sessionIndexPreservesCwd() throws {
         let fixture = try makeFixture { [StateRow("indexed-session", cwd: $0.path)] }
@@ -308,6 +337,42 @@ struct HermesFirstClassSupportTests {
         let config = try String(contentsOf: configURL, encoding: .utf8)
         #expect(config.contains("CMUX_BUNDLED_CLI_PATH"))
         #expect(config.contains("CMUX_SOCKET_PATH"))
+    }
+
+    @Test("Hook setup skips an unroutable pinned agent and continues with ambient agents")
+    func hookSetupContinuesAfterPinnedTargetFailure() throws {
+        let root = try temporaryDirectory(prefix: "cmux-hermes-hooks-setup")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        let hermesHome = root.appendingPathComponent("hermes-home", isDirectory: true)
+        let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        for name in ["grok", "hermes"] {
+            let executable = binDirectory.appendingPathComponent(name, isDirectory: false)
+            try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        }
+
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: HermesFirstClassBundleToken.self)
+        let result = try runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "setup", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "HERMES_HOME": hermesHome.path,
+                "GROK_HOME": grokHome.path,
+                "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        #expect(result.output.contains("grok"))
+        #expect(result.output.contains("target socket"))
+        #expect(result.output.contains("hermes-agent:"))
+        #expect(FileManager.default.fileExists(
+            atPath: hermesHome.appendingPathComponent("config.yaml", isDirectory: false).path
+        ))
     }
 
     private struct Fixture {
