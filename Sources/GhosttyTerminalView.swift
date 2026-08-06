@@ -210,10 +210,6 @@ private var terminalKeyTableIndicatorDefaultText: String {
     String(localized: "ghostty.key-table.indicator", defaultValue: "key table")
 }
 
-private var terminalKeyTableIndicatorAccessibilityLabel: String {
-    String(localized: "ghostty.key-table.icon.accessibility", defaultValue: "Key table")
-}
-
 private func terminalKeyTableIndicatorText(_ name: String) -> String {
     let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
     switch trimmed.lowercased() {
@@ -8234,6 +8230,10 @@ final class GhosttySurfaceScrollView: NSView {
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
     private let keyboardCopyModeBadgeIconView: NSImageView
     private let keyboardCopyModeBadgeLabel: NSTextField
+    private let keyTableIndicatorAccessibilityLabel = String(
+        localized: "ghostty.key-table.icon.accessibility",
+        defaultValue: "Key table"
+    )
     let linkHoverIndicatorView: TerminalLinkHoverIndicatorView
     private let imageTransferIndicatorContainerView: NSView
     private let imageTransferIndicatorView: NSVisualEffectView
@@ -8582,7 +8582,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeIconView.image = NSImage(
             systemSymbolName: "keyboard.badge.ellipsis",
-            accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
+            accessibilityDescription: keyTableIndicatorAccessibilityLabel
         )
         keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -9743,7 +9743,7 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
 
-        keyboardCopyModeBadgeIconView.setAccessibilityLabel(terminalKeyTableIndicatorAccessibilityLabel)
+        keyboardCopyModeBadgeIconView.setAccessibilityLabel(keyTableIndicatorAccessibilityLabel)
         keyboardCopyModeBadgeContainerView.isHidden = true
     }
 
