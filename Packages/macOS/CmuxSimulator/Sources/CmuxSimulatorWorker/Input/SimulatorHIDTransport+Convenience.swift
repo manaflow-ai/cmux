@@ -86,13 +86,7 @@ extension SimulatorHIDTransport {
         case .swipeHome:
             return await sendSystemGesture(endY: 0.30)
         case .appSwitcher:
-            guard await pressLegacyButton(eventSource: 0) else { return false }
-            do {
-                try await sleeper.sleep(for: .milliseconds(50))
-            } catch {
-                return false
-            }
-            return await pressLegacyButton(eventSource: 0)
+            return await sendSystemGesture(endY: 0.56, holdAtEnd: .milliseconds(360))
         }
     }
 

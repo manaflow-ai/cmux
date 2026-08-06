@@ -106,27 +106,41 @@ struct SimulatorHIDFailureContainmentTests {
         #expect(sleeper.durations == [.milliseconds(50)])
     }
 
-    @Test("App switcher sends one paced double-Home sequence")
+    @Test("App switcher uses a held bottom-edge system gesture")
     @MainActor
-    func appSwitcherUsesDoubleHome() async {
-        let script = HIDSendScript(outcomes: [true, true, true, true])
+    func appSwitcherUsesHeldSystemGesture() async {
         let sleeper = RecordingHIDSleeper()
+        var events: [SimulatorPointerEvent] = []
         let transport = SimulatorHIDTransport(
             frameworkLoader: SimulatorFrameworkLoader(environment: ["DEVELOPER_DIR": "/tmp"]),
             sleeper: sleeper,
-            convenienceSenderOverride: { button, down in
-                script.send(button: button, down: down)
+            pointerSenderOverride: { event in
+                events.append(event)
+                return true
             }
         )
 
         #expect(await transport.press(.appSwitcher))
-        #expect(script.buttonDirections == [true, false, true, false])
+        #expect(events.first?.phase == .began)
+        #expect(events.last == SimulatorPointerEvent(
+            phase: .ended,
+            primary: SimulatorPoint(x: 0.5, y: 0.56),
+            edge: .bottom
+        ))
         #expect(sleeper.durations == [
-            .milliseconds(50),
-            .milliseconds(50),
-            .milliseconds(50),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(16),
+            .milliseconds(360),
         ])
-        #expect(transport.heldConvenienceButtons.isEmpty)
     }
 
     @Test("Text transmission preserves order and uses cancellable pacing")

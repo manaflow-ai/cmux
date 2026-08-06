@@ -71,6 +71,7 @@ struct SimulatorStreamPane: View {
                         .interpolation(.medium)
                         .scaledToFit()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
                         .gesture(touchGesture(viewSize: paneSize))
                         .accessibilityIdentifier("SimulatorStreamImage")
                 }
@@ -185,6 +186,7 @@ struct SimulatorStreamPane: View {
                 Spacer()
             }
             .padding(12)
+            .allowsHitTesting(false)
         }
     }
 
