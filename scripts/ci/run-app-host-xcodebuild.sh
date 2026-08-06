@@ -49,6 +49,7 @@ if [ -n "${CFFIXED_USER_HOME:-}" ]; then
     "TEST_RUNNER_HOME=$app_host_home"
     "TEST_RUNNER_CFFIXED_USER_HOME=$app_host_home"
     "TEST_RUNNER_XDG_CONFIG_HOME=$app_host_xdg_config_home"
+    "TEST_RUNNER_SSH_AUTH_SOCK="
     "TEST_RUNNER_CMUX_APP_HOST_ISOLATION_REQUIRED=1"
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME=$app_host_home"
     "TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$app_host_xdg_config_home"

@@ -554,7 +554,8 @@ jobs:
       - name: Prepare isolated app-host home
         run: |
           set -euo pipefail
-          APP_HOST_HOME="${RUNNER_TEMP}/cmux-app-host-home-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-shard-${{ matrix.shard }}"
+          APP_HOST_KEY="$(printf '%s' "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${{ matrix.shard }}" | shasum -a 256 | cut -c1-12)"
+          APP_HOST_HOME="${RUNNER_TEMP}/ah-${APP_HOST_KEY}"
           rm -rf "$APP_HOST_HOME"
           mkdir -p \
             "$APP_HOST_HOME/.config/cmux" \
