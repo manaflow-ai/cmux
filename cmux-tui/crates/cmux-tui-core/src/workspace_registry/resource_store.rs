@@ -220,6 +220,35 @@ pub(super) fn migrate_resource_tabs_to_multiview(
     Ok(())
 }
 
+/// Detect the development schema that stamped the current version while
+/// retaining the old table-level `UNIQUE(content_id)` constraint. SQLite
+/// represents that constraint as a non-partial, single-column unique index.
+pub(super) fn resource_tabs_has_legacy_content_uniqueness(
+    connection: &Connection,
+) -> anyhow::Result<bool> {
+    let mut indexes = connection
+        .prepare("SELECT name, [unique], partial FROM pragma_index_list('resource_tabs')")?;
+    let indexes = indexes
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?, row.get::<_, bool>(2)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (name, unique, partial) in indexes {
+        if !unique || partial {
+            continue;
+        }
+        let mut columns =
+            connection.prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno ASC")?;
+        let columns = columns
+            .query_map([name], |row| row.get::<_, Option<String>>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if columns.as_slice() == [Some("content_id".to_string())] {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub(super) fn migrate_resource_agent_projections(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
@@ -469,6 +498,24 @@ impl WorkspaceRegistry {
             .map(TerminalPublicId::parse)
             .transpose()
             .map_err(Into::into)
+    }
+
+    /// Return every live public terminal-to-host identity in one deterministic
+    /// bulk read instead of resolving each terminal with a separate query.
+    pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, public_id
+             FROM resource_terminals
+             WHERE deleted_revision IS NULL
+             ORDER BY created_revision ASC, public_id ASC",
+        )?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .map(|row| {
+                let (terminal_id, public_id) = row?;
+                Ok((terminal_id, TerminalPublicId::parse(public_id)?))
+            })
+            .collect()
     }
 
     /// Resolve the immutable resource-to-host relationship, including after

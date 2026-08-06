@@ -2838,6 +2838,7 @@ impl Surface {
                         mark_hosted_runtime_exited(pty, &identity);
                         pty.host_connection_state
                             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+                        pty.stream_progress.notify();
                         if let Some(mux) = mux.upgrade() {
                             mux.surface_exited(surface.id);
                         }
@@ -2894,6 +2895,7 @@ impl Surface {
                                     TerminalHostConnectionState::Exited as u8,
                                     Ordering::Release,
                                 );
+                                pty.stream_progress.notify();
                                 if let Some(mux) = mux.upgrade() {
                                     mux.surface_exited(surface.id);
                                 }
@@ -4719,6 +4721,50 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
     }
 
+    /// Terminate a hosted terminal through its existing owner connection and
+    /// wait for that same ordered stream to publish the durable exit receipt.
+    /// Local terminals return `None` and keep their existing kill path.
+    #[cfg(unix)]
+    pub(crate) fn terminate_host_and_wait_for_exit(
+        &self,
+        deadline: Instant,
+    ) -> anyhow::Result<Option<(PathBuf, crate::terminal_host_runtime::TerminalHostExitRecord)>>
+    {
+        let Some(pty) = self.as_pty() else { return Ok(None) };
+        let Some(identity) = pty.host_identity.clone() else { return Ok(None) };
+        let Some(path) = pty.host_exit_record_path.clone() else { return Ok(None) };
+        let mut observed = pty.stream_progress.revision();
+        let already_exited = {
+            let runtime = pty.runtime.lock().unwrap();
+            match &*runtime {
+                PtyRuntime::Hosted(host) => {
+                    host.terminate().map_err(|error| {
+                        anyhow::anyhow!("send terminal-host termination: {error}")
+                    })?;
+                    false
+                }
+                PtyRuntime::ExitedHosted => true,
+                PtyRuntime::Local { .. } => return Ok(None),
+            }
+        };
+        loop {
+            if let Some(exit) = pty.exit.lock().unwrap().clone() {
+                return Ok(Some((
+                    path,
+                    crate::terminal_host_runtime::TerminalHostExitRecord::new(&identity, exit),
+                )));
+            }
+            anyhow::ensure!(
+                !already_exited,
+                "terminal host exited without publishing an exit outcome"
+            );
+            observed =
+                pty.stream_progress.wait_for_change(observed, deadline).ok_or_else(|| {
+                    anyhow::anyhow!("terminal host did not exit before the close deadline")
+                })?;
+        }
+    }
+
     #[cfg(unix)]
     pub(crate) fn terminal_host_exit_sidecar(
         &self,
@@ -6051,15 +6097,18 @@ fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
         return term.scrollbar().is_some_and(|scrollbar| scrollbar.offset == target);
     }
     let mut current = scrollbar.offset;
+    let mut remaining = current.abs_diff(target);
     while current != target {
         let difference = i128::from(target) - i128::from(current);
         let step = difference.clamp(isize::MIN as i128, isize::MAX as i128) as isize;
         term.scroll_delta(step);
         let Some(next) = term.scrollbar().map(|scrollbar| scrollbar.offset) else { return false };
-        if next == current {
+        let next_remaining = next.abs_diff(target);
+        if next_remaining >= remaining {
             return false;
         }
         current = next;
+        remaining = next_remaining;
     }
     true
 }

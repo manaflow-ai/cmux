@@ -569,8 +569,15 @@ fn clients_list_identify_resize_and_detach_across_transports() {
         read_line_until(&mut unix_reader, |value| value["event"] == "detached")["surface"],
         surface
     );
-    let mut eof = String::new();
-    assert_eq!(unix_reader.read_line(&mut eof).unwrap(), 0);
+    // A subscription may already have complete event frames queued behind the
+    // detach acknowledgement. The connection must close after draining them.
+    loop {
+        let mut trailing = String::new();
+        if unix_reader.read_line(&mut trailing).unwrap() == 0 {
+            break;
+        }
+        serde_json::from_str::<Value>(&trailing).expect("trailing frame before EOF must be JSON");
+    }
 
     mux.shutdown();
     server::cleanup(&socket_path);

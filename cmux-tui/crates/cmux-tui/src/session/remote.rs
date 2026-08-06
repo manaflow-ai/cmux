@@ -1046,6 +1046,14 @@ struct InteractiveWriterShared {
     state: Mutex<InteractiveWriteQueueState>,
     changed: Condvar,
     metrics: InteractiveWriteMetrics,
+    #[cfg(test)]
+    wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
+}
+
+#[cfg(test)]
+struct InteractiveWaitUntilWrittenGate {
+    entered: Sender<u64>,
+    resume: Receiver<()>,
 }
 
 struct InteractiveWriter {
@@ -1064,6 +1072,8 @@ impl InteractiveWriter {
             state: Mutex::new(InteractiveWriteQueueState::default()),
             changed: Condvar::new(),
             metrics: InteractiveWriteMetrics::default(),
+            #[cfg(test)]
+            wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
         std::thread::Builder::new()
@@ -1121,6 +1131,8 @@ impl InteractiveWriter {
     }
 
     fn wait_until_written(&self, sequence: u64, timeout: Duration) -> io::Result<()> {
+        #[cfg(test)]
+        self.await_wait_until_written_gate(sequence);
         let deadline = Instant::now() + timeout;
         let mut state = self
             .shared
@@ -1156,6 +1168,27 @@ impl InteractiveWriter {
                     "ordered remote write did not complete before its deadline",
                 ));
             }
+        }
+    }
+
+    #[cfg(test)]
+    fn gate_next_wait_until_written(&self) -> (Receiver<u64>, Sender<()>) {
+        let (entered_tx, entered_rx) = channel();
+        let (resume_tx, resume_rx) = channel();
+        let previous =
+            self.shared.wait_until_written_gate.lock().unwrap().replace(
+                InteractiveWaitUntilWrittenGate { entered: entered_tx, resume: resume_rx },
+            );
+        assert!(previous.is_none(), "interactive write wait gate was already installed");
+        (entered_rx, resume_tx)
+    }
+
+    #[cfg(test)]
+    fn await_wait_until_written_gate(&self, sequence: u64) {
+        let gate = self.shared.wait_until_written_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.send(sequence).unwrap();
+            gate.resume.recv().unwrap();
         }
     }
 
@@ -5745,20 +5778,26 @@ mod tests {
     #[test]
     fn shutdown_send_waits_for_ordered_write_completion() {
         let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
         let session = blocking_test_session(stream);
         session.begin_shutdown();
+        let (wait_started_rx, resume_wait_tx) =
+            session.interactive_writer.gate_next_wait_until_written();
 
         let (finished_tx, finished_rx) = channel();
+        let release_session = session.clone();
         let release = std::thread::spawn(move || {
-            finished_tx.send(session.send_bytes(7, b"release")).unwrap();
+            finished_tx.send(release_session.send_bytes(7, b"release")).unwrap();
         });
+        let sequence = wait_started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         control.wait_until_entered();
         assert!(
-            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            matches!(finished_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
             "shutdown send returned before its ordered write completed"
         );
 
         control.release();
+        resume_wait_tx.send(()).unwrap();
         let error = finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap().unwrap_err();
         assert!(
             matches!(
@@ -5768,28 +5807,44 @@ mod tests {
             "expected shutdown after the ordered write completed, got {error:?}"
         );
         release.join().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        assert!(writer_state.last_written_sequence >= sequence);
+        drop(writer_state);
+        assert!(!output.lock().unwrap().is_empty());
     }
 
     #[test]
     fn begin_shutdown_waits_for_previously_accepted_input() {
         let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
         let session = blocking_test_session(stream);
         session.send_bytes(7, b"accepted").unwrap();
         control.wait_until_entered();
 
+        let sequence = session.interactive_writer.last_enqueued_sequence().unwrap().unwrap();
+        let (wait_started_rx, resume_wait_tx) =
+            session.interactive_writer.gate_next_wait_until_written();
+
         let (finished_tx, finished_rx) = channel();
+        let shutdown_session = session.clone();
         let shutdown = std::thread::spawn(move || {
-            session.begin_shutdown();
+            shutdown_session.begin_shutdown();
             finished_tx.send(()).unwrap();
         });
+        assert_eq!(wait_started_rx.recv_timeout(Duration::from_secs(2)).unwrap(), sequence);
         assert!(
-            finished_rx.recv_timeout(Duration::from_millis(25)).is_err(),
+            matches!(finished_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)),
             "shutdown returned before previously accepted input was written"
         );
 
         control.release();
+        resume_wait_tx.send(()).unwrap();
         finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap();
         shutdown.join().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        assert!(writer_state.last_written_sequence >= sequence);
+        drop(writer_state);
+        assert!(!output.lock().unwrap().is_empty());
     }
 
     #[test]

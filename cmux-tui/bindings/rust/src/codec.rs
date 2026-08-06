@@ -11,17 +11,13 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 #[cfg(test)]
-type ForcedConnectPollObserver = Box<dyn FnMut(usize)>;
-
-#[cfg(test)]
 thread_local! {
     static FORCE_PENDING_CONNECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static FORCED_CONNECT_ATTEMPTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static FORCED_CONNECT_POLLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static FORCED_CONNECT_MAX_POLLS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
-    static FORCED_CONNECT_POLL_OBSERVER: std::cell::RefCell<Option<ForcedConnectPollObserver>> = const {
-        std::cell::RefCell::new(None)
-    };
+    static FORCED_CONNECT_POLL_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static FORCED_CONNECT_AFTER_FIRST_POLL: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -29,31 +25,31 @@ pub(crate) struct ForcedPendingConnectProbe;
 
 #[cfg(test)]
 impl ForcedPendingConnectProbe {
-    pub(crate) fn install_until_poll(max_polls: usize) -> Self {
-        assert!(max_polls > 0, "a pending-connect probe needs at least one poll");
-        Self::install_with(Some(max_polls), None)
-    }
-
-    pub(crate) fn install_with_poll_observer(observer: impl FnMut(usize) + 'static) -> Self {
-        Self::install_with(None, Some(Box::new(observer)))
-    }
-
-    fn install_with(max_polls: Option<usize>, observer: Option<Box<dyn FnMut(usize)>>) -> Self {
+    pub(crate) fn install() -> Self {
         FORCE_PENDING_CONNECT.with(|forced| {
             assert!(!forced.replace(true), "a pending-connect probe is already installed");
         });
-        FORCED_CONNECT_POLL_OBSERVER.with(|installed| {
-            assert!(
-                std::mem::replace(&mut *installed.borrow_mut(), observer).is_none(),
-                "a pending-connect poll observer is already installed"
-            );
-        });
         FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
         FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
-        FORCED_CONNECT_MAX_POLLS.with(|limit| limit.set(max_polls));
+        FORCED_CONNECT_POLL_LIMIT.with(|limit| limit.set(0));
+        FORCED_CONNECT_AFTER_FIRST_POLL.with(|action| drop(action.borrow_mut().take()));
         Self
     }
 
+    pub(crate) fn install_with_poll_limit(limit: usize) -> Self {
+        assert!(limit > 0, "a pending-connect poll limit must be positive");
+        let probe = Self::install();
+        FORCED_CONNECT_POLL_LIMIT.with(|configured| configured.set(limit));
+        probe
+    }
+
+    pub(crate) fn install_with_after_first_poll(action: impl FnOnce() + 'static) -> Self {
+        let probe = Self::install();
+        FORCED_CONNECT_AFTER_FIRST_POLL.with(|configured| {
+            *configured.borrow_mut() = Some(Box::new(action));
+        });
+        probe
+    }
     pub(crate) fn attempts(&self) -> usize {
         FORCED_CONNECT_ATTEMPTS.with(std::cell::Cell::get)
     }
@@ -67,12 +63,10 @@ impl ForcedPendingConnectProbe {
 impl Drop for ForcedPendingConnectProbe {
     fn drop(&mut self) {
         FORCE_PENDING_CONNECT.with(|forced| forced.set(false));
-        FORCED_CONNECT_POLL_OBSERVER.with(|installed| {
-            installed.borrow_mut().take();
-        });
         FORCED_CONNECT_ATTEMPTS.with(|attempts| attempts.set(0));
         FORCED_CONNECT_POLLS.with(|polls| polls.set(0));
-        FORCED_CONNECT_MAX_POLLS.with(|limit| limit.set(None));
+        FORCED_CONNECT_POLL_LIMIT.with(|limit| limit.set(0));
+        FORCED_CONNECT_AFTER_FIRST_POLL.with(|action| drop(action.borrow_mut().take()));
     }
 }
 
@@ -297,25 +291,27 @@ fn connect_unix_with_poll_checks(
             CmuxError::InvalidArgument("session socket connect timeout is too large".to_string())
         })?;
         loop {
+            if FORCED_CONNECT_POLLS.with(std::cell::Cell::get) > 0 {
+                FORCED_CONNECT_AFTER_FIRST_POLL.with(|action| {
+                    if let Some(action) = action.borrow_mut().take() {
+                        action();
+                    }
+                });
+            }
             check()?;
             let now = Instant::now();
             if now >= deadline {
                 return Err(connect_timeout_error(socket_path));
             }
-            let polls = FORCED_CONNECT_POLLS.with(|polls| {
-                let next = polls.get() + 1;
-                polls.set(next);
-                next
+            let reached_poll_limit = FORCED_CONNECT_POLLS.with(|polls| {
+                let count = polls.get().saturating_add(1);
+                polls.set(count);
+                FORCED_CONNECT_POLL_LIMIT.with(|limit| {
+                    let limit = limit.get();
+                    limit > 0 && count >= limit
+                })
             });
-            FORCED_CONNECT_POLL_OBSERVER.with(|installed| {
-                if let Some(observer) = installed.borrow_mut().as_mut() {
-                    observer(polls);
-                }
-            });
-            if FORCED_CONNECT_MAX_POLLS
-                .with(std::cell::Cell::get)
-                .is_some_and(|limit| polls >= limit)
-            {
+            if reached_poll_limit {
                 return Err(connect_timeout_error(socket_path));
             }
             std::thread::sleep(deadline.saturating_duration_since(now).min(poll_interval));

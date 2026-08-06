@@ -6180,51 +6180,71 @@ struct QueuedDurableNotice {
 }
 
 fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
+    let workspace_indices = next
+        .workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| (workspace.id, index))
+        .collect::<HashMap<_, _>>();
     if let Some(active) = previous.active_workspace().map(|workspace| workspace.id)
-        && let Some(index) = next.workspaces.iter().position(|workspace| workspace.id == active)
+        && let Some(index) = workspace_indices.get(&active).copied()
     {
         next.active_workspace = index;
     }
 
     for previous_workspace in &previous.workspaces {
-        let Some(next_workspace) =
-            next.workspaces.iter_mut().find(|workspace| workspace.id == previous_workspace.id)
+        let Some(next_workspace_index) = workspace_indices.get(&previous_workspace.id).copied()
         else {
             continue;
         };
+        let next_workspace = &mut next.workspaces[next_workspace_index];
+        let screen_indices = next_workspace
+            .screens
+            .iter()
+            .enumerate()
+            .map(|(index, screen)| (screen.id, index))
+            .collect::<HashMap<_, _>>();
         if let Some(active) =
             previous_workspace.screens.get(previous_workspace.active_screen).map(|screen| screen.id)
-            && let Some(index) =
-                next_workspace.screens.iter().position(|screen| screen.id == active)
+            && let Some(index) = screen_indices.get(&active).copied()
         {
             next_workspace.active_screen = index;
         }
 
         for previous_screen in &previous_workspace.screens {
-            let Some(next_screen) =
-                next_workspace.screens.iter_mut().find(|screen| screen.id == previous_screen.id)
-            else {
+            let Some(next_screen_index) = screen_indices.get(&previous_screen.id).copied() else {
                 continue;
             };
-            if let Some(zoomed_pane) = next_screen
-                .zoomed_pane
-                .filter(|zoomed| next_screen.panes.iter().any(|pane| pane.id == *zoomed))
+            let next_screen = &mut next_workspace.screens[next_screen_index];
+            let pane_indices = next_screen
+                .panes
+                .iter()
+                .enumerate()
+                .map(|(index, pane)| (pane.id, index))
+                .collect::<HashMap<_, _>>();
+            if let Some(zoomed_pane) =
+                next_screen.zoomed_pane.filter(|zoomed| pane_indices.contains_key(zoomed))
             {
                 next_screen.active_pane = zoomed_pane;
             } else if next_screen.zoomed_pane.is_none()
-                && next_screen.panes.iter().any(|pane| pane.id == previous_screen.active_pane)
+                && pane_indices.contains_key(&previous_screen.active_pane)
             {
                 next_screen.active_pane = previous_screen.active_pane;
             }
 
             for previous_pane in &previous_screen.panes {
-                let Some(next_pane) =
-                    next_screen.panes.iter_mut().find(|pane| pane.id == previous_pane.id)
-                else {
+                let Some(next_pane_index) = pane_indices.get(&previous_pane.id).copied() else {
                     continue;
                 };
+                let next_pane = &mut next_screen.panes[next_pane_index];
+                let tab_indices = next_pane
+                    .tabs
+                    .iter()
+                    .enumerate()
+                    .map(|(index, tab)| (tab.surface, index))
+                    .collect::<HashMap<_, _>>();
                 if let Some(active) = previous_pane.active_surface()
-                    && let Some(index) = next_pane.tabs.iter().position(|tab| tab.surface == active)
+                    && let Some(index) = tab_indices.get(&active).copied()
                 {
                     next_pane.active_tab = index;
                 }
@@ -9720,7 +9740,7 @@ impl App {
         self.prefix_armed = false;
         self.pending_session_completions.clear();
         self.pending_size_releases.clear();
-        self.status_message = Some("session operation was canceled".to_string());
+        self.status_message = Some(localization::catalog().session.operation_canceled.to_string());
     }
 
     fn apply_pty_failures(&mut self) -> RenderAction {
@@ -11871,15 +11891,16 @@ impl App {
                         self.session.refresh_clients_background();
                     }
                     SessionMutationOutcome::CreationResponseAmbiguous(error) => {
-                        self.status_message = Some(format!(
-                            "session creation may have committed; resolving its receipt: {error}"
-                        ));
+                        eprintln!("cmux-tui: session creation response was ambiguous: {error}");
+                        self.status_message =
+                            Some(localization::catalog().session.creation_reconciling.to_string());
                         self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::MutationTimedOut(error) => {
+                        eprintln!("cmux-tui: session operation timed out: {error}");
                         if let Some(intent) = semantic_intent {
                             // A peer without creation receipts cannot identify
                             // which surface, if any, a timed-out creation made.
@@ -11887,32 +11908,34 @@ impl App {
                             // guessed onto whichever surface became active.
                             self.mark_semantic_destination_failed(intent);
                         }
-                        self.status_message = Some(format!(
-                            "session operation may have committed; refreshing its layout: {error}"
-                        ));
+                        self.status_message =
+                            Some(localization::catalog().session.operation_reconciling.to_string());
                         self.layout_refresh_retries_remaining = LAYOUT_REFRESH_RETRIES;
                         self.session.invalidate_remote_tree();
                         self.session.refresh_remote_tree_if_stale();
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Failed(error) => {
+                        eprintln!("cmux-tui: session operation failed: {error}");
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
                             self.status_message =
-                                Some(format!("session operation failed: {error}"));
+                                Some(localization::catalog().session.operation_failed.to_string());
                             return Ok(RenderAction::Draw);
                         }
                         self.deferred_input.clear();
                         self.prefix_armed = false;
                         self.pending_session_completions.clear();
-                        self.status_message = Some(format!("session operation failed: {error}"));
+                        self.status_message =
+                            Some(localization::catalog().session.operation_failed.to_string());
                         return Ok(RenderAction::Draw);
                     }
                     SessionMutationOutcome::Canceled => {
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);
-                            self.status_message =
-                                Some("session operation was canceled".to_string());
+                            self.status_message = Some(
+                                localization::catalog().session.operation_canceled.to_string(),
+                            );
                             return Ok(RenderAction::Draw);
                         }
                         if self.session.has_pending_mutations() {
@@ -13145,7 +13168,6 @@ impl App {
                 candidates.push(selectors);
             }
         }
-        anyhow::ensure!(!candidates.is_empty(), "creation target has no stable identity");
         Ok(candidates)
     }
 
@@ -28936,10 +28958,9 @@ mod tests {
         ));
         app.handle(settled).unwrap();
         assert_eq!(app.deferred_input.len(), 1);
-        assert!(
-            app.status_message
-                .as_deref()
-                .is_some_and(|message| message.contains("may have committed"))
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().session.operation_reconciling)
         );
     }
 
@@ -29219,7 +29240,7 @@ mod tests {
         assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
         assert_eq!(
             app.status_message.as_deref(),
-            Some("session operation failed: selection rejected")
+            Some(localization::catalog().session.operation_failed)
         );
 
         app.pointer_route_phase = PointerRoutePhase::Fresh;
@@ -32530,13 +32551,9 @@ mod tests {
             app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
 
-        assert!(
-            app.status_message.as_deref().is_some_and(|message| {
-                message.starts_with("session operation failed:")
-                    && message.contains("workspace id and key")
-            }),
-            "unexpected status: {:?}",
-            app.status_message
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some(localization::catalog().session.operation_failed)
         );
         assert!(app.tree.workspaces.iter().any(|workspace| workspace.id == placement.workspace));
     }
@@ -35357,6 +35374,65 @@ mod tests {
         assert_eq!(
             other_client_selection.workspaces[0].screens[0].panes[0].active_surface(),
             Some(11)
+        );
+    }
+
+    #[test]
+    fn remote_tree_refresh_scales_to_one_thousand_workspaces() {
+        let mut previous = TreeView::default();
+        for index in 0..1_000_u64 {
+            let mut workspace = notify_tree(40_000 + index * 2, false).workspaces.remove(0);
+            workspace.id = 10_000 + index;
+            workspace.key = format!("workspace-{index}");
+            let screen = &mut workspace.screens[0];
+            screen.id = 20_000 + index;
+            let pane = &mut screen.panes[0];
+            pane.id = 30_000 + index;
+            screen.active_pane = pane.id;
+            screen.layout = Node::Leaf(pane.id);
+            let mut second = pane.tabs[0].clone();
+            second.surface += 1;
+            pane.tabs.push(second);
+            pane.active_tab = (index % 2) as usize;
+            previous.workspaces.push(workspace);
+        }
+        previous.active_workspace = 999;
+
+        let expected_active_workspace = previous.active_workspace().unwrap().id;
+        let expected_surfaces = previous
+            .workspaces
+            .iter()
+            .map(|workspace| {
+                let pane = &workspace.screens[0].panes[0];
+                (workspace.id, pane.active_surface().unwrap())
+            })
+            .collect::<HashMap<_, _>>();
+        let mut refreshed = previous.clone();
+        refreshed.workspaces.reverse();
+        refreshed.active_workspace = 0;
+        for workspace in &mut refreshed.workspaces {
+            workspace.screens[0].panes[0].active_tab ^= 1;
+        }
+
+        preserve_client_view(&previous, &mut refreshed);
+
+        assert_eq!(refreshed.active_workspace().unwrap().id, expected_active_workspace);
+        for workspace in &refreshed.workspaces {
+            let pane = &workspace.screens[0].panes[0];
+            assert_eq!(pane.active_surface(), expected_surfaces.get(&workspace.id).copied());
+        }
+    }
+
+    #[test]
+    fn missing_pane_resource_identity_is_deferred_to_the_session_worker() {
+        let mux = Mux::new("missing-pane-resource-identity", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.tree = notify_tree(11, false);
+
+        assert_eq!(
+            app.pane_creation_selector_candidates(2, None)
+                .expect("a transient missing selector must not terminate the event loop"),
+            Vec::new()
         );
     }
 

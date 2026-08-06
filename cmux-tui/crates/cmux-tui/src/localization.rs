@@ -112,6 +112,14 @@ pub(crate) struct TerminalMessages {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SessionMessages {
+    pub creation_reconciling: &'static str,
+    pub operation_reconciling: &'static str,
+    pub operation_failed: &'static str,
+    pub operation_canceled: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct MachineAgentMessages {
     pub help: &'static str,
     pub usage: &'static str,
@@ -849,6 +857,7 @@ pub(crate) struct Catalog {
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
+    pub session: SessionMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
@@ -927,6 +936,12 @@ static ENGLISH: Catalog = Catalog {
         pty_input_unavailable: "PTY input is unavailable after a transport failure",
         attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
         operation_failed: "Terminal input failed",
+    },
+    session: SessionMessages {
+        creation_reconciling: "Session creation may have completed; checking its receipt",
+        operation_reconciling: "Session operation may have completed; refreshing the layout",
+        operation_failed: "Session operation failed",
+        operation_canceled: "Session operation was canceled",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -1408,6 +1423,12 @@ static JAPANESE: Catalog = Catalog {
         pty_input_unavailable: "転送エラー後のため PTY 入力を使用できません",
         attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
         operation_failed: "ターミナル入力に失敗しました",
+    },
+    session: SessionMessages {
+        creation_reconciling: "セッションの作成が完了している可能性があります。結果を確認しています",
+        operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
+        operation_failed: "セッション操作に失敗しました",
+        operation_canceled: "セッション操作はキャンセルされました",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -1903,6 +1924,8 @@ mod tests {
             JAPANESE.terminal.deferred_input_queue_full,
             "セッション変更の保留中に入力キューのバイト上限に達しました"
         );
+        assert_eq!(ENGLISH.session.operation_failed, "Session operation failed");
+        assert_eq!(JAPANESE.session.operation_failed, "セッション操作に失敗しました");
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"

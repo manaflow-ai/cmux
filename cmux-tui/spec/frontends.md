@@ -173,7 +173,7 @@ C> {"id":5,"cmd":"send","surface":1,"text":"echo ready\n"}
 S> {"id":5,"ok":true,"data":{}}
 S> {"event":"render-delta","surface":1,"cursor":{"x":0,"y":0,"style":"block","blink":true,"visible":true,"color":null},"full":false,"rows":[{"row":0,"runs":[{"text":"ok ","fg":null,"bg":null,"attrs":0}]}]}
 C> {"id":6,"cmd":"resize-surface","surface":1,"cols":4,"rows":1}
-S> {"id":6,"ok":true,"data":{"accepted":false,"reservation_id":1}}
+S> {"id":6,"ok":true,"data":{"accepted":false,"reservation_id":null}}
 C> {"id":7,"cmd":"set-client-sizing","surface":1,"enabled":true,"exclusive":true}
 S> {"id":7,"ok":true,"data":{}}
 C> {"id":8,"cmd":"resize-surface","surface":1,"cols":4,"rows":1}

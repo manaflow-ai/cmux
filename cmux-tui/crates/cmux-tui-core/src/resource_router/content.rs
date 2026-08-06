@@ -2023,7 +2023,7 @@ mod tests {
                 && change["resource"] == "tab"
                 && change["id"] == tab_id.as_str()
         }));
-        assert!(changes.iter().any(|change| {
+        assert!(!changes.iter().any(|change| {
             change["kind"] == "delete"
                 && change["resource"] == "terminal"
                 && change["id"] == public_id.as_str()
@@ -2034,13 +2034,16 @@ mod tests {
         assert!(incarnation.is_empty() || !public_json.contains(incarnation));
 
         let snapshot = public_session_snapshot(&mux).unwrap();
-        assert!(
-            snapshot["terminals"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|terminal| terminal["id"] != public_id.as_str())
-        );
+        let terminal = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == public_id.as_str())
+            .expect("exited terminal receipt remains publicly addressable");
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
         assert!(mux.surface(surface.id).is_none());
     }
 
