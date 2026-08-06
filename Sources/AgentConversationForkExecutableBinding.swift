@@ -6,26 +6,13 @@ import Foundation
 /// relative assets. Sources the current user cannot replace run in place after
 /// their file identity and content hash are revalidated.
 struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
-    private struct AdjacentCopy: Equatable, Hashable, Sendable {
-        let stagingPath: String
-        let cleanupRecordPath: String
-        let cleanupDirectoryPath: String
-        let expectedCleanupDirectoryStatSignature: String
-        let cleanupRecordContents: String
-    }
-
-    private enum Storage: Equatable, Hashable, Sendable {
-        case adjacentCopy(AdjacentCopy)
-        case protectedSource(expectedShellStatSignature: String)
-    }
-
     private static let cleanupDirectoryName = "cmux-transfer-bindings"
     private static let cleanupRecordTTL: TimeInterval = 24 * 60 * 60
 
     let sourcePath: String
     let boundPath: String
     let expectedContentSHA256: String?
-    private let storage: Storage
+    private let storage: AgentConversationForkExecutableBindingStorage
 
     init?(identity: AgentConversationForkExecutableIdentity) {
         let sourceURL = URL(fileURLWithPath: identity.realPath).standardizedFileURL
@@ -102,7 +89,7 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         let cleanupRecordPath = cleanupDirectory.url
             .appendingPathComponent("\(token).json", isDirectory: false)
             .path
-        storage = .adjacentCopy(AdjacentCopy(
+        storage = .adjacentCopy(AgentConversationForkExecutableBindingAdjacentCopy(
             stagingPath: generatedStagingPath,
             cleanupRecordPath: cleanupRecordPath,
             cleanupDirectoryPath: cleanupDirectory.url.path,
@@ -247,7 +234,9 @@ struct AgentConversationForkExecutableBinding: Equatable, Hashable, Sendable {
         """
     }
 
-    private func writeCleanupRecord(_ copy: AdjacentCopy) -> Bool {
+    private func writeCleanupRecord(
+        _ copy: AgentConversationForkExecutableBindingAdjacentCopy
+    ) -> Bool {
         var directoryMetadata = stat()
         guard Darwin.lstat(copy.cleanupDirectoryPath, &directoryMetadata) == 0,
               Self.cleanupDirectoryStatSignature(directoryMetadata)

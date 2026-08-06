@@ -47,6 +47,8 @@
 		9016A0000000000000000001 /* AgentConversationCrossHarnessForkTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016A0000000000000000002 /* AgentConversationCrossHarnessForkTests.swift */; };
 		901600000000000000000001 /* AgentConversationExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000002 /* AgentConversationExportService.swift */; };
 		9016D0000000000000000009 /* AgentConversationForkExecutableBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016D000000000000000000A /* AgentConversationForkExecutableBinding.swift */; };
+		CFC8B2713EEC4FC0B687C488 /* AgentConversationForkExecutableBindingAdjacentCopy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52AE883D89DC464685667B7A /* AgentConversationForkExecutableBindingAdjacentCopy.swift */; };
+		5C8B88CC62EE4E48A464CF29 /* AgentConversationForkExecutableBindingStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC7B118591354C3A84819BA3 /* AgentConversationForkExecutableBindingStorage.swift */; };
 		9016D0000000000000000003 /* AgentConversationForkExecutableIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016D0000000000000000004 /* AgentConversationForkExecutableIdentity.swift */; };
 		9016D0000000000000000007 /* AgentConversationForkFirstMessageAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9016D0000000000000000008 /* AgentConversationForkFirstMessageAdapter.swift */; };
 		901600000000000000000003 /* AgentConversationForkRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 901600000000000000000004 /* AgentConversationForkRequest.swift */; };
@@ -2783,6 +2785,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		9016A0000000000000000002 /* AgentConversationCrossHarnessForkTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationCrossHarnessForkTests.swift; sourceTree = "<group>"; };
 		901600000000000000000002 /* AgentConversationExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationExportService.swift; sourceTree = "<group>"; };
 		9016D000000000000000000A /* AgentConversationForkExecutableBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkExecutableBinding.swift; sourceTree = "<group>"; };
+		52AE883D89DC464685667B7A /* AgentConversationForkExecutableBindingAdjacentCopy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkExecutableBindingAdjacentCopy.swift; sourceTree = "<group>"; };
+		BC7B118591354C3A84819BA3 /* AgentConversationForkExecutableBindingStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkExecutableBindingStorage.swift; sourceTree = "<group>"; };
 		9016D0000000000000000004 /* AgentConversationForkExecutableIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkExecutableIdentity.swift; sourceTree = "<group>"; };
 		9016D0000000000000000008 /* AgentConversationForkFirstMessageAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkFirstMessageAdapter.swift; sourceTree = "<group>"; };
 		901600000000000000000004 /* AgentConversationForkRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConversationForkRequest.swift; sourceTree = "<group>"; };
@@ -5709,6 +5713,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				901600000000000000000004 /* AgentConversationForkRequest.swift */,
 				9016D0000000000000000002 /* AgentConversationForkRequestError.swift */,
 				9016D000000000000000000A /* AgentConversationForkExecutableBinding.swift */,
+				52AE883D89DC464685667B7A /* AgentConversationForkExecutableBindingAdjacentCopy.swift */,
+				BC7B118591354C3A84819BA3 /* AgentConversationForkExecutableBindingStorage.swift */,
 				9016D0000000000000000004 /* AgentConversationForkExecutableIdentity.swift */,
 				8CF9865680D84D57BDCD9145 /* AgentConversationForkTarget.swift */,
 				9016D0000000000000000006 /* AgentConversationForkTargetCandidate.swift */,
@@ -8615,6 +8621,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				ACA7C4A70000000000000009 /* AgentChatTranscriptTailer.swift in Sources */,
 				901600000000000000000001 /* AgentConversationExportService.swift in Sources */,
 				9016D0000000000000000009 /* AgentConversationForkExecutableBinding.swift in Sources */,
+				CFC8B2713EEC4FC0B687C488 /* AgentConversationForkExecutableBindingAdjacentCopy.swift in Sources */,
+				5C8B88CC62EE4E48A464CF29 /* AgentConversationForkExecutableBindingStorage.swift in Sources */,
 				9016D0000000000000000003 /* AgentConversationForkExecutableIdentity.swift in Sources */,
 				9016D0000000000000000007 /* AgentConversationForkFirstMessageAdapter.swift in Sources */,
 				901600000000000000000003 /* AgentConversationForkRequest.swift in Sources */,
