@@ -11,7 +11,11 @@ mock.module("../services/coderouter/repository", () => ({
   }),
   markAccountCooldown: async () => {},
   listAccounts: async () => [],
+  listEncryptedCredentials: async () => [],
+  encryptedCredentialForAccount: async () => null,
   findAccountByProviderIdentity: async () => null,
+  insertAccountWithCredential: async () => true,
+  replaceAccountCredential: async () => {},
   upsertAccountMetadata: async () => {},
   withVaultLease: async (_teamId: string, operation: () => unknown) =>
     await operation(),

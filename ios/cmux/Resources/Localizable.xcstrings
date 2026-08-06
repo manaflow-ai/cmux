@@ -4274,13 +4274,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscale Only"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscaleのみ"
           }
         }
       }
@@ -4291,13 +4291,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uses your Tailscale network. Scan the pairing code on your Mac."
+            "value": "Uses only your Tailscale network. Scan the pairing code on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscaleネットワークを使用します。Macに表示されるペアリングコードをスキャンしてください。"
+            "value": "Tailscaleネットワークのみを使用します。Macに表示されるペアリングコードをスキャンしてください。"
           }
         }
       }
@@ -4342,13 +4342,98 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here."
+            "value": "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このiPhoneとMacの両方にTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここでスキャンします。"
+            "value": "Tailscale経由でのみ接続します。両方のデバイスにTailscaleをインストールして同じネットワークに接続し、Macのcmuxに表示されるペアリングコードをスキャンしてください。"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active Transport"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在の接続経路"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.iroh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iroh"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.simulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シミュレータ"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "mobile.settings.activeTransport.websocket": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket"
           }
         }
       }
@@ -4427,13 +4512,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscale Only"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tailscale"
+            "value": "Tailscaleのみ"
           }
         }
       }
@@ -4444,13 +4529,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install Tailscale on this iPhone and your Mac, then connect both to the same Tailscale network. On your Mac, open Tailscale Pairing in cmux to show the QR, then scan it here once."
+            "value": "Connects only over Tailscale. If unavailable, cmux stays disconnected instead of using Iroh. Install Tailscale on both devices, join the same network, then scan the pairing code shown by cmux on your Mac once."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このiPhoneとMacの両方にTailscaleをインストールし、同じTailscaleネットワークに接続してください。Macのcmuxで「Tailscaleペアリング」を開いてQRコードを表示し、ここで一度スキャンします。"
+            "value": "Tailscale経由でのみ接続します。利用できない場合、Irohに切り替えずcmuxは未接続のままになります。両方のデバイスにTailscaleをインストールして同じネットワークに接続し、Macのcmuxに表示されるペアリングコードを一度スキャンしてください。"
           }
         }
       }
