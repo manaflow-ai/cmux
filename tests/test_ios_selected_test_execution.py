@@ -39,6 +39,25 @@ class SelectedIOSTestExecutionGuardTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_accepts_swift_testing_suite_summary(self) -> None:
+        result = self.run_guard(
+            "Test run with 11 tests in 1 suite passed after 12.819 seconds.",
+            "cmuxFeatureTests/MobileIrohRuntimeCompositionCooldownTests",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_swift_testing_zero_suite_summary(self) -> None:
+        result = self.run_guard(
+            "Test run with 0 tests in 1 suite passed after 0.012 seconds.",
+            "cmuxFeatureTests/MissingSuite",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(
+            result.stderr,
+            "selected iOS test filter matched zero tests; "
+            "use target/class or target/class/method syntax\n",
+        )
+
     def test_rejects_zero_tests_for_requested_filter(self) -> None:
         test_filter = "cmuxUITests/testMissingMethod\n::error::injected"
         result = self.run_guard(
