@@ -35,4 +35,40 @@ import Testing
         let store = MobileConnectionMethodStore(defaults: defaults)
         #expect(store.method == .automatic)
     }
+
+    @Test func unauthorizedTailscaleRequestStaysAutomaticUntilCommitted() {
+        let defaults = makeDefaults()
+        let store = MobileConnectionMethodStore(defaults: defaults)
+
+        #expect(store.request(.tailscale, hasAuthorizedTailscaleRoute: false))
+        #expect(store.method == .automatic)
+        #expect(store.presentedMethod == .tailscale)
+        #expect(MobileConnectionMethodStore(defaults: defaults).method == .automatic)
+
+        store.commitPendingTailscaleMethod()
+
+        #expect(store.method == .tailscale)
+        #expect(store.presentedMethod == .tailscale)
+        #expect(MobileConnectionMethodStore(defaults: defaults).method == .tailscale)
+    }
+
+    @Test func cancellingPendingTailscaleKeepsLastUsableMethod() {
+        let store = MobileConnectionMethodStore(defaults: makeDefaults())
+        #expect(store.request(.tailscale, hasAuthorizedTailscaleRoute: false))
+
+        store.cancelPendingMethod()
+
+        #expect(store.pendingMethod == nil)
+        #expect(store.presentedMethod == .automatic)
+        #expect(store.method == .automatic)
+    }
+
+    @Test func authorizedTailscaleRequestCommitsImmediately() {
+        let store = MobileConnectionMethodStore(defaults: makeDefaults())
+
+        #expect(!store.request(.tailscale, hasAuthorizedTailscaleRoute: true))
+
+        #expect(store.pendingMethod == nil)
+        #expect(store.method == .tailscale)
+    }
 }

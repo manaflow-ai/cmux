@@ -43,6 +43,18 @@ public final class MobileConnectionMethodStore {
         }
     }
 
+    /// A Tailscale-only choice awaiting an explicit in-app pairing-code grant.
+    ///
+    /// This is intentionally ephemeral. Persisting the strict method before its
+    /// exact destination is authorized would strand a previously connected user
+    /// in the disconnected shell when they cancel or cannot complete pairing.
+    public private(set) var pendingMethod: MobileConnectionMethod?
+
+    /// The value Settings and onboarding should render while pairing is pending.
+    public var presentedMethod: MobileConnectionMethod {
+        pendingMethod ?? method
+    }
+
     /// Create a store backed by the given defaults.
     public init(defaults: UserDefaults) {
         self.defaults = defaults
@@ -52,6 +64,40 @@ public final class MobileConnectionMethodStore {
         } else {
             self.method = .automatic
         }
+        self.pendingMethod = nil
+    }
+
+    /// Applies a connection-method request or stages Tailscale until pairing.
+    /// - Parameters:
+    ///   - requestedMethod: The method selected by the user.
+    ///   - hasAuthorizedTailscaleRoute: Whether the active Mac already has an
+    ///     exact device-local Tailscale grant.
+    /// - Returns: `true` when the caller must present Tailscale pairing before
+    ///   the selection can be committed.
+    @discardableResult
+    public func request(
+        _ requestedMethod: MobileConnectionMethod,
+        hasAuthorizedTailscaleRoute: Bool
+    ) -> Bool {
+        if requestedMethod == .tailscale, !hasAuthorizedTailscaleRoute {
+            pendingMethod = .tailscale
+            return true
+        }
+        pendingMethod = nil
+        method = requestedMethod
+        return false
+    }
+
+    /// Commits a staged Tailscale choice after its authorized route connects.
+    public func commitPendingTailscaleMethod() {
+        guard pendingMethod == .tailscale else { return }
+        pendingMethod = nil
+        method = .tailscale
+    }
+
+    /// Cancels a staged method without changing the last usable preference.
+    public func cancelPendingMethod() {
+        pendingMethod = nil
     }
 
     /// Observes connection-method changes, beginning with the current method.

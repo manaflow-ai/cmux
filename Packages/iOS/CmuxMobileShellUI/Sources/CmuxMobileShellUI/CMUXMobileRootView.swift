@@ -293,6 +293,9 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
+                if store.activeRoute?.kind == .tailscale {
+                    connectionMethodStore?.commitPendingTailscaleMethod()
+                }
                 isShowingAddDeviceSheet = false
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
@@ -505,7 +508,12 @@ struct CMUXMobileRootView: View {
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+            onSelectConnectionMethod: {
+                requestConnectionMethod(
+                    $0,
+                    startPairingScanner: showOnboardingPairingScanner
+                )
+            },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
@@ -528,7 +536,12 @@ struct CMUXMobileRootView: View {
                 ? .fallback
                 : .searching,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
-            onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+            onSelectConnectionMethod: {
+                requestConnectionMethod(
+                    $0,
+                    startPairingScanner: showOnboardingPairingScanner
+                )
+            },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
@@ -666,6 +679,19 @@ struct CMUXMobileRootView: View {
         presentAddDevice(.scanner(entry: .onboardingFallback))
     }
 
+    private func requestConnectionMethod(
+        _ method: MobileConnectionMethod,
+        startPairingScanner: () -> Void
+    ) {
+        guard let connectionMethodStore else { return }
+        if connectionMethodStore.request(
+            method,
+            hasAuthorizedTailscaleRoute: store.activeMacHasAuthorizedTailscaleRoute
+        ) {
+            startPairingScanner()
+        }
+    }
+
     private func presentAddDevice(_ presentation: PairingPresentation) {
         if isShowingAddDeviceSheet {
             guard pairingPresentation != presentation else { return }
@@ -731,6 +757,7 @@ struct CMUXMobileRootView: View {
     private func dismissAddDeviceSheet() {
         isShowingAddDeviceSheet = false
         pairingPresentation = .manual
+        connectionMethodStore?.cancelPendingMethod()
         if store.pairingVersionWarning != nil {
             cancelPairing()
         } else {
