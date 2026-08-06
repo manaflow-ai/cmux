@@ -8,12 +8,14 @@ import Foundation
 #endif
 
 private func validateAppHostUserConfigurationHome(
-    environment: [String: String]
+    environment: [String: String],
+    isolationRequired: Bool
 ) throws {
-    guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1" else {
+    guard isolationRequired else {
         return
     }
 
+    #expect(environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1")
     let expectedHome = try #require(
         environment["CMUX_APP_HOST_EXPECTED_HOME"],
         "The isolated app-host launch must publish its resolved home"
@@ -50,15 +52,29 @@ private func validateAppHostUserConfigurationHome(
     )
 }
 
+private var appHostIsolationRequiredByBuild: Bool {
+    #if CMUX_CI_APP_HOST_ISOLATION_REQUIRED
+    true
+    #else
+    false
+    #endif
+}
+
 @Suite struct MacSentryStartupPolicyTests {
     @Test func appHostUsesSchemeScopedUserConfigurationHome() throws {
+        let environment = ProcessInfo.processInfo.environment
         try validateAppHostUserConfigurationHome(
-            environment: ProcessInfo.processInfo.environment
+            environment: environment,
+            isolationRequired: appHostIsolationRequiredByBuild
+                || environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1"
         )
     }
 
     @Test func appHostIsolationValidationIsOptIn() throws {
-        try validateAppHostUserConfigurationHome(environment: [:])
+        try validateAppHostUserConfigurationHome(
+            environment: [:],
+            isolationRequired: false
+        )
     }
 
     @Test func xctestLaunchDoesNotStartSentry() {

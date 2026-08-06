@@ -22,6 +22,9 @@ APP_HOST_ISOLATION = (ROOT / "scripts/ci/app-host-isolation.sh").read_text(
 UNIT_SCHEME = (
     ROOT / "cmux.xcodeproj/xcshareddata/xcschemes/cmux-unit.xcscheme"
 ).read_text(encoding="utf-8")
+APP_HOST_POLICY_TESTS = (
+    ROOT / "cmuxTests/MacSentryStartupPolicyTests.swift"
+).read_text(encoding="utf-8")
 
 TEST_RUNNER_ENVIRONMENT_KEYS = (
     "HOME",
@@ -129,11 +132,12 @@ def main() -> int:
         "short per-shard app-host home": (
             'APP_HOST_HOME="${RUNNER_TEMP}/ah-${APP_HOST_KEY}"'
         ),
-        "Core Foundation home redirect": (
-            'echo "CFFIXED_USER_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
+        "neutral app-host home": (
+            'echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
         ),
-        "XDG configuration redirect": (
-            'echo "XDG_CONFIG_HOME=$APP_HOST_HOME/.config" >> "$GITHUB_ENV"'
+        "neutral app-host XDG home": (
+            'echo "CMUX_APP_HOST_XDG_CONFIG_HOME=$APP_HOST_HOME/.config" '
+            '>> "$GITHUB_ENV"'
         ),
         "owner-only app-host access": (
             'chmod -R u+rwX,go-rwx "$APP_HOST_HOME"'
@@ -143,6 +147,13 @@ def main() -> int:
     }
     for context, needle in requirements.items():
         require(setup_run, needle, context)
+
+    for leaked_redirect in ("CFFIXED_USER_HOME=", "XDG_CONFIG_HOME="):
+        if leaked_redirect in setup_run:
+            raise SystemExit(
+                "FAIL: isolated app-host setup must not export runtime redirect "
+                f"{leaked_redirect!r} to intervening workflow steps"
+            )
 
     app_host_job = require_job("app-host-unit-tests")
     app_host_job_environment = app_host_job.get("env")
@@ -188,8 +199,9 @@ def main() -> int:
 
     require(
         CONSOLE_WRAPPER,
-        "CMUX_CI_APP_HOST_ISOLATION_REQUIRED CFFIXED_USER_HOME "
-        "XDG_CONFIG_HOME CARGO_HOME RUSTUP_HOME",
+        "CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_HOME "
+        "CMUX_APP_HOST_XDG_CONFIG_HOME CFFIXED_USER_HOME XDG_CONFIG_HOME "
+        "CARGO_HOME RUSTUP_HOME",
         "console-session environment forwarding",
     )
     require(
@@ -236,6 +248,27 @@ def main() -> int:
         APP_HOST_WRAPPER,
         "FAIL: required app-host isolation environment is incomplete",
         "missing app-host isolation failure",
+    )
+    require(
+        APP_HOST_WRAPPER,
+        "CMUX_APP_HOST_HOME",
+        "neutral app-host home input",
+    )
+    require(
+        APP_HOST_WRAPPER,
+        "CMUX_APP_HOST_XDG_CONFIG_HOME",
+        "neutral app-host XDG input",
+    )
+    require(
+        APP_HOST_WRAPPER,
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) "
+        "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
+        "independent compiled isolation assertion",
+    )
+    require(
+        APP_HOST_POLICY_TESTS,
+        "#if CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
+        "compiled app-host isolation assertion",
     )
     require(
         APP_HOST_ISOLATION,
@@ -291,6 +324,11 @@ def main() -> int:
         "cleanup_app_host_home_requested",
         "console-session cleanup preparation mode",
     )
+    if "*/scripts/ci/cleanup-app-host-home.sh" in CONSOLE_WRAPPER:
+        raise SystemExit(
+            "FAIL: console-session cleanup mode must match only the repository "
+            "cleanup command"
+        )
 
     print("PASS: app-host XCTest receives an isolated launch home")
     return 0
