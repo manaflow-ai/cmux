@@ -741,21 +741,29 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     assert block.index(step) < block.index("- name: Run unit tests")
 
 
-def test_app_host_tests_configure_swift_testing_serialization_in_the_xcode_scheme() -> None:
+def test_app_host_tests_disable_in_process_parallelization_at_the_shared_entrypoint() -> None:
+    block = workflow_job_block("app-host-unit-tests")
+    validation_step = "Validate app-host in-process serialization"
+    selector = "-only-testing:cmuxTests/AppHostInProcessParallelizationPolicyTests"
+    wrapper = (ROOT / "scripts" / "ci" / "run-app-host-xcodebuild.sh").read_text()
+
+    assert validation_step in block
+    assert selector in block
+    assert block.index(validation_step) < block.index("- name: Run unit tests")
+    assert 'xcodebuild -parallel-testing-enabled NO "$@"' in wrapper
+
     scheme_path = (
         ROOT / "cmux.xcodeproj" / "xcshareddata" / "xcschemes" / "cmux-unit.xcscheme"
     )
     root = ET.parse(scheme_path).getroot()  # noqa: S314 - parses a trusted, checked-in Xcode scheme
     variables = root.findall("./TestAction/EnvironmentVariables/EnvironmentVariable")
-    serialization_variables = [
+    experimental_variables = [
         variable
         for variable in variables
         if variable.get("key") == "SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH"
-        and variable.get("isEnabled") == "YES"
     ]
 
-    assert len(serialization_variables) == 1
-    assert serialization_variables[0].get("value") == "1"
+    assert experimental_variables == []
 
     job_env_keys = workflow_job_level_env_keys("app-host-unit-tests")
     assert "TEST_RUNNER_SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH" not in job_env_keys

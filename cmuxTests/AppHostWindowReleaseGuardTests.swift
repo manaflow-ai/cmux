@@ -69,3 +69,36 @@ struct AppHostWindowReleaseGuardTests {
         #expect(weakWindow == nil, "window should deallocate exactly once, with no lingering references")
     }
 }
+
+private actor AppHostInProcessParallelizationProbe {
+    private var activeCaseCount = 0
+
+    func enter() {
+        activeCaseCount += 1
+    }
+
+    func hasOverlap() -> Bool {
+        activeCaseCount > 1
+    }
+
+    func leave() {
+        activeCaseCount -= 1
+    }
+}
+
+/// Behavior-level guard for the CI runner policy. Parameterized Swift Testing
+/// cases run concurrently by default, so this suite fails unless the test host
+/// globally disables in-process parallelization.
+struct AppHostInProcessParallelizationPolicyTests {
+    private static let probe = AppHostInProcessParallelizationProbe()
+
+    @Test(arguments: [0, 1])
+    func parameterizedCasesRunSerially(_: Int) async {
+        await Self.probe.enter()
+        try? await Task.sleep(for: .milliseconds(250))
+        let overlapped = await Self.probe.hasOverlap()
+        await Self.probe.leave()
+
+        #expect(!overlapped, "cmux app-host tests must not share process-global state concurrently")
+    }
+}
