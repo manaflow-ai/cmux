@@ -922,6 +922,88 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
+    @Test func concurrentReaperLaunchKeepsFreshUnpublishedLockOwnedByCreator() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-reaper-publication-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() {
+          if [ "$1" = "$$" ] && \
+            /bin/mkdir "$CMUX_TEST_FIRST_IDENTITY_GATE" 2>/dev/null; then
+            : > "$CMUX_TEST_FIRST_READY"
+            cmux_test_release_attempt=0
+            while [ ! -e "$CMUX_TEST_RELEASE_FIRST" ] && \
+              [ "$cmux_test_release_attempt" -lt 500 ]; do
+              /bin/sleep 0.01
+              cmux_test_release_attempt=$((cmux_test_release_attempt + 1))
+            done
+            test -e "$CMUX_TEST_RELEASE_FIRST" || return 1
+          fi
+          printf '1|1|Thu_Jan_1_00:00:00_1970\n'
+        }
+        cmux_ssh_terminate_owned_auth_group() { return 1; }
+        cmux_test_launch() {
+          cmux_test_result_file="$1"
+          cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+          cmux_test_launched="${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}"
+          cmux_test_reaper_pid=$!
+          printf '%s\n' "$cmux_test_launched" > "$cmux_test_result_file"
+          if [ "$cmux_test_launched" = 1 ]; then
+            wait "$cmux_test_reaper_pid"
+          fi
+        }
+        cmux_test_launch "$CMUX_TEST_FIRST_RESULT" &
+        cmux_test_first_launcher=$!
+        cmux_test_ready_attempt=0
+        while [ ! -e "$CMUX_TEST_FIRST_READY" ] && \
+          [ "$cmux_test_ready_attempt" -lt 500 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -e "$CMUX_TEST_FIRST_READY" || exit 99
+        cmux_test_launch "$CMUX_TEST_SECOND_RESULT" &
+        cmux_test_second_launcher=$!
+        cmux_test_second_attempt=0
+        while [ ! -s "$CMUX_TEST_SECOND_RESULT" ] && \
+          [ "$cmux_test_second_attempt" -lt 500 ]; do
+          /bin/sleep 0.01
+          cmux_test_second_attempt=$((cmux_test_second_attempt + 1))
+        done
+        test -s "$CMUX_TEST_SECOND_RESULT" || exit 98
+        : > "$CMUX_TEST_RELEASE_FIRST"
+        wait "$cmux_test_first_launcher" || exit 97
+        wait "$cmux_test_second_launcher" || exit 96
+        cmux_test_launch_count=$((
+          $(/bin/cat "$CMUX_TEST_FIRST_RESULT") +
+          $(/bin/cat "$CMUX_TEST_SECOND_RESULT")
+        ))
+        test "$cmux_test_launch_count" -eq 1 || exit 95
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_FIRST_IDENTITY_GATE": root.appendingPathComponent("first-gate").path,
+            "CMUX_TEST_FIRST_READY": root.appendingPathComponent("first-ready").path,
+            "CMUX_TEST_FIRST_RESULT": root.appendingPathComponent("first-result").path,
+            "CMUX_TEST_RELEASE_FIRST": root.appendingPathComponent("release-first").path,
+            "CMUX_TEST_SECOND_RESULT": root.appendingPathComponent("second-result").path,
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func authenticationGroupFactoryRegistersBeforeReturningDirectory() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
