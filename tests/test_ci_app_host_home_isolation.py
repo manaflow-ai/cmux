@@ -20,6 +20,9 @@ def require(text: str, needle: str, context: str) -> None:
 
 
 def require_step(job_name: str, step_name: str) -> dict:
+    if not isinstance(WORKFLOW, dict):
+        raise SystemExit("FAIL: workflow must be a mapping")
+
     jobs = WORKFLOW.get("jobs")
     if not isinstance(jobs, dict):
         raise SystemExit("FAIL: workflow jobs must be a mapping")
@@ -32,7 +35,14 @@ def require_step(job_name: str, step_name: str) -> dict:
     if not isinstance(steps, list):
         raise SystemExit(f"FAIL: workflow job {job_name!r} steps must be a list")
 
-    matches = [step for step in steps if step.get("name") == step_name]
+    matches = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            raise SystemExit(
+                f"FAIL: workflow job {job_name!r} step {index} must be a mapping"
+            )
+        if step.get("name") == step_name:
+            matches.append(step)
     if len(matches) != 1:
         raise SystemExit(
             f"FAIL: workflow job {job_name!r} must contain exactly one "
