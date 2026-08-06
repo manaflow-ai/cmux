@@ -46,6 +46,46 @@ struct TerminalShellEscapingTests {
         #expect("a$b;c|d".terminalShellEscaped == "a\\$b\\;c\\|d")
     }
 
+    @Test func escapesLeadingTildeForZshPathInsertion() throws {
+        let root = try makeScratchDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = root
+            .appendingPathComponent("~md", isDirectory: true)
+            .appendingPathComponent("Mobile Documents", isDirectory: true)
+            .appendingPathComponent("invest", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+
+        let process = Process()
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-f",
+            "-c",
+            "cd -- \("~md/Mobile Documents/invest".terminalShellEscaped) && pwd -P",
+        ]
+        process.currentDirectoryURL = root
+        process.standardOutput = standardOutput
+        process.standardError = standardError
+
+        try process.run()
+        process.waitUntilExit()
+        let output = String(
+            decoding: standardOutput.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        let error = String(
+            decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        try #require(process.terminationStatus == 0, "zsh failed to enter the inserted path: \(error)")
+        #expect(
+            URL(fileURLWithPath: output).resolvingSymlinksInPath()
+                == target.resolvingSymlinksInPath()
+        )
+    }
+
     @Test func singleQuotesValuesContainingNewlines() {
         #expect("a\nb".terminalShellEscaped == "'a\nb'")
         #expect("it's\r".terminalShellEscaped == "'it'\\''s\r'")
