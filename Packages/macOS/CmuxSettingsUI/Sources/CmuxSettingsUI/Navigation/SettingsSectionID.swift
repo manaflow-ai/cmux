@@ -13,6 +13,8 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
     case account
     case app
     case terminal
+    /// Built-in markdown viewer: open-in-viewer, typography, wiki links.
+    case markdown
     case textBox
     /// Sleepy Mode screensaver + keep-awake lock.
     case sleepyMode
@@ -41,6 +43,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "Account"
         case .app: return "App"
         case .terminal: return "Terminal"
+        case .markdown: return String(localized: "settings.section.markdown", defaultValue: "Markdown")
         case .textBox: return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sleepyMode: return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile: return String(localized: "settings.section.mobile", defaultValue: "Mobile")
@@ -65,6 +68,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "person.crop.circle"
         case .app: return "gearshape"
         case .terminal: return "terminal"
+        case .markdown: return "doc.richtext"
         case .textBox: return "textformat"
         case .sleepyMode: return "moon.zzz"
         case .mobile: return "iphone"
@@ -91,6 +95,7 @@ public enum SettingsSectionID: String, CaseIterable, Identifiable, Sendable, Has
         case .account: return "sign in team sync user profile"
         case .app: return "appearance language workspace notifications menu bar telemetry"
         case .terminal: return "scrollbar copy on select agent resume hibernation"
+        case .markdown: return "markdown md mdx viewer preview readme font size family width wiki links obsidian vault zoom typography"
         case .textBox: return "textbox text box rich input prompt default new terminal workspace split tab focus show beta"
         case .sleepyMode: return "sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile: return "ios iphone ipad mobile pairing local network sync push notifications alerts forwarding"

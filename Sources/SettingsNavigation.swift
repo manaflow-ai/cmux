@@ -4,6 +4,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case account
     case app
     case terminal
+    case markdown
     case textBox
     case sleepyMode
     case mobile
@@ -30,6 +31,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.app", defaultValue: "App")
         case .terminal:
             return String(localized: "settings.section.terminal", defaultValue: "Terminal")
+        case .markdown:
+            return String(localized: "settings.section.markdown", defaultValue: "Markdown")
         case .textBox:
             return String(localized: "settings.section.textBox", defaultValue: "TextBox (Beta)")
         case .sleepyMode:
@@ -71,6 +74,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "gearshape"
         case .terminal:
             return "terminal"
+        case .markdown:
+            return "doc.richtext"
         case .textBox:
             return "textformat"
         case .sleepyMode:
@@ -112,6 +117,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) appearance language workspace notifications menu bar telemetry default terminal"
         case .terminal:
             return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev hibernation idle suspend commands approvals prefixes toggle"
+        case .markdown:
+            return "\(title) markdown md mdx viewer preview readme font size family width wiki links obsidian vault zoom typography"
         case .textBox:
             return "\(title) textbox text box rich input prompt beta new terminal workspace split tab focus height"
         case .sleepyMode:
@@ -344,11 +351,11 @@ enum SettingsSearchIndex {
         setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
         setting(.app, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
         setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview macos-option-as-alt option as alt left option right option alt key meta"),
-        setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
-        setting(.app, "markdown-font-size", String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"), "md markdown viewer font size points zoom scale text bigger smaller"),
-        setting(.app, "markdown-font-family", String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"), "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
-        setting(.app, "markdown-max-width", String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width"), "markdown.maxWidth md markdown viewer width column reading line length pixels px"),
-        setting(.app, "markdown-wiki-links", String(localized: "settings.app.markdownWikiLinks", defaultValue: "Markdown Viewer Wiki Links"), "markdown.wikiLinks md markdown viewer wiki wikilink double bracket obsidian vault note backlink"),
+        setting(.markdown, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
+        setting(.markdown, "markdown-font-size", String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"), "md markdown viewer font size points zoom scale text bigger smaller"),
+        setting(.markdown, "markdown-font-family", String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"), "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
+        setting(.markdown, "markdown-max-width", String(localized: "settings.app.markdownMaxWidth", defaultValue: "Markdown Viewer Max Width"), "markdown.maxWidth md markdown viewer width column reading line length pixels px"),
+        setting(.markdown, "markdown-wiki-links", String(localized: "settings.app.markdownWikiLinks", defaultValue: "Markdown Viewer Wiki Links"), "markdown.wikiLinks md markdown viewer wiki wikilink double bracket obsidian vault note backlink"),
         setting(.app, "file-editor-word-wrap", String(localized: "settings.app.fileEditorWordWrap", defaultValue: "File Editor Word Wrap"), "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
         setting(.app, "imessage-mode", String(localized: "settings.app.iMessageMode", defaultValue: "iMessage Mode"), "message messages imessage chat prompt prompts submitted message send agent workspace reorder move top"),
         setting(.app, "reorder-notification", String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"), "workspace notification order"),
@@ -511,11 +518,11 @@ enum SettingsSearchIndex {
         "app.fileDropDefaultBehavior": settingID(for: .app, idSuffix: "file-drops"),
         "app.preferredEditor": settingID(for: .app, idSuffix: "preferred-editor"),
         "app.openSupportedFilesInCmux": settingID(for: .app, idSuffix: "supported-file-previews"),
-        "app.openMarkdownInCmuxViewer": settingID(for: .app, idSuffix: "markdown-viewer"),
-        "markdown.fontSize": settingID(for: .app, idSuffix: "markdown-font-size"),
-        "markdown.fontFamily": settingID(for: .app, idSuffix: "markdown-font-family"),
-        "markdown.maxWidth": settingID(for: .app, idSuffix: "markdown-max-width"),
-        "markdown.wikiLinks": settingID(for: .app, idSuffix: "markdown-wiki-links"),
+        "app.openMarkdownInCmuxViewer": settingID(for: .markdown, idSuffix: "markdown-viewer"),
+        "markdown.fontSize": settingID(for: .markdown, idSuffix: "markdown-font-size"),
+        "markdown.fontFamily": settingID(for: .markdown, idSuffix: "markdown-font-family"),
+        "markdown.maxWidth": settingID(for: .markdown, idSuffix: "markdown-max-width"),
+        "markdown.wikiLinks": settingID(for: .markdown, idSuffix: "markdown-wiki-links"),
         "fileEditor.wordWrap": settingID(for: .app, idSuffix: "file-editor-word-wrap"),
         "app.iMessageMode": settingID(for: .app, idSuffix: "imessage-mode"),
         "app.reorderOnNotification": settingID(for: .app, idSuffix: "reorder-notification"),

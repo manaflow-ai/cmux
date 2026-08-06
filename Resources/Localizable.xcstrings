@@ -155991,13 +155991,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Parse [[Note]] and [[Note|Label]] wiki-style links as links to sibling markdown files. Useful inside an Obsidian-style vault; off by default so ordinary [[...]] text renders literally."
+            "value": "Parse [[Note]] and [[Note|Label]] links in the viewer, resolving to notes anywhere in the enclosing Obsidian vault. A plain click opens the note in the current pane; Cmd-click opens a new tab. Off by default so ordinary [[...]] text renders literally."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "[[Note]] や [[Note|Label]] の Wiki スタイルのリンクを、隣接する Markdown ファイルへのリンクとして解釈します。Obsidian 形式のボールト内で便利です。既定ではオフで、通常の [[...]] はそのまま文字として表示されます。"
+            "value": "[[Note]] や [[Note|Label]] のリンクをビューアで解釈し、Obsidian ボールト内のどこにあっても対応するノートに解決します。通常のクリックは現在のペインで開き、Cmd クリックは新しいタブで開きます。既定ではオフで、通常の [[...]] はそのまま文字として表示されます。"
           }
         }
       }
@@ -184871,6 +184871,23 @@
         }
       }
     },
+    "settings.search.alias.section.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "markdown md mdx viewer preview readme render font typography wiki links obsidian vault notes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "markdown マークダウン md mdx ビューア プレビュー readme 表示 フォント タイポグラフィ wiki リンク obsidian ボールト ノート"
+          }
+        }
+      }
+    },
     "settings.search.alias.section.mobile": {
       "extractionState": "manual",
       "localizations": {
@@ -197585,6 +197602,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "鍵盤快速鍵"
+          }
+        }
+      }
+    },
+    "settings.section.markdown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
           }
         }
       }

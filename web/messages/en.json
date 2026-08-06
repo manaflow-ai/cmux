@@ -1906,7 +1906,7 @@
           "fontSize": "Default body font size, in points, for newly opened markdown viewers. Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
-          "wikiLinks": "Parse wiki-style links ([[Note]], [[Note|Label]]) in the markdown viewer as links to sibling markdown files. Off by default so ordinary markdown containing [[...]] renders it as literal text; enable it to work inside an Obsidian-style vault."
+          "wikiLinks": "Parse wiki-style links ([[Note]], [[Note|Label]]) in the markdown viewer. Inside an Obsidian-style vault they resolve to the matching note anywhere in the vault; a plain click opens it in the current pane and Cmd-click opens a new tab. Off by default so ordinary markdown containing [[...]] renders it as literal text."
         },
         "canvas": {
           "paneGap": "Spacing between panes in the canvas layout, in points. Snapping, tidy, and new-pane placement all use this one gap.",
@@ -1944,7 +1944,7 @@
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
-      "exampleMarkdownWikiLinks": "Parse [[Note]] / [[Note|Label]] wiki links as links to sibling markdown files (Obsidian-style vaults).",
+      "exampleMarkdownWikiLinks": "Parse [[Note]] / [[Note|Label]] wiki links, resolving to notes anywhere in the enclosing Obsidian vault.",
       "exampleFileEditorWordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
       "exampleFileExplorerDoubleClickAction": "Double-click a file: preview (default), defaultEditor (macOS default app), or preferredEditor (the app.preferredEditor command).",
       "shortcutsWhenIntro": "Optional per-action context predicates (VS Code-style when clauses), keyed by cmux action id. A binding only fires — and only conflicts with another binding on the same keystroke — when its clause holds. Omit a clause to keep the action's built-in context. The clause vocabulary:",

@@ -9256,6 +9256,43 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return markdownPanel
     }
 
+    /// Opens `filePath` as a markdown surface in response to a link clicked
+    /// inside the markdown viewer hosted by `sourcePanelId`.
+    ///
+    /// `inNewTab` (a Cmd-click) opens the target as a new tab alongside the
+    /// source viewer. Otherwise (a plain click) the target replaces the source
+    /// viewer in place: it is created at the source tab's index and the source
+    /// tab is then closed, so the pane's tab count and ordering are preserved.
+    @discardableResult
+    func openMarkdownSurfaceFromLink(
+        _ filePath: String,
+        sourcePanelId: UUID,
+        inNewTab: Bool
+    ) -> MarkdownPanel? {
+        guard let paneId = paneId(forPanelId: sourcePanelId) else { return nil }
+
+        if inNewTab {
+            return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: true)
+        }
+
+        let sourceTabId = surfaceIdFromPanelId(sourcePanelId)
+        let targetIndex = sourceTabId.flatMap { tabId in
+            bonsplitController.tabs(inPane: paneId).firstIndex(where: { $0.id == tabId })
+        }
+        guard let replacement = newMarkdownSurface(
+            inPane: paneId,
+            filePath: filePath,
+            focus: true,
+            targetIndex: targetIndex
+        ) else {
+            return nil
+        }
+        if replacement.id != sourcePanelId {
+            _ = closePanel(sourcePanelId)
+        }
+        return replacement
+    }
+
     @discardableResult
     func newProjectSurface(
         inPane paneId: PaneID,

@@ -1536,7 +1536,7 @@
         "wikiLinks": {
           "type": "boolean",
           "default": false,
-          "description": "Parse wiki-style links ([[Note]], [[Note|Label]]) in the markdown viewer as links to sibling markdown files. Off by default so ordinary markdown containing [[...]] renders it as literal text; enable it to work inside an Obsidian-style vault.",
+          "description": "Parse wiki-style links ([[Note]], [[Note|Label]]) in the markdown viewer. Inside an Obsidian-style vault they resolve to the matching note anywhere in the vault; a plain click opens it in the current pane and Cmd-click opens a new tab. Off by default so ordinary markdown containing [[...]] renders it as literal text.",
           "descriptionKey": "schemaDescriptions.markdown.wikiLinks"
         }
       }

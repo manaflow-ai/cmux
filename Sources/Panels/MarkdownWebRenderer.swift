@@ -478,11 +478,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 case "resolveMarkdownFile":
                     guard let requestId = body["requestId"] as? String,
                           let rawPath = body["path"] as? String else { return }
-                    resolveMarkdownFile(rawPath, requestId: requestId)
+                    let wikiLink = (body["wikiLink"] as? Bool) ?? false
+                    resolveMarkdownFile(rawPath, requestId: requestId, wikiLink: wikiLink)
                 case "openMarkdownFile":
                     guard let rawPath = body["path"] as? String else { return }
-                    if let resolved = resolvedMarkdownFilePath(rawPath) {
-                        openMarkdownFile(resolved)
+                    let wikiLink = (body["wikiLink"] as? Bool) ?? false
+                    let inNewTab = (body["newTab"] as? Bool) ?? false
+                    if let resolved = resolvedMarkdownFilePath(rawPath, wikiLink: wikiLink) {
+                        openMarkdownFile(resolved, inNewTab: inNewTab)
                     }
                 default:
                     break
@@ -630,9 +633,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        private func resolveMarkdownFile(_ rawPath: String, requestId: String) {
+        private func resolveMarkdownFile(_ rawPath: String, requestId: String, wikiLink: Bool) {
             guard let webView else { return }
-            let resolved = resolvedMarkdownFilePath(rawPath)
+            let resolved = resolvedMarkdownFilePath(rawPath, wikiLink: wikiLink)
 #if DEBUG
             NSLog("MarkdownPanel.resolve raw=\(rawPath) resolved=\(resolved ?? "nil")")
 #endif
@@ -646,27 +649,38 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.evaluateJavaScript("window.__cmuxMarkdownFileResolved && window.__cmuxMarkdownFileResolved(\(json));", completionHandler: nil)
         }
 
-        private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
+        private func resolvedMarkdownFilePath(_ rawPath: String, wikiLink: Bool = false) -> String? {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             guard MarkdownPanelFileLinkResolver.isMarkdownPathLike(trimmed) else { return nil }
-            return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
+            if let direct = MarkdownPanelFileLinkResolver.resolve(
+                rawPath: trimmed,
+                relativeToMarkdownFile: filePath
+            ) {
+                return direct
+            }
+            // A wiki link that isn't a plain sibling resolves against the
+            // enclosing Obsidian vault (by note name), if there is one.
+            guard wikiLink else { return nil }
+            return MarkdownPanelFileLinkResolver.resolveVaultWikiLink(
+                rawPath: trimmed,
+                relativeToMarkdownFile: filePath
+            )
         }
 
-        private func openMarkdownFile(_ path: String) {
+        private func openMarkdownFile(_ path: String, inNewTab: Bool) {
 #if DEBUG
-            NSLog("MarkdownPanel.openMarkdownFile path=\(path)")
+            NSLog("MarkdownPanel.openMarkdownFile path=\(path) newTab=\(inNewTab)")
 #endif
             guard let app = AppDelegate.shared,
                   let location = app.workspaceContainingPanel(
                       panelId: panelId,
                       preferredWorkspaceId: workspaceId
-                  ),
-                  let paneId = location.workspace.paneId(forPanelId: panelId) else { return }
-            _ = location.workspace.newMarkdownSurface(
-                inPane: paneId,
-                filePath: path,
-                focus: true
+                  ) else { return }
+            _ = location.workspace.openMarkdownSurfaceFromLink(
+                path,
+                sourcePanelId: panelId,
+                inNewTab: inNewTab
             )
         }
 
@@ -879,7 +893,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // open as markdown tabs in cmux, not in the browser.
             let fileCandidate = url.scheme == "file" ? url.path : url.absoluteString
             if let markdownPath = resolvedMarkdownFilePath(fileCandidate) {
-                openMarkdownFile(markdownPath)
+                openMarkdownFile(markdownPath, inNewTab: false)
                 return
             }
 
