@@ -38,7 +38,7 @@ fi
 # then pass it through Xcode's TEST_RUNNER_ environment channel. Xcode strips
 # that prefix when it launches the test runner, so the app host receives the
 # redirects without exposing them to the xcodebuild driver.
-app_host_test_runner_environment=()
+app_host_test_runner_environment=("TEST_RUNNER_CMUX_TEST_PROCESS=1")
 app_host_home=""
 if [ -n "${CFFIXED_USER_HOME:-}" ]; then
   cmux_resolve_app_host_isolation \
@@ -127,7 +127,6 @@ while [ "$attempt" -le "$max_attempts" ]; do
   kill_stale_app_host
   set +e
   env \
-    TEST_RUNNER_CMUX_TEST_PROCESS=1 \
     "${app_host_test_runner_environment[@]}" \
     CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH="$log_path" \
     scripts/ci/xcodebuild_noninteractive.py xcodebuild "$@"
