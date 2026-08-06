@@ -388,6 +388,25 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
+    func installedTargetDiscoveryIncludesPlainKiroExecutable() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let executable = root.appendingPathComponent("kiro")
+        try writeVersionExecutable(executable, output: "Kiro CLI 1.2.3")
+
+        let targets = await AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": root.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        let target = try #require(targets.first { $0.harness == .kiro })
+        #expect(target.executablePath == executable.path)
+    }
+
+    @Test
     func installedTargetDiscoverySkipsCmuxCodexCommandShim() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
