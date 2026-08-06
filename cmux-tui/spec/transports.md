@@ -2,7 +2,7 @@
 
 This document covers private protocol-v10 transport negotiation. The public
 resource protocol defines its transport parity in
-[`resource-api-v1.md`](resource-api-v1.md).
+[`resource-api-v2.md`](resource-api-v2.md).
 
 The raw command schema is transport-independent. Protocol v5 introduced the Unix domain socket JSON-lines transport. Protocol v6 also implements an opt-in WebSocket transport with the same command and event payloads. Protocol v7 leaves both framing contracts unchanged and adds render-mode negotiation at the command layer. HTTP and SSE remain proposals.
 

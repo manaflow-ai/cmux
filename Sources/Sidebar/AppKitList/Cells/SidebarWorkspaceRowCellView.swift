@@ -209,6 +209,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contentContainer.addSubview(closeButton)
 
         contentContainer.addSubview(descriptionView)
+        descriptionView.onOpenLink = { [weak self] url in
+            guard let self else { return }
+            self.actions?.commands.updateSelection()
+            self.actions?.onOpenWorkspaceDescriptionURL(url)
+        }
         contentContainer.addSubview(subtitleView)
         compactStatusLine.isHidden = true
         compactStatusLine.menuProvider = { [weak self] in self?.makeCompactStatusMenu() ?? NSMenu() }

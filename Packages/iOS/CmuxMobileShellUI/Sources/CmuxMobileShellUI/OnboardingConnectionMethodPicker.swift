@@ -30,11 +30,11 @@ struct OnboardingConnectionMethodPicker: View {
                 .tailscale,
                 title: L10n.string(
                     "mobile.onboarding.connect.method.tailscale",
-                    defaultValue: "Tailscale"
+                    defaultValue: "Tailscale Only"
                 ),
                 subtitle: L10n.string(
                     "mobile.onboarding.connect.method.tailscaleDetail",
-                    defaultValue: "Uses your Tailscale network. Scan the pairing code on your Mac."
+                    defaultValue: "Uses only your Tailscale network. Scan the pairing code on your Mac."
                 ),
                 systemImage: "qrcode",
                 accessibilityIdentifier: "MobileOnboardingConnectionMethodTailscale"

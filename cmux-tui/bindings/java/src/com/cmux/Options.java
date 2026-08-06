@@ -563,6 +563,20 @@ public final class Options {
             nonnegative(index, "index");
         }
     }
+    public record TerminalProject(
+        Mutation mutation,
+        Selector<Ids.WorkspaceId> workspace,
+        Selector<Ids.ScreenId> screen,
+        Selector<Ids.PaneId> pane,
+        int index,
+        Optional<String> name
+    ) {
+        public TerminalProject {
+            mutation = mut(mutation); Objects.requireNonNull(workspace, "workspace");
+            Objects.requireNonNull(screen, "screen"); Objects.requireNonNull(pane, "pane");
+            nonnegative(index, "index"); name = opt(name);
+        }
+    }
     public record TerminalAttach(Stream stream, Optional<Integer> columns, Optional<Integer> rows, boolean readOnly) {
         public TerminalAttach { stream = Options.stream(stream); columns = opt(columns); rows = opt(rows); }
     }
