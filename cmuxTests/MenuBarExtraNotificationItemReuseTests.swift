@@ -51,9 +51,10 @@ struct MenuBarExtraNotificationItemReuseTests {
         let refreshedPayload = try #require(
             refreshedItem.representedObject as? NotificationMenuItemPayload
         )
+        let refreshedTitle = try #require(refreshedItem.attributedTitle)
         #expect(refreshedItem === initialItem)
         #expect(refreshedPayload.notification.title == "Second")
-        #expect(refreshedItem.attributedTitle.string.contains("Second"))
+        #expect(refreshedTitle.string.contains("Second"))
     }
 
     private func makeNotification(title: String) -> TerminalNotification {
