@@ -543,20 +543,41 @@ fn proxy_windows_stdio(paths: &WindowsSessionPaths) -> anyhow::Result<()> {
     let upload_shutdown = socket.try_clone()?;
     std::thread::Builder::new().name("windows-carrier-upload".into()).spawn(move || {
         let mut stdin = io::stdin().lock();
-        let _ = io::copy(&mut stdin, &mut upload_socket);
-        let _ = upload_socket.flush();
+        if let Err(error) =
+            io::copy(&mut stdin, &mut upload_socket).and_then(|_| upload_socket.flush())
+        {
+            eprintln!("cmux-tui: Windows remote carrier upload failed: {error}");
+        }
         let _ = upload_shutdown.shutdown(Shutdown::Write);
     })?;
 
     let mut download_socket = socket;
     let mut stdout = io::stdout().lock();
-    let result = io::copy(&mut download_socket, &mut stdout)
-        .and_then(|_| stdout.flush())
+    let result = copy_windows_carrier_download(&mut download_socket, &mut stdout)
         .context("Windows remote carrier stopped")
         .map(|_| ());
     let _ = download_socket.shutdown(Shutdown::Both);
     result?;
     Err(owner_start_error(paths, "Windows session owner closed the carrier"))
+}
+
+fn copy_windows_carrier_download(
+    source: &mut impl Read,
+    destination: &mut impl Write,
+) -> io::Result<u64> {
+    let mut buffer = [0_u8; 8 * 1024];
+    let mut copied = 0_u64;
+    loop {
+        let size = match source.read(&mut buffer) {
+            Ok(0) => return Ok(copied),
+            Ok(size) => size,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        destination.write_all(&buffer[..size])?;
+        destination.flush()?;
+        copied += size as u64;
+    }
 }
 
 fn windows_daemon_name() -> String {
