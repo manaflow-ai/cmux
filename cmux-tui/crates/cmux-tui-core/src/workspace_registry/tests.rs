@@ -22,6 +22,10 @@ fn workspace(id: u64, key: &str, name: &str) -> RegistryWorkspace {
 }
 
 fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
+    seed_workspace_with_id(registry, 1, key);
+}
+
+fn seed_workspace_with_id(registry: &mut WorkspaceRegistry, id: u64, key: &str) {
     registry
         .commit(
             &WorkspaceMutation::new(format!("create-{key}"), "test").unwrap(),
@@ -30,7 +34,7 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
             Some(registry.snapshot().unwrap().revision),
             "workspace-added",
             key,
-            &[workspace(1, key, "Workspace")],
+            &[workspace(id, key, "Workspace")],
             &json!({"key":key}),
         )
         .unwrap();
@@ -146,7 +150,11 @@ fn resource_event_replay_pages_a_far_behind_cursor() {
 
     let mut registry = WorkspaceRegistry::in_memory("bounded-resource-replay").unwrap();
     for index in 0..EVENT_COUNT {
-        seed_workspace(&mut registry, &format!("bounded-resource-replay-{index}"));
+        seed_workspace_with_id(
+            &mut registry,
+            u64::try_from(index + 1).unwrap(),
+            &format!("bounded-resource-replay-{index}"),
+        );
     }
 
     let page = registry.resource_events_after(0).unwrap();
