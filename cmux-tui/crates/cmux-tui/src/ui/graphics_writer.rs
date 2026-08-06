@@ -2115,16 +2115,18 @@ mod tests {
         );
         let master = unsafe { OwnedFd::from_raw_fd(master) };
         let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        // Linux can reject even the first nonblocking write after TCOOFF. Queue
+        // unrelated output before suspending the PTY, then fill the stopped queue.
+        assert_eq!(
+            unsafe { libc::write(slave.as_raw_fd(), sentinel.as_ptr().cast(), sentinel.len()) },
+            sentinel.len() as isize
+        );
         assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
         let flags = unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_GETFL) };
         assert!(flags >= 0);
         assert_eq!(
             unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
             0
-        );
-        assert_eq!(
-            unsafe { libc::write(slave.as_raw_fd(), sentinel.as_ptr().cast(), sentinel.len()) },
-            sentinel.len() as isize
         );
         let fill = [b'x'; 4_096];
         loop {
