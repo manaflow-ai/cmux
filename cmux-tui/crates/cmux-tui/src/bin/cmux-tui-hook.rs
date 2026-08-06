@@ -24,7 +24,7 @@ struct Args {
 fn main() -> ExitCode {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
     if arguments.iter().any(|argument| matches!(argument.as_str(), "-h" | "--help")) {
-        println!("Usage: cmux-tui-hook --source <agent> --event <native-event>");
+        println!("Usage: cmux-tui-hook <agent> <native-event>");
         return ExitCode::SUCCESS;
     }
     match parse_args(arguments).and_then(run) {
@@ -58,23 +58,14 @@ fn run(args: Args) -> anyhow::Result<()> {
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> anyhow::Result<Args> {
     let mut values = args.into_iter();
-    let mut source = None;
-    let mut native_event = None;
-    while let Some(argument) = values.next() {
-        match argument.as_str() {
-            "--source" if source.is_none() => {
-                source = Some(values.next().context("--source requires a value")?);
-            }
-            "--event" if native_event.is_none() => {
-                native_event = Some(values.next().context("--event requires a value")?);
-            }
-            _ => bail!("unknown or duplicate argument {argument:?}"),
-        }
+    let source = values.next().context("agent source is required")?;
+    let native_event = values.next().context("native event is required")?;
+    if let Some(extra) = values.next() {
+        bail!("unexpected argument {extra:?}");
     }
-    Ok(Args {
-        source: source.context("--source is required")?,
-        native_event: native_event.context("--event is required")?,
-    })
+    anyhow::ensure!(!source.is_empty(), "agent source cannot be empty");
+    anyhow::ensure!(!native_event.is_empty(), "native event cannot be empty");
+    Ok(Args { source, native_event })
 }
 
 fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
@@ -96,14 +87,14 @@ fn read_native_payload(reader: impl Read) -> anyhow::Result<Value> {
 }
 
 fn append(socket: &Path, event: Value) -> anyhow::Result<()> {
-    let request_id = random_prefixed("request")?;
+    let (request_id, idempotency_key) = random_identifiers()?;
     let request = json!({
         "protocol":"cmux.protocol/1",
         "type":"request",
         "id":request_id,
         "operation":"session.journal.append",
         "params":{"machine":"current","session":"current","event":event},
-        "idempotency_key":random_prefixed("mutation")?,
+        "idempotency_key":idempotency_key,
     });
     let mut encoded = serde_json::to_vec(&request)?;
     encoded.push(b'\n');
@@ -216,18 +207,16 @@ fn append_once(
     Ok(())
 }
 
-fn random_prefixed(prefix: &str) -> anyhow::Result<String> {
+fn random_identifiers() -> anyhow::Result<(String, String)> {
     let mut bytes = [0_u8; 16];
-    getrandom::fill(&mut bytes).map_err(|error| anyhow!("allocate {prefix} identity: {error}"))?;
-    let mut value = String::with_capacity(prefix.len() + 33);
-    value.push_str(prefix);
-    value.push('_');
+    getrandom::fill(&mut bytes).map_err(|error| anyhow!("allocate hook identity: {error}"))?;
+    let mut suffix = String::with_capacity(32);
     const HEX: &[u8; 16] = b"0123456789abcdef";
     for byte in bytes {
-        value.push(char::from(HEX[usize::from(byte >> 4)]));
-        value.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        suffix.push(char::from(HEX[usize::from(byte >> 4)]));
+        suffix.push(char::from(HEX[usize::from(byte & 0x0f)]));
     }
-    Ok(value)
+    Ok((format!("request_{suffix}"), format!("mutation_{suffix}")))
 }
 
 #[cfg(test)]

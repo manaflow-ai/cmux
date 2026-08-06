@@ -1,4 +1,4 @@
-# cmux-tui-journal-plugin-v1
+# cmux-tui-journal-plugin
 name: cmux-tui-journal
 version: "1.0.0"
 description: Append native Hermes Agent lifecycle events to the cmux TUI journal

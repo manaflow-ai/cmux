@@ -1453,6 +1453,11 @@ fn run_server(
     }
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    if let Some(helper) = agent_hook_install::runtime_helper_path() {
+        surface_options
+            .extra_env
+            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
+    }
 
     let state_root = if args.ephemeral {
         None

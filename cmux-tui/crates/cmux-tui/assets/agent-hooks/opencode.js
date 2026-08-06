@@ -1,7 +1,7 @@
-// cmux-tui-journal-plugin-v1
+// cmux-tui-journal-plugin
 import { spawn } from "node:child_process";
 
-const helper = __CMUX_TUI_HELPER_JSON__;
+const helper = process.env.CMUX_TUI_HOOK;
 const events = new Set([
   "session.created",
   "session.updated",
@@ -39,14 +39,14 @@ function topology(event) {
 }
 
 function emit(nativeEvent, native) {
-  if (!process.env.CMUX_TUI_SOCKET || !process.env.CMUX_TUI_TERMINAL_ID) return;
+  if (!process.env.CMUX_TUI_SOCKET || !process.env.CMUX_TUI_TERMINAL_ID || !helper) return;
   let payload;
   try {
     payload = JSON.stringify(native);
   } catch (_) {
     return;
   }
-  const child = spawn(helper, ["--source", "opencode", "--event", nativeEvent], {
+  const child = spawn(helper, ["opencode", nativeEvent], {
     env: process.env,
     stdio: ["pipe", "ignore", "ignore"],
   });

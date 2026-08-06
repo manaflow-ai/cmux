@@ -13900,6 +13900,7 @@ fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
                 *key,
                 "CMUX_TUI_SOCKET"
                     | "CMUX_MUX_SOCKET"
+                    | "CMUX_TUI_HOOK"
                     | "CMUX_TUI_SESSION_ID"
                     | "CMUX_TUI_TERMINAL_ID"
                     | "CMUX_SIDEBAR"
