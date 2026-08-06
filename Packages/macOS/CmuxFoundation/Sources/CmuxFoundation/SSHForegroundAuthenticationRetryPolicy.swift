@@ -63,9 +63,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// Builds the bounded helper that terminates foreground SSH authentication.
     ///
     /// The classifier publishes a signal-resistant anchor in its isolated PTY
-    /// process group. Cleanup validates the anchor and group identities,
-    /// gives the group a short TERM grace period, then KILLs it. The shared wrapper
-    /// PID is KILLed only while its original parent, group, and start time match.
+    /// process group. Cleanup validates the anchor and group identities, freezes
+    /// the bounded descendant closure, then KILLs every owned group. The shared
+    /// wrapper PID is KILLed only while its original identity still matches.
     ///
     /// - Returns: Shell functions that terminate the owned group and outer tree.
     public func processTreeTerminationShellFunction() -> String {
@@ -78,6 +78,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             }'
         }
 
+        \#(ownedProcessGroupTerminationShellFunctions())
+
         cmux_ssh_terminate_owned_auth_group() (
           cmux_ssh_auth_group_dir="${CMUX_SSH_AUTH_GROUP_DIR:-}"
           if [ -z "$cmux_ssh_auth_group_dir" ]; then exit 0; fi
@@ -88,10 +90,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_group_anchor_fifo="$cmux_ssh_auth_group_dir/anchor"
           cmux_ssh_auth_group_publish_file="$cmux_ssh_auth_group_dir/identity.new"
           cmux_ssh_auth_group_cancel_file="$cmux_ssh_auth_group_dir/cancel"
+          cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_group_dir/processes"
+          cmux_ssh_auth_owned_processes="$cmux_ssh_auth_group_dir/owned"
+          cmux_ssh_auth_next_owned_processes="$cmux_ssh_auth_group_dir/owned.next"
+          cmux_ssh_auth_owned_groups="$cmux_ssh_auth_group_dir/groups"
           cmux_ssh_auth_remove_cancel=0
           cmux_ssh_auth_group_state_cleanup() {
             /bin/rm -f -- "$cmux_ssh_auth_group_file" "$cmux_ssh_auth_group_anchor_fifo" \
-              "$cmux_ssh_auth_group_publish_file" 2>/dev/null || true
+              "$cmux_ssh_auth_group_publish_file" "$cmux_ssh_auth_process_snapshot" \
+              "$cmux_ssh_auth_owned_processes" "$cmux_ssh_auth_next_owned_processes" \
+              "$cmux_ssh_auth_owned_groups" 2>/dev/null || true
             if [ "$cmux_ssh_auth_remove_cancel" = 1 ]; then
               /bin/rm -f -- "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || true
             fi
@@ -132,10 +140,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           fi
 
           cmux_ssh_auth_remove_cancel=1
-          /bin/kill -TERM -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
-          /bin/kill -CONT -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
-          /bin/sleep 0.2
-          /bin/kill -KILL -- "-$cmux_ssh_auth_owned_group" >/dev/null 2>&1 || true
+          : > "$cmux_ssh_auth_owned_processes" || exit 0
+          cmux_ssh_auth_freeze_attempt=0
+          while [ "$cmux_ssh_auth_freeze_attempt" -lt 4 ]; do
+            cmux_ssh_auth_take_process_snapshot || exit 0
+            cmux_ssh_auth_expand_owned_processes || exit 0
+            cmux_ssh_auth_freeze_owned_processes || exit 0
+            cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
+          done
+          cmux_ssh_auth_force_owned_processes
         )
 
         cmux_ssh_terminate_auth_process_tree() (
