@@ -42,11 +42,17 @@ jobs:
           npm run build
           npm test
 
-  valgrind-leak-check:
+  valgrind-leak-check-shard:
+    name: valgrind-leak-check (${{ matrix.shard }})
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    # The core suite is intentionally serialized under instrumentation. Keep
-    # enough headroom for runner variance without weakening runtime deadlines.
+    # The core and remote suites are intentionally serialized under
+    # instrumentation. Isolate them so neither can consume the other test
+    # binaries' runtime budget.
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [core, remote, remainder]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -78,32 +84,59 @@ jobs:
           # SIMD codegen stays within what valgrind's instruction emulation
           # supports (see crates/ghostty-vt-sys/build.rs).
           CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+          VALGRIND_SHARD: ${{ matrix.shard }}
         run: |
           mkdir -p target
           cargo test --workspace --locked --no-run --message-format=json > target/cargo-test-binaries.jsonl
           python3 <<'PY'
           import json
+          import os
+          import re
           import sys
 
+          shard = os.environ["VALGRIND_SHARD"]
+          known_shards = {"core", "remote", "remainder"}
+          if shard not in known_shards:
+              raise SystemExit(f"unknown Valgrind shard: {shard}")
+
+          def shard_for(executable):
+              name = os.path.basename(executable)
+              if re.fullmatch(r"cmux_tui_core-[0-9a-f]+", name):
+                  return "core"
+              if re.fullmatch(r"cmux_remote-[0-9a-f]+", name):
+                  return "remote"
+              return "remainder"
+
           seen = set()
+          selected = []
           with open("target/cargo-test-binaries.jsonl", "r", encoding="utf-8") as messages:
-              with open("target/valgrind-test-binaries.txt", "w", encoding="utf-8") as output:
-                  for line in messages:
-                      try:
-                          message = json.loads(line)
-                      except json.JSONDecodeError:
-                          continue
-                      if not message.get("profile", {}).get("test"):
-                          continue
-                      executable = message.get("executable")
-                      if not executable or executable in seen:
-                          continue
-                      seen.add(executable)
-                      print(executable, file=output)
+              for line in messages:
+                  try:
+                      message = json.loads(line)
+                  except json.JSONDecodeError:
+                      continue
+                  if not message.get("profile", {}).get("test"):
+                      continue
+                  executable = message.get("executable")
+                  if not executable or executable in seen:
+                      continue
+                  seen.add(executable)
+                  if shard_for(executable) == shard:
+                      selected.append(executable)
 
           if not seen:
               raise SystemExit("cargo did not report any test binaries")
-          print(f"Collected {len(seen)} test binaries", file=sys.stderr)
+          if not selected:
+              raise SystemExit(f"Valgrind shard {shard} selected no test binaries")
+
+          with open("target/valgrind-test-binaries.txt", "w", encoding="utf-8") as output:
+              for executable in selected:
+                  print(executable, file=output)
+
+          print(
+              f"Valgrind shard {shard} selected {len(selected)} of {len(seen)} test binaries",
+              file=sys.stderr,
+          )
           PY
 
       - name: Run test binaries under valgrind
@@ -193,6 +226,18 @@ jobs:
               exit 1
             fi
           done < target/valgrind-test-binaries.txt
+
+  valgrind-leak-check:
+    name: valgrind-leak-check
+    if: always()
+    needs: valgrind-leak-check-shard
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    steps:
+      - name: Require every Valgrind shard
+        env:
+          SHARD_RESULT: ${{ needs.valgrind-leak-check-shard.result }}
+        run: test "$SHARD_RESULT" = success
 
   test:
     name: test (${{ matrix.os }})
