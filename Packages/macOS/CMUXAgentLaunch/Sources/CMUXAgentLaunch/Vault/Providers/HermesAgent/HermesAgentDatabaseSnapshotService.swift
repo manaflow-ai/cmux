@@ -19,18 +19,17 @@ struct HermesAgentDatabaseSnapshotService {
         }
         try Task.checkCancellation()
 
-        let snapshotDirectory = try SQLiteDatabaseSnapshotService
-            .createPrivateTemporaryDirectory(
-                prefix: prefix,
-                fileManager: fileManager
-            )
+        let snapshotService = SQLiteDatabaseSnapshotService(fileManager: fileManager)
+        let snapshotDirectory = try snapshotService.createPrivateTemporaryDirectory(
+            prefix: prefix
+        )
 
         let snapshotDatabase = snapshotDirectory.appendingPathComponent(
             "state.db",
             isDirectory: false
         )
         do {
-            try SQLiteDatabaseSnapshotService().copyDatabase(
+            try snapshotService.copyDatabase(
                 from: stateDBPath,
                 to: snapshotDatabase.path,
                 maximumBytes: maximumTotalBytes

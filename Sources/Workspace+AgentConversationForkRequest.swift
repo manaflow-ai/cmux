@@ -13,7 +13,8 @@ extension Workspace {
         fromPanelId panelId: UUID,
         snapshot: SessionRestorableAgentSnapshot,
         request: AgentConversationForkRequest,
-        exportService: AgentConversationExportService = .live
+        exportService: AgentConversationExportService = .live,
+        liveAgentIndex: SharedLiveAgentIndex = .shared
     ) async -> Bool {
         guard let sourcePanel = panels[panelId] as? TerminalPanel else {
             return false
@@ -31,7 +32,8 @@ extension Workspace {
         )
         guard let initialSelection = agentConversationForkSelection(
             forPanelId: panelId,
-            request: request
+            request: request,
+            liveAgentIndex: liveAgentIndex
         ),
               ContentView.commandPaletteForkSnapshotFingerprint(
                   initialSelection.snapshot,
@@ -44,6 +46,25 @@ extension Workspace {
             ? snapshot.forkCommand != nil
             : AgentConversationSource(snapshot: snapshot).hasDeterministicTranscriptSource else {
             return false
+        }
+        let transferIdentity: AgentConversationTransferIdentity?
+        if usesNativeFork {
+            transferIdentity = nil
+        } else {
+            guard let selectedTransferIdentity = AgentConversationSource(
+                snapshot: snapshot
+            ).transferIdentity,
+                  let freshSnapshot = await liveAgentIndex.freshConversationTransferSnapshot(
+                      workspaceId: id,
+                      panelId: panelId
+                  ),
+                  AgentConversationSource(snapshot: freshSnapshot).transferIdentity
+                    == selectedTransferIdentity,
+                  panels[panelId] as? TerminalPanel === sourcePanel,
+                  isRemoteTerminalSurface(panelId) == sourceIsRemote else {
+                return false
+            }
+            transferIdentity = selectedTransferIdentity
         }
         let startupCommandOverride: String?
         do {
@@ -60,9 +81,20 @@ extension Workspace {
             return false
         }
 
+        if let transferIdentity {
+            guard let freshSnapshot = await liveAgentIndex.freshConversationTransferSnapshot(
+                workspaceId: id,
+                panelId: panelId
+            ),
+                  AgentConversationSource(snapshot: freshSnapshot).transferIdentity
+                    == transferIdentity else {
+                return false
+            }
+        }
         let refreshedSelection = agentConversationForkSelection(
             forPanelId: panelId,
-            request: request
+            request: request,
+            liveAgentIndex: liveAgentIndex
         )
         guard panels[panelId] as? TerminalPanel === sourcePanel,
               isRemoteTerminalSurface(panelId) == sourceIsRemote,

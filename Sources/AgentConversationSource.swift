@@ -13,6 +13,13 @@ nonisolated private let agentConversationTransferRetention =
         textByteLimit: 256 * 1_024
     )
 
+/// Exact source identity used to revalidate a cross-harness transfer.
+nonisolated struct AgentConversationTransferIdentity: Equatable, Sendable {
+    let kind: RestorableAgentKind
+    let sessionId: String
+    let storagePath: String
+}
+
 /// Storage-independent identity for one source conversation.
 nonisolated struct AgentConversationSource: Sendable {
     let kind: RestorableAgentKind
@@ -74,6 +81,28 @@ nonisolated struct AgentConversationSource: Sendable {
         default:
             transcriptURL != nil
         }
+    }
+
+    /// Stable identity of the exact conversation storage selected for export.
+    /// Execution refreshes this identity before and after reading so a cached
+    /// session cannot redirect a cross-harness transfer.
+    var transferIdentity: AgentConversationTransferIdentity? {
+        guard hasDeterministicTranscriptSource else { return nil }
+        let storageIdentity: String?
+        switch kind {
+        case .opencode:
+            storageIdentity = openCodeDatabasePath
+        case .hermesAgent:
+            storageIdentity = hermesStateDatabaseURL?.standardizedFileURL.path
+        default:
+            storageIdentity = transcriptURL?.standardizedFileURL.path
+        }
+        guard let storageIdentity else { return nil }
+        return AgentConversationTransferIdentity(
+            kind: kind,
+            sessionId: sessionId,
+            storagePath: storageIdentity
+        )
     }
 
     /// Provider databases and captured transcript paths are authoritative. A

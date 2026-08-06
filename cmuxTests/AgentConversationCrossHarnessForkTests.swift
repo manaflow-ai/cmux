@@ -694,11 +694,18 @@ struct AgentConversationCrossHarnessForkTests {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelId,
+            root: fixture
+        )
 
         let didFork = await workspace.forkAgentConversation(
             fromPanelId: sourcePanelId,
             snapshot: snapshot,
-            request: .init(targetHarness: .claude, destination: .right)
+            request: .init(targetHarness: .claude, destination: .right),
+            liveAgentIndex: liveAgentIndex
         )
 
         #expect(didFork)
@@ -721,11 +728,18 @@ struct AgentConversationCrossHarnessForkTests {
         let sourcePanelId = try #require(workspace.focusedPanelId)
         let sourcePaneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelId,
+            root: fixture
+        )
 
         let didFork = await workspace.forkAgentConversation(
             fromPanelId: sourcePanelId,
             snapshot: snapshot,
-            request: .init(targetHarness: .claude, destination: .newTab)
+            request: .init(targetHarness: .claude, destination: .newTab),
+            liveAgentIndex: liveAgentIndex
         )
 
         #expect(didFork)
@@ -748,11 +762,18 @@ struct AgentConversationCrossHarnessForkTests {
         let sourceWorkspace = try #require(tabManager.tabs.first)
         let sourcePanelId = try #require(sourceWorkspace.focusedPanelId)
         sourceWorkspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: sourceWorkspace.id,
+            panelId: sourcePanelId,
+            root: fixture
+        )
 
         let didFork = await sourceWorkspace.forkAgentConversation(
             fromPanelId: sourcePanelId,
             snapshot: snapshot,
-            request: .init(targetHarness: .claude, destination: .newWorkspace)
+            request: .init(targetHarness: .claude, destination: .newWorkspace),
+            liveAgentIndex: liveAgentIndex
         )
 
         #expect(didFork)
@@ -786,13 +807,20 @@ struct AgentConversationCrossHarnessForkTests {
         let workspace = Workspace()
         let sourcePanelId = try #require(workspace.focusedPanelId)
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelId)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelId,
+            root: FileManager.default.temporaryDirectory
+        )
 
         let forkTask = Task { @MainActor in
             await workspace.forkAgentConversation(
                 fromPanelId: sourcePanelId,
                 snapshot: snapshot,
                 request: .init(targetHarness: .claude, destination: .right),
-                exportService: exportService
+                exportService: exportService,
+                liveAgentIndex: liveAgentIndex
             )
         }
         await transcriptGate.waitUntilReadStarts()
@@ -895,6 +923,12 @@ struct AgentConversationCrossHarnessForkTests {
         let workspace = Workspace()
         let sourcePanelID = try #require(workspace.focusedPanelId)
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelID,
+            root: FileManager.default.temporaryDirectory
+        )
 
         let launcherDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume", isDirectory: true)
@@ -918,7 +952,8 @@ struct AgentConversationCrossHarnessForkTests {
                 fromPanelId: sourcePanelID,
                 snapshot: snapshot,
                 request: .init(targetHarness: .claude, destination: .right),
-                exportService: exportService
+                exportService: exportService,
+                liveAgentIndex: liveAgentIndex
             )
         }
         await transcriptGate.waitUntilReadStarts()
@@ -1036,6 +1071,12 @@ struct AgentConversationCrossHarnessForkTests {
         let sourcePanelID = try #require(workspace.focusedPanelId)
         let sourceSurfaceID = try #require(workspace.surfaceIdFromPanelId(sourcePanelID))
         workspace.setRestoredAgentSnapshotForTesting(snapshot, panelId: sourcePanelID)
+        let liveAgentIndex = makeLiveAgentIndex(
+            snapshot: snapshot,
+            workspaceId: workspace.id,
+            panelId: sourcePanelID,
+            root: fixture
+        )
 
         let launcherDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-resume", isDirectory: true)
@@ -1059,7 +1100,8 @@ struct AgentConversationCrossHarnessForkTests {
         let didFork = await workspace.forkAgentConversation(
             fromPanelId: sourcePanelID,
             snapshot: snapshot,
-            request: .init(targetHarness: .claude, destination: .newTab)
+            request: .init(targetHarness: .claude, destination: .newTab),
+            liveAgentIndex: liveAgentIndex
         )
 
         let launcherURLsAfter = launcherScripts(
@@ -1105,6 +1147,44 @@ struct AgentConversationCrossHarnessForkTests {
     private func permissions(at url: URL) throws -> Int {
         let value = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions]
         return try #require(value as? NSNumber).intValue & 0o777
+    }
+
+    private func makeLiveAgentIndex(
+        snapshot: SessionRestorableAgentSnapshot,
+        workspaceId: UUID,
+        panelId: UUID,
+        root: URL
+    ) -> SharedLiveAgentIndex {
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        return SharedLiveAgentIndex(
+            indexLoader: {
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: root.path,
+                    fileManager: .default,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: { root.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
     }
 
     private func makeCodexSnapshot(

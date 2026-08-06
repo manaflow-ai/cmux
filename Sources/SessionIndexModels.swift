@@ -170,15 +170,14 @@ enum OpenCodeDatabaseSnapshot {
         }
         try Task.checkCancellation()
 
-        let snapshotDir = try SQLiteDatabaseSnapshotService
-            .createPrivateTemporaryDirectory(
-                prefix: prefix,
-                fileManager: fileManager
-            )
+        let snapshotService = SQLiteDatabaseSnapshotService(fileManager: fileManager)
+        let snapshotDir = try snapshotService.createPrivateTemporaryDirectory(
+            prefix: prefix
+        )
 
         let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
         do {
-            try SQLiteDatabaseSnapshotService().copyDatabase(
+            try snapshotService.copyDatabase(
                 from: resolvedSourcePath,
                 to: snapshotDB.path,
                 maximumBytes: maximumTotalBytes

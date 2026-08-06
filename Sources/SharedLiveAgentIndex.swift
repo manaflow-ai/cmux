@@ -298,6 +298,36 @@ final class SharedLiveAgentIndex {
         return index.snapshot(workspaceId: workspaceId, panelId: panelId)
     }
 
+    /// Loads current structured process and hook evidence without consulting
+    /// the cache. Cross-harness execution uses this expensive path only when it
+    /// is about to export conversation contents.
+    func freshConversationTransferSnapshot(
+        workspaceId: UUID,
+        panelId: UUID
+    ) async -> SessionRestorableAgentSnapshot? {
+        let indexLoader = self.indexLoader
+        let task = Task.detached(priority: .utility) {
+            indexLoader()
+        }
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
+        guard !Task.isCancelled else { return nil }
+
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        guard result.forkValidatedPanels.contains(where: {
+            $0 == panelKey || $0.panelId == panelId
+        }) else {
+            return nil
+        }
+        return result.index.snapshot(workspaceId: workspaceId, panelId: panelId)
+    }
+
     /// Read the cached snapshot for an enabled Fork Conversation action. Never blocks.
     func snapshotForForkAvailability(
         workspaceId: UUID,

@@ -59,10 +59,7 @@ public struct SQLiteDatabaseSnapshotService {
 
     /// Creates an unpredictable temporary directory that is inaccessible to
     /// other local accounts from the instant it appears.
-    public static func createPrivateTemporaryDirectory(
-        prefix: String,
-        fileManager: FileManager = .default
-    ) throws -> URL {
+    public func createPrivateTemporaryDirectory(prefix: String) throws -> URL {
         try createPrivateDirectory(
             in: fileManager.temporaryDirectory,
             prefix: prefix
@@ -221,16 +218,14 @@ public struct SQLiteDatabaseSnapshotService {
         }
     }
 
-    private struct BoundSourceDatabase {
-        let databaseURL: URL
-        let directoryURL: URL
-    }
-
     /// Binds the validated database inode and its current WAL sidecars to
     /// unpredictable names in a private directory on the same filesystem.
     /// SQLite opens only those hard links, so replacing the caller's path after
     /// validation cannot redirect or block its path-based open.
-    private func bindSourceDatabase(path: String) throws -> BoundSourceDatabase {
+    private func bindSourceDatabase(path: String) throws -> (
+        databaseURL: URL,
+        directoryURL: URL
+    ) {
         let sourceURL = URL(fileURLWithPath: path).standardizedFileURL
         guard !sourceURL.lastPathComponent.isEmpty else {
             throw SQLiteDatabaseSnapshotError.sqlite("cannot open source database")
@@ -239,7 +234,7 @@ public struct SQLiteDatabaseSnapshotService {
         defer { _ = Darwin.close(sourceDescriptor) }
         try sourceValidatedObserver?()
 
-        let directoryURL = try Self.createPrivateDirectory(
+        let directoryURL = try createPrivateDirectory(
             in: sourceURL.deletingLastPathComponent(),
             prefix: ".cmux-sqlite-source"
         )
@@ -260,10 +255,7 @@ public struct SQLiteDatabaseSnapshotService {
                     to: databaseURL.path + suffix
                 )
             }
-            return BoundSourceDatabase(
-                databaseURL: databaseURL,
-                directoryURL: directoryURL
-            )
+            return (databaseURL, directoryURL)
         } catch {
             try? fileManager.removeItem(at: directoryURL)
             throw error
@@ -355,7 +347,7 @@ public struct SQLiteDatabaseSnapshotService {
         }
     }
 
-    private static func createPrivateDirectory(in parentURL: URL, prefix: String) throws -> URL {
+    private func createPrivateDirectory(in parentURL: URL, prefix: String) throws -> URL {
         for _ in 0..<8 {
             let directoryURL = parentURL.appendingPathComponent(
                 "\(prefix)-\(UUID().uuidString)",
