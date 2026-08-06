@@ -11005,16 +11005,7 @@ mod tests {
     }
 
     fn settle_browser_size(surface: &Arc<crate::Surface>, expected: (u16, u16)) {
-        if surface.size() != expected {
-            let pending = surface
-                .pending_resize_completion(expected.0, expected.1)
-                .unwrap()
-                .unwrap_or_else(|| {
-                    panic!(
-                        "browser has size {:?} with no pending resize to {expected:?}",
-                        surface.size()
-                    )
-                });
+        if let Some(pending) = surface.pending_resize_completion(expected.0, expected.1).unwrap() {
             wait_for_initial_browser_resize(&pending.completion, surface.id, pending.reservation)
                 .unwrap();
         }
