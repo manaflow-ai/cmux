@@ -179,6 +179,45 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func readinessFallbackOffersExplicitConfirmation() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("fake grok", isDirectory: false)
+        let inputLog = directory.appendingPathComponent("input.log", isDirectory: false)
+        let script = """
+        #!/bin/zsh
+        /usr/bin/printf 'Custom harness prompt\\n'
+        if IFS= read -t 5 -r first_message; then
+          /usr/bin/printf '%s' "$first_message" > "$CMUX_INPUT_LOG"
+        fi
+        """
+        try script.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let message = "User: confirm after the readiness fallback"
+        let command = try #require(AgentConversationForkTargetHarness.grok.startupCommand(
+            handoffMessage: message,
+            executablePath: executable.path
+        ))
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_INPUT_LOG": inputLog.path,
+        ]) { _, override in override }
+        process.standardError = FileHandle.nullDevice
+
+        let confirmationProcess = try runWithTransferConfirmation(process)
+        process.waitUntilExit()
+        confirmationProcess.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(String(decoding: try Data(contentsOf: inputLog), as: UTF8.self).contains(message))
+    }
+
+    @Test
     func transferredTranscriptFailsClosedWhenHarnessExitsBeforePrompt() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -257,6 +296,64 @@ struct AgentConversationCrossHarnessForkTests {
         } throws: { error in
             error as? AgentConversationForkRequestError == .targetExecutableChanged
         }
+    }
+
+    @Test
+    func boundExecutableRejectsReplacementAfterCommandCreation() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("grok", isDirectory: false)
+        try "#!/bin/zsh\nexit 0\n".write(
+            to: executable,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let identity = try #require(AgentConversationForkExecutableIdentity.capture(
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path
+        ))
+        let target = AgentConversationForkTarget(
+            harness: .grok,
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path,
+            executableIdentity: identity
+        )
+        let command = try #require(target.startupCommand(
+            handoffMessage: "User: never disclose this to a replacement"
+        ))
+        let inputLog = directory.appendingPathComponent("replacement-input.log")
+        try FileManager.default.removeItem(at: executable)
+        try """
+        #!/bin/zsh
+        /usr/bin/printf 'Grok Build\\n'
+        if IFS= read -t 3 -r first_message; then
+          /usr/bin/printf '%s' "$first_message" > "$CMUX_REPLACEMENT_INPUT_LOG"
+        fi
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_REPLACEMENT_INPUT_LOG": inputLog.path,
+        ]) { _, override in override }
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        let confirmationProcess = try runWithDelayedTransferConfirmation(process)
+        process.waitUntilExit()
+        confirmationProcess.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        #expect(!FileManager.default.fileExists(atPath: inputLog.path))
     }
 
     @Test
@@ -1561,6 +1658,31 @@ struct AgentConversationCrossHarnessForkTests {
         ] {
             try? handle.close()
         }
+        return confirmationProcess
+    }
+
+    private func runWithDelayedTransferConfirmation(_ process: Process) throws -> Process {
+        let userInput = Pipe()
+        process.standardInput = userInput
+
+        let confirmationProcess = Process()
+        confirmationProcess.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        confirmationProcess.arguments = [
+            "-c",
+            "/bin/sleep 1.5; /usr/bin/printf '\\035'",
+        ]
+        confirmationProcess.standardOutput = userInput
+        confirmationProcess.standardError = FileHandle.nullDevice
+
+        try confirmationProcess.run()
+        do {
+            try process.run()
+        } catch {
+            confirmationProcess.terminate()
+            throw error
+        }
+        try? userInput.fileHandleForReading.close()
+        try? userInput.fileHandleForWriting.close()
         return confirmationProcess
     }
 
