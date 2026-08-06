@@ -111,9 +111,7 @@ extension BrowserControlService {
             return null;
           }
           if (typeof __value === 'undefined') {
-            // Preserve the top-level undefined envelope while making values
-            // inside Objective-C collections explicit and deterministic.
-            return __depth === 0 ? __value : null;
+            return null;
           }
 
           const __valueType = typeof __value;
@@ -222,6 +220,9 @@ extension BrowserControlService {
           const document = __cmuxDoc;
           \(executionBlock)
           const __value = await __cmuxMaybeAwait(__r);
+          if (typeof __value === 'undefined') {
+            return { [\(typeKey)]: \(typeUndefined) };
+          }
           let __cmuxSafeValue;
           try {
             __cmuxSafeValue = __cmuxBridgeSafeValue(__value);
@@ -243,7 +244,7 @@ extension BrowserControlService {
             throw __error;
           }
           return {
-            [\(typeKey)]: (typeof __value === 'undefined') ? \(typeUndefined) : \(typeValue),
+            [\(typeKey)]: \(typeValue),
             [\(valueKey)]: __cmuxSafeValue
           };
         };

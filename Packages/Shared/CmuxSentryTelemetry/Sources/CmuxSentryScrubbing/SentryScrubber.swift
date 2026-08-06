@@ -443,9 +443,22 @@ public struct SentryScrubber: Sendable {
     /// the input in linear time, reuses the structured key denylist, and
     /// understands escaped quotes in JSON-style values.
     private func redactSensitiveAssignments(in text: String) -> String {
-        let bytes = Array(text.utf8)
-        guard bytes.contains(0x3A) || bytes.contains(0x3D) else { return text }
+        let utf8 = text.utf8
+        guard utf8.contains(0x3A) || utf8.contains(0x3D) else { return text }
 
+        if let result = utf8.withContiguousStorageIfAvailable({ bytes in
+            redactSensitiveAssignments(in: text, bytes: bytes)
+        }) {
+            return result
+        }
+
+        return redactSensitiveAssignments(in: text, bytes: Array(utf8))
+    }
+
+    private func redactSensitiveAssignments<Bytes: RandomAccessCollection>(
+        in text: String,
+        bytes: Bytes
+    ) -> String where Bytes.Element == UInt8, Bytes.Index == Int {
         var replacementRanges: [Range<Int>] = []
         var index = 0
         while index < bytes.count {
@@ -480,10 +493,10 @@ public struct SentryScrubber: Sendable {
 }
 
 /// Resolves the value bytes belonging to a sensitive assignment delimiter.
-private func sensitiveAssignmentValueRange(
+private func sensitiveAssignmentValueRange<Bytes: RandomAccessCollection>(
     delimiterIndex: Int,
-    bytes: [UInt8]
-) -> Range<Int>? {
+    bytes: Bytes
+) -> Range<Int>? where Bytes.Element == UInt8, Bytes.Index == Int {
     guard delimiterIndex > 0 else { return nil }
 
     var keyCursor = delimiterIndex - 1
@@ -589,7 +602,10 @@ private func isQuote(_ byte: UInt8) -> Bool {
     byte == 0x22 || byte == 0x27
 }
 
-private func isUnquotedValueTerminator(at index: Int, in bytes: [UInt8]) -> Bool {
+private func isUnquotedValueTerminator<Bytes: RandomAccessCollection>(
+    at index: Int,
+    in bytes: Bytes
+) -> Bool where Bytes.Element == UInt8, Bytes.Index == Int {
     let byte = bytes[index]
     if isASCIIWhitespace(byte) {
         return true
@@ -614,7 +630,10 @@ private func isUnquotedValueTerminator(at index: Int, in bytes: [UInt8]) -> Bool
     return false
 }
 
-private func startsAssignment(after separatorIndex: Int, in bytes: [UInt8]) -> Bool {
+private func startsAssignment<Bytes: RandomAccessCollection>(
+    after separatorIndex: Int,
+    in bytes: Bytes
+) -> Bool where Bytes.Element == UInt8, Bytes.Index == Int {
     var cursor = separatorIndex + 1
     while cursor < bytes.count, isASCIIWhitespace(bytes[cursor]) {
         cursor += 1
