@@ -81,6 +81,17 @@ enum FileExplorerRootSyncPolicy {
     }
 }
 
+enum ToolSidebarLayoutItem: Equatable {
+    case workspaceContent
+    case toolSidebar
+}
+
+enum ToolSidebarLayoutPolicy {
+    static func order(for _: ToolSidebarPosition) -> [ToolSidebarLayoutItem] {
+        [.workspaceContent, .toolSidebar]
+    }
+}
+
 extension RightSidebarMode {
     static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
         modeShortcut(for: event, allowingAction: { _ in true })

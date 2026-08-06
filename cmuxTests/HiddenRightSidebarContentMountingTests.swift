@@ -13,6 +13,12 @@ import Testing
 @MainActor
 @Suite("Hidden right sidebar content mounting", .serialized)
 struct HiddenRightSidebarContentMountingTests {
+    @Test func leftToolSidebarPrecedesWorkspaceContent() {
+        #expect(
+            ToolSidebarLayoutPolicy.order(for: .left) == [.toolSidebar, .workspaceContent]
+        )
+    }
+
     @Test func coldHiddenRightSidebarDoesNotMountContent() {
         #expect(
             !RightSidebarContentMountPolicy.shouldMountContent(
