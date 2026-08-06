@@ -515,23 +515,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var composerHeightConstraint: NSLayoutConstraint?
     private var toolbarHeightConstraint: NSLayoutConstraint?
     /// Required upper bound on the composer's bottom edge derived from the
-    /// notification-tracked keyboard frame: `composer.bottom <= self.bottom -
-    /// keyboardOverlapFloor`. The keyboard guide equality above it is demoted one
-    /// priority notch, so when the guide misses a transition (a view attached
-    /// around a workspace switch can be left seated on the guide's safe-area
-    /// fallback while the keyboard is up) this floor still lifts the dock above
-    /// the real keyboard. While the guide tracks correctly both constraints agree
-    /// and the floor is inert.
+    /// notification-tracked keyboard frame: `composer.bottom <= window.bottom -
+    /// keyboardOverlapFloorInWindow`. Anchored to the WINDOW because the
+    /// surface's own frame animates with safe-area propagation during keyboard
+    /// transitions; see `refreshKeyboardFloorConstraintForWindow()`. The
+    /// keyboard guide equality above it is demoted one priority notch, so when
+    /// the guide misses or lags a transition this floor still lifts the dock
+    /// above the real keyboard; while the guide tracks correctly both
+    /// constraints agree and the floor is inert.
     private var composerBottomKeyboardFloorConstraint: NSLayoutConstraint?
     /// Process-wide keyboard-frame source for floor catch-up on attach/layout.
     /// Injected at construction (production callers take the shared tracker
     /// default) so tests pass a notification-center-isolated instance without
     /// touching the shared tracker other suites read.
     private let keyboardFrameTracker: MobileKeyboardFrameTracker
-    /// The keyboard overlap the floor constraint currently enforces, mirrored
-    /// into the viewport model so the terminal grid reserves the same space the
-    /// bars occupy. Zero while the keyboard is down or unknown.
-    private var keyboardOverlapFloor: CGFloat = 0
+    /// The keyboard overlap the floor constraint currently enforces, in WINDOW
+    /// points (stable across the surface's own frame changes). The viewport
+    /// model converts it to view space per layout pass. Zero while the keyboard
+    /// is down or unknown.
+    private var keyboardOverlapFloorInWindow: CGFloat = 0
     #if DEBUG
     private var keyboardHeightOverrideForTesting: CGFloat?
     private var composerBottomForTestingConstraint: NSLayoutConstraint?
@@ -1023,7 +1025,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 + " dur=\(String(format: "%.2f", transition.duration))"
                 + " trackerOverlap=\(Int(keyboardFrameTracker.overlap(in: self)))"
                 + " guideTop=\(Int(keyboardLayoutGuide.layoutFrame.minY))"
-                + " floor=\(Int(keyboardOverlapFloor)) visible=\(willBeVisible ? 1 : 0)"
+                + " floorW=\(Int(keyboardOverlapFloorInWindow)) visible=\(willBeVisible ? 1 : 0)"
         )
         #endif
         // The tracker (registered before any surface's handler) is the floor's
@@ -1089,9 +1091,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // below can outrank a guide that missed the current keyboard transition;
         // see `composerBottomKeyboardFloorConstraint`.
         composerBottom.priority = UILayoutPriority(rawValue: UILayoutPriority.required.rawValue - 1)
-        let composerBottomFloor = composerContainer.bottomAnchor.constraint(
-            lessThanOrEqualTo: bottomAnchor
-        )
         // With the guide in pure keyboard mode its keyboard-DOWN position is the
         // view's bottom edge, so the home-indicator seat is stated explicitly:
         // the dock may never sink into the bottom safe area. While the keyboard
@@ -1103,7 +1102,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let composerHeight = composerContainer.heightAnchor.constraint(equalToConstant: 0)
         let toolbarHeight = dockedToolbar.heightAnchor.constraint(equalToConstant: 0)
         composerBottomToKeyboardConstraint = composerBottom
-        composerBottomKeyboardFloorConstraint = composerBottomFloor
         composerHeightConstraint = composerHeight
         self.toolbarHeightConstraint = toolbarHeight
 
@@ -1111,7 +1109,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             composerContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             composerContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             composerBottom,
-            composerBottomFloor,
             composerBottomSafeAreaCap,
             composerHeight,
             dockedToolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1120,14 +1117,42 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             toolbarHeight,
         ])
         layoutBottomDock()
+        // The keyboard floor is WINDOW-anchored and therefore installed per
+        // window attach; see `refreshKeyboardFloorConstraintForWindow()`.
+    }
+
+    /// (Re)anchors the keyboard floor to the current window.
+    ///
+    /// The floor must be immune to the surface's own frame: safe-area
+    /// propagation resizes the hosted surface by the home-indicator height
+    /// across every keyboard transition (device forensics 2026-08-06, bounds
+    /// flipping 836<->802), so a floor expressed against the surface's bottom
+    /// was seeded with a mid-transition conversion and popped by that amount
+    /// after settle. The window's frame never moves, so a window-anchored
+    /// floor seeded from the notification's window-space overlap is final on
+    /// the first application. Removed on detach: a constraint into a window
+    /// the view has left would crash the next layout pass.
+    private func refreshKeyboardFloorConstraintForWindow() {
+        guard let window else {
+            composerBottomKeyboardFloorConstraint?.isActive = false
+            composerBottomKeyboardFloorConstraint = nil
+            return
+        }
+        if composerBottomKeyboardFloorConstraint?.secondItem === window { return }
+        composerBottomKeyboardFloorConstraint?.isActive = false
+        let floor = composerContainer.bottomAnchor.constraint(
+            lessThanOrEqualTo: window.bottomAnchor
+        )
+        floor.constant = -keyboardOverlapFloorInWindow
+        floor.isActive = true
+        composerBottomKeyboardFloorConstraint = floor
     }
 
     /// Re-derives the keyboard floor and applies it to the floor constraint and
     /// the viewport model.
     ///
-    /// - Parameter overlap: The keyboard overlap to enforce, in this view's
-    ///   coordinates; pass the notification transition's overlap on the
-    ///   notification path, or the tracker-derived overlap on layout catch-up.
+    /// - Parameter overlap: The keyboard overlap to enforce, in WINDOW
+    ///   coordinates (stable across the surface's own frame changes).
     /// - Returns: Whether the floor changed.
     @discardableResult
     private func applyKeyboardOverlapFloor(_ overlap: CGFloat) -> Bool {
@@ -1135,8 +1160,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard keyboardHeightOverrideForTesting == nil else { return false }
         #endif
         let clamped = max(0, overlap)
-        guard abs(clamped - keyboardOverlapFloor) > 0.25 else { return false }
-        keyboardOverlapFloor = clamped
+        guard abs(clamped - keyboardOverlapFloorInWindow) > 0.25 else { return false }
+        keyboardOverlapFloorInWindow = clamped
         composerBottomKeyboardFloorConstraint?.constant = -clamped
         #if DEBUG
         // Paired with kb.willChange: a kb.floor long after its kb.willChange is
@@ -1147,20 +1172,32 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         return true
     }
 
+    /// The floor converted into this view's coordinates against its CURRENT
+    /// frame, for the viewport model. Re-derived per layout pass so it
+    /// converges with the surface's settled frame even when that frame
+    /// animated during the transition.
+    private var keyboardOverlapFloorInBounds: CGFloat {
+        guard keyboardOverlapFloorInWindow > 0, let window else { return 0 }
+        let viewMaxYInWindow = convert(bounds, to: window).maxY
+        let belowView = max(0, window.bounds.maxY - viewMaxYInWindow)
+        return max(0, keyboardOverlapFloorInWindow - belowView)
+    }
+
     /// Catches the keyboard floor up from the process-wide tracker.
     ///
     /// A view attached to a window AFTER the keyboard came up never receives the
     /// keyboard notification for that transition, and UIKit's layout guide can
     /// stay on its safe-area fallback for the same reason. The tracker observed
     /// the transition process-wide, so every layout pass can re-derive the floor
-    /// for the view's current window position.
+    /// for the view's current window.
     ///
     /// - Returns: Whether the floor changed.
     @discardableResult
     private func synchronizeKeyboardFloorFromTracker() -> Bool {
         guard window != nil else { return false }
+        refreshKeyboardFloorConstraintForWindow()
         synchronizeKeyboardVisibilityFromTracker()
-        return applyKeyboardOverlapFloor(keyboardFrameTracker.overlap(in: self))
+        return applyKeyboardOverlapFloor(keyboardFrameTracker.overlapInWindow(of: self))
     }
 
     /// Reconciles the responder-facing visibility bit — and with it the
@@ -1186,7 +1223,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     private func synchronizeKeyboardGeometryFromLayoutGuide() -> Bool {
         synchronizeKeyboardFloorFromTracker()
-        let nextHeight = max(keyboardOverlapFromLayoutGuide, keyboardOverlapFloor)
+        let nextHeight = max(keyboardOverlapFromLayoutGuide, keyboardOverlapFloorInBounds)
         guard abs(nextHeight - keyboardHeight) > 0.25 else { return false }
         keyboardHeight = nextHeight
         bottomDockTransitionObserved = bottomDockTransitionInFlight
@@ -1237,7 +1274,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
         // The synthetic bottom equality replaces BOTH production keyboard
         // constraints; a live floor would make an override below it unsatisfiable.
-        keyboardOverlapFloor = 0
+        keyboardOverlapFloorInWindow = 0
         composerBottomKeyboardFloorConstraint?.constant = 0
         composerBottomToKeyboardConstraint?.isActive = false
         if composerBottomForTestingConstraint == nil {
@@ -2356,6 +2393,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         super.didMoveToWindow()
         MobileDebugLog.anchormux("surface.didMoveToWindow window=\(window != nil)")
         syncSurfaceVisibility()
+        // The keyboard floor is anchored to the window, so it must be
+        // (re)installed on attach and dropped on detach.
+        refreshKeyboardFloorConstraintForWindow()
         if window != nil {
             isDismantled = false
             setNeedsLayout()

@@ -99,6 +99,13 @@ public final class MobileKeyboardFrameTracker {
         latestTransition?.overlap(in: view) ?? 0
     }
 
+    /// Returns how much of `view`'s window the tracked keyboard covers, in
+    /// window points — stable across a transition even when the view's own
+    /// frame animates with it. Zero while unknown or detached.
+    public func overlapInWindow(of view: UIView) -> CGFloat {
+        latestTransition?.overlapInWindow(of: view) ?? 0
+    }
+
     /// Returns whether the tracked keyboard is visible to `view` (including
     /// floating/split iPad keyboards that reserve no bottom space), or false
     /// while the keyboard state is unknown or the view is detached.
