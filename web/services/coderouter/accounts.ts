@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
+  deleteAccount,
   insertAccountWithCredential,
   listAccounts,
   replaceAccountCredential,
+  withVaultLease,
 } from "./repository";
 import { encryptCredential } from "./encryption";
 import type { CodeRouterCredential } from "./types";
+import { deleteVaultCredential } from "./vault";
+import { reportCoderouterFailure } from "./observability";
 
 export async function addAccount(
   teamId: string,
@@ -55,6 +59,43 @@ export async function addAccount(
 }
 
 export { listAccounts };
+
+type RemoveAccountResult = {
+  removed: boolean;
+  lastAccount: boolean;
+  legacyCleanupPending: boolean;
+};
+
+export function createAccountRemover(dependencies: {
+  readonly deleteRuntime: typeof deleteAccount;
+  readonly deleteLegacy: typeof deleteVaultCredential;
+  readonly withLease: typeof withVaultLease;
+  readonly report: typeof reportCoderouterFailure;
+}): (teamId: string, accountId: string) => Promise<RemoveAccountResult> {
+  return async (teamId, accountId) => {
+    const result = await dependencies.deleteRuntime({ teamId, accountId });
+    if (!result.removed) return { ...result, legacyCleanupPending: false };
+    try {
+      // Temporary rollback copy only. This call disappears after the migration
+      // cleanup window; failure cannot restore runtime access to the credential.
+      await dependencies.withLease(
+        teamId,
+        async () => await dependencies.deleteLegacy(teamId, accountId),
+      );
+      return { ...result, legacyCleanupPending: false };
+    } catch (error) {
+      dependencies.report("legacy_cleanup", error);
+      return { ...result, legacyCleanupPending: true };
+    }
+  };
+}
+
+export const removeAccount = createAccountRemover({
+  deleteRuntime: deleteAccount,
+  deleteLegacy: deleteVaultCredential,
+  withLease: withVaultLease,
+  report: reportCoderouterFailure,
+});
 
 export function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;

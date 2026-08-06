@@ -1,5 +1,6 @@
 import { authenticateRouteToken, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
+import { fetchProviderRead } from "./providerFetch";
 
 const OPENCODE_CONSOLE = "https://console.opencode.ai";
 
@@ -61,23 +62,44 @@ export async function proxyOpenCodeRequest(
   });
 }
 
-async function openCodeAccount(teamId: string) {
-  const account = await selectAccountForRequest(teamId, "opencode-go");
-  if (!account) return null;
-  const credential = await freshCredential({
-    teamId,
-    accountId: account.id,
-    expectedRevision: account.vaultRevision,
-  });
-  return credential.provider === "opencode-go" ? { account, credential } : null;
+async function openCodeAccount(
+  teamId: string,
+  dependencies = {
+    select: selectAccountForRequest,
+    credential: freshCredential,
+  },
+) {
+  const attempted: string[] = [];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const account = await dependencies.select(
+      teamId,
+      "opencode-go",
+      attempted,
+    );
+    if (!account) return null;
+    attempted.push(account.id);
+    try {
+      const credential = await dependencies.credential({
+        teamId,
+        accountId: account.id,
+        expectedRevision: account.vaultRevision,
+      });
+      if (credential.provider === "opencode-go") {
+        return { account, credential };
+      }
+    } catch {
+      // Broken, refreshing, and transiently unavailable accounts are skipped.
+    }
+  }
+  return null;
 }
 
 async function remoteConfig(accessToken: string): Promise<Record<string, unknown>> {
-  const response = await fetch(`${OPENCODE_CONSOLE}/api/config`, {
+  const response = await fetchProviderRead(() => fetch(`${OPENCODE_CONSOLE}/api/config`, {
     headers: { authorization: `Bearer ${accessToken}` },
     cache: "no-store",
     signal: AbortSignal.timeout(5_000),
-  });
+  }));
   if (!response.ok) throw new Error(`OpenCode config failed: ${response.status}`);
   const value: unknown = await response.json();
   if (!isRecord(value) || !isRecord(value.config) || !isRecord(value.config.provider)) {
@@ -173,8 +195,8 @@ function filteredResponseHeaders(input: Headers): Headers {
   return headers;
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const __test = { rewriteProviders, safeProviderURL };
+export const __test = { rewriteProviders, safeProviderURL, openCodeAccount };
