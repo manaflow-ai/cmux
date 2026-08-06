@@ -427,8 +427,18 @@ extension CmxIrohHostRuntime {
         binding: CmxIrohBrokerBinding,
         now: Date
     ) -> Date? {
-        guard let expiry = binding.pathHints.compactMap(\.expiresAt).min(),
-              expiry > now else { return nil }
+        // Clients accept the binding's signed direct ports for private-path
+        // synthesis only while `lastSeenAt` is younger than this same window.
+        // Keep that broker lease fresh even when the endpoint has no public
+        // path hints, otherwise an unchanged Mac silently becomes undialable.
+        let bindingFreshnessExpiry = CmxIrohISO8601Date
+            .parse(binding.lastSeenAt)?
+            .addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
+        let pathHintExpiry = binding.pathHints.compactMap(\.expiresAt).min()
+        let expiry = [bindingFreshnessExpiry, pathHintExpiry]
+            .compactMap { $0 }
+            .min()
+        guard let expiry else { return nil }
         let remaining = expiry.timeIntervalSince(now)
         let safetyWindow = min(15 * 60, max(30, remaining / 4))
         return max(now, expiry.addingTimeInterval(-safetyWindow))
