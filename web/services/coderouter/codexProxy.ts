@@ -214,9 +214,25 @@ type CodexModelsDependencies = {
 export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
   return async (request: Request): Promise<Response> => {
     const token = bearerToken(request);
-    if (!token) return jsonError("unauthorized", 401);
+    if (!token) {
+      return jsonError(
+        "unauthorized",
+        401,
+        undefined,
+        "Sign in with `cr login` and retry.",
+        false,
+      );
+    }
     const identity = await dependencies.authenticate(token);
-    if (!identity) return jsonError("unauthorized", 401);
+    if (!identity) {
+      return jsonError(
+        "unauthorized",
+        401,
+        undefined,
+        "Your coderouter session expired or was revoked. Run `cr login` and retry.",
+        false,
+      );
+    }
 
     const attempted: string[] = [];
     let upstream: Response | null = null;
@@ -279,7 +295,15 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
       }
       break;
     }
-    if (!upstream) return jsonError("no_usable_account", 503);
+    if (!upstream) {
+      return jsonError(
+        "no_usable_account",
+        503,
+        { "retry-after": "15" },
+        "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+        true,
+      );
+    }
     return new Response(upstream.body, {
       status: upstream.status,
       headers: {
