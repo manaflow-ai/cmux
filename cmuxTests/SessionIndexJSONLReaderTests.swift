@@ -246,6 +246,53 @@ struct SessionIndexJSONLReaderTests {
     }
 
     @Test
+    func fileSnapshotKeepsOpeningAndLatestReadsOnOneGeneration() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-snapshot-generation-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let originalHistory = """
+        {"sessionId":"original-opening"}
+        {"sessionId":"original-latest"}
+
+        """
+        try Data(originalHistory.utf8).write(to: url)
+
+        let reader = SessionIndexJSONLReader()
+        var latestSessionIDs: [String] = []
+        var openingSessionIDs: [String] = []
+        let didRead = try reader.withFileSnapshot(url: url) { handle, fileEndOffset in
+            _ = reader.fromTail(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytes: 1_024
+            ) { object in
+                if let sessionID = object["sessionId"] as? String {
+                    latestSessionIDs.append(sessionID)
+                }
+                return true
+            }
+            try Data("{\"sessionId\":\"replacement\"}\n".utf8).write(
+                to: url,
+                options: .atomic
+            )
+            _ = reader.fromStart(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytes: 1_024
+            ) { object in
+                if let sessionID = object["sessionId"] as? String {
+                    openingSessionIDs.append(sessionID)
+                }
+                return true
+            }
+        }
+
+        try #require(didRead != nil)
+        #expect(latestSessionIDs == ["original-latest"])
+        #expect(openingSessionIDs == ["original-opening"])
+    }
+
+    @Test
     func antigravityTailPreviewPlacesTruncationBeforeVisibleTurns() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vault-antigravity-\(UUID().uuidString).jsonl")

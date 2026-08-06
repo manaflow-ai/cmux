@@ -84,11 +84,14 @@ struct AgentConversationForkTargetDiscoverer: Sendable {
         }
         return candidateGroups.compactMap { candidates in
             guard !Task.isCancelled else { return nil }
-            let stableCandidates = candidates.filter {
-                AgentConversationForkExecutableIdentity.capture(
-                    executablePath: $0.executableURL.path,
-                    runtimeSearchPath: $0.runtimeSearchPath
-                ) != nil
+            let stableCandidates = candidates.filter { candidate in
+                guard let identity = AgentConversationForkExecutableIdentity.capture(
+                    executablePath: candidate.executableURL.path,
+                    runtimeSearchPath: candidate.runtimeSearchPath
+                ) else {
+                    return false
+                }
+                return AgentConversationForkExecutableBinding(identity: identity) != nil
             }
             guard let primary = stableCandidates.first,
                   let primaryIdentity = AgentConversationForkExecutableIdentity.capture(

@@ -1367,68 +1367,73 @@ enum SessionTranscriptLoader {
         var newestFirst: [SessionTranscriptTurn] = []
         var retainedTextBytes = 0
         var didSatisfyLatestRetention = false
-        let metrics = reader.fromTailPages(
-            url: url,
-            maxBytesPerPage: latestTranscriptPageBytes,
-            maximumPageCount: latestTranscriptMaximumPageCount
-        ) { object in
-            guard !Task.isCancelled else { return true }
-            let parsedTurns = parseLine(
-                object,
-                agent: agent,
-                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-                id: -(newestFirst.count + 1),
-                retention: retention
-            )
-            for turn in parsedTurns.reversed() {
-                guard retention.includes(turn.role) else { continue }
-                let boundedTurn = retention.bounded(turn)
-                newestFirst.append(boundedTurn)
-                let byteTotal = retainedTextBytes.addingReportingOverflow(
-                    retention.retainedByteCost(of: boundedTurn)
+        var openingUser: SessionTranscriptTurn?
+        guard let scan = reader.withFileSnapshot(url: url, body: { handle, fileEndOffset in
+            let latestMetrics = reader.fromTailPages(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytesPerPage: latestTranscriptPageBytes,
+                maximumPageCount: latestTranscriptMaximumPageCount
+            ) { object in
+                guard !Task.isCancelled else { return true }
+                let parsedTurns = parseLine(
+                    object,
+                    agent: agent,
+                    usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                    id: -(newestFirst.count + 1),
+                    retention: retention
                 )
-                retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
-                if newestFirst.count >= retention.limit {
-                    didSatisfyLatestRetention = true
-                    return true
+                for turn in parsedTurns.reversed() {
+                    guard retention.includes(turn.role) else { continue }
+                    let boundedTurn = retention.bounded(turn)
+                    newestFirst.append(boundedTurn)
+                    let byteTotal = retainedTextBytes.addingReportingOverflow(
+                        retention.retainedByteCost(of: boundedTurn)
+                    )
+                    retainedTextBytes = byteTotal.overflow ? .max : byteTotal.partialValue
+                    if newestFirst.count >= retention.limit {
+                        didSatisfyLatestRetention = true
+                        return true
+                    }
+                    if retention.textByteLimit.map({ retainedTextBytes >= $0 }) == true {
+                        didSatisfyLatestRetention = true
+                        return true
+                    }
                 }
-                if retention.textByteLimit.map({ retainedTextBytes >= $0 }) == true {
-                    didSatisfyLatestRetention = true
-                    return true
-                }
+                return false
             }
-            return false
+            let openingMetrics = reader.fromStart(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytes: openingTranscriptByteLimit
+            ) { object in
+                guard !Task.isCancelled else { return true }
+                let parsedTurns = parseLine(
+                    object,
+                    agent: agent,
+                    usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                    id: .min,
+                    retention: retention
+                )
+                for turn in parsedTurns {
+                    guard retention.includes(turn.role), turn.role == .user else { continue }
+                    openingUser = retention.bounded(turn)
+                    return true
+                }
+                return false
+            }
+            return (latest: latestMetrics, opening: openingMetrics)
+        }) else {
+            throw SessionTranscriptLoadError.missingFile
         }
         try Task.checkCancellation()
         try validateLatestTransferScan(
-            metrics,
+            scan.latest,
             didSatisfyRetention: didSatisfyLatestRetention,
             retention: retention
         )
-
-        var openingUser: SessionTranscriptTurn?
-        let openingMetrics = reader.fromStart(
-            url: url,
-            maxBytes: openingTranscriptByteLimit
-        ) { object in
-            guard !Task.isCancelled else { return true }
-            let parsedTurns = parseLine(
-                object,
-                agent: agent,
-                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
-                id: .min,
-                retention: retention
-            )
-            for turn in parsedTurns {
-                guard retention.includes(turn.role), turn.role == .user else { continue }
-                openingUser = retention.bounded(turn)
-                return true
-            }
-            return false
-        }
-        try Task.checkCancellation()
         try validateOpeningTransferScan(
-            openingMetrics,
+            scan.opening,
             openingUser: openingUser,
             hasLatestTurns: !newestFirst.isEmpty,
             retention: retention
@@ -1460,11 +1465,8 @@ enum SessionTranscriptLoader {
         var retainedTextBytes = 0
         var didSatisfyLatestRetention = false
         let agent = SessionAgent.registered(RegisteredSessionAgent(id: "antigravity"))
-        let metrics = SessionIndexJSONLReader().fromTailPages(
-            url: url,
-            maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
-            maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit
-        ) { object in
+        let reader = SessionIndexJSONLReader()
+        let visitLatest: ([String: Any]) -> Bool = { object in
             defer { lineIndex += 1 }
             if Task.isCancelled { return true }
             guard turns.count < retention.limit else {
@@ -1496,6 +1498,52 @@ enum SessionTranscriptLoader {
             }
             return false
         }
+        let metrics: SessionIndexJSONLReadMetrics
+        var openingMetrics = SessionIndexJSONLReadMetrics(
+            bytesRead: 0,
+            recordsVisited: 0
+        )
+        if retention.keepsLatestTurns {
+            guard let scan = reader.withFileSnapshot(url: url, body: { handle, fileEndOffset in
+                let latestMetrics = reader.fromTailPages(
+                    fileHandle: handle,
+                    fileEndOffset: fileEndOffset,
+                    maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
+                    maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit,
+                    body: visitLatest
+                )
+                let firstMetrics = reader.fromStart(
+                    fileHandle: handle,
+                    fileEndOffset: fileEndOffset,
+                    maxBytes: openingTranscriptByteLimit
+                ) { object in
+                    guard !Task.isCancelled else { return true }
+                    guard antigravityHistorySessionID(in: object) == sessionId,
+                          let turn = antigravityHistoryTurn(
+                              in: object,
+                              id: Int.min,
+                              agent: agent,
+                              retention: retention
+                          ) else {
+                        return false
+                    }
+                    openingUser = turn
+                    return true
+                }
+                return (latest: latestMetrics, opening: firstMetrics)
+            }) else {
+                throw SessionTranscriptLoadError.missingFile
+            }
+            metrics = scan.latest
+            openingMetrics = scan.opening
+        } else {
+            metrics = reader.fromTailPages(
+                url: url,
+                maxBytesPerPage: SessionIndexStore.antigravityHistoryByteCap,
+                maximumPageCount: SessionIndexStore.antigravityHistoryPreviewPageLimit,
+                body: visitLatest
+            )
+        }
         if retention.keepsLatestTurns {
             try Task.checkCancellation()
             try validateLatestTransferScan(
@@ -1503,24 +1551,6 @@ enum SessionTranscriptLoader {
                 didSatisfyRetention: didSatisfyLatestRetention,
                 retention: retention
             )
-            let openingMetrics = SessionIndexJSONLReader().fromStart(
-                url: url,
-                maxBytes: openingTranscriptByteLimit
-            ) { object in
-                guard !Task.isCancelled else { return true }
-                guard antigravityHistorySessionID(in: object) == sessionId,
-                      let turn = antigravityHistoryTurn(
-                          in: object,
-                          id: Int.min,
-                          agent: agent,
-                          retention: retention
-                      ) else {
-                    return false
-                }
-                openingUser = turn
-                return true
-            }
-            try Task.checkCancellation()
             try validateOpeningTransferScan(
                 openingMetrics,
                 openingUser: openingUser,

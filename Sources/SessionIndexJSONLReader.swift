@@ -14,6 +14,20 @@ struct SessionIndexJSONLReader: Sendable {
         self.maximumRecordBytes = max(1, maximumRecordBytes)
     }
 
+    /// Opens one regular-file generation and fixes the readable boundary to
+    /// its size at open time. Callers can combine start and tail reads without
+    /// reopening a transcript path that may rotate between passes.
+    func withFileSnapshot<Result>(
+        url: URL,
+        body: (FileHandle, UInt64) throws -> Result
+    ) rethrows -> Result? {
+        guard let snapshot = regularFileSnapshot(forReadingFrom: url) else {
+            return nil
+        }
+        defer { try? snapshot.handle.close() }
+        return try body(snapshot.handle, snapshot.endOffset)
+    }
+
     /// Streams records from the beginning until the callback stops or EOF is reached.
     func fromStart(
         url: URL,
@@ -38,10 +52,48 @@ struct SessionIndexJSONLReader: Sendable {
         maximumBytes: Int?,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
-        guard let handle = regularFileHandle(forReadingFrom: url) else {
+        withFileSnapshot(url: url) { handle, fileEndOffset in
+            fromStart(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maximumBytes: maximumBytes,
+                body: body
+            )
+        } ?? SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+    }
+
+    func fromStart(
+        fileHandle: FileHandle,
+        fileEndOffset: UInt64,
+        maxBytes: Int,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        guard maxBytes > 0 else {
             return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
         }
-        defer { try? handle.close() }
+        return fromStart(
+            fileHandle: fileHandle,
+            fileEndOffset: fileEndOffset,
+            maximumBytes: maxBytes,
+            body: body
+        )
+    }
+
+    private func fromStart(
+        fileHandle handle: FileHandle,
+        fileEndOffset: UInt64,
+        maximumBytes: Int?,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        do {
+            try handle.seek(toOffset: 0)
+        } catch {
+            return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+        }
+        let readEndOffset = min(
+            fileEndOffset,
+            UInt64(maximumBytes ?? Int.max)
+        )
 
         var lineData = Data()
         lineData.reserveCapacity(min(chunkSize, maximumRecordBytes))
@@ -77,8 +129,11 @@ struct SessionIndexJSONLReader: Sendable {
             return shouldStop
         }
 
-        while maximumBytes.map({ bytesRead < $0 }) != false, !Task.isCancelled {
-            let readCount = maximumBytes.map { min(chunkSize, $0 - bytesRead) } ?? chunkSize
+        while UInt64(bytesRead) < readEndOffset, !Task.isCancelled {
+            let readCount = Int(min(
+                UInt64(chunkSize),
+                readEndOffset - UInt64(bytesRead)
+            ))
             let chunk = (try? handle.read(upToCount: readCount)) ?? Data()
             if chunk.isEmpty {
                 break
@@ -120,12 +175,30 @@ struct SessionIndexJSONLReader: Sendable {
         endingBeforeOffset: UInt64? = nil,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
-        guard maxBytes > 0, let handle = regularFileHandle(forReadingFrom: url) else {
+        guard maxBytes > 0 else {
             return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
         }
-        defer { try? handle.close() }
+        return withFileSnapshot(url: url) { handle, fileEndOffset in
+            fromTail(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytes: maxBytes,
+                endingBeforeOffset: endingBeforeOffset,
+                body: body
+            )
+        } ?? SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+    }
 
-        let fileEndOffset = (try? handle.seekToEnd()) ?? 0
+    func fromTail(
+        fileHandle handle: FileHandle,
+        fileEndOffset: UInt64,
+        maxBytes: Int,
+        endingBeforeOffset: UInt64? = nil,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        guard maxBytes > 0 else {
+            return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+        }
         let pageEndOffset = min(endingBeforeOffset ?? fileEndOffset, fileEndOffset)
         guard pageEndOffset > 0 else {
             return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
@@ -142,7 +215,11 @@ struct SessionIndexJSONLReader: Sendable {
             readStartOffset = 0
         }
 
-        try? handle.seek(toOffset: readStartOffset)
+        do {
+            try handle.seek(toOffset: readStartOffset)
+        } catch {
+            return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+        }
         let readCount = Int(pageEndOffset - readStartOffset)
         let data = (try? handle.read(upToCount: readCount)) ?? Data()
         let payload = includesBoundaryContext ? data.dropFirst() : data[...]
@@ -237,6 +314,31 @@ struct SessionIndexJSONLReader: Sendable {
         maximumPageCount: Int? = nil,
         body: ([String: Any]) -> Bool
     ) -> SessionIndexJSONLReadMetrics {
+        guard maxBytesPerPage > 0 else {
+            return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+        }
+        return withFileSnapshot(url: url) { handle, fileEndOffset in
+            fromTailPages(
+                fileHandle: handle,
+                fileEndOffset: fileEndOffset,
+                maxBytesPerPage: maxBytesPerPage,
+                maximumPageCount: maximumPageCount,
+                body: body
+            )
+        } ?? SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+    }
+
+    @discardableResult
+    func fromTailPages(
+        fileHandle: FileHandle,
+        fileEndOffset: UInt64,
+        maxBytesPerPage: Int,
+        maximumPageCount: Int? = nil,
+        body: ([String: Any]) -> Bool
+    ) -> SessionIndexJSONLReadMetrics {
+        guard maxBytesPerPage > 0 else {
+            return SessionIndexJSONLReadMetrics(bytesRead: 0, recordsVisited: 0)
+        }
         var endOffset: UInt64?
         var bytesRead = 0
         var recordsVisited = 0
@@ -248,7 +350,8 @@ struct SessionIndexJSONLReader: Sendable {
 
         repeat {
             let page = fromTail(
-                url: url,
+                fileHandle: fileHandle,
+                fileEndOffset: fileEndOffset,
                 maxBytes: maxBytesPerPage,
                 endingBeforeOffset: endOffset
             ) { object in
@@ -280,7 +383,9 @@ struct SessionIndexJSONLReader: Sendable {
         )
     }
 
-    private func regularFileHandle(forReadingFrom url: URL) -> FileHandle? {
+    private func regularFileSnapshot(
+        forReadingFrom url: URL
+    ) -> (handle: FileHandle, endOffset: UInt64)? {
         let descriptor = url.withUnsafeFileSystemRepresentation { path -> Int32 in
             guard let path else { return -1 }
             return Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
@@ -289,11 +394,15 @@ struct SessionIndexJSONLReader: Sendable {
 
         var status = stat()
         guard Darwin.fstat(descriptor, &status) == 0,
-              status.st_mode & S_IFMT == S_IFREG else {
+              status.st_mode & S_IFMT == S_IFREG,
+              status.st_size >= 0 else {
             Darwin.close(descriptor)
             return nil
         }
-        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        return (
+            FileHandle(fileDescriptor: descriptor, closeOnDealloc: true),
+            UInt64(status.st_size)
+        )
     }
 
     private static func visit(

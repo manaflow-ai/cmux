@@ -120,7 +120,10 @@ struct AgentConversationForkTarget: Equatable, Hashable, Identifiable, Sendable 
                       executablePath: candidate.executableURL.path,
                       runtimeSearchPath: candidate.runtimeSearchPath
                   ),
-                  identityAfterProbe == identityBeforeProbe else {
+                  identityAfterProbe == identityBeforeProbe,
+                  AgentConversationForkExecutableBinding(
+                      identity: identityAfterProbe
+                  ) != nil else {
                 continue
             }
             return AgentConversationForkTarget(
