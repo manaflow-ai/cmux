@@ -35,9 +35,6 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
         let noProgressStatus = SSHPTYAttachExitCode.bridgeClosedWithoutProgress.rawValue
         let sessionRunningStatus = SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue
         let transientStatus = SSHPTYAttachExitCode.retryableTransient.rawValue
-        let completedAuthenticationCleanup = reauthenticates
-            ? "cmux_ssh_terminate_owned_auth_group"
-            : ":"
         let publishedAuthenticationCleanup = reauthenticates
             ? "if [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then cmux_ssh_terminate_owned_auth_group; if [ -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then cmux_ssh_launch_owned_auth_group_reaper \"$CMUX_SSH_AUTH_GROUP_DIR\"; fi; fi"
             : ":"
@@ -74,7 +71,7 @@ public struct SSHPTYAttachRetryScriptBuilder: Sendable {
             "    cmux_ssh_attach_auth_pid=$!",
             "    cmux_ssh_attach_auth_launching=0",
             "    if [ -n \"${cmux_ssh_attach_pending_signal:-}\" ]; then cmux_ssh_attach_signal_exit \"$cmux_ssh_attach_pending_signal\" \"${cmux_ssh_attach_pending_signal_name:-TERM}\"; fi",
-            "    wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; cmux_ssh_attach_auth_pid=; \(completedAuthenticationCleanup); cmux_ssh_attach_remove_auth_group_dir",
+            "    wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_dir",
             "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; cmux_ssh_attach_auth_retry=0; else case \"$cmux_ssh_attach_status\" in 254) cmux_ssh_attach_auth_retry=$((cmux_ssh_attach_auth_retry + 1)); if [ \"$cmux_ssh_attach_auth_retry\" -ge \"$cmux_ssh_attach_auth_retry_limit\" ]; then exit 255; fi ;; \(authPolicy.unclassifiedFailureExitStatus)) exit 255 ;; *) exit \"$cmux_ssh_attach_status\" ;; esac; fi",
             "  fi",
             "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",

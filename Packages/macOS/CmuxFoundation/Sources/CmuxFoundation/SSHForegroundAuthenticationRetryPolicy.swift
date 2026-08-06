@@ -84,6 +84,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "ordered",
             "signaled.groups",
             "signaled.pids",
+            "reaper.failed",
+            "reaper.failed.new",
         ]
         let arguments = fileNames
             .map { "\"$CMUX_SSH_AUTH_GROUP_DIR/\($0)\"" }
@@ -120,13 +122,31 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             trap '' HUP INT TERM
             CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_reaper_group_dir"
             export CMUX_SSH_AUTH_GROUP_DIR
-            while [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; do
+            cmux_ssh_auth_reaper_attempt=0
+            cmux_ssh_auth_reaper_delay=1
+            while [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ] && \
+              [ "$cmux_ssh_auth_reaper_attempt" -lt 3 ]; do
+              cmux_ssh_auth_reaper_attempt=$((cmux_ssh_auth_reaper_attempt + 1))
               cmux_ssh_terminate_owned_auth_group
               if [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then break; fi
-              /bin/sleep 0.1
+              if [ "$cmux_ssh_auth_reaper_attempt" -lt 3 ]; then
+                /bin/sleep "$cmux_ssh_auth_reaper_delay"
+                cmux_ssh_auth_reaper_delay=$((cmux_ssh_auth_reaper_delay * 2))
+              fi
             done
+            if [ -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+              printf 'cleanup-incomplete attempts=%s\n' "$cmux_ssh_auth_reaper_attempt" \
+                > "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" 2>/dev/null || true
+              /bin/mv -f -- "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" \
+                "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" 2>/dev/null || true
+            else
+              /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" \
+                "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" 2>/dev/null || true
+            fi
             /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
-            /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
+            if [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+              /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
+            fi
           ) </dev/null >/dev/null 2>&1 &
         }
 
@@ -152,6 +172,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_ordered_processes="$cmux_ssh_auth_group_dir/ordered"
           cmux_ssh_auth_signaled_groups="$cmux_ssh_auth_group_dir/signaled.groups"
           cmux_ssh_auth_signaled_processes="$cmux_ssh_auth_group_dir/signaled.pids"
+          cmux_ssh_auth_reaper_failed="$cmux_ssh_auth_group_dir/reaper.failed"
+          cmux_ssh_auth_reaper_failed_publish="$cmux_ssh_auth_group_dir/reaper.failed.new"
           cmux_ssh_auth_remove_cancel=0
           cmux_ssh_auth_cleanup_started=0
           cmux_ssh_auth_cleanup_complete=0
@@ -181,6 +203,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_resume_groups" "$cmux_ssh_auth_frozen_processes" \
               "$cmux_ssh_auth_individual_processes" "$cmux_ssh_auth_ordered_processes" \
               "$cmux_ssh_auth_signaled_groups" "$cmux_ssh_auth_signaled_processes" \
+              "$cmux_ssh_auth_reaper_failed" "$cmux_ssh_auth_reaper_failed_publish" \
               2>/dev/null || true
             if [ "$cmux_ssh_auth_remove_cancel" = 1 ]; then
               /bin/rm -f -- "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || true
@@ -290,7 +313,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// `-e` flag is intentionally omitted for macOS 14.
     /// This keeps interactive prompts visible and terminal-aware without
     /// allowing a noisy remote command to grow memory or a diagnostic file.
-    /// Temporary state is removed on normal completion and signals.
+    /// When the caller supplies an owned-group directory, completion hands its
+    /// live identity to the enclosing retry wrapper for bounded final cleanup.
     ///
     /// The command must contain only the foreground authentication attempt and
     /// its required preflight, lock, and cleanup work. Callers execute unrelated
@@ -315,6 +339,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_group_published=0",
             "cmux_ssh_auth_group_cleanup() {",
             "  trap - EXIT HUP INT TERM",
+            "  if [ \"$cmux_ssh_auth_group_published\" = 1 ]; then return; fi",
             "  if [ -n \"${cmux_ssh_auth_group_anchor_pid:-}\" ]; then",
             "    /bin/kill -KILL \"$cmux_ssh_auth_group_anchor_pid\" >/dev/null 2>&1 || true",
             "    wait \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null || true",
@@ -325,6 +350,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  fi",
             "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_anchor_fifo\" \"$cmux_ssh_auth_group_file\" \"$cmux_ssh_auth_group_cancel_file\" 2>/dev/null || true",
             "  /bin/rmdir \"$cmux_ssh_auth_group_dir\" 2>/dev/null || true",
+            "}",
+            "cmux_ssh_auth_group_handoff() {",
+            "  trap - EXIT HUP INT TERM",
+            "  if [ -n \"${cmux_ssh_auth_group_anchor_guard_fd:-}\" ]; then",
+            "    exec {cmux_ssh_auth_group_anchor_guard_fd}>&-",
+            "    cmux_ssh_auth_group_anchor_guard_fd=",
+            "  fi",
+            "  /bin/rm -f -- \"$cmux_ssh_auth_group_publish_file\" 2>/dev/null || true",
             "}",
             "cmux_ssh_auth_group_signal_exit() {",
             "  cmux_ssh_auth_group_signal_status=\"$1\"",
@@ -343,7 +376,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
             "/usr/bin/mkfifo \"$cmux_ssh_auth_group_anchor_fifo\" || exit 255",
             "exec {cmux_ssh_auth_group_anchor_guard_fd}<> \"$cmux_ssh_auth_group_anchor_fifo\" || exit 255",
-            "( trap '' HUP INT TERM; while IFS= read -r cmux_ssh_auth_group_anchor_input; do :; done < \"$cmux_ssh_auth_group_anchor_fifo\" ) &",
+            "( trap '' HUP INT TERM; while IFS= read -r cmux_ssh_auth_group_anchor_input; do :; done ) < \"$cmux_ssh_auth_group_anchor_fifo\" >/dev/null 2>&1 &",
             "cmux_ssh_auth_group_anchor_pid=$!",
             "cmux_ssh_auth_supervisor_group=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -p \"$$\" 2>/dev/null | /usr/bin/tr -d '[:space:]')",
             "cmux_ssh_auth_anchor_identity=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -o state= -o lstart= -p \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null | /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ { print $1 \"|\" $3 \"_\" $4 \"_\" $5 \"_\" $6 \"_\" $7 }')",
@@ -359,8 +392,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "unset CMUX_SSH_AUTH_GROUP_DIR",
             "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))",
             "cmux_ssh_auth_group_status=$?",
-            "trap - HUP INT TERM",
-            "cmux_ssh_auth_group_cleanup",
+            "cmux_ssh_auth_group_handoff",
             "exit \"$cmux_ssh_auth_group_status\"",
         ].joined(separator: "\n")
         let nestedCommand = "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(ownedGroupCommand))"

@@ -27,6 +27,8 @@ struct SSHPTYAttachRetryScriptBuilderTests {
             "ordered",
             "signaled.groups",
             "signaled.pids",
+            "reaper.failed",
+            "reaper.failed.new",
         ]
 
         for stateFileName in stateFileNames {
@@ -34,8 +36,7 @@ struct SSHPTYAttachRetryScriptBuilderTests {
         }
         #expect(script.contains(
             "wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; " +
-                "cmux_ssh_attach_auth_pid=; cmux_ssh_terminate_owned_auth_group; " +
-                "cmux_ssh_attach_remove_auth_group_dir"
+                "cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_dir"
         ))
     }
 
