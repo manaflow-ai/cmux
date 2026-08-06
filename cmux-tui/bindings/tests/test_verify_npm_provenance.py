@@ -233,6 +233,86 @@ class VerifyNpmProvenanceTests(unittest.TestCase):
         for name in environment:
             self.assertNotIn("TOKEN", name.upper())
 
+    def test_accepts_all_required_bootstrap_dist_tags(self) -> None:
+        metadata = self.metadata()
+        metadata["dist-tags"]["latest"] = self.version
+        completed = (
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                [],
+                0,
+                stdout=json.dumps({"invalid": [], "missing": []}),
+                stderr="",
+            ),
+        )
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(metadata=metadata),
+        ), mock.patch.object(
+            provenance.subprocess,
+            "run",
+            side_effect=completed,
+        ):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+                required_dist_tags=("latest",),
+                **self.verification_options(),
+            )
+
+    def test_accepts_a_stable_latest_tag_after_bootstrap(self) -> None:
+        metadata = self.metadata()
+        metadata["dist-tags"]["latest"] = "1.0.0"
+        completed = (
+            subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+            subprocess.CompletedProcess(
+                [],
+                0,
+                stdout=json.dumps({"invalid": [], "missing": []}),
+                stderr="",
+            ),
+        )
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(metadata=metadata),
+        ), mock.patch.object(
+            provenance.subprocess,
+            "run",
+            side_effect=completed,
+        ):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+                required_dist_tags=("latest",),
+                **self.verification_options(),
+            )
+
+    def test_rejects_a_missing_required_bootstrap_dist_tag(self) -> None:
+        with mock.patch.object(
+            provenance,
+            "urlopen",
+            side_effect=self.registry_response(),
+        ), mock.patch.object(provenance.subprocess, "run") as run, \
+            self.assertRaisesRegex(provenance.ProvenanceError, "dist-tag"):
+            provenance.verify(
+                self.package,
+                self.version,
+                self.repository_url,
+                self.repository_directory,
+                self.artifact,
+                required_dist_tags=("latest",),
+                **self.verification_options(),
+            )
+        run.assert_not_called()
+
     def test_accepts_matching_sha512_in_multi_entry_sri(self) -> None:
         metadata = self.metadata()
         metadata["versions"][self.version]["dist"]["integrity"] = (
