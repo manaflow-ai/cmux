@@ -194,6 +194,12 @@ extension Workspace {
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
+        beginPaneGeometryChangeBatch()
+        defer {
+            endPaneGeometryChangeBatch(
+                finalSnapshot: bonsplitController.layoutSnapshot()
+            )
+        }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
         defer { sessionRestoreIdentityExclusions.endRestore() }
 
@@ -2467,6 +2473,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// consumed by that overlay, so publishing every frame through the whole
     /// Workspace would only rebuild mounted pane content during relayouts.
     private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    /// Session restore performs many synchronous Bonsplit mutations. Coalescing
+    /// their delegate callbacks prevents a full pane-order scan and app-wide
+    /// geometry publication after every restored tab.
+    private var paneGeometryChangeBatchDepth = 0
+    private var pendingPaneGeometryChangeSnapshot: LayoutSnapshot?
     @Published private(set) var tmuxWorkspaceFlashPanelId: UUID?
     @Published private(set) var tmuxWorkspaceFlashReason: WorkspaceAttentionFlashReason?
     @Published private(set) var tmuxWorkspaceFlashToken: UInt64 = 0
@@ -13344,6 +13355,29 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
+        tmuxLayoutSnapshot = snapshot
+        guard paneGeometryChangeBatchDepth == 0 else {
+            pendingPaneGeometryChangeSnapshot = snapshot
+            return
+        }
+        publishPaneGeometryChange(snapshot)
+    }
+
+    private func beginPaneGeometryChangeBatch() {
+        paneGeometryChangeBatchDepth += 1
+    }
+
+    private func endPaneGeometryChangeBatch(finalSnapshot: LayoutSnapshot) {
+        precondition(paneGeometryChangeBatchDepth > 0)
+        paneGeometryChangeBatchDepth -= 1
+        guard paneGeometryChangeBatchDepth == 0 else { return }
+
+        let snapshot = pendingPaneGeometryChangeSnapshot ?? finalSnapshot
+        pendingPaneGeometryChangeSnapshot = nil
+        publishPaneGeometryChange(snapshot)
+    }
+
+    private func publishPaneGeometryChange(_ snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
         NotificationCenter.default.post(
             name: .workspacePaneGeometryDidChange,
