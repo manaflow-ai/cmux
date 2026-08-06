@@ -37,12 +37,37 @@ struct OpenCodeSessionResolverTests {
     }
 
     @Test
+    func tildeCapturedDatabasePathIsNotTreatedAsKernelProvenance() {
+        let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
+
+        #expect(
+            resolver.capturedDatabasePath(env: [
+                "HOME": "/tmp/custom-home",
+                "CMUX_OPENCODE_DATABASE_PATH": "~/spoofed.db",
+            ]) == "/tmp/custom-home/.local/share/opencode/opencode.db"
+        )
+    }
+
+    @Test
     func explicitRelativeDatabaseUsesOpenCodeDataDirectory() {
         let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
 
         #expect(
             resolver.capturedDatabasePath(env: [
                 "HOME": "/tmp/custom-home",
+                "OPENCODE_DB": "custom.db",
+            ]) == "/tmp/custom-home/.local/share/opencode/custom.db"
+        )
+    }
+
+    @Test
+    func relativeXDGDataHomeIsIgnored() {
+        let resolver = OpenCodeSessionResolver(defaultHomeDirectory: "/tmp/fallback-home")
+
+        #expect(
+            resolver.capturedDatabasePath(env: [
+                "HOME": "/tmp/custom-home",
+                "XDG_DATA_HOME": "relative-data",
                 "OPENCODE_DB": "custom.db",
             ]) == "/tmp/custom-home/.local/share/opencode/custom.db"
         )

@@ -234,6 +234,48 @@ struct SQLiteDatabaseSnapshotServiceTests {
         #expect(FileManager.default.fileExists(atPath: destination.path))
     }
 
+    @Test("Preserves destination sidecars that predate the snapshot call")
+    func preservesPreexistingDestinationSidecars() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        let destinationDirectory = root.appendingPathComponent(
+            "private-destination",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: destinationDirectory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = destinationDirectory.appendingPathComponent(
+            "snapshot.db",
+            isDirectory: false
+        )
+        let preexistingWAL = URL(
+            fileURLWithPath: destination.path + "-wal",
+            isDirectory: false
+        )
+        let marker = Data("unrelated-sidecar".utf8)
+        try makeDatabase(at: source)
+        try marker.write(to: preexistingWAL)
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.sqlite(
+                "snapshot destination sidecars already exist"
+            )
+        ) {
+            try SQLiteDatabaseSnapshotService().copyDatabase(
+                from: source.path,
+                to: destination.path
+            )
+        }
+
+        #expect(try Data(contentsOf: preexistingWAL) == marker)
+        #expect(!FileManager.default.fileExists(atPath: destination.path))
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {

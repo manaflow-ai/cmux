@@ -357,6 +357,46 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func boundExecutableContentsStayFixedAfterValidation() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("grok", isDirectory: false)
+        let marker = directory.appendingPathComponent("mutated-executable-ran", isDirectory: false)
+        try "#!/bin/zsh\nexit 0\n".write(
+            to: executable,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let identity = try #require(AgentConversationForkExecutableIdentity.capture(
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path
+        ))
+        let binding = try #require(AgentConversationForkExecutableBinding(identity: identity))
+        let mutatedScript = "#!/bin/zsh\n/usr/bin/touch \(TerminalStartupShellQuoting.singleQuoted(marker.path))\n"
+        let launchCommand = """
+        /usr/bin/printf '%s' \(TerminalStartupShellQuoting.singleQuoted(mutatedScript)) > \(TerminalStartupShellQuoting.singleQuoted(executable.path))
+        /bin/chmod 755 \(TerminalStartupShellQuoting.singleQuoted(executable.path))
+        \(TerminalStartupShellQuoting.singleQuoted(binding.boundPath))
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", binding.shellCommand(running: launchCommand)]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    @Test
     func executableBindingPrunesOwnedExpiredCrashRemnants() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -1315,6 +1355,91 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func crossHarnessForkRefreshesAuthoritativeSessionAfterExport() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let originalSnapshot = try makeCodexSnapshot(
+            in: fixture,
+            sessionID: "original-session"
+        )
+        let replacementDirectory = fixture.appendingPathComponent(
+            "replacement",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: replacementDirectory,
+            withIntermediateDirectories: true
+        )
+        let replacementSnapshot = try makeCodexSnapshot(
+            in: replacementDirectory,
+            sessionID: "replacement-session"
+        )
+        let transcriptGate = SuspendingTranscriptGate()
+        let exportService = AgentConversationExportService(
+            readerRegistry: AgentConversationReaderRegistry(adapters: [
+                SuspendingSourceAdapter(gate: transcriptGate),
+            ])
+        )
+        let workspace = Workspace()
+        let sourcePanelID = try #require(workspace.focusedPanelId)
+        workspace.setRestoredAgentSnapshotForTesting(
+            originalSnapshot,
+            panelId: sourcePanelID
+        )
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspace.id,
+            panelId: sourcePanelID
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let snapshot = loadCount.withLock { count in
+                    defer { count += 1 }
+                    return count == 0 ? originalSnapshot : replacementSnapshot
+                }
+                let index = RestorableAgentSessionIndex.load(
+                    homeDirectory: fixture.path,
+                    fileManager: .default,
+                    registry: CmuxVaultAgentRegistry(registrations: []),
+                    detectedSnapshots: [
+                        panelKey: (
+                            snapshot: snapshot,
+                            updatedAt: 42,
+                            processIDs: [],
+                            agentProcessIDs: [],
+                            sessionIDSource: .explicit
+                        ),
+                    ]
+                )
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        let forkTask = Task { @MainActor in
+            await workspace.forkAgentConversation(
+                fromPanelId: sourcePanelID,
+                snapshot: originalSnapshot,
+                request: .init(targetHarness: .claude, destination: .right),
+                exportService: exportService,
+                liveAgentIndex: liveAgentIndex
+            )
+        }
+        await transcriptGate.waitUntilReadStarts()
+        await transcriptGate.finishRead()
+
+        #expect(await forkTask.value == false)
+        #expect(loadCount.withLock { $0 } == 2)
+        #expect(workspace.bonsplitController.allPaneIds.count == 1)
+    }
+
+    @Test
     func freshTransferSnapshotRejectsCrossWorkspacePanelAlias() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
@@ -1338,7 +1463,7 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
-    func crossHarnessForkPerformsOneFreshIndexScan() async throws {
+    func crossHarnessForkRefreshesIndexBeforeAndAfterExport() async throws {
         let fixture = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: fixture) }
         let snapshot = try makeCodexSnapshot(in: fixture)
@@ -1364,7 +1489,7 @@ struct AgentConversationCrossHarnessForkTests {
         )
 
         #expect(didFork)
-        #expect(loadCount.withLock { $0 } == 1)
+        #expect(loadCount.withLock { $0 } == 2)
     }
 
     @Test

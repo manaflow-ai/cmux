@@ -130,4 +130,30 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(selected.isEmpty)
     }
+
+    @Test("Drops relative OpenCode storage replay with a relative XDG root")
+    func dropsRelativeOpenCodeStorageReplayWithRelativeXDGRoot() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "XDG_DATA_HOME": "relative-data",
+                "OPENCODE_DB": "custom.db",
+            ],
+            kind: "opencode"
+        )
+
+        #expect(selected.isEmpty)
+    }
+
+    @Test("Drops tilde OpenCode storage replay without a captured home")
+    func dropsTildeOpenCodeStorageReplayWithoutCapturedHome() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
+            from: [
+                "XDG_DATA_HOME": "~/custom-data",
+                "OPENCODE_DB": "custom.db",
+            ],
+            kind: "opencode"
+        )
+
+        #expect(selected.isEmpty)
+    }
 }
