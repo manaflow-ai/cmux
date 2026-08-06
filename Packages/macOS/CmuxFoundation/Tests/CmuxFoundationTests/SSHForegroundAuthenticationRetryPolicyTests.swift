@@ -925,6 +925,81 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
+    @Test func recoverySweepReclaimsPublishedOrphanAndSkipsLivePublisher() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-published-recovery-\(UUID().uuidString)", isDirectory: true)
+        let orphanDirectory = root.appendingPathComponent("cmux-ssh-auth-group.orphan", isDirectory: true)
+        let liveDirectory = root.appendingPathComponent("cmux-ssh-auth-group.live", isDirectory: true)
+        let callsFile = root.appendingPathComponent("calls")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: orphanDirectory)
+        try createSecureGroupDirectory(at: liveDirectory)
+        for directory in [orphanDirectory, liveDirectory] {
+            try "999999|888888|Thu_Jan_1_00:00:00_1970\n".write(
+                to: directory.appendingPathComponent("identity"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_test_live_publisher_identity=$(cmux_ssh_auth_identity "$$") || exit 98
+        printf '%s|%s\n' "$$" "$cmux_test_live_publisher_identity" \
+          > "$CMUX_TEST_LIVE_GROUP/publisher" || exit 97
+        cmux_ssh_terminate_owned_auth_group() {
+          /usr/bin/basename "$CMUX_SSH_AUTH_GROUP_DIR" >> "$CMUX_TEST_RECOVERY_CALLS"
+          /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity" \
+            "$CMUX_SSH_AUTH_GROUP_DIR/publisher" 2>/dev/null || true
+        }
+        CMUX_SSH_AUTH_GROUP_DIR=
+        export CMUX_SSH_AUTH_GROUP_DIR
+        cmux_ssh_resume_failed_auth_group_reapers || exit 96
+        wait
+        test "$(/bin/cat "$CMUX_TEST_RECOVERY_CALLS" 2>/dev/null)" = \
+          "cmux-ssh-auth-group.orphan" || exit 95
+        test -s "$CMUX_TEST_LIVE_GROUP/identity" || exit 94
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_TEST_LIVE_GROUP": liveDirectory.path,
+            "CMUX_TEST_RECOVERY_CALLS": callsFile.path,
+            "TMPDIR": root.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test func anchorValidationFailurePreservesPublishedOwnershipState() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-validation-preserve-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "999999|888888|Thu_Jan_1_00:00:00_1970\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() { return 1; }
+        cmux_ssh_terminate_owned_auth_group 777777
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+        ])
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func laterRecoverySweepReclaimsDeadReaperLockOwner() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
