@@ -922,7 +922,7 @@ fn visit_strings(value: &Value, predicate: &mut impl FnMut(&str) -> bool) -> boo
 
 fn hook_command(provider: &str, event: &str) -> String {
     format!(
-        "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null || :; printf '{{}}\\n' # {COMMAND_MARKER}",
+        "\"${{CMUX_TUI_HOOK:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
     )
@@ -1034,7 +1034,7 @@ mod tests {
         assert!(text.contains("CMUX_TUI_HOOK"));
         assert!(!text.contains(&context.installed_helper().to_string_lossy().to_string()));
         let parsed: Value = serde_json::from_str(&text).unwrap();
-        assert!(visit_strings(&parsed, &mut |value| value.contains("printf '{}\\n'")));
+        assert!(visit_strings(&parsed, &mut |value| value.contains("echo {};")));
 
         let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
         let result = run_with_context(&uninstall, &context);
