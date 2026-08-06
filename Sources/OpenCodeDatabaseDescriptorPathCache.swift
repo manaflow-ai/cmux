@@ -44,9 +44,27 @@ actor OpenCodeDatabaseDescriptorPathCache {
             processIdentity: processIdentity,
             environment: environment
         )
-        if let pendingProbe = pendingProbes[key] {
-            pendingProbeObserver?(reuseCompletedResult)
-            return await pendingProbe.task.value
+        if reuseCompletedResult,
+           let pendingProbe = pendingProbes[key] {
+            pendingProbeObserver?(true)
+            let path = await pendingProbe.task.value
+            guard !Task.isCancelled,
+                  AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
+                return nil
+            }
+            return path
+        }
+        while !reuseCompletedResult,
+              let pendingProbe = pendingProbes[key] {
+            pendingProbeObserver?(false)
+            _ = await pendingProbe.task.value
+            if pendingProbes[key]?.id == pendingProbe.id {
+                pendingProbes.removeValue(forKey: key)
+            }
+            guard !Task.isCancelled,
+                  AgentPIDProcessIdentity(pid: pid_t(processID)) == processIdentity else {
+                return nil
+            }
         }
         let now = Date()
         if reuseCompletedResult,
