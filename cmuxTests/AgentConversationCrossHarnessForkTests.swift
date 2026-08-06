@@ -438,6 +438,38 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func executableBindingSupportsRootManagedReadOnlyPrefixes() throws {
+        let executablePath = "/usr/bin/true"
+        let identity = try #require(AgentConversationForkExecutableIdentity.capture(
+            executablePath: executablePath,
+            runtimeSearchPath: "/usr/bin",
+            hashContents: true
+        ))
+        let binding = try #require(AgentConversationForkExecutableBinding(identity: identity))
+        defer { binding.removeArtifacts() }
+
+        #expect(binding.boundPath == identity.realPath)
+        #expect(binding.materializeImmutableCopy())
+        #expect(binding.boundArtifactIsValid())
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [
+            "-lc",
+            binding.shellCommand(
+                running: TerminalStartupShellQuoting.singleQuoted(binding.boundPath)
+            ),
+        ]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+    }
+
+    @Test
     func boundExecutableContentsStayFixedAfterValidation() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
