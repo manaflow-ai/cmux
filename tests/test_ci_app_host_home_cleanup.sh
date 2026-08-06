@@ -128,6 +128,39 @@ if [ -e "$MISSING_XDG_HOME" ]; then
   exit 1
 fi
 
+for mutated_xdg_kind in regular-file dangling-symlink; do
+  case "$mutated_xdg_kind" in
+    regular-file) MUTATED_XDG_HOME="$RUNNER_TEMP_DIR/ah-112233445566" ;;
+    dangling-symlink) MUTATED_XDG_HOME="$RUNNER_TEMP_DIR/ah-66778899aabb" ;;
+  esac
+  mkdir -p "$MUTATED_XDG_HOME"
+  if [ "$mutated_xdg_kind" = "regular-file" ]; then
+    printf 'corrupt\n' > "$MUTATED_XDG_HOME/.config"
+  else
+    ln -s "$TMP_DIR/missing-xdg-target" "$MUTATED_XDG_HOME/.config"
+  fi
+
+  set +e
+  PATH="$FAKE_BIN:$PATH" \
+  CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1 \
+  CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+  CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
+  CMUX_APP_HOST_HOME="$MUTATED_XDG_HOME" \
+  CMUX_APP_HOST_XDG_CONFIG_HOME="$MUTATED_XDG_HOME/.config" \
+  GITHUB_WORKSPACE="$ROOT_DIR" \
+    bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+      scripts/ci/cleanup-app-host-home.sh \
+      >"$TMP_DIR/$mutated_xdg_kind-cleanup.log" 2>&1
+  mutated_xdg_status=$?
+  set -e
+  if [ "$mutated_xdg_status" -ne 0 ] || [ -e "$MUTATED_XDG_HOME" ]; then
+    cat "$TMP_DIR/$mutated_xdg_kind-cleanup.log"
+    echo "FAIL: cleanup must remove a home whose XDG child is a $mutated_xdg_kind"
+    exit 1
+  fi
+done
+
 INVALID_HOME="$RUNNER_TEMP_DIR/not-an-app-host-home"
 mkdir -p "$INVALID_HOME/.config"
 printf 'keep\n' > "$INVALID_HOME/sentinel"
