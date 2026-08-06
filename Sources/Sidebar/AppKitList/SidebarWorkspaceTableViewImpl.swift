@@ -90,7 +90,9 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
     }
 
     override func draggingEnded(_ sender: any NSDraggingInfo) {
-        super.draggingEnded(sender)
+        // `draggingEnded:` is an optional drag-destination callback. Some
+        // NSTableView implementations do not install a superclass selector,
+        // so forwarding it raises an unrecognized-selector exception.
         workspaceController?.reorderDropSessionEnded()
     }
 
