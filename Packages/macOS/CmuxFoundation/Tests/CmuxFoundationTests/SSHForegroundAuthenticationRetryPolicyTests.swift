@@ -308,7 +308,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-cleanup-failure-\(UUID().uuidString)", isDirectory: true)
         let leafScript = root.appendingPathComponent("leaf.sh")
+        let cleanupWorkerScript = root.appendingPathComponent("cleanup-worker.sh")
+        let cleanupWorkerPIDFile = root.appendingPathComponent("cleanup-worker.pid")
         let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let reaperPIDFile = root.appendingPathComponent("reaper.pid")
         let observedProcessFile = root.appendingPathComponent("observed-process")
         let snapshotPermissionFile = root.appendingPathComponent("snapshot-permission")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
@@ -329,7 +332,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: "/usr/bin/script -q /dev/null /bin/sh \"$CMUX_TEST_LEAF_SCRIPT\""
         )
-        let command = """
+        try """
+        #!/bin/sh
+        printf '%s\n' "$$" > "$CMUX_TEST_CLEANUP_WORKER_PID" || exit 99
         \(policy.processTreeTerminationShellFunction())
         cmux_ssh_auth_take_process_snapshot() {
           if [ "$(/bin/cat "$CMUX_TEST_SNAPSHOT_PERMISSION")" != 1 ]; then return 1; fi
@@ -353,17 +358,33 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           -p "$cmux_test_leaf_pid" 2>/dev/null || true)
         case "$cmux_test_leaf_state" in *T*) exit 94 ;; esac
         cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR" || exit 93
+        printf '%s\n' "$!" > "$CMUX_TEST_REAPER_PID" || exit 92
+        trap - EXIT
+        """.write(to: cleanupWorkerScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cleanupWorkerScript.path)
+
+        let command = """
+        /bin/zsh "$CMUX_TEST_CLEANUP_WORKER" || exit 99
+        cmux_test_cleanup_worker_pid=$(/bin/cat "$CMUX_TEST_CLEANUP_WORKER_PID") || exit 98
+        /bin/kill -0 "$cmux_test_cleanup_worker_pid" >/dev/null 2>&1 && exit 97
+        test -s "$CMUX_TEST_REAPER_PID" || exit 98
         printf '%s\n' 1 > "$CMUX_TEST_SNAPSHOT_PERMISSION" || exit 93
+        cmux_test_leaf_pid=$(/bin/cat "$CMUX_TEST_LEAF_PID") || exit 92
+        cmux_test_reaper_pid=$(/bin/cat "$CMUX_TEST_REAPER_PID") || exit 91
         cmux_test_reaper_attempt=0
         while { /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 || \
-          [ -d "$CMUX_SSH_AUTH_GROUP_DIR" ]; } && \
-          [ "$cmux_test_reaper_attempt" -lt 500 ]; do
+          [ -d "$CMUX_SSH_AUTH_GROUP_DIR" ] || \
+          /bin/kill -0 "$cmux_test_reaper_pid" >/dev/null 2>&1; } && \
+          [ "$cmux_test_reaper_attempt" -lt 600 ]; do
           /bin/sleep 0.01
           cmux_test_reaper_attempt=$((cmux_test_reaper_attempt + 1))
         done
         /usr/bin/env LC_ALL=C LANG=C /bin/ps -o pid=,ppid=,pgid=,state=,lstart= \
           -p "$(/bin/cat "$CMUX_TEST_LEAF_PID")" > "$CMUX_TEST_OBSERVED_PROCESS" 2>/dev/null || true
-        trap - EXIT
+        /bin/kill -0 "$cmux_test_leaf_pid" >/dev/null 2>&1 && exit 90
+        test ! -d "$CMUX_SSH_AUTH_GROUP_DIR" || exit 89
+        /bin/kill -0 "$cmux_test_reaper_pid" >/dev/null 2>&1 && exit 88
+        exit 0
         """
 
         let process = Process()
@@ -371,7 +392,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_CLEANUP_WORKER": cleanupWorkerScript.path,
+            "CMUX_TEST_CLEANUP_WORKER_PID": cleanupWorkerPIDFile.path,
             "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_REAPER_PID": reaperPIDFile.path,
             "CMUX_TEST_OBSERVED_PROCESS": observedProcessFile.path,
             "CMUX_TEST_SNAPSHOT_PERMISSION": snapshotPermissionFile.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
@@ -383,7 +407,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.standardError = stderrCapture.handle
 
         try process.run()
-        try waitForExit(process, stderrCapture: stderrCapture)
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 20)
 
         let leafPID = try #require(Int32(
             String(contentsOf: leafPIDFile, encoding: .utf8)
@@ -395,7 +419,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
-        #expect(process.terminationStatus == 0)
+        #expect(
+            process.terminationStatus == 0,
+            "Cleanup supervisor failed: \((try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? "missing")"
+        )
         #expect(
             Darwin.kill(leafPID, 0) != 0,
             "Cleanup failure left: \((try? String(contentsOf: observedProcessFile, encoding: .utf8)) ?? "missing")"
