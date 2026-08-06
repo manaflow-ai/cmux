@@ -52,6 +52,17 @@ struct CreatedTerminalEffect {
     path: Value,
 }
 
+#[derive(Default)]
+struct ResourceCloseInputs {
+    surface_ids: Vec<SurfaceId>,
+    delta: Option<TreeDelta>,
+    changed_screens: Vec<ScreenId>,
+    workspace_metadata: Option<(WorkspaceId, usize, String)>,
+    terminal_runtime: Option<Arc<Surface>>,
+    terminal_batch: Vec<(String, Option<String>)>,
+    terminal_public_id: Option<TerminalPublicId>,
+}
+
 struct ResourceClosePlan {
     state: State,
     removed: Vec<Arc<Surface>>,
@@ -2508,7 +2519,7 @@ impl Mux {
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
-        let (
+        let ResourceCloseInputs {
             surface_ids,
             mut delta,
             changed_screens,
@@ -2516,7 +2527,7 @@ impl Mux {
             terminal_runtime,
             terminal_batch,
             terminal_public_id,
-        ) = match operation {
+        } = match operation {
             ResourceOperation::WorkspaceClose => {
                 let workspace = slots.workspace.context("workspace disappeared")?;
                 let index = state.workspace_index(workspace).context("workspace disappeared")?;
@@ -2529,15 +2540,13 @@ impl Mux {
                 let screens = item.screens.iter().map(|screen| screen.id).collect::<Vec<_>>();
                 let delta = close_workspace_delta(state, notifications, workspace)
                     .context("workspace close target has no tree delta")?;
-                (
-                    surfaces,
-                    Some(delta),
-                    screens,
-                    Some((workspace, index, item.key.clone())),
-                    None,
-                    Vec::new(),
-                    None,
-                )
+                ResourceCloseInputs {
+                    surface_ids: surfaces,
+                    delta: Some(delta),
+                    changed_screens: screens,
+                    workspace_metadata: Some((workspace, index, item.key.clone())),
+                    ..Default::default()
+                }
             }
             ResourceOperation::ScreenClose => {
                 let screen = slots.screen.context("screen disappeared")?;
@@ -2557,7 +2566,12 @@ impl Mux {
                     screen_tabs(state, &state.workspaces[workspace_index].screens[screen_index]);
                 let delta = close_screen_delta(state, notifications, screen)
                     .context("screen close target has no tree delta")?;
-                (surfaces, Some(delta), vec![screen], None, None, Vec::new(), None)
+                ResourceCloseInputs {
+                    surface_ids: surfaces,
+                    delta: Some(delta),
+                    changed_screens: vec![screen],
+                    ..Default::default()
+                }
             }
             ResourceOperation::PaneClose => {
                 let pane = slots.pane.context("pane disappeared")?;
@@ -2567,14 +2581,24 @@ impl Mux {
                         .context("pane has no screen")?;
                 let delta = close_pane_delta(state, notifications, pane)
                     .context("pane close target has no tree delta")?;
-                (surfaces, Some(delta), vec![screen], None, None, Vec::new(), None)
+                ResourceCloseInputs {
+                    surface_ids: surfaces,
+                    delta: Some(delta),
+                    changed_screens: vec![screen],
+                    ..Default::default()
+                }
             }
             ResourceOperation::TabClose => {
                 let surface = slots.tab.context("tab disappeared")?;
                 let screen = surface_screen_id(state, surface).context("tab has no screen")?;
                 let delta = close_surface_delta(state, notifications, surface)
                     .context("tab close target has no tree delta")?;
-                (vec![surface], Some(delta), vec![screen], None, None, Vec::new(), None)
+                ResourceCloseInputs {
+                    surface_ids: vec![surface],
+                    delta: Some(delta),
+                    changed_screens: vec![screen],
+                    ..Default::default()
+                }
             }
             ResourceOperation::TerminalClose => {
                 let surface = slots.tab.context("terminal disappeared")?;
@@ -2595,15 +2619,14 @@ impl Mux {
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
                 );
-                (
-                    placements,
-                    None,
-                    screens,
-                    None,
-                    Some(runtime),
-                    vec![(host.terminal_id, Some(host.incarnation))],
-                    Some(public_id),
-                )
+                ResourceCloseInputs {
+                    surface_ids: placements,
+                    changed_screens: screens,
+                    terminal_runtime: Some(runtime),
+                    terminal_batch: vec![(host.terminal_id, Some(host.incarnation))],
+                    terminal_public_id: Some(public_id),
+                    ..Default::default()
+                }
             }
             _ => anyhow::bail!("operation is not a topology close"),
         };
