@@ -312,6 +312,7 @@ impl Direction {
 pub struct SplitOptions {
     pub direction: Direction,
     pub ratio: Option<f64>,
+    pub viewport_width: Option<f64>,
     pub cwd: Option<String>,
     pub size: Option<Size>,
     pub correlation_key: Option<String>,
@@ -319,7 +320,19 @@ pub struct SplitOptions {
 
 impl SplitOptions {
     pub fn new(direction: Direction) -> Self {
-        Self { direction, ratio: None, cwd: None, size: None, correlation_key: None }
+        Self {
+            direction,
+            ratio: None,
+            viewport_width: None,
+            cwd: None,
+            size: None,
+            correlation_key: None,
+        }
+    }
+
+    pub fn viewport_width(mut self, width: f64) -> Self {
+        self.viewport_width = Some(width);
+        self
     }
 }
 

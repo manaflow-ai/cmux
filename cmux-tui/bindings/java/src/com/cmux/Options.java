@@ -449,12 +449,34 @@ public final class Options {
         Optional<String> cwd,
         Optional<Integer> columns,
         Optional<Integer> rows,
+        Optional<Double> viewportWidth,
         Optional<String> correlationKey
     ) {
         public PaneSplit {
             mutation = mut(mutation); Objects.requireNonNull(direction, "direction");
             ratio = opt(ratio); cwd = opt(cwd); columns = opt(columns); rows = opt(rows);
+            viewportWidth = opt(viewportWidth);
             correlationKey = correlation(correlationKey);
+        }
+        public PaneSplit(
+            Mutation mutation,
+            Direction direction,
+            Optional<Double> ratio,
+            Optional<String> cwd,
+            Optional<Integer> columns,
+            Optional<Integer> rows,
+            Optional<String> correlationKey
+        ) {
+            this(
+                mutation,
+                direction,
+                ratio,
+                cwd,
+                columns,
+                rows,
+                Optional.empty(),
+                correlationKey
+            );
         }
         public PaneSplit(
             Mutation mutation,
@@ -471,6 +493,7 @@ public final class Options {
                 cwd,
                 columns,
                 rows,
+                Optional.empty(),
                 Optional.empty()
             );
         }

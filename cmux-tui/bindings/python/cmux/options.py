@@ -100,6 +100,7 @@ class SplitPaneOptions:
     columns: Optional[int] = None
     rows: Optional[int] = None
     correlation_key: Optional[str] = None
+    viewport_width: Optional[float] = None
 
     def __post_init__(self) -> None:
         _validate_correlation_key(self.correlation_key)

@@ -287,11 +287,12 @@ type PaneCreateOptions struct {
 }
 type PaneSplitOptions struct {
 	MutationOptions
-	Direction Direction
-	Ratio     *float64
-	CWD       *string
-	Cols      *uint16
-	Rows      *uint16
+	Direction     Direction
+	Ratio         *float64
+	ViewportWidth *float64
+	CWD           *string
+	Cols          *uint16
+	Rows          *uint16
 }
 type PaneRenameOptions struct {
 	MutationOptions

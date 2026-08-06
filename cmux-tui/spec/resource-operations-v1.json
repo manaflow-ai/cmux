@@ -8004,6 +8004,14 @@
               "name": "float64"
             }
           },
+          "viewport_width": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "float64"
+            },
+            "description": "Creates the rightward split as a scrolling viewport column with this fraction of the viewport width."
+          },
           "cwd": {
             "required": false,
             "type": {
@@ -8039,6 +8047,7 @@
         "extra": false,
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
+          "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
           "cols and rows are paired."
         ]
       },
@@ -11945,6 +11954,14 @@
               "max_length": 128
             },
             "description": "Stable caller correlation across creation attempts. Defaults to the request idempotency key."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
           }
         },
         "extra": false,

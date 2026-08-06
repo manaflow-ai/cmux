@@ -292,7 +292,8 @@ fn create_and_run_preserve_receipts_paths_and_command_modes() {
                 "machine": "current",
                 "session": SESSION,
                 "name": "",
-                "initial_content": "empty"
+                "initial_content": "empty",
+                "expected_revision": "16"
             })
         );
         success(
@@ -352,7 +353,7 @@ fn create_and_run_preserve_receipts_paths_and_command_modes() {
                 initial_content: InitialContent::Empty,
                 correlation_key: None,
             },
-            MutationOptions::new("create-key").unwrap(),
+            MutationOptions::new("create-key").unwrap().with_expected_revision(16),
         )
         .unwrap();
     assert_eq!(created.resource.id().unwrap().as_str(), WORKSPACE_A);
@@ -390,6 +391,9 @@ fn every_created_path_operation_sends_a_validated_correlation_key() {
             let request = request(&mut reader);
             assert_eq!(request["operation"], operation);
             assert_eq!(request["params"]["correlation_key"], "creation-correlation");
+            if operation == "pane.split" {
+                assert_eq!(request["params"]["viewport_width"], 0.5);
+            }
             writeln!(
                 stream,
                 "{}",
@@ -462,7 +466,10 @@ fn every_created_path_operation_sends_a_validated_correlation_key() {
     .err()
     .unwrap();
     pane.split_with(
-        SplitOptions::new(Direction::Right).correlation_key("creation-correlation").unwrap(),
+        SplitOptions::new(Direction::Right)
+            .viewport_width(0.5)
+            .correlation_key("creation-correlation")
+            .unwrap(),
         MutationOptions::new("correlation-6").unwrap(),
     )
     .err()

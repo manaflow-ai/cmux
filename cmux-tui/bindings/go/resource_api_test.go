@@ -1313,6 +1313,30 @@ func TestCommandsRemainExactAndShellIsServerSide(t *testing.T) {
 	}
 }
 
+func TestPaneSplitEncodesViewportWidth(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	pane := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Workspace(SelectID(testWorkspaceID)).
+		Screen(SelectID(testScreenID)).
+		Pane(SelectID(testPaneID))
+	width := 0.5
+
+	if _, err := pane.Split(context.Background(), PaneSplitOptions{
+		Direction:     DirectionRight,
+		ViewportWidth: &width,
+	}); err != nil {
+		t.Fatalf("split pane: %v", err)
+	}
+	request := <-requests
+	if request["operation"] != "pane.split" {
+		t.Fatalf("split operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "direction", string(DirectionRight))
+	requireParam(t, request, "viewport_width", width)
+}
+
 func TestScreenLayoutUndoEncodesConfirmationToken(t *testing.T) {
 	client, requests := pipeClient(t, nil, 1)
 	defer client.Close(context.Background()) //nolint:errcheck
@@ -4334,7 +4358,7 @@ func pipeClient(
 			requests <- request
 			result := map[string]any{}
 			switch request["operation"] {
-			case "workspace.run":
+			case "workspace.run", "pane.split":
 				result = createdPathResult()
 			case "browser.input.mouse", "browser.input.wheel":
 				result = map[string]any{

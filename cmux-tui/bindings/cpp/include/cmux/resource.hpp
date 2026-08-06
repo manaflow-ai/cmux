@@ -405,6 +405,7 @@ struct SplitPaneOptions {
     std::optional<std::uint16_t> columns;
     std::optional<std::uint16_t> rows;
     std::optional<std::string> correlation_key;
+    std::optional<double> viewport_width;
 
     [[nodiscard]] Result<Json::Object> to_params() const;
 };

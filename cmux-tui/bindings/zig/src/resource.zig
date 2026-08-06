@@ -353,10 +353,7 @@ pub const Operation = enum {
     }
 
     fn supportsExpectedRevision(self: Operation) bool {
-        return self.class() == .mutation and switch (self) {
-            .workspace_create => false,
-            else => true,
-        };
+        return self.class() == .mutation;
     }
 
     fn facadeBinding(self: Operation) FacadeBinding {
@@ -5574,6 +5571,7 @@ pub const Direction = union(enum) {
 pub const SplitOptions = struct {
     direction: Direction,
     ratio: ?f64 = null,
+    viewport_width: ?f64 = null,
     cwd: ?[]const u8 = null,
     cols: ?u16 = null,
     rows: ?u16 = null,
@@ -10819,6 +10817,14 @@ fn HandleImpl(
                     return error.InvalidSplitRatio;
                 }
             }
+            if (split.viewport_width) |width| {
+                if (std.meta.activeTag(split.direction) != .right or
+                    !std.math.isFinite(width) or
+                    width < 0.1 or width > 1.0)
+                {
+                    return error.InvalidViewportWidth;
+                }
+            }
             var params = try Params(Id).init(
                 self.client.allocator,
                 scope,
@@ -10832,6 +10838,9 @@ fn HandleImpl(
             );
             if (split.ratio) |ratio| {
                 try params.putValue("ratio", .{ .float = ratio });
+            }
+            if (split.viewport_width) |width| {
+                try params.putValue("viewport_width", .{ .float = width });
             }
             if (split.cwd) |cwd| try params.putString("cwd", cwd);
             try encodeTerminalSize(
@@ -16398,7 +16407,7 @@ test "workspace create writes exact route and correlation key bytes" {
             .initial_content = .empty,
             .correlation_key = "create:key/01",
         },
-        try MutationOptions.withKey("session-selector-key"),
+        (try MutationOptions.withKey("session-selector-key")).expecting(7),
     );
     created.deinit();
     try std.testing.expectEqualStrings(
@@ -16407,7 +16416,8 @@ test "workspace create writes exact route and correlation key bytes" {
             "\"workspace.create\",\"params\":{" ++
             "\"machine\":\"current\",\"session\":\"name:release\"," ++
             "\"name\":\"sdk-tests\",\"initial_content\":\"empty\"," ++
-            "\"correlation_key\":\"create:key/01\"}," ++
+            "\"correlation_key\":\"create:key/01\"," ++
+            "\"expected_revision\":\"7\"}," ++
             "\"idempotency_key\":\"session-selector-key\"}\n",
         shared.output.items,
     );

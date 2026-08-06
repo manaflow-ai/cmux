@@ -190,6 +190,7 @@ const (
 	FieldLayout          = "layout"
 	FieldDirection       = "direction"
 	FieldRatio           = "ratio"
+	FieldViewportWidth   = "viewport_width"
 	FieldWidth           = "width"
 	FieldCols            = "cols"
 	FieldRows            = "rows"

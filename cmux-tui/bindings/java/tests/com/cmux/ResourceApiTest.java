@@ -323,6 +323,7 @@ public final class ResourceApiTest {
 
             session.createWorkspace(
                 Options.WorkspaceCreate.builder()
+                    .mutation(Options.Mutation.defaults().expecting(Decimal.parse("7")))
                     .correlationKey("workspace-create")
                     .build()
             );
@@ -330,6 +331,12 @@ public final class ResourceApiTest {
                 transport,
                 "workspace.create",
                 "workspace-create"
+            );
+            require(
+                object(transport.lastSent().get("params"))
+                    .get("expected_revision")
+                    .equals("7"),
+                "workspace.create expected_revision"
             );
 
             workspace.run(
@@ -381,9 +388,16 @@ public final class ResourceApiTest {
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.of(0.5),
                 Optional.of("pane-split")
             ));
             requireLastCorrelation(transport, "pane.split", "pane-split");
+            require(
+                object(transport.lastSent().get("params"))
+                    .get("viewport_width")
+                    .equals(0.5),
+                "pane.split viewport_width"
+            );
 
             pane.createTerminalTab(new Options.TabCreateTerminal(
                 Options.Mutation.defaults(),

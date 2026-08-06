@@ -649,6 +649,9 @@ test("created paths are strict runtime variants and fixed operations reject mism
   const transport = new FakeTransport((request, current) => {
     const params = request.params as Envelope;
     if (request.operation === "workspace.create") {
+      if (params.initial_content === "empty") {
+        assert.equal(params.expected_revision, "16");
+      }
       const value = params.initial_content === "empty"
         ? {
           kind: "workspace",
@@ -705,6 +708,8 @@ test("created paths are strict runtime variants and fixed operations reject mism
 
   const empty = await session.createWorkspace({
     initialContent: "empty",
+  }, {
+    expectedRevision: "16",
   });
   assert.equal(empty.value.kind, "workspace");
   assert.deepEqual(Object.keys(empty.value), ["kind", "workspace"]);
@@ -855,6 +860,15 @@ test("optional fields and expected revisions reach the wire", async () => {
     }),
     ResourceError,
   );
+  await assert.rejects(
+    () => client.session(SESSION).workspace(WORKSPACE).screen(SCREEN).pane(PANE).split(
+      {
+        direction: "right",
+        viewportWidth: 0.5,
+      },
+    ),
+    ResourceError,
+  );
   const session = client.session(SESSION);
   assert.deepEqual(await session.listNotifications({ limit: 7 }), []);
   assert.deepEqual(
@@ -896,6 +910,10 @@ test("optional fields and expected revisions reach the wire", async () => {
   assert.equal(
     (request("screen.layout.undo").params as Envelope).confirmation_token,
     "undo-preview-token",
+  );
+  assert.equal(
+    (request("pane.split").params as Envelope).viewport_width,
+    0.5,
   );
   assert.equal((request("notification.list").params as Envelope).limit, 7);
   assert.equal(

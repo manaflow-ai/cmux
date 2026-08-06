@@ -224,15 +224,7 @@ struct OperationInfo {
 }
 
 [[nodiscard]] bool supports_expected_revision(Operation operation) noexcept {
-    if (info_for(operation).operation_class != OperationClass::mutation) {
-        return false;
-    }
-    switch (operation) {
-        case Operation::workspace_create:
-            return false;
-        default:
-            return true;
-    }
+    return info_for(operation).operation_class == OperationClass::mutation;
 }
 
 void inject_routing(
@@ -887,6 +879,17 @@ Result<Json::Object> SplitPaneOptions::to_params() const {
                 "split ratio must be finite and between zero and one");
         }
         params.emplace("ratio", Json(*ratio));
+    }
+    if (viewport_width) {
+        if (direction != PaneDirection::right ||
+            !std::isfinite(*viewport_width) || *viewport_width < 0.1 ||
+            *viewport_width > 1.0) {
+            return make_error(
+                ErrorCode::invalid_argument,
+                "viewport width requires a right split and a finite value "
+                "between 0.1 and 1");
+        }
+        params.emplace("viewport_width", Json(*viewport_width));
     }
     if (cwd) {
         params.emplace("cwd", Json(*cwd));

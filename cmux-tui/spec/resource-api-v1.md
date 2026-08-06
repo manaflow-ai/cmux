@@ -442,6 +442,11 @@ excludes `expected_revision`, `correlation_key`, and idempotency metadata.
 Reusing the key for different semantics returns non-retryable
 `creation.conflict`.
 
+Every mutation, including `workspace.create`, accepts `expected_revision`
+against the session resource cursor. A prepared creation re-checks that guard
+before executing; a committed replay returns its original result regardless
+of a now-stale guard.
+
 `session.creation.resolve` reports `pending`, `created`, `not_applied`, or
 `indeterminate` with one exact recovery action. A created resolution includes
 the committed path, generation, and revision. Callers retry only when the
@@ -474,7 +479,10 @@ the code.
 Layout documents round-trip leaf, split, stack, and horizontal viewport
 structures. Viewport columns retain stable IDs and widths. The document also
 retains active and zoomed pane IDs. Nested same-direction splits are not
-flattened. `screen.create` returns the complete created terminal path.
+flattened. A rightward `pane.split` may include `viewport_width` from 0.1
+through 1.0 to create the terminal as a separate scrolling viewport column;
+ordinary splits omit it. `screen.create` returns the complete created terminal
+path.
 
 `workspace.create` requires `initial_content: terminal|empty`.
 `workspace.run` and `pane.run` accept exactly one of a nonempty `argv`

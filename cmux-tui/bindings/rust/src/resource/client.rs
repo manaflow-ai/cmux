@@ -308,11 +308,6 @@ impl Client {
         let request_options = options.request.merged_over(&self.scoped_request_options());
         let idempotency_key = options.idempotency_key;
         if let Some(revision) = options.expected_revision {
-            if !operation_accepts_revision(operation) {
-                return Err(Error::InvalidArgument(format!(
-                    "{operation} does not accept expected_revision"
-                )));
-            }
             params = params.u64(field::EXPECTED_REVISION, revision);
         }
         let mut dispatched = false;
@@ -650,11 +645,6 @@ fn discard_connection_after(error: &Error) -> bool {
             | Error::FrameTooLarge { .. }
             | Error::UnexpectedEnvelope(_)
     )
-}
-
-fn operation_accepts_revision(operation: &str) -> bool {
-    use super::ops;
-    operation != ops::WORKSPACE_CREATE
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1408,7 +1408,7 @@ mod tests {
             parsed(
                 ResourceOperation::PaneSplit,
                 selectors(None, None, Some(&pane_id), None),
-                json!({"direction":"right","ratio":0.5}),
+                json!({"direction":"right","viewport_width":0.5}),
                 Some("all-pane-split"),
             ),
         )
@@ -1468,6 +1468,18 @@ mod tests {
         assert_eq!(
             public_session_snapshot(&mux).unwrap()["terminals"].as_array().unwrap().len(),
             7
+        );
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let created_screen = snapshot["screens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["id"] == screen_id)
+            .unwrap();
+        assert_eq!(created_screen["layout"]["root"]["kind"], "viewport");
+        assert_eq!(
+            created_screen["layout"]["root"]["columns"][1]["width"],
+            0.5
         );
     }
 

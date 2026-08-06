@@ -409,6 +409,12 @@ impl WorkspaceRegistry {
                     }
                 }
                 "prepared" if stored.idempotency_key == idempotency_key => {
+                    require_creation_preconditions(
+                        &tx,
+                        &self.generation,
+                        expected_generation,
+                        expected_revision,
+                    )?;
                     if effectful {
                         match read_effect_preparation(
                             &tx,
@@ -453,6 +459,12 @@ impl WorkspaceRegistry {
                     ResourceCreationPreparation::Failed { error, revision }
                 }
                 "not_applied" if effectful => {
+                    require_creation_preconditions(
+                        &tx,
+                        &self.generation,
+                        expected_generation,
+                        expected_revision,
+                    )?;
                     anyhow::ensure!(
                         read_effect_record(&tx, idempotency_key)?.is_none(),
                         "resource effect receipt {idempotency_key:?} already exists without its creation correlation"
@@ -491,20 +503,12 @@ impl WorkspaceRegistry {
             tx.commit()?;
             return Ok(preparation);
         }
-        if let Some(expected) = expected_generation
-            && expected != self.generation
-        {
-            anyhow::bail!(
-                "resource generation conflict: expected {expected}, current {}",
-                self.generation
-            );
-        }
-        let revision = transaction_resource_revision(&tx)?;
-        if let Some(expected) = expected_revision
-            && expected != revision
-        {
-            anyhow::bail!("resource revision conflict: expected {expected}, current {revision}");
-        }
+        require_creation_preconditions(
+            &tx,
+            &self.generation,
+            expected_generation,
+            expected_revision,
+        )?;
         if effectful {
             anyhow::ensure!(
                 read_effect_record(&tx, idempotency_key)?.is_none(),
@@ -1256,6 +1260,28 @@ fn require_creation_identity(
     Ok(())
 }
 
+fn require_creation_preconditions(
+    transaction: &Transaction<'_>,
+    generation: &str,
+    expected_generation: Option<&str>,
+    expected_revision: Option<u64>,
+) -> anyhow::Result<()> {
+    if let Some(expected) = expected_generation
+        && expected != generation
+    {
+        anyhow::bail!(
+            "resource generation conflict: expected {expected}, current {generation}"
+        );
+    }
+    let revision = transaction_resource_revision(transaction)?;
+    if let Some(expected) = expected_revision
+        && expected != revision
+    {
+        anyhow::bail!("resource revision conflict: expected {expected}, current {revision}");
+    }
+    Ok(())
+}
+
 fn validate_correlation_key(correlation_key: &str) -> anyhow::Result<()> {
     let bytes = correlation_key.len();
     if !(1..=128).contains(&bytes) {
@@ -1960,6 +1986,79 @@ mod tests {
                 "generation":registry.generation(),
                 "revision":"0",
             })
+        );
+    }
+
+    #[test]
+    fn prepared_creation_rechecks_its_execution_precondition() {
+        let mut registry = WorkspaceRegistry::in_memory("creation-precondition").unwrap();
+        let fingerprint = json!({"url":"https://example.test"});
+        let intent = json!({"browser_id":"browser_reserved"});
+        assert_eq!(
+            registry
+                .prepare_resource_creation(
+                    "correlation",
+                    "attempt-one",
+                    "tab.create_browser",
+                    &fingerprint,
+                    &intent,
+                    true,
+                    None,
+                    Some(0),
+                )
+                .unwrap(),
+            ResourceCreationPreparation::Execute {
+                idempotency_key: "attempt-one".to_string(),
+                intent: intent.clone(),
+                resumed: false,
+            }
+        );
+        registry
+            .connection
+            .execute(
+                "UPDATE meta SET value = '1' WHERE key = 'resource_revision'",
+                [],
+            )
+            .unwrap();
+
+        let stale = registry
+            .prepare_resource_creation(
+                "correlation",
+                "attempt-one",
+                "tab.create_browser",
+                &fingerprint,
+                &intent,
+                true,
+                None,
+                Some(0),
+            )
+            .unwrap_err();
+        assert_eq!(
+            stale.to_string(),
+            "resource revision conflict: expected 0, current 1"
+        );
+        assert_eq!(
+            registry.resolve_resource_creation("correlation").unwrap()["recovery"],
+            "retry_same_idempotency_key"
+        );
+        assert_eq!(
+            registry
+                .prepare_resource_creation(
+                    "correlation",
+                    "attempt-one",
+                    "tab.create_browser",
+                    &fingerprint,
+                    &intent,
+                    true,
+                    None,
+                    Some(1),
+                )
+                .unwrap(),
+            ResourceCreationPreparation::Execute {
+                idempotency_key: "attempt-one".to_string(),
+                intent,
+                resumed: true,
+            }
         );
     }
 

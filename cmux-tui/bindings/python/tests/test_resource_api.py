@@ -274,7 +274,8 @@ class ResourceApiTests(unittest.TestCase):
                     lambda: session.create_workspace(
                         CreateWorkspaceOptions(
                             correlation_key=correlation_key,
-                        )
+                        ),
+                        expected_revision="7",
                     ),
                     lambda: workspace.run(
                         RunOptions(
@@ -302,6 +303,7 @@ class ResourceApiTests(unittest.TestCase):
                         SplitPaneOptions(
                             "right",
                             correlation_key=correlation_key,
+                            viewport_width=0.5,
                         )
                     ),
                     lambda: pane.create_terminal_tab(
@@ -339,6 +341,8 @@ class ResourceApiTests(unittest.TestCase):
                 for request in observed
             )
         )
+        self.assertEqual(observed[0]["params"]["expected_revision"], "7")
+        self.assertEqual(observed[5]["params"]["viewport_width"], 0.5)
 
     def test_structured_error_and_stream_cancel_are_connection_local(self) -> None:
         observed = []

@@ -31,6 +31,7 @@ export interface CreatePaneOptions {
 export interface SplitPaneOptions extends CreatePaneOptions {
   readonly direction: Direction;
   readonly ratio?: number;
+  readonly viewportWidth?: number;
 }
 
 export interface CreateTerminalOptions {

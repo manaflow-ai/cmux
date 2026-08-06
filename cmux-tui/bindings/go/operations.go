@@ -1294,6 +1294,9 @@ func (p *Pane) Split(ctx context.Context, options PaneSplitOptions) (MutationRes
 	if options.Ratio != nil {
 		input[wirev1.FieldRatio] = *options.Ratio
 	}
+	if options.ViewportWidth != nil {
+		input[wirev1.FieldViewportWidth] = *options.ViewportWidth
+	}
 	putOptionalString(input, wirev1.FieldCWD, options.CWD)
 	if options.Cols != nil {
 		input[wirev1.FieldCols] = *options.Cols

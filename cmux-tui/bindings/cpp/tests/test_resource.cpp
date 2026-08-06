@@ -595,7 +595,11 @@ TEST("all creation options validate and encode correlation keys") {
 
     cmux::SplitPaneOptions split(cmux::PaneDirection::right);
     split.correlation_key = "create-correlation";
+    split.viewport_width = 0.5;
     check(split.to_params());
+    CHECK_EQ(
+        split.to_params().value().at("viewport_width").as_double().value(),
+        0.5);
 
     cmux::CreateTerminalTabOptions terminal;
     terminal.correlation_key = "create-correlation";
@@ -715,6 +719,36 @@ TEST("mutation sends one stable injected idempotency key without retry") {
     CHECK_EQ(
         params->at("expected_revision").as_string().value(),
         std::string_view("42"));
+}
+
+TEST("workspace creation accepts an expected resource revision") {
+    auto state = std::make_shared<FakeState>();
+    auto client = client_for(state);
+    enqueue(
+        state,
+        response(
+            "cpp-request-1",
+            R"({"value":{"kind":"workspace","workspace_id":"ws_0123456789abcdef0123456789abcdef"},"generation":"g","revision":"1","replayed":false})"));
+    auto key = cmux::MutationOptions::with_key("workspace-create-key");
+    CHECK(key);
+    auto result = client.mutate(
+        cmux::Operation::workspace_create,
+        {{"initial_content", cmux::Json("empty")}},
+        std::move(key).value().expecting(0));
+    CHECK(result);
+
+    std::lock_guard lock(state->mutex);
+    CHECK_EQ(state->outgoing.size(), 1U);
+    auto envelope = cmux::Json::parse(state->outgoing.front());
+    CHECK(envelope);
+    CHECK_EQ(
+        envelope.value().find("operation")->as_string().value(),
+        std::string_view("workspace.create"));
+    const auto* params =
+        envelope.value().find("params")->as_object().value();
+    CHECK_EQ(
+        params->at("expected_revision").as_string().value(),
+        std::string_view("0"));
 }
 
 TEST("default idempotency keys contain independent random 128-bit values") {

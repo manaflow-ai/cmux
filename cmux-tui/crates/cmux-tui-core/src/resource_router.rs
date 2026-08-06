@@ -656,6 +656,17 @@ fn validate_operation_constraints(
                     "ratio must be greater than zero and less than one",
                 ));
             }
+            if matches!(operation, ResourceOperation::PaneSplit)
+                && let Some(width) = fields.get("viewport_width").and_then(Value::as_f64)
+                && (fields.get("direction").and_then(Value::as_str) != Some("right")
+                    || !width.is_finite()
+                    || !(0.1..=1.0).contains(&width))
+            {
+                return Err(invalid_value(
+                    "pane.split.viewport_width",
+                    "viewport_width requires direction right and a value from 0.1 through 1",
+                ));
+            }
         }
         ResourceOperation::BrowserInputMouse => validate_browser_mouse(fields)?,
         ResourceOperation::TerminalInputMouse => validate_terminal_mouse(fields)?,
@@ -1786,6 +1797,7 @@ mod tests {
                 "session":"current",
                 "name":"first",
                 "initial_content":"empty",
+                "expected_revision":"0",
             }),
             Some("create-empty-workspace"),
         );
@@ -1805,6 +1817,7 @@ mod tests {
                     "session":"current",
                     "name":"first",
                     "initial_content":"empty",
+                    "expected_revision":"999",
                 }),
                 Some("create-empty-workspace"),
             ),
@@ -1812,6 +1825,24 @@ mod tests {
         .unwrap();
         assert_eq!(replay["result"]["value"]["workspace_id"], workspace_id);
         assert_eq!(replay["result"]["replayed"], true);
+
+        let conflict = handle_resource_message(
+            &mux,
+            &request(
+                "create-conflict",
+                "workspace.create",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "name":"second",
+                    "initial_content":"empty",
+                    "expected_revision":"0",
+                }),
+                Some("create-conflicting-workspace"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(conflict.code, "revision.conflict");
 
         let renamed = handle_resource_message(
             &mux,
@@ -1916,5 +1947,34 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(invalid.code, "validation.invalid");
+    }
+
+    #[test]
+    fn pane_split_viewport_width_validation_matches_the_public_contract() {
+        let split = |direction: &str, width: f64, id: &str| {
+            parse_resource_request(&request(
+                id,
+                "pane.split",
+                json!({
+                    "machine":"current",
+                    "session":"current",
+                    "pane":"current",
+                    "direction":direction,
+                    "viewport_width":width,
+                }),
+                Some(id),
+            ))
+        };
+        assert!(split("right", 0.1, "viewport-min").is_ok());
+        assert!(split("right", 1.0, "viewport-max").is_ok());
+        for (direction, width, id) in [
+            ("left", 0.5, "viewport-left"),
+            ("right", 0.09, "viewport-low"),
+            ("right", 1.01, "viewport-high"),
+        ] {
+            let error = split(direction, width, id).unwrap_err();
+            assert_eq!(error.code, "validation.invalid");
+            assert_eq!(error.details["path"], "pane.split.viewport_width");
+        }
     }
 }

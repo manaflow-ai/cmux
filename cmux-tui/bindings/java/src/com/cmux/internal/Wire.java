@@ -41,6 +41,7 @@ public final class Wire {
     public static final String LAYOUT = "layout";
     public static final String DIRECTION = "direction";
     public static final String RATIO = "ratio";
+    public static final String VIEWPORT_WIDTH = "viewport_width";
     public static final String WIDTH = "width";
     public static final String HEIGHT = "height";
     public static final String COLS = "cols";
