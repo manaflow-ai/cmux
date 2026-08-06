@@ -22,7 +22,9 @@ written around user-visible behavior so the implementation can change behind it.
 - Treat UUIDs as durable identities in automation. Short refs are convenient
   within a live socket session, while bare numeric indexes are positional.
   Scripts that cache a target across topology changes must request the UUID,
-  retain the expected ref-to-UUID mapping, and validate it before mutation.
+  retain the expected ref-to-UUID mapping, and validate it before mutation. If
+  that mapping is missing or mismatched, fail closed before mutation. Do not
+  refresh the mapping or fall back to a numeric index in the same operation.
 - Keep text output stable for scripting commands unless a command already
   documents JSON as the scripting interface.
 - Keep hidden/internal commands available until their callers have migrated.
@@ -455,7 +457,7 @@ Events command:
 | Option | Contract |
 | --- | --- |
 | `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
-| `--cursor-file <path>` | Read the starting sequence from a file and periodically checkpoint delivered events. Batches flush after a bounded count or delay and on orderly stream exit. |
+| `--cursor-file <path>` | Read the starting sequence from a file and periodically checkpoint delivered events. Batches flush after a bounded count or delay and on orderly stream exit. If a write fails, the last successful checkpoint remains authoritative and later events can replay. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
 | `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
@@ -468,8 +470,9 @@ response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
 `after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
 carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
 should checkpoint `seq` after processing events and reconnect with that value.
-An unclean client exit may replay the latest checkpoint batch, so consumers
-must tolerate duplicate event IDs.
+An unclean client exit or failed checkpoint write may replay events after the
+last successful checkpoint during retry, exit, or reconnect, so consumers must
+tolerate duplicate event IDs.
 See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
 `~/.cmuxterm/events.jsonl`, including model lifecycle events for window
 creation, close, focus, key-window state, workspace selection, pane focus, and

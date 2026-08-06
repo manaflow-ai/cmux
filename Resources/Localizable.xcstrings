@@ -36423,16 +36423,124 @@
     "cli.events.help.cursorFile": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اقرأ تسلسل البداية واحفظ نقطة تقدم للأحداث التي تم تسليمها دوريًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pročitajte početnu sekvencu i periodično bilježite isporučene događaje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Læs startsekvensen, og gem periodisk kontrolpunkt for leverede hændelser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startsequenz lesen und zugestellte Ereignisse regelmäßig als Prüfpunkt speichern"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Read the starting sequence and periodically checkpoint delivered events"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leer la secuencia inicial y guardar periódicamente un punto de control de los eventos entregados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire la séquence de départ et enregistrer périodiquement un point de contrôle des événements livrés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leggi la sequenza iniziale e salva periodicamente un checkpoint degli eventi consegnati"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "開始シーケンスを読み取り、配信されたイベントを定期的にチェックポイントへ保存"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អានលំដាប់ចាប់ផ្តើម ហើយរក្សាទុកចំណុចត្រួតពិនិត្យនៃព្រឹត្តិការណ៍ដែលបានបញ្ជូនជាប្រចាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작 시퀀스를 읽고 전달된 이벤트를 주기적으로 체크포인트에 저장"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les startsekvensen og lagre periodisk kontrollpunkt for leverte hendelser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odczytaj sekwencję początkową i okresowo zapisuj punkt kontrolny dostarczonych zdarzeń"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ler a sequência inicial e salvar periodicamente um ponto de controle dos eventos entregues"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитать начальную последовательность и периодически сохранять контрольную точку доставленных событий"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อ่านลำดับเริ่มต้นและบันทึกจุดตรวจสอบของเหตุการณ์ที่ส่งแล้วเป็นระยะ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlangıç sırasını oku ve teslim edilen olayları düzenli olarak denetim noktasına kaydet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прочитати початкову послідовність і періодично зберігати контрольну точку доставлених подій"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "读取起始序列并定期保存已传递事件的检查点"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讀取起始序列並定期儲存已傳遞事件的檢查點"
           }
         }
       }
