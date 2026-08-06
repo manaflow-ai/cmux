@@ -1739,11 +1739,15 @@ struct AgentConversationCrossHarnessForkTests {
         }.value
         #expect(overlappingScanStarted)
         await transcriptGate.finishRead()
+        let postExportScanStartedBeforeActiveScanFinished = await Task.detached {
+            postExportScanStarted.wait(timeout: .now() + 0.2) == .success
+        }.value
+        #expect(!postExportScanStartedBeforeActiveScanFinished)
+        releaseScanDuringExport.signal()
         let postExportScanDidStart = await Task.detached {
             postExportScanStarted.wait(timeout: .now() + 2) == .success
         }.value
         #expect(postExportScanDidStart)
-        releaseScanDuringExport.signal()
 
         #expect(await overlappingScan.value?.sessionId == originalSnapshot.sessionId)
         #expect(await forkTask.value == false)
@@ -1799,6 +1803,71 @@ struct AgentConversationCrossHarnessForkTests {
 
         #expect(await oldProbe.value == "/tmp/old-opencode.db")
         #expect(await freshProbe.value == "/tmp/fresh-opencode.db")
+    }
+
+    @Test
+    func openCodeDescriptorProbeWaitsForAvailableCapacity() async {
+        let firstStarted = DispatchSemaphore(value: 0)
+        let secondStarted = DispatchSemaphore(value: 0)
+        let thirdStarted = DispatchSemaphore(value: 0)
+        let releaseFirst = DispatchSemaphore(value: 0)
+        let releaseSecond = DispatchSemaphore(value: 0)
+        let cache = OpenCodeDatabaseDescriptorPathCache()
+        let processID = Int(ProcessInfo.processInfo.processIdentifier)
+
+        let first = Task {
+            await cache.resolve(
+                processID: processID,
+                environment: ["HOME": "/tmp/opencode-capacity-first"],
+                reuseCompletedResult: false
+            ) {
+                firstStarted.signal()
+                _ = releaseFirst.wait(timeout: .now() + 2)
+                return "/tmp/first-opencode.db"
+            }
+        }
+        let second = Task {
+            await cache.resolve(
+                processID: processID,
+                environment: ["HOME": "/tmp/opencode-capacity-second"],
+                reuseCompletedResult: false
+            ) {
+                secondStarted.signal()
+                _ = releaseSecond.wait(timeout: .now() + 2)
+                return "/tmp/second-opencode.db"
+            }
+        }
+        let firstTwoStarted = await Task.detached {
+            firstStarted.wait(timeout: .now() + 2) == .success
+                && secondStarted.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(firstTwoStarted)
+
+        let third = Task {
+            await cache.resolve(
+                processID: processID,
+                environment: ["HOME": "/tmp/opencode-capacity-third"],
+                reuseCompletedResult: false
+            ) {
+                thirdStarted.signal()
+                return "/tmp/third-opencode.db"
+            }
+        }
+        let thirdStartedWithoutCapacity = await Task.detached {
+            thirdStarted.wait(timeout: .now() + 0.2) == .success
+        }.value
+        #expect(!thirdStartedWithoutCapacity)
+
+        releaseFirst.signal()
+        let thirdDidStart = await Task.detached {
+            thirdStarted.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(thirdDidStart)
+        releaseSecond.signal()
+
+        #expect(await first.value == "/tmp/first-opencode.db")
+        #expect(await second.value == "/tmp/second-opencode.db")
+        #expect(await third.value == "/tmp/third-opencode.db")
     }
 
     @Test
@@ -1923,6 +1992,95 @@ struct AgentConversationCrossHarnessForkTests {
         #expect(await first.value?.sessionId == snapshot.sessionId)
         #expect(await second.value?.sessionId == snapshot.sessionId)
         #expect(loadCount.withLock { $0 } == 1)
+    }
+
+    @Test
+    func freshnessBoundariesCoalesceIntoOneQueuedIndexScan() async throws {
+        let fixture = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let snapshot = try makeCodexSnapshot(in: fixture)
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let panelKey = RestorableAgentSessionIndex.PanelKey(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.path,
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                panelKey: (
+                    snapshot: snapshot,
+                    updatedAt: 42,
+                    processIDs: [],
+                    agentProcessIDs: [],
+                    sessionIDSource: .explicit
+                ),
+            ]
+        )
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let firstLoadStarted = DispatchSemaphore(value: 0)
+        let releaseLoads = DispatchSemaphore(value: 0)
+        let liveAgentIndex = SharedLiveAgentIndex(
+            indexLoader: {
+                let invocation = loadCount.withLock { count in
+                    defer { count += 1 }
+                    return count
+                }
+                if invocation == 0 {
+                    firstLoadStarted.signal()
+                }
+                _ = releaseLoads.wait(timeout: .now() + 2)
+                return (
+                    index: index,
+                    liveAgentProcessFingerprint: index.liveAgentProcessFingerprint(),
+                    processScopeFingerprint: [],
+                    forkValidatedPanels: [panelKey]
+                )
+            },
+            hookStoreDirectoryProvider: { fixture.path },
+            dateProvider: { Date(timeIntervalSince1970: 42) }
+        )
+
+        let active = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferSnapshot(
+                workspaceId: workspaceId,
+                panelId: panelId
+            )
+        }
+        let activeDidStart = await Task.detached {
+            firstLoadStarted.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(activeDidStart)
+
+        let firstBoundary = liveAgentIndex.conversationTransferRefreshBoundary()
+        let firstQueued = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferEvidence(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                startedAfter: firstBoundary
+            )
+        }
+        for _ in 0..<20 { await Task.yield() }
+        let secondBoundary = liveAgentIndex.conversationTransferRefreshBoundary()
+        let secondQueued = Task { @MainActor in
+            await liveAgentIndex.freshConversationTransferEvidence(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                startedAfter: secondBoundary
+            )
+        }
+        for _ in 0..<20 { await Task.yield() }
+
+        releaseLoads.signal()
+        releaseLoads.signal()
+        releaseLoads.signal()
+
+        #expect(await active.value?.sessionId == snapshot.sessionId)
+        #expect(await firstQueued.value?.snapshot.sessionId == snapshot.sessionId)
+        #expect(await secondQueued.value?.snapshot.sessionId == snapshot.sessionId)
+        #expect(loadCount.withLock { $0 } == 2)
     }
 
     @Test

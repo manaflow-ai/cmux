@@ -234,6 +234,56 @@ struct SQLiteDatabaseSnapshotServiceTests {
         #expect(FileManager.default.fileExists(atPath: destination.path))
     }
 
+    @Test("Temporary source bindings carry crash-cleanup leases")
+    func temporarySourceBindingsCarryCleanupLeases() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        try makeDatabase(at: source)
+        var sourceMetadata = stat()
+        try #require(Darwin.lstat(source.path, &sourceMetadata) == 0)
+        let service = SQLiteDatabaseSnapshotService(
+            pagesPerStep: 1,
+            stepObserver: {
+                let candidates = try FileManager.default.contentsOfDirectory(
+                    at: FileManager.default.temporaryDirectory,
+                    includingPropertiesForKeys: nil
+                )
+                let binding = candidates.first { candidate in
+                    let database = candidate.appendingPathComponent(
+                        source.lastPathComponent,
+                        isDirectory: false
+                    )
+                    var metadata = stat()
+                    return Darwin.lstat(database.path, &metadata) == 0
+                        && metadata.st_dev == sourceMetadata.st_dev
+                        && metadata.st_ino == sourceMetadata.st_ino
+                }
+                guard let binding,
+                      FileManager.default.fileExists(
+                          atPath: binding.appendingPathComponent(
+                              ".cmux-binding-lease",
+                              isDirectory: false
+                          ).path
+                      ) else {
+                    throw SQLiteDatabaseSnapshotError.sqlite(
+                        "temporary source binding is missing cleanup lease"
+                    )
+                }
+                throw SQLiteDatabaseSnapshotError.sqlite("fixture interruption")
+            }
+        )
+
+        #expect(
+            throws: SQLiteDatabaseSnapshotError.sqlite("fixture interruption")
+        ) {
+            try service.copyDatabase(from: source.path, to: destination.path)
+        }
+    }
+
     @Test("Preserves destination sidecars that predate the snapshot call")
     func preservesPreexistingDestinationSidecars() throws {
         let root = FileManager.default.temporaryDirectory
@@ -324,6 +374,58 @@ struct SQLiteDatabaseSnapshotServiceTests {
         var sourceMetadata = stat()
         try #require(Darwin.lstat(source.path, &sourceMetadata) == 0)
         #expect(sourceMetadata.st_nlink == 1)
+    }
+
+    @Test("A snapshot prunes abandoned temporary source bindings")
+    func snapshotPrunesAbandonedTemporaryBinding() throws {
+        let temporaryDirectory = FileManager.default.temporaryDirectory
+        let root = temporaryDirectory.appendingPathComponent(
+            "cmux-sqlite-snapshot-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let abandonedDirectory = temporaryDirectory.appendingPathComponent(
+            ".cmux-sqlite-source-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer {
+            try? FileManager.default.removeItem(at: abandonedDirectory)
+            try? FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: abandonedDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        let source = root.appendingPathComponent("source.db", isDirectory: false)
+        let destination = root.appendingPathComponent("snapshot.db", isDirectory: false)
+        let abandonedDatabase = abandonedDirectory.appendingPathComponent(
+            source.lastPathComponent,
+            isDirectory: false
+        )
+        let lease = abandonedDirectory.appendingPathComponent(
+            ".cmux-binding-lease",
+            isDirectory: false
+        )
+        try makeDatabase(at: source)
+        try #require(Darwin.link(source.path, abandonedDatabase.path) == 0)
+        try sourceBindingLeaseData(databaseName: source.lastPathComponent)
+            .write(to: lease, options: .withoutOverwriting)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: lease.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1)],
+            ofItemAtPath: abandonedDirectory.path
+        )
+
+        try SQLiteDatabaseSnapshotService().copyDatabase(
+            from: source.path,
+            to: destination.path
+        )
+
+        #expect(!FileManager.default.fileExists(atPath: abandonedDirectory.path))
     }
 
     @Test("Preserves a same-volume binding while another snapshot holds its lease")
