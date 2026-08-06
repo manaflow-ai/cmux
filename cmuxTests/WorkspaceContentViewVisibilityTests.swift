@@ -175,6 +175,27 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
+    func sidebarResizerPointerButtonStateTracksEventsWithoutPollingCoreGraphics() {
+        let state = SidebarResizerPointerButtonState()
+
+        #expect(state.isLeftButtonDown == false)
+        state.observe(.mouseMoved)
+        #expect(state.isLeftButtonDown == false)
+
+        state.observe(.leftMouseDown)
+        #expect(state.isLeftButtonDown)
+        state.observe(.leftMouseDragged)
+        #expect(state.isLeftButtonDown)
+
+        state.observe(.leftMouseUp)
+        #expect(state.isLeftButtonDown == false)
+        state.observe(.leftMouseDown)
+        state.reset()
+        #expect(state.isLeftButtonDown == false)
+    }
+
+    @Test
+    @MainActor
     func commandPaletteFocusRestoreCoordinatorClearsOnlyStaleTargets() {
         let coordinator = CommandPaletteFocusRestoreCoordinator()
         let firstTarget = Self.restoreFocusTarget()

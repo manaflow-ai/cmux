@@ -34,7 +34,7 @@ struct PortScanPublicationStateTests {
         let currentRevision = try #require(state.replacePanelLifecycle(key: key, ttyName: "ttys002"))
         let current = PanelPortScanPublication(key: key, ports: [], revision: currentRevision)
 
-        #expect(state.acceptCurrentPanelPublications(claimed.panelPublicationsByKey.values).isEmpty)
+        #expect(state.acceptCurrentPanelPublications(claimed.panelPublications).isEmpty)
         #expect(state.acceptCurrentPanelPublications([current]) == [current])
     }
 
@@ -224,17 +224,19 @@ struct PortScanPublicationBufferTests {
         scanner.queue.sync {}
 
         scanner.registerTTY(workspaceId: workspaceID, panelId: changedPanelID, ttyName: "ttys003")
-        let batch = scanner.queue.sync { () -> PortScanPublicationBatch? in
+        let batch = scanner.queue.sync { () -> PortScanPublicationDeliveryBatch? in
             let batch = scanner.publicationBuffer.takePendingBatch()
             _ = scanner.publicationBuffer.takePendingBatch()
             return batch
         }
-        let publication = try #require(batch?.panelPublicationsByKey[PortScanner.PanelKey(
-            workspaceId: workspaceID,
-            panelId: changedPanelID
-        )])
+        let publication = try #require(batch?.panelPublications.first {
+            $0.key == PortScanner.PanelKey(
+                workspaceId: workspaceID,
+                panelId: changedPanelID
+            )
+        })
 
-        #expect(batch?.panelPublicationsByKey.count == 1)
+        #expect(batch?.panelPublications.count == 1)
         #expect(publication.ports.isEmpty)
 
         scanner.unregisterPanel(workspaceId: workspaceID, panelId: changedPanelID)
@@ -265,8 +267,8 @@ struct PortScanPublicationBufferTests {
 
         let pendingBatch = buffer.takePendingBatch()
         let batch = try #require(pendingBatch)
-        #expect(batch.panelPublicationsByKey[key]?.ports == [4100])
-        #expect(batch.panelPublicationsByKey[removedKey]?.ports == [5000])
+        #expect(batch.panelPublications.first { $0.key == key }?.ports == [4100])
+        #expect(batch.panelPublications.first { $0.key == removedKey }?.ports == [5000])
         let emptyBatch = buffer.takePendingBatch()
         #expect(emptyBatch == nil)
         #expect(buffer.isDrainScheduled == false)
@@ -304,7 +306,9 @@ struct PortScanPublicationBufferTests {
         #expect(scheduledReplacementDrain == false)
         let pendingClaimedBatch = buffer.takePendingBatch()
         let claimedBatch = try #require(pendingClaimedBatch)
-        let claimed = try #require(claimedBatch.agentPublicationsByWorkspace[workspaceID])
+        let claimed = try #require(claimedBatch.agentPublications.first {
+            $0.workspaceId == workspaceID
+        })
         #expect(claimed == newestBeforeClaim)
 
         let scheduledClaimedDrain = buffer.enqueue(agentPublications: [newerWhileClaimed])
@@ -317,7 +321,7 @@ struct PortScanPublicationBufferTests {
         #expect(completed == [claimed])
         let pendingNextBatch = buffer.takePendingBatch()
         let nextBatch = try #require(pendingNextBatch)
-        #expect(nextBatch.agentPublicationsByWorkspace[workspaceID] == newerWhileClaimed)
+        #expect(nextBatch.agentPublications.first { $0.workspaceId == workspaceID } == newerWhileClaimed)
         _ = buffer.completeAgentDelivery([newerWhileClaimed])
         let emptyBatch = buffer.takePendingBatch()
         #expect(emptyBatch == nil)
