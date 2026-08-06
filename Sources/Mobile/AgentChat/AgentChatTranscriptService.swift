@@ -477,15 +477,27 @@ final class AgentChatTranscriptService {
     /// - Returns: The page, or `nil` when the session or transcript is
     ///   unknown.
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async -> ChatHistoryPage? {
-        guard let record = registry.record(sessionID: sessionID) else { return nil }
+        guard registry.record(sessionID: sessionID) != nil else { return nil }
         // A user opening the chat is the right moment to retry a previously
         // failed transcript resolution. Codex's recursive fallback is explicit
         // history work, so perform it off the main actor.
         failedResolutions.remove(sessionID)
-        let tailer: AgentChatTranscriptTailer
-        if let existing = tailers[sessionID] {
-            tailer = existing
-        } else {
+        guard let tailer = await historyTailer(sessionID: sessionID) else { return nil }
+        await tailer.start()
+        let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
+        if registry.record(sessionID: sessionID)?.title == nil,
+           let title = await tailer.title {
+            registry.update(sessionID: sessionID) { $0.title = title }
+        }
+        return page
+    }
+
+    private func historyTailer(sessionID: String) async -> AgentChatTranscriptTailer? {
+        while !Task.isCancelled {
+            if let existing = tailers[sessionID] {
+                return existing
+            }
+            guard let record = registry.record(sessionID: sessionID) else { return nil }
             let key = Self.transcriptBindingKey(for: record)
             let pending: PendingHistoryTailerResolution
             if let existing = pendingHistoryTailerResolutions[sessionID],
@@ -500,23 +512,26 @@ final class AgentChatTranscriptService {
                 pending = (id: id, key: key, task: task)
                 pendingHistoryTailerResolutions[sessionID] = pending
             }
-            guard let resolvedTailer = await pending.task.value else {
-                if pendingHistoryTailerResolutions[sessionID]?.id == pending.id {
-                    pendingHistoryTailerResolutions.removeValue(forKey: sessionID)
-                }
-                return nil
-            }
+
+            let resolvedTailer = await pending.task.value
             if pendingHistoryTailerResolutions[sessionID]?.id == pending.id {
                 pendingHistoryTailerResolutions.removeValue(forKey: sessionID)
             }
-            tailer = resolvedTailer
+            if let resolvedTailer {
+                return resolvedTailer
+            }
+
+            // An authoritative binding update cancels the old fallback task.
+            // Continue the same history request against that new binding;
+            // session teardown and ordinary unresolved lookups still return.
+            guard !Task.isCancelled,
+                  let latestRecord = registry.record(sessionID: sessionID),
+                  latestRecord.state != .ended,
+                  Self.transcriptBindingKey(for: latestRecord) != key else {
+                return nil
+            }
         }
-        await tailer.start()
-        let page = await tailer.history(beforeSeq: beforeSeq, limit: limit)
-        if case nil = record.title, let title = await tailer.title {
-            registry.update(sessionID: sessionID) { $0.title = title }
-        }
-        return page
+        return nil
     }
 
     private func resolveHistoryTailer(
