@@ -8,6 +8,68 @@ import Testing
 #endif
 
 struct EventCursorPersistenceTests {
+    @Test func quietStreamFlushesCursorBeforeServerHeartbeat() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-cursor-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        let cursorPath = directory.appendingPathComponent("events.seq").path
+        let response = [
+            #"{"type":"ack","protocol":"cmux-events","version":1}"#,
+            #"{"type":"event","seq":41,"name":"test.event","category":"test"}"#,
+        ].joined(separator: "\n")
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let outputPipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(
+            fileURLWithPath: BundledCLITestSupport.bundledCLIPath(for: Self.self)
+        )
+        process.arguments = [
+            "events",
+            "--cursor-file", cursorPath,
+            "--no-ack",
+            "--no-heartbeat",
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+        try process.run()
+
+        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+        while !FileManager.default.fileExists(atPath: cursorPath),
+              ContinuousClock.now < deadline
+        {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        let persistedCursor = try? String(contentsOfFile: cursorPath, encoding: .utf8)
+
+        if process.isRunning {
+            process.terminate()
+        }
+        process.waitUntilExit()
+        let output = String(
+            data: outputPipe.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+
+        #expect(
+            persistedCursor == "41\n",
+            Comment(rawValue: "cursor was not flushed while the stream was quiet: \(output)")
+        )
+    }
+
     @Test func burstWritesAreBatchedAndFinalSequenceFlushes() throws {
         var persistedSequences: [Int64] = []
         let start = ContinuousClock().now
