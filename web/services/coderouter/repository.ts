@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, isNull, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, lte, notInArray, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import {
   coderouterAccounts,
@@ -237,16 +237,28 @@ export async function importEncryptedCredential(input: {
   readonly encrypted: EncryptedCredential;
 }): Promise<void> {
   await cloudDb().transaction(async (tx) => {
-    await tx
+    const [inserted] = await tx
       .insert(coderouterCredentials)
       .values(encryptedValues(input.encrypted))
-      .onConflictDoUpdate({
+      .onConflictDoNothing({
         target: coderouterCredentials.accountId,
-        set: {
+      })
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!inserted) {
+      await tx
+        .update(coderouterCredentials)
+        .set({
           ...encryptedValues(input.encrypted),
           updatedAt: new Date(),
-        },
-      });
+        })
+        .where(and(
+          eq(coderouterCredentials.accountId, input.encrypted.accountId),
+          lt(
+            coderouterCredentials.credentialRevision,
+            input.encrypted.credentialRevision,
+          ),
+        ));
+    }
     await tx
       .update(coderouterAccounts)
       .set({
@@ -258,6 +270,7 @@ export async function importEncryptedCredential(input: {
       .where(and(
         eq(coderouterAccounts.id, input.encrypted.accountId),
         eq(coderouterAccounts.teamId, input.encrypted.teamId),
+        lt(coderouterAccounts.vaultRevision, input.encrypted.credentialRevision),
       ));
   });
 }
