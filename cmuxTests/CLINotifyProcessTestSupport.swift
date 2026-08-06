@@ -431,8 +431,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             if exitSignal.wait(timeout: .now() + 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
                 _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
-    }
 
         _ = outputGroup.wait(timeout: .now() + 2)
 
