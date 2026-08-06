@@ -125,7 +125,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         let publishedCleanup = terminatesPublishedGroup
             ? publishedAuthenticationCleanupShellCommand()
             : ":"
-        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR;"
+        let recoveryDrain = "if command -v cmux_ssh_resume_failed_auth_group_reapers >/dev/null 2>&1; then cmux_ssh_resume_failed_auth_group_reapers; fi"
+        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; \(recoveryDrain);"
     }
 
     private func publishedAuthenticationCleanupShellCommand() -> String {
@@ -456,6 +457,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         cmux_ssh_auth_recovery_lock() {
           cmux_ssh_auth_recovery_prepare || return 1
           exec 9>> "$cmux_ssh_auth_recovery_root/lock" || return 1
+          # macOS lockf(1)'s descriptor synopsis is `lockf [-s] [-t seconds] fd`.
+          # The lock stays on this shared open-file description until fd 9 closes.
           if ! /usr/bin/lockf -s -t 1 9; then
             exec 9>&-
             return 1
