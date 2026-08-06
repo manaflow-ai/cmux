@@ -28,7 +28,16 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // OpenAI-compatible CodeRouter traffic is a machine endpoint, never a
+  if (
+    (host === "coderouter.dev" || host === "www.coderouter.dev") &&
+    (pathname === "/" || pathname === "/en" || pathname === "/en/")
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/coderouter";
+    return NextResponse.rewrite(url);
+  }
+
+  // OpenAI-compatible coderouter traffic is a machine endpoint, never a
   // localized page. Keep this explicit in addition to the matcher exclusion
   // so direct middleware tests and future matcher edits fail safely.
   if (pathname === "/v1/responses") {
