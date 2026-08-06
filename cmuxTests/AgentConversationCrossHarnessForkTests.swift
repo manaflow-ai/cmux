@@ -506,6 +506,28 @@ struct AgentConversationCrossHarnessForkTests {
     }
 
     @Test
+    func executableBindingKeepsProtectedSymlinkTargetsInPlace() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lookup = directory.appendingPathComponent("linked-grok")
+        try FileManager.default.createSymbolicLink(
+            at: lookup,
+            withDestinationURL: URL(fileURLWithPath: "/usr/bin/true")
+        )
+        let identity = try #require(AgentConversationForkExecutableIdentity.capture(
+            executablePath: lookup.path,
+            runtimeSearchPath: directory.path,
+            hashContents: true
+        ))
+        let binding = try #require(AgentConversationForkExecutableBinding(identity: identity))
+        defer { binding.removeArtifacts() }
+
+        #expect(identity.lookupPath == lookup.path)
+        #expect(identity.realPath == "/usr/bin/true")
+        #expect(binding.boundPath == identity.realPath)
+    }
+
+    @Test
     func boundExecutableContentsStayFixedAfterValidation() throws {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

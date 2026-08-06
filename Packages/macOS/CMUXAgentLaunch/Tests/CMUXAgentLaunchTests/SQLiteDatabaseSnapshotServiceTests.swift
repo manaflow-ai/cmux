@@ -333,11 +333,15 @@ struct SQLiteDatabaseSnapshotServiceTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let activeDirectory = root.appendingPathComponent(
-            ".cmux-sqlite-source-active",
+            ".cmux-sqlite-source-\(UUID().uuidString)",
             isDirectory: true
         )
         let lease = activeDirectory.appendingPathComponent(
             ".cmux-binding-lease",
+            isDirectory: false
+        )
+        let database = activeDirectory.appendingPathComponent(
+            "source.db",
             isDirectory: false
         )
         try FileManager.default.createDirectory(
@@ -345,10 +349,19 @@ struct SQLiteDatabaseSnapshotServiceTests {
             withIntermediateDirectories: false,
             attributes: [.posixPermissions: 0o700]
         )
+        try sourceBindingLeaseData(databaseName: database.lastPathComponent)
+            .write(to: lease, options: .withoutOverwriting)
+        try Data("sqlite fixture".utf8).write(
+            to: database,
+            options: .withoutOverwriting
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: lease.path
+        )
         let leaseDescriptor = Darwin.open(
             lease.path,
-            O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW | O_EXLOCK | O_NONBLOCK,
-            S_IRUSR | S_IWUSR
+            O_RDWR | O_CLOEXEC | O_NOFOLLOW | O_EXLOCK | O_NONBLOCK
         )
         try #require(leaseDescriptor >= 0)
         defer { _ = Darwin.close(leaseDescriptor) }
@@ -362,6 +375,8 @@ struct SQLiteDatabaseSnapshotServiceTests {
         )
 
         #expect(FileManager.default.fileExists(atPath: activeDirectory.path))
+        #expect(FileManager.default.fileExists(atPath: lease.path))
+        #expect(FileManager.default.fileExists(atPath: database.path))
     }
 
     @Test("Preserves lookalike source binding directories")
