@@ -78,6 +78,43 @@ export async function revokeRouteToken(
     ));
 }
 
+export async function deleteAccount(input: {
+  readonly teamId: string;
+  readonly accountId: string;
+  readonly now?: Date;
+}): Promise<{ removed: boolean; lastAccount: boolean }> {
+  const now = input.now ?? new Date();
+  return await cloudDb().transaction(async (tx) => {
+    const [removed] = await tx
+      .delete(coderouterAccounts)
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        eq(coderouterAccounts.teamId, input.teamId),
+      ))
+      .returning({ id: coderouterAccounts.id });
+    if (!removed) return { removed: false, lastAccount: false };
+
+    // coderouterCredentials is deleted by its account FK. If the workspace no
+    // longer has an account, route tokens have no useful authority and should
+    // not remain live.
+    const [remaining] = await tx
+      .select({ id: coderouterAccounts.id })
+      .from(coderouterAccounts)
+      .where(eq(coderouterAccounts.teamId, input.teamId))
+      .limit(1);
+    if (!remaining) {
+      await tx
+        .update(coderouterRouteTokens)
+        .set({ revokedAt: now })
+        .where(and(
+          eq(coderouterRouteTokens.teamId, input.teamId),
+          isNull(coderouterRouteTokens.revokedAt),
+        ));
+    }
+    return { removed: true, lastAccount: !remaining };
+  });
+}
+
 export async function listAccounts(
   teamId: string,
 ): Promise<readonly CodeRouterAccountSummary[]> {

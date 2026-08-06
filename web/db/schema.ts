@@ -460,9 +460,9 @@ export const subrouterTenants = pgTable(
 );
 
 /**
- * Non-secret routing metadata for CodeRouter accounts. Provider credentials
- * live only in the Stack team server-metadata vault; Postgres coordinates
- * selection and rotating refresh-token leases.
+ * Non-secret routing metadata for coderouter accounts. Provider credentials
+ * live in the envelope-encrypted coderouterCredentials table; this table
+ * coordinates selection and rotating refresh-token leases.
  */
 export const coderouterAccounts = pgTable(
   "coderouter_accounts",
