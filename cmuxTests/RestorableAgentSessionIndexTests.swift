@@ -892,7 +892,7 @@ struct RestorableAgentSessionIndexTests {
                 )?.sessionId,
                 sessionIds[offset]
             )
-            XCTAssertNil(focusedIndex.snapshot(
+            XCTAssertNil(focusedIndex.exactSnapshot(
                 workspaceId: oldWorkspaceIds[offset],
                 panelId: requestedKey.panelId
             ))
