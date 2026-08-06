@@ -203,6 +203,49 @@ struct SessionIndexJSONLReaderTests {
     }
 
     @Test
+    func tailPaginationKeepsReadingTheOpenedFileAfterPathReplacement() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vault-rotated-pages-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let originalSessionIDs = (0..<20).map { "original-\($0)" }
+        let originalHistory = originalSessionIDs.map {
+            #"{"sessionId":"\#($0)"}"#
+        }.joined(separator: "\n") + "\n"
+        try Data(originalHistory.utf8).write(to: url)
+
+        var replacementError: Error?
+        var didReplacePath = false
+        var visitedSessionIDs: [String] = []
+        let metrics = SessionIndexJSONLReader().fromTailPages(
+            url: url,
+            maxBytesPerPage: 80
+        ) { object in
+            if let sessionID = object["sessionId"] as? String {
+                visitedSessionIDs.append(sessionID)
+            }
+            if !didReplacePath {
+                didReplacePath = true
+                do {
+                    try Data("{\"sessionId\":\"replacement\"}\n".utf8).write(
+                        to: url,
+                        options: .atomic
+                    )
+                } catch {
+                    replacementError = error
+                    return true
+                }
+            }
+            return false
+        }
+
+        try #require(replacementError == nil)
+        #expect(Set(visitedSessionIDs) == Set(originalSessionIDs))
+        #expect(!visitedSessionIDs.contains("replacement"))
+        #expect(metrics.didReachStart)
+    }
+
+    @Test
     func antigravityTailPreviewPlacesTruncationBeforeVisibleTurns() async throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-vault-antigravity-\(UUID().uuidString).jsonl")

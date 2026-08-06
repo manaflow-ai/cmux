@@ -262,6 +262,34 @@ struct AgentConversationTransferSourceTests {
     }
 
     @Test
+    func installedTargetDiscoveryOmitsUnbindableReadOnlyInstall() async throws {
+        let root = try makeTemporaryDirectory()
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: root.path
+            )
+            try? FileManager.default.removeItem(at: root)
+        }
+        let executable = root.appendingPathComponent("codebuddy")
+        try writeVersionExecutable(executable, output: "CodeBuddy 1.2.3")
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o555],
+            ofItemAtPath: root.path
+        )
+
+        let targets = await AgentConversationForkTargetDiscoverer(
+            environment: ["HOME": root.path, "PATH": root.path],
+            defaultHomeDirectory: root.path,
+            bundleResourcePath: nil,
+            configuredExecutablePaths: [:],
+            includeStandardSearchDirectories: false
+        ).discover()
+
+        #expect(targets.isEmpty)
+    }
+
+    @Test
     func versionProbeDoesNotUseExecutablePathAsHarnessIdentity() {
         #expect(!AgentConversationForkTargetHarness.factory.versionProbeMatches(
             output: "unrelated-cli 9.9.9",
