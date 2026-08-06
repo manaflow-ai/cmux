@@ -273,6 +273,7 @@ final class PhonePushClient {
                 localized: "push.test.body",
                 defaultValue: "Your Mac sent a test alert to cmux."
             ),
+            replyShape: "",
             workspaceId: nil,
             surfaceId: nil,
             retargetsToLiveSurfaceOwner: false,
