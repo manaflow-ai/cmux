@@ -28,6 +28,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "signaled.pids",
         "reaper.failed",
         "reaper.failed.new",
+        "recovery.recent",
+        "recovery.recent.new",
     ]
 
     static let reaperLockStateFileNames = [
@@ -235,6 +237,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         }
 
         cmux_ssh_launch_owned_auth_group_reaper() {
+          CMUX_SSH_AUTH_REAPER_LAUNCHED=0
           cmux_ssh_auth_reaper_group_dir="$1"
           cmux_ssh_auth_reaper_expected_dir_identity="$(/usr/bin/id -u):700"
           cmux_ssh_auth_reaper_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
@@ -338,6 +341,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           fi
           /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
             "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
+          CMUX_SSH_AUTH_REAPER_LAUNCHED=1
+          return 0
         }
 
         cmux_ssh_resume_failed_auth_group_reapers() {
@@ -349,12 +354,33 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               [ ! -s "$cmux_ssh_auth_recovery_group_dir/identity" ]; then continue; fi
             if [ "$cmux_ssh_auth_recovery_group_dir" = \
               "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then continue; fi
+            if [ -e "$cmux_ssh_auth_recovery_group_dir/recovery.recent" ]; then
+              continue
+            fi
             if cmux_ssh_auth_group_publisher_is_live \
               "$cmux_ssh_auth_recovery_group_dir"; then continue; fi
             cmux_ssh_launch_owned_auth_group_reaper "$cmux_ssh_auth_recovery_group_dir"
+            if [ "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" != 1 ]; then continue; fi
             cmux_ssh_auth_recovery_count=$((cmux_ssh_auth_recovery_count + 1))
+            printf 'attempted\n' \
+              > "$cmux_ssh_auth_recovery_group_dir/recovery.recent.new" 2>/dev/null && \
+              /bin/mv -f -- "$cmux_ssh_auth_recovery_group_dir/recovery.recent.new" \
+                "$cmux_ssh_auth_recovery_group_dir/recovery.recent" 2>/dev/null || true
             if [ "$cmux_ssh_auth_recovery_count" -ge 8 ]; then break; fi
           done
+          if [ "$cmux_ssh_auth_recovery_count" -lt 8 ]; then
+            cmux_ssh_auth_recovery_expected_dir_identity="$(/usr/bin/id -u):700"
+            for cmux_ssh_auth_recovery_group_dir in \
+              "$cmux_ssh_auth_recovery_root"/cmux-ssh-auth-group.*; do
+              if [ ! -d "$cmux_ssh_auth_recovery_group_dir" ]; then continue; fi
+              cmux_ssh_auth_recovery_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
+                "$cmux_ssh_auth_recovery_group_dir" 2>/dev/null || true)
+              if [ "$cmux_ssh_auth_recovery_observed_dir_identity" != \
+                "$cmux_ssh_auth_recovery_expected_dir_identity" ]; then continue; fi
+              /bin/rm -f -- "$cmux_ssh_auth_recovery_group_dir/recovery.recent" \
+                "$cmux_ssh_auth_recovery_group_dir/recovery.recent.new" 2>/dev/null || true
+            done
+          fi
           return 0
         }
 
