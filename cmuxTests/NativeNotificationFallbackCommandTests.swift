@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 import os
 import Testing
@@ -106,47 +107,58 @@ struct NativeNotificationFallbackCommandTests {
             commands.append(title: title, subtitle: subtitle, body: body)
         }
 
-        store.addNotification(
-            tabId: UUID(),
-            surfaceId: nil,
-            title: "Real title",
-            subtitle: "",
-            body: "Real message"
-        )
-        await Task.yield()
+        // The failed-scheduling branch plays unavailable feedback instead of
+        // the command fallback; resuming from that seam proves the branch ran
+        // to completion before the absence assertion below.
+        await withCheckedContinuation { continuation in
+            store.configureUnavailableFeedbackPlayerForTesting { _ in
+                continuation.resume()
+            }
+            store.addNotification(
+                tabId: UUID(),
+                surfaceId: nil,
+                title: "Real title",
+                subtitle: "",
+                body: "Real message"
+            )
+        }
 
         #expect(commands.invocations.isEmpty)
     }
 
     @Test
-    func sourceConfinedNativeNotificationSerializesRetargetingProvenance() {
+    func sourceConfinedNativeNotificationSerializesRetargetingProvenance() async {
         let store = TerminalNotificationStore.shared
         let originalAppFocusOverride = AppFocusState.overrideIsFocused
         resetState(originalAppFocusOverride: false)
         defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
 
-        let retargetingValues = BoolValuesRecorder()
         store.configureNotificationAuthorizationHandlerForTesting { completion in
             completion(true, .authorized)
         }
-        store.configureUserNotificationSchedulerForTesting { request, completion in
-            if let value = request.content.userInfo["retargetsToLiveSurfaceOwner"] as? Bool {
-                retargetingValues.append(value)
-            }
-            completion(nil)
-        }
         store.configureNotificationCommandRunnerForTesting { _, _, _ in }
 
-        store.addNotification(
-            tabId: UUID(),
-            surfaceId: UUID(),
-            title: "Relay",
-            subtitle: "Completed",
-            body: "Must stay confined",
-            retargetsToLiveSurfaceOwner: false
-        )
+        // Delivery now hops through the bounded notification-center service,
+        // so the scheduled request is observed via continuation instead of a
+        // synchronous recorder.
+        let retargetingValue: Bool? = await withCheckedContinuation { continuation in
+            store.configureUserNotificationSchedulerForTesting { request, completion in
+                completion(nil)
+                continuation.resume(
+                    returning: request.content.userInfo["retargetsToLiveSurfaceOwner"] as? Bool
+                )
+            }
+            store.addNotification(
+                tabId: UUID(),
+                surfaceId: UUID(),
+                title: "Relay",
+                subtitle: "Completed",
+                body: "Must stay confined",
+                retargetsToLiveSurfaceOwner: false
+            )
+        }
 
-        #expect(retargetingValues.values == [false])
+        #expect(retargetingValue == false)
     }
 
     @Test
@@ -198,6 +210,7 @@ struct NativeNotificationFallbackCommandTests {
         store.resetNotificationAuthorizationHandlerForTesting()
         store.resetUserNotificationSchedulerForTesting()
         store.resetNotificationCommandRunnerForTesting()
+        store.resetUnavailableFeedbackPlayerForTesting()
         store.resetSuppressedNotificationFeedbackHandlerForTesting()
         AppFocusState.overrideIsFocused = originalAppFocusOverride
     }
@@ -206,12 +219,23 @@ struct NativeNotificationFallbackCommandTests {
 extension AgentNotificationRegressionTests {
     @Test("An unresponsive notification center never blocks its calling executor")
     func unresponsiveNativeNotificationCenterDoesNotBlockCallingExecutor() {
-        var hooks = NativeNotificationDeliveryHooks()
+        var hooks = NativeNotificationDeliveryHooks(
+            userNotificationCenter: UserNotificationCenterService(
+                center: .current()
+            )
+        )
+        let schedulerEntered = DispatchSemaphore(value: 0)
+        let releaseScheduler = DispatchSemaphore(value: 0)
+        // Safety: written by the wedged scheduler thread, read by the test
+        // after schedule() returns.
+        let schedulerFinished = OSAllocatedUnfairLock(initialState: false)
         hooks.scheduler = { _, _ in
-            // Model the framework blocking before it wires up its completion.
-            // The real XPC wait is unbounded; cap the fake so the red test fails
-            // promptly without permanently wedging a test-runner thread.
-            Thread.sleep(forTimeInterval: 0.25)
+            schedulerEntered.signal()
+            // Stand-in for the framework blocking before it wires up its
+            // completion. The deadline exists only so a regression fails the
+            // test instead of wedging a runner thread indefinitely.
+            _ = releaseScheduler.wait(timeout: .now() + 5)
+            schedulerFinished.withLock { $0 = true }
         }
         let content = UNMutableNotificationContent()
         let request = UNNotificationRequest(
@@ -219,11 +243,17 @@ extension AgentNotificationRegressionTests {
             content: content,
             trigger: nil
         )
-        let clock = ContinuousClock()
-        let startedAt = clock.now
 
         hooks.schedule(request) { _ in }
 
-        #expect(startedAt.duration(to: clock.now) < .milliseconds(100))
+        // Causal ordering: schedule() must hand back control while the wedged
+        // framework call still has not finished (it cannot finish until the
+        // release below).
+        #expect(
+            !schedulerFinished.withLock { $0 },
+            "schedule must return before the wedged center call completes"
+        )
+        #expect(schedulerEntered.wait(timeout: .now() + 5) == .success)
+        releaseScheduler.signal()
     }
 }

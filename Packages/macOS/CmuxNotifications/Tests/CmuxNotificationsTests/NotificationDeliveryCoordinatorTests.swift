@@ -7,17 +7,47 @@ import UserNotifications
 private final class FakeNotificationCenter: UserNotificationCenterConfiguring {
     private(set) var categories: Set<UNNotificationCategory> = []
     private(set) var delegate: (any UNUserNotificationCenterDelegate)?
-    var synchronousEntryDelay: TimeInterval = 0
 
-    func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {
-        if synchronousEntryDelay > 0 {
-            Thread.sleep(forTimeInterval: synchronousEntryDelay)
+    /// When true, category installation suspends until
+    /// ``releaseCategoryInstall()``, modeling the framework's unbounded wait
+    /// on a wedged daemon.
+    var stallCategoryInstall = false
+    private var stallWaiters: [CheckedContinuation<Void, Never>] = []
+    private var categoryInstallWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func setNotificationCategories(
+        _ categories: Set<UNNotificationCategory>
+    ) async -> Result<Void, UserNotificationCenterFailure> {
+        if stallCategoryInstall {
+            await withCheckedContinuation { stallWaiters.append($0) }
         }
         self.categories = categories
+        let waiters = categoryInstallWaiters
+        categoryInstallWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        return .success(())
     }
 
     func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?) {
         self.delegate = delegate
+    }
+
+    /// Suspends until the fire-and-forget category install has landed.
+    func waitForCategoryInstall() async {
+        guard categories.isEmpty else { return }
+        await withCheckedContinuation { categoryInstallWaiters.append($0) }
+    }
+
+    /// Lets a stalled category installation proceed.
+    func releaseCategoryInstall() {
+        stallCategoryInstall = false
+        let waiters = stallWaiters
+        stallWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
@@ -100,15 +130,16 @@ private final class DummyNotificationDelegate: NSObject, UNUserNotificationCente
 @MainActor
 struct NotificationDeliveryCoordinatorTests {
     @Test("configure installs terminal and Feed categories and delegate")
-    func configureInstallsCategoriesAndDelegate() throws {
+    func configureInstallsCategoriesAndDelegate() async throws {
         let center = FakeNotificationCenter()
         let delegate = DummyNotificationDelegate()
         let coordinator = makeCoordinator(center: center)
 
         coordinator.configureUserNotifications(delegate: delegate)
+        #expect((center.delegate as AnyObject?) === delegate)
+        await center.waitForCategoryInstall()
 
         let categories = categoriesByIdentifier(center.categories)
-        #expect((center.delegate as AnyObject?) === delegate)
         let terminalCategory = try #require(categories["terminal.category"])
         #expect(terminalCategory.actions.map(\.identifier) == ["terminal.show"])
         #expect(terminalCategory.actions.map(\.title) == ["Show"])
@@ -139,18 +170,23 @@ struct NotificationDeliveryCoordinatorTests {
     }
 
     @Test("configuration never blocks its caller on notification-center entry")
-    func configureDoesNotBlockCallingExecutor() {
+    func configureDoesNotBlockCallingExecutor() async {
         let center = FakeNotificationCenter()
-        // Model a finite slice of the framework's otherwise unbounded sync XPC
-        // wait so the red regression fails without wedging the package runner.
-        center.synchronousEntryDelay = 0.25
+        // Category installation cannot finish until the test releases it, so
+        // the assertion below is causal: it can only pass when configure hands
+        // control back without waiting on the (wedged) center entry.
+        center.stallCategoryInstall = true
         let coordinator = makeCoordinator(center: center)
-        let clock = ContinuousClock()
-        let startedAt = clock.now
 
         coordinator.configureUserNotifications(delegate: DummyNotificationDelegate())
 
-        #expect(startedAt.duration(to: clock.now) < .milliseconds(100))
+        #expect(
+            center.categories.isEmpty,
+            "configure must return before category installation completes"
+        )
+        center.releaseCategoryInstall()
+        await center.waitForCategoryInstall()
+        #expect(!center.categories.isEmpty)
     }
 
     @Test("presentation options include sound only when the notification has sound")
