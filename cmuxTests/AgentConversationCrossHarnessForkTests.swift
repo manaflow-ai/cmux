@@ -1618,6 +1618,7 @@ struct AgentConversationCrossHarnessForkTests {
         )
         let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let scanDuringExportStarted = DispatchSemaphore(value: 0)
+        let postExportScanStarted = DispatchSemaphore(value: 0)
         let releaseScanDuringExport = DispatchSemaphore(value: 0)
         let liveAgentIndex = SharedLiveAgentIndex(
             indexLoader: {
@@ -1631,6 +1632,8 @@ struct AgentConversationCrossHarnessForkTests {
                 if invocation == 1 {
                     scanDuringExportStarted.signal()
                     _ = releaseScanDuringExport.wait(timeout: .now() + 2)
+                } else if invocation == 2 {
+                    postExportScanStarted.signal()
                 }
                 let index = RestorableAgentSessionIndex.load(
                     homeDirectory: fixture.path,
@@ -1678,7 +1681,10 @@ struct AgentConversationCrossHarnessForkTests {
         }.value
         #expect(overlappingScanStarted)
         await transcriptGate.finishRead()
-        try await Task.sleep(for: .milliseconds(100))
+        let postExportScanDidStart = await Task.detached {
+            postExportScanStarted.wait(timeout: .now() + 2) == .success
+        }.value
+        #expect(postExportScanDidStart)
         releaseScanDuringExport.signal()
 
         #expect(await overlappingScan.value?.sessionId == originalSnapshot.sessionId)
