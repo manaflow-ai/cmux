@@ -75,7 +75,7 @@ struct RouteSession {
 }
 
 pub fn login(no_browser: bool) -> Result<(), Error> {
-    let starting = crate::loading::DelayedSpinner::new("Starting CodeRouter authorization");
+    let starting = crate::loading::DelayedSpinner::new("Starting coderouter authorization");
     let api_url = api_url()?;
     let client = client(REQUEST_TIMEOUT)?;
     let public = load_public_config(&client, &api_url)?;
@@ -94,16 +94,16 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
     confirmation
         .query_pairs_mut()
         .append_pair("login_code", &started.login_code);
-    println!("Authorize CodeRouter:\n  {confirmation}");
+    println!("Authorize coderouter:\n  {confirmation}");
     if !no_browser {
         let _ = webbrowser::open(confirmation.as_str());
     }
 
-    let waiting = crate::loading::DelayedSpinner::new("Waiting for CodeRouter authorization");
+    let waiting = crate::loading::DelayedSpinner::new("Waiting for coderouter authorization");
     let deadline = Instant::now() + Duration::from_secs(15 * 60);
     let refresh_token = loop {
         if Instant::now() >= deadline {
-            return Err(Error::Backend("CodeRouter login expired".into()));
+            return Err(Error::Backend("coderouter login expired".into()));
         }
         let poll: CliPoll = stack_json(
             &client,
@@ -121,11 +121,11 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
                 })?;
             }
             "expired" | "used" => {
-                return Err(Error::Backend(format!("CodeRouter login {}", poll.status)));
+                return Err(Error::Backend(format!("coderouter login {}", poll.status)));
             }
             status => {
                 return Err(Error::Backend(format!(
-                    "CodeRouter login returned unexpected status {status}"
+                    "coderouter login returned unexpected status {status}"
                 )));
             }
         }
@@ -136,7 +136,7 @@ pub fn login(no_browser: bool) -> Result<(), Error> {
 }
 
 pub fn login_with_code(value: &str) -> Result<(), Error> {
-    let exchanging = crate::loading::DelayedSpinner::new("Exchanging CodeRouter sign-in code");
+    let exchanging = crate::loading::DelayedSpinner::new("Exchanging coderouter sign-in code");
     let api_url = api_url()?;
     let client = client(REQUEST_TIMEOUT)?;
     let public = load_public_config(&client, &api_url)?;
@@ -162,7 +162,7 @@ fn complete_login(
     public: &PublicConfig,
     refresh_token: &str,
 ) -> Result<(), Error> {
-    let loading = crate::loading::DelayedSpinner::new("Setting up CodeRouter");
+    let loading = crate::loading::DelayedSpinner::new("Setting up coderouter");
     let tokens = refresh_stack_tokens(client, &public.auth, refresh_token)?;
     let teams: TeamEnvelope = stack_json(
         client,
@@ -184,8 +184,8 @@ fn complete_login(
             .header("x-stack-refresh-token", &current_refresh_token)
             .header("x-cmux-team-id", &team.id)
             .send()
-            .map_err(network_error("create CodeRouter route session"))?,
-        "create CodeRouter route session",
+            .map_err(network_error("create coderouter route session"))?,
+        "create coderouter route session",
     )?;
 
     config::save(&Config {
@@ -206,7 +206,7 @@ fn complete_login(
         },
     })?;
     loading.finish();
-    println!("Signed in to CodeRouter.");
+    println!("Signed in to coderouter.");
     Ok(())
 }
 
@@ -215,8 +215,8 @@ fn load_public_config(client: &Client, api_url: &str) -> Result<PublicConfig, Er
         client
             .get(format!("{api_url}/api/cli/config"))
             .send()
-            .map_err(network_error("load CodeRouter configuration"))?,
-        "load CodeRouter configuration",
+            .map_err(network_error("load coderouter configuration"))?,
+        "load coderouter configuration",
     )?;
     if public.version < 3 {
         return Err(Error::Backend(
@@ -280,18 +280,20 @@ pub fn refreshed_config() -> Result<Config, Error> {
 }
 
 pub fn accounts() -> Result<Value, Error> {
-    let current = refreshed_config()?;
+    let current = config::load()?;
+    if !current.logged_in() {
+        return Err(Error::Usage("not signed in; run `cr login`".into()));
+    }
     response_json(
-        authenticated(
-            client(REQUEST_TIMEOUT)?.get(format!(
+        client(REQUEST_TIMEOUT)?
+            .get(format!(
                 "{}/api/coderouter/accounts",
                 current.api_url.trim_end_matches('/')
-            )),
-            &current,
-        )
-        .send()
-        .map_err(network_error("list CodeRouter accounts"))?,
-        "list CodeRouter accounts",
+            ))
+            .bearer_auth(&current.route_token)
+            .send()
+            .map_err(network_error("list coderouter accounts"))?,
+        "list coderouter accounts",
     )
 }
 
@@ -307,8 +309,8 @@ pub fn upload_credential(credential: &Value) -> Result<Value, Error> {
         )
         .json(credential)
         .send()
-        .map_err(network_error("upload subscription to CodeRouter"))?,
-        "upload subscription to CodeRouter",
+        .map_err(network_error("upload subscription to coderouter"))?,
+        "upload subscription to coderouter",
     )
 }
 
@@ -353,10 +355,10 @@ fn revoke_stack_session(current: &Config, timeout: Duration) -> Result<(), Error
     )
     .header("x-coderouter-route-token", &current.route_token)
     .send()
-    .map_err(network_error("revoke CodeRouter route token"))?;
+    .map_err(network_error("revoke coderouter route token"))?;
     if !route_response.status().is_success() {
         return Err(Error::Backend(format!(
-            "revoke CodeRouter route token: HTTP {}",
+            "revoke coderouter route token: HTTP {}",
             route_response.status()
         )));
     }
@@ -376,12 +378,12 @@ fn revoke_stack_session(current: &Config, timeout: Duration) -> Result<(), Error
         .header("x-stack-refresh-token", refresh)
         .body("{}")
         .send()
-        .map_err(network_error("revoke CodeRouter session"))?;
+        .map_err(network_error("revoke coderouter session"))?;
     if response.status().is_success() || matches!(response.status().as_u16(), 400 | 401 | 404) {
         Ok(())
     } else {
         Err(Error::Backend(format!(
-            "revoke CodeRouter session: HTTP {}",
+            "revoke coderouter session: HTTP {}",
             response.status()
         )))
     }
@@ -419,8 +421,8 @@ fn refresh_stack_tokens(
                 ("client_secret", auth.publishable_client_key.as_str()),
             ])
             .send()
-            .map_err(network_error("refresh CodeRouter session"))?,
-        "refresh CodeRouter session",
+            .map_err(network_error("refresh coderouter session"))?,
+        "refresh coderouter session",
     )
 }
 
@@ -453,8 +455,8 @@ fn stack_json<T: serde::de::DeserializeOwned>(
     response_json(
         request
             .send()
-            .map_err(network_error("request CodeRouter session"))?,
-        "request CodeRouter session",
+            .map_err(network_error("request coderouter session"))?,
+        "request coderouter session",
     )
 }
 
@@ -469,11 +471,11 @@ fn select_team(teams: Vec<StackTeam>, access_token: &str) -> Result<StackTeam, E
     }
     if teams.is_empty() {
         Err(Error::Backend(
-            "your CodeRouter account has no teams".into(),
+            "your coderouter account has no teams".into(),
         ))
     } else {
         Err(Error::Usage(
-            "multiple CodeRouter teams are available; team selection is required".into(),
+            "multiple coderouter teams are available; team selection is required".into(),
         ))
     }
 }

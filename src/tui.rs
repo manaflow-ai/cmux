@@ -148,7 +148,7 @@ fn draw_add(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
                 Style::default().add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                "Credentials are encrypted in your CodeRouter workspace.",
+                "Credentials are encrypted in your coderouter workspace.",
                 Style::default().fg(Color::DarkGray),
             )),
         ]),
@@ -194,7 +194,7 @@ fn draw_login(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(Span::styled(
-                "Sign in to CodeRouter",
+                "Sign in to coderouter",
                 Style::default().add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
@@ -208,7 +208,7 @@ fn draw_login(frame: &mut ratatui::Frame<'_>, state: &mut ListState) {
         ("Open browser", "Authorize this terminal in your browser."),
         (
             "Enter a code",
-            "Paste a one-time CodeRouter sign-in code or magic link.",
+            "Paste a one-time coderouter sign-in code or magic link.",
         ),
         ("Cancel", "Stay signed out."),
     ]

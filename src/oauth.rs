@@ -184,7 +184,7 @@ fn codex_browser_oauth() -> Result<Value, Error> {
             .ok_or_else(|| Error::Backend("OpenAI returned no authorization code".into()))?;
         let _ = request.respond(html_response(
             200,
-            "CodeRouter is authorized. You can close this tab.",
+            "coderouter is authorized. You can close this tab.",
         ));
         break code;
     };
@@ -465,7 +465,7 @@ fn random_base64url(size: usize) -> String {
 
 fn html_response(status: u16, message: &str) -> Response<io::Cursor<Vec<u8>>> {
     let body = format!(
-        "<!doctype html><meta charset=utf-8><title>CodeRouter</title><body><p>{message}</p>"
+        "<!doctype html><meta charset=utf-8><title>coderouter</title><body><p>{message}</p>"
     );
     Response::from_string(body)
         .with_status_code(status)

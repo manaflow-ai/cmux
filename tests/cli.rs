@@ -136,11 +136,7 @@ fn opencode_uses_the_vercel_rewritten_provider_catalog() {
 
 #[test]
 fn bare_command_lists_vercel_accounts_without_debug_timing() {
-    let server = MockServer::start(2, |path| match path {
-        "/stack/auth/oauth/token" => json!({
-            "access_token": "fresh-access",
-            "refresh_token": "fresh-refresh"
-        }),
+    let server = MockServer::start(1, |path| match path {
         "/api/coderouter/accounts" => json!({
             "accounts": [{
                 "provider": "codex",
@@ -235,7 +231,7 @@ fn login_uses_native_stack_and_vercel_session_exchange() {
             "refresh_token": "stack-refresh-2"
         }),
         "/stack/teams?user_id=me" => json!({
-            "items": [{ "id": "team-1", "display_name": "CodeRouter" }]
+            "items": [{ "id": "team-1", "display_name": "coderouter" }]
         }),
         "/api/coderouter/session" => json!({
             "token": "route-secret",
@@ -254,9 +250,9 @@ fn login_uses_native_stack_and_vercel_session_exchange() {
         .assert()
         .success()
         .stdout(
-            predicate::str::contains("Authorize CodeRouter")
+            predicate::str::contains("Authorize coderouter")
                 .and(predicate::str::contains("login_code=copy-code"))
-                .and(predicate::str::contains("Signed in to CodeRouter")),
+                .and(predicate::str::contains("Signed in to coderouter")),
         );
     let config: serde_json::Value =
         serde_json::from_slice(&fs::read(root.path().join("coderouter/config.json")).unwrap())
@@ -290,7 +286,7 @@ fn login_accepts_a_one_time_stack_code_without_a_browser() {
             "refresh_token": "stack-refresh"
         }),
         "/stack/teams?user_id=me" => json!({
-            "items": [{ "id": "team-1", "display_name": "CodeRouter" }]
+            "items": [{ "id": "team-1", "display_name": "coderouter" }]
         }),
         "/api/coderouter/session" => json!({
             "token": "route-secret",
@@ -308,8 +304,8 @@ fn login_accepts_a_one_time_stack_code_without_a_browser() {
         .env("CODEROUTER_DATA_DIR", root.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Signed in to CodeRouter"))
-        .stdout(predicate::str::contains("Authorize CodeRouter").not());
+        .stdout(predicate::str::contains("Signed in to coderouter"))
+        .stdout(predicate::str::contains("Authorize coderouter").not());
 }
 
 #[test]
@@ -343,7 +339,7 @@ fn write_config(root: &TempDir, api_url: &str) {
             "stackAccessToken": "access",
             "stackRefreshToken": "refresh",
             "teamId": "team-1",
-            "teamName": "CodeRouter",
+            "teamName": "coderouter",
             "routeToken": "route-secret",
             "routeTokenExpiresAt": "2026-09-01T00:00:00Z",
             "openaiBaseUrl": format!("{api_url}/v1")

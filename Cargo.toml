@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
-description = "Run Codex across your CodeRouter subscription pool"
+description = "Route coding-agent traffic across subscriptions and API keys with coderouter"
 repository = "https://github.com/manaflow-ai/coderouter"
 publish = false
 

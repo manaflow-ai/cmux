@@ -34,7 +34,7 @@ struct Window {
 
 pub fn render(value: &Value, team_name: &str, team_id: &str) {
     let colored = color_enabled();
-    println!("Credential storage: CodeRouter cloud ({team_name}, {team_id})");
+    println!("Credential storage: coderouter cloud ({team_name}, {team_id})");
     let accounts = value
         .get("accounts")
         .and_then(Value::as_array)

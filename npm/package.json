@@ -1,7 +1,7 @@
 {
   "name": "coderouter",
   "version": "0.2.0",
-  "description": "Run Codex across your CodeRouter subscription pool",
+  "description": "Route coding-agent traffic across subscriptions and API keys with coderouter",
   "license": "MIT",
   "repository": {
     "type": "git",

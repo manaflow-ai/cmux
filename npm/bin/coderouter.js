@@ -13,7 +13,7 @@ const supported = new Set([
 ]);
 const target = `${platform}-${arch}`;
 if (!supported.has(target)) {
-  console.error(`CodeRouter does not provide a binary for ${target}.`);
+  console.error(`coderouter does not provide a binary for ${target}.`);
   process.exit(1);
 }
 
@@ -25,7 +25,7 @@ const executable = path.join(
 );
 if (!require("node:fs").existsSync(executable)) {
   console.error(
-    `CodeRouter's ${target} executable is missing. Reinstall coderouter.`,
+    `coderouter's ${target} executable is missing. Reinstall coderouter.`,
   );
   process.exit(1);
 }

@@ -44,7 +44,7 @@ pub fn load() -> Result<Config, Error> {
     let path = path()?;
     match fs::read(&path) {
         Ok(body) => serde_json::from_slice(&body)
-            .map_err(|error| Error::Backend(format!("invalid CodeRouter config: {error}"))),
+            .map_err(|error| Error::Backend(format!("invalid coderouter config: {error}"))),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(Config::default()),
         Err(error) => Err(error.into()),
     }
@@ -54,11 +54,11 @@ pub fn save(config: &Config) -> Result<(), Error> {
     let path = path()?;
     let parent = path
         .parent()
-        .ok_or_else(|| Error::Backend("invalid CodeRouter config path".into()))?;
+        .ok_or_else(|| Error::Backend("invalid coderouter config path".into()))?;
     fs::create_dir_all(parent)?;
     let mut temporary = tempfile::NamedTempFile::new_in(parent)?;
     let body = serde_json::to_vec_pretty(config)
-        .map_err(|error| Error::Backend(format!("encode CodeRouter config: {error}")))?;
+        .map_err(|error| Error::Backend(format!("encode coderouter config: {error}")))?;
     temporary.write_all(&body)?;
     temporary.write_all(b"\n")?;
     #[cfg(unix)]

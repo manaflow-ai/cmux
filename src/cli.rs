@@ -10,22 +10,22 @@ use crate::process;
 use crate::tui::{self, AddChoice, LoginChoice};
 
 const HELP: &str = "\
-CodeRouter — run Codex across your subscription pool
+coderouter — run Codex across your subscription pool
 
 Usage:
-  cr                            Show account usage across CodeRouter
-  cr codex [arguments...]       Run Codex through CodeRouter
-  cr opencode [arguments...]    Run OpenCode through CodeRouter
-  cr naked [arguments...]       Run the real Codex without CodeRouter
+  cr                            Show account usage across coderouter
+  cr codex [arguments...]       Run Codex through coderouter
+  cr opencode [arguments...]    Run OpenCode through coderouter
+  cr naked [arguments...]       Run the real Codex without coderouter
   cr direct [arguments...]      Alias for `cr naked`
   cr add                        Add a subscription interactively
   cr add codex                  Add ChatGPT Plus or Pro
   cr add opencode               Add OpenCode Go
-  cr login | logout             Manage this machine's CodeRouter login
+  cr login | logout             Manage this machine's coderouter login
   cr login --code [code|URL]    Sign in without opening a local browser
   cr accounts                   List shared subscriptions and usage
   cr usage                      Show subscription usage
-  cr doctor                     Diagnose CodeRouter
+  cr doctor                     Diagnose coderouter
 
 The long command name `coderouter` supports the same interface.
 ";
@@ -70,7 +70,7 @@ pub fn run(args: impl IntoIterator<Item = OsString>) -> Result<i32, Error> {
         Some("opencode") => run_routed_opencode(&remaining[1..]),
         None => run_accounts(&[]),
         Some(value) => Err(Error::Usage(format!(
-            "unknown CodeRouter command `{value}`; run Codex explicitly with `cr codex [arguments...]`"
+            "unknown coderouter command `{value}`; run Codex explicitly with `cr codex [arguments...]`"
         ))),
     }
 }
@@ -104,7 +104,7 @@ fn run_routed_codex(args: &[OsString]) -> Result<i32, Error> {
         process::os("-c"),
         process::os(r#"model_provider="coderouter""#),
         process::os("-c"),
-        process::os(r#"model_providers.coderouter.name="CodeRouter""#),
+        process::os(r#"model_providers.coderouter.name="coderouter""#),
         process::os("-c"),
         process::os(format!(
             "model_providers.coderouter.base_url={:?}",
@@ -172,7 +172,7 @@ fn run_add(args: &[OsString]) -> Result<i32, Error> {
     }
     println!("Adding {}…", provider.label());
     let credential = oauth::authenticate_with_fallback(provider)?;
-    let saving = crate::loading::DelayedSpinner::immediate("Uploading subscription to CodeRouter");
+    let saving = crate::loading::DelayedSpinner::immediate("Uploading subscription to coderouter");
     let upload = control_plane::upload_credential(&credential);
     saving.finish();
     let result = upload?;
@@ -181,7 +181,7 @@ fn run_add(args: &[OsString]) -> Result<i32, Error> {
         .and_then(serde_json::Value::as_bool)
         == Some(true)
     {
-        println!("That subscription is already in CodeRouter and is healthy.");
+        println!("That subscription is already in coderouter and is healthy.");
     } else {
         println!("Subscription added.");
     }
@@ -307,7 +307,7 @@ fn resolve_real_codex() -> Result<PathBuf, Error> {
     if let Ok(current) = std::env::current_exe() {
         if process::is_same_executable(&codex, &current) {
             return Err(Error::Usage(
-                "`codex` resolves back to CodeRouter; put the real Codex executable on PATH".into(),
+                "`codex` resolves back to coderouter; put the real Codex executable on PATH".into(),
             ));
         }
     }

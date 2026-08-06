@@ -13,7 +13,7 @@ const pythonVersion = pyproject.match(/^version = "([^"]+)"$/m)?.[1];
 const versions = new Set([cargoVersion, pythonVersion, npm.version]);
 if (versions.size !== 1 || versions.has(undefined)) {
   console.error(
-    `CodeRouter versions differ: cargo=${cargoVersion} python=${pythonVersion} npm=${npm.version}`,
+    `coderouter versions differ: cargo=${cargoVersion} python=${pythonVersion} npm=${npm.version}`,
   );
   process.exit(1);
 }
@@ -24,4 +24,3 @@ for (const [name, version] of Object.entries(npm.optionalDependencies ?? {})) {
   }
 }
 console.log(npm.version);
-
