@@ -17818,7 +17818,7 @@ private extension NSWindow {
 #endif
     }
 
-    fileprivate func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
+    func cmuxRouteApplicationUndoRedoCommandEquivalent(_ event: NSEvent) -> Bool {
         guard event.cmuxIsUndoRedoCommandEquivalent else { return false }
 
         let terminalView = firstResponder.cmuxTerminalKeyEquivalentOwningGhosttyView()
