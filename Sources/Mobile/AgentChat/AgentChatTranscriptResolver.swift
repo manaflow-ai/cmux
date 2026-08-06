@@ -12,6 +12,7 @@ struct AgentChatTranscriptResolver: Sendable {
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
     private let codexConfigRoot: URL
+    private let fileExists: @Sendable (String) -> Bool
 
     /// Creates a resolver.
     ///
@@ -27,11 +28,16 @@ struct AgentChatTranscriptResolver: Sendable {
     ///   - homeDirectory: Injectable home directory for tests.
     ///   - environment: Injectable environment for tests; defaults to the
     ///     process environment. Empty/whitespace override values are ignored.
+    ///   - fileExists: Injectable file-existence probe for actor-boundary tests.
     init(
         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        fileExists: @escaping @Sendable (String) -> Bool = {
+            FileManager.default.fileExists(atPath: $0)
+        }
     ) {
         self.homeDirectory = homeDirectory
+        self.fileExists = fileExists
         self.claudeConfigRoot = Self.configRoot(
             override: environment["CLAUDE_CONFIG_DIR"],
             default: homeDirectory.appendingPathComponent(".claude", isDirectory: true)
@@ -75,11 +81,18 @@ struct AgentChatTranscriptResolver: Sendable {
         }
     }
 
-    /// Resolves only paths that are cheap to check from the main-actor mobile
-    /// session list path. Codex's fallback scans the full sessions tree, so it is
-    /// intentionally excluded here and remains available only when opening a
-    /// transcript.
-    func boundedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
+    /// Resolves only paths with bounded filesystem work. The existence probes
+    /// run in a detached utility task so main-actor callers only await the
+    /// result. Codex's recursive fallback remains exclusive to history opens.
+    func boundedTranscriptPath(for record: AgentChatSessionRecord) async -> String? {
+        await Task.detached(priority: .utility) {
+            boundedTranscriptPathSynchronously(for: record)
+        }.value
+    }
+
+    private func boundedTranscriptPathSynchronously(
+        for record: AgentChatSessionRecord
+    ) -> String? {
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
@@ -94,11 +107,10 @@ struct AgentChatTranscriptResolver: Sendable {
     private func recordedTranscriptPath(for record: AgentChatSessionRecord) -> String? {
         guard let recorded = record.transcriptPath else { return nil }
         let expanded = (recorded as NSString).expandingTildeInPath
-        return FileManager.default.fileExists(atPath: expanded) ? expanded : nil
+        return fileExists(expanded) ? expanded : nil
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
-        let fileManager = FileManager.default
         guard let cwd = record.workingDirectory else { return nil }
         let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
         let path = claudeConfigRoot
@@ -106,7 +118,7 @@ struct AgentChatTranscriptResolver: Sendable {
             .appendingPathComponent(projectDir, isDirectory: true)
             .appendingPathComponent("\(record.hookStoreLookupSessionID).jsonl", isDirectory: false)
             .path
-        return fileManager.fileExists(atPath: path) ? path : nil
+        return fileExists(path) ? path : nil
     }
 
     /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`

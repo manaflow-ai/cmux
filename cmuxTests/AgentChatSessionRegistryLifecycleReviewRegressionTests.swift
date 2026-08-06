@@ -262,9 +262,10 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
 
         let initiallyListable = await cache.shouldList(
             record,
-            resolver: resolver,
             now: Date(timeIntervalSince1970: 10)
-        )
+        ) {
+            await resolver.boundedTranscriptPath(for: record)
+        }
         #expect(!initiallyListable)
 
         try FileManager.default.createDirectory(
@@ -275,16 +276,18 @@ struct AgentChatSessionRegistryLifecycleReviewRegressionTests {
 
         let beforeRetryWindowListable = await cache.shouldList(
             record,
-            resolver: resolver,
             now: Date(timeIntervalSince1970: 14)
-        )
+        ) {
+            await resolver.boundedTranscriptPath(for: record)
+        }
         #expect(!beforeRetryWindowListable)
 
         let eventuallyListable = await cache.shouldList(
             record,
-            resolver: resolver,
             now: Date(timeIntervalSince1970: 16)
-        )
+        ) {
+            await resolver.boundedTranscriptPath(for: record)
+        }
         #expect(eventuallyListable)
     }
 

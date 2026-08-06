@@ -162,7 +162,7 @@ extension TerminalController {
                 continue
             }
             if record.state == .ended,
-               !service.shouldListEndedSession(record) {
+               !(await service.shouldListEndedSession(record)) {
                 #if DEBUG
                 dropEndedMissingTranscript += 1
                 cmuxDebugLog("agentChat.list drop=endedMissingTranscript session=\(record.sessionID.prefix(8)) kind=\(record.agentKind.sourceName) surface=\(record.surfaceID?.prefix(8) ?? "nil")")
