@@ -44,10 +44,25 @@ public struct CustomSidebarWebInsets: Equatable, Sendable {
 public struct CustomSidebarWebView: NSViewRepresentable {
     private let source: CustomSidebarWebSource
     private let insets: CustomSidebarWebInsets
+    private let focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?
 
-    public init(source: CustomSidebarWebSource, insets: CustomSidebarWebInsets = .zero) {
+    /// Creates the hosted sidebar.
+    ///
+    /// - Parameters:
+    ///   - source: The page to render.
+    ///   - insets: How much of the sidebar the host's floating chrome covers.
+    ///   - focusWorkspace: Selects a workspace on the page's behalf and reports what happened.
+    ///     Supplying it offers the focus bridge; whether the bridge is actually registered still
+    ///     depends on the source arming a ``CustomSidebarFocusScope``, so a public page cannot get
+    ///     it by being passed a handler. Omit it to host a page with no native reach at all.
+    public init(
+        source: CustomSidebarWebSource,
+        insets: CustomSidebarWebInsets = .zero,
+        focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)? = nil
+    ) {
         self.source = source
         self.insets = insets
+        self.focusWorkspace = focusWorkspace
     }
 
     public func makeNSView(context: Context) -> CustomSidebarWebContainerView {
@@ -75,12 +90,14 @@ public struct CustomSidebarWebView: NSViewRepresentable {
         let container = CustomSidebarWebContainerView(webView: webView)
         container.insets = insets
         context.coordinator.container = container
+        context.coordinator.focusWorkspace = focusWorkspace
         context.coordinator.load(source, into: webView)
         return container
     }
 
     public func updateNSView(_ container: CustomSidebarWebContainerView, context: Context) {
         context.coordinator.container = container
+        context.coordinator.focusWorkspace = focusWorkspace
         if container.insets != insets {
             container.insets = insets
             // The page keeps rendering while the chrome resizes, so the variables are refreshed in
@@ -94,11 +111,16 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     }
 
     public static func dismantleNSView(_ container: CustomSidebarWebContainerView, coordinator: Coordinator) {
-        // The content controller retains its message handlers, so leaving this registered would keep
-        // the coordinator (and through it the container) alive after the sidebar is swapped away.
+        // The content controller retains its message handlers, so leaving these registered would
+        // keep the coordinator (and through it the container) alive after the sidebar is swapped
+        // away — and in the focus bridge's case would leave a native capability registered on a web
+        // view nothing is watching any more.
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: CustomSidebarWebView.viewportMessageName
         )
+        CustomSidebarFocusBridge.uninstall(from: container.webView.configuration.userContentController)
+        container.webView.navigationDelegate = nil
+        coordinator.releaseFocusBridge()
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -142,7 +164,24 @@ public struct CustomSidebarWebView: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, WKScriptMessageHandler {
         private var loadedSource: CustomSidebarWebSource?
+        /// The scope the currently-loaded source armed, or `nil` when it armed none.
+        ///
+        /// Mirrors exactly what is registered on the web view: non-`nil` iff the focus handler and
+        /// the navigation lock are installed.
+        private(set) var armedScope: CustomSidebarFocusScope?
+        private var focusBridge: CustomSidebarFocusBridge?
+        private var navigationLock: CustomSidebarNavigationLock?
         weak var container: CustomSidebarWebContainerView?
+        /// Set from the representable on every make/update so a mount that stops offering the
+        /// bridge stops offering it on the next load rather than keeping a stale closure alive.
+        var focusWorkspace: (@MainActor (UUID) -> CustomSidebarFocusStatus)?
+
+        /// Drops the bridge and the navigation lock when the sidebar is torn down.
+        func releaseFocusBridge() {
+            armedScope = nil
+            focusBridge = nil
+            navigationLock = nil
+        }
 
         /// Loads only when the source actually changed.
         ///
@@ -152,6 +191,7 @@ public struct CustomSidebarWebView: NSViewRepresentable {
         func load(_ source: CustomSidebarWebSource, into webView: WKWebView) {
             guard loadedSource != source else { return }
             loadedSource = source
+            armFocusBridge(for: source, in: webView)
             // A reload replaces the document, so any previous full-bleed opt-in no longer applies;
             // the incoming page re-declares it or gets the safe default.
             container?.isFullBleed = false
@@ -163,6 +203,35 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             case let .remote(url):
                 webView.load(URLRequest(url: url))
             }
+        }
+
+        /// Registers or clears the focus bridge for the source about to load.
+        ///
+        /// Runs before every load, unconditionally, so the handler's presence always describes the
+        /// page that is arriving rather than the one that left. A source that does not arm — a
+        /// public page, a DNS name that merely resolves to loopback — takes the removal branch and
+        /// therefore renders with no handler and no navigation lock at all.
+        private func armFocusBridge(for source: CustomSidebarWebSource, in webView: WKWebView) {
+            let controller = webView.configuration.userContentController
+            CustomSidebarFocusBridge.uninstall(from: controller)
+            webView.navigationDelegate = nil
+            armedScope = nil
+            focusBridge = nil
+            navigationLock = nil
+
+            guard let focusWorkspace, let scope = CustomSidebarFocusScope(source: source) else {
+                return
+            }
+            let bridge = CustomSidebarFocusBridge(scope: scope, focusWorkspace: focusWorkspace)
+            bridge.install(on: controller)
+            focusBridge = bridge
+            armedScope = scope
+
+            let lock = CustomSidebarNavigationLock(scope: scope)
+            // `navigationDelegate` is weak, so the lock is held here for as long as this source is
+            // loaded; letting it deallocate would silently unlock the frame.
+            navigationLock = lock
+            webView.navigationDelegate = lock
         }
 
         nonisolated public func userContentController(

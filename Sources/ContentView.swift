@@ -11982,7 +11982,15 @@ struct VerticalTabsSidebar: View, Equatable {
                 insets: CustomSidebarWebInsets(
                     top: SidebarWorkspaceScrollInsets.workspaceList.top,
                     bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
-                )
+                ),
+                // Offered for every web sidebar; the package registers the handler only for a
+                // source that arms a focus scope, so a page on the open internet never sees it.
+                // Routing through the shared control path is what lets a click here select a
+                // workspace owned by another window and bring that window forward.
+                focusWorkspace: { workspaceId in
+                    CustomSidebarWorkspaceFocusRouter(controller: TerminalController.shared)
+                        .focus(workspaceId)
+                }
             )
             // Only meaningful for a page that opted into full-bleed layout; a page laid out inside
             // the safe region has nothing under the footer to dissolve.
