@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { listAccounts, markAccountCooldown } from "./repository";
 import { freshCredential } from "./refresh";
 import { readTeamVault } from "./vault";
@@ -13,6 +14,11 @@ const usageRequests = new Map<
   string,
   Promise<Awaited<ReturnType<typeof loadAccountsWithUsage>>>
 >();
+const sharedAccountsWithUsage = unstable_cache(
+  loadAccountsWithUsage,
+  ["coderouter-usage-v1"],
+  { revalidate: USAGE_CACHE_MS / 1_000 },
+);
 
 export async function accountsWithUsage(teamId: string) {
   const cached = usageCache.get(teamId);
@@ -20,7 +26,9 @@ export async function accountsWithUsage(teamId: string) {
   const pending = usageRequests.get(teamId);
   if (pending) return await pending;
 
-  const request = loadAccountsWithUsage(teamId);
+  // Vercel's encrypted data cache is shared across function instances. It
+  // stores only account summaries and provider usage, never credentials.
+  const request = sharedAccountsWithUsage(teamId);
   usageRequests.set(teamId, request);
   try {
     const accounts = await request;
