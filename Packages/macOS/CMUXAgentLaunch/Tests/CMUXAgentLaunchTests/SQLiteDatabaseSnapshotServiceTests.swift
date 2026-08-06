@@ -363,6 +363,96 @@ struct SQLiteDatabaseSnapshotServiceTests {
         #expect(FileManager.default.fileExists(atPath: activeDirectory.path))
     }
 
+    @Test("Preserves lookalike source binding directories")
+    func preservesLookalikeSourceBindingDirectories() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lookalikeDirectory = root.appendingPathComponent(
+            ".cmux-sqlite-source-user-data",
+            isDirectory: true
+        )
+        let lease = lookalikeDirectory.appendingPathComponent(
+            ".cmux-binding-lease",
+            isDirectory: false
+        )
+        let marker = lookalikeDirectory.appendingPathComponent(
+            "keep-me.txt",
+            isDirectory: false
+        )
+        try FileManager.default.createDirectory(
+            at: lookalikeDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try Data().write(to: lease, options: .withoutOverwriting)
+        try Data("user data".utf8).write(to: marker, options: .withoutOverwriting)
+        try FileManager.default.setAttributes(
+            [
+                .posixPermissions: 0o600,
+                .modificationDate: Date(timeIntervalSince1970: 1),
+            ],
+            ofItemAtPath: lease.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1)],
+            ofItemAtPath: lookalikeDirectory.path
+        )
+
+        SQLiteDatabaseSnapshotService().removeAbandonedSourceBindingDirectories(
+            in: root
+        )
+
+        #expect(FileManager.default.fileExists(atPath: lookalikeDirectory.path))
+        #expect(try Data(contentsOf: marker) == Data("user data".utf8))
+    }
+
+    @Test("Preserves unexpected files in abandoned source bindings")
+    func preservesUnexpectedFilesInAbandonedSourceBindings() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sqlite-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bindingDirectory = root.appendingPathComponent(
+            ".cmux-sqlite-source-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let lease = bindingDirectory.appendingPathComponent(
+            ".cmux-binding-lease",
+            isDirectory: false
+        )
+        let marker = bindingDirectory.appendingPathComponent(
+            "keep-me.txt",
+            isDirectory: false
+        )
+        try FileManager.default.createDirectory(
+            at: bindingDirectory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try Data().write(to: lease, options: .withoutOverwriting)
+        try Data("user data".utf8).write(to: marker, options: .withoutOverwriting)
+        try FileManager.default.setAttributes(
+            [
+                .posixPermissions: 0o600,
+                .modificationDate: Date(timeIntervalSince1970: 1),
+            ],
+            ofItemAtPath: lease.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1)],
+            ofItemAtPath: bindingDirectory.path
+        )
+
+        SQLiteDatabaseSnapshotService().removeAbandonedSourceBindingDirectories(
+            in: root
+        )
+
+        #expect(FileManager.default.fileExists(atPath: bindingDirectory.path))
+        #expect(try Data(contentsOf: marker) == Data("user data".utf8))
+    }
+
     private func makeDatabase(at url: URL) throws {
         var database: OpaquePointer?
         guard sqlite3_open(url.path, &database) == SQLITE_OK, let database else {

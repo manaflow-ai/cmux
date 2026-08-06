@@ -1,5 +1,6 @@
 import CmuxConversationTransfer
 import CMUXAgentLaunch
+import Darwin
 import Dispatch
 import Foundation
 import os
@@ -435,6 +436,41 @@ struct AgentConversationCrossHarnessForkTests {
             runtimeSearchPath: directory.path,
             hashContents: true
         ) == nil)
+    }
+
+    @Test
+    func executableBindingRejectsQuarantinedSources() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let executable = directory.appendingPathComponent("quarantined-grok")
+        try "#!/bin/zsh\nexit 0\n".write(
+            to: executable,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: executable.path
+        )
+        let quarantine = Data("0083;00000000;cmux-tests;".utf8)
+        let setResult = quarantine.withUnsafeBytes { bytes in
+            Darwin.setxattr(
+                executable.path,
+                "com.apple.quarantine",
+                bytes.baseAddress,
+                bytes.count,
+                0,
+                0
+            )
+        }
+        try #require(setResult == 0)
+        let identity = try #require(AgentConversationForkExecutableIdentity.capture(
+            executablePath: executable.path,
+            runtimeSearchPath: directory.path,
+            hashContents: true
+        ))
+
+        #expect(AgentConversationForkExecutableBinding(identity: identity) == nil)
     }
 
     @Test
