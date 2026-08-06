@@ -745,7 +745,7 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		}
 	case *TerminalSnapshot:
 		required = []string{
-			"id", "tab_id", "title", "cols", "rows", "running", "lifecycle",
+			"id", "title", "cols", "rows", "running", "lifecycle",
 		}
 	case *BrowserSnapshot:
 		required = []string{
@@ -876,6 +876,9 @@ func validateDecodedValue(raw json.RawMessage, value any) error {
 		var terminalFields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &terminalFields); err != nil {
 			return err
+		}
+		if _, hasTabID := terminalFields["tab_id"]; !hasTabID {
+			return fmt.Errorf("omitted required field tab_id")
 		}
 		if _, hasTabIDs := terminalFields["tab_ids"]; !hasTabIDs {
 			if decoded.TabID == nil {
