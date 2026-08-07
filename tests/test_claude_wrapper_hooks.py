@@ -630,11 +630,17 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
 
 
 def test_live_socket_sets_effective_session_end_hook_budget(failures: list[str]) -> None:
+    very_large_timeout = "9" * 100
     cases = (
-        (None, "10000", "unset"),
+        (None, "__UNSET__", "unset settings-derived budget"),
+        ("", "__UNSET__", "empty invalid budget"),
+        ("invalid", "__UNSET__", "invalid budget"),
+        ("0", "0", "zero settings-derived budget"),
         ("1000", "10000", "too small"),
+        ("00009999", "10000", "too small with leading zeroes"),
+        ("10000", "10000", "exact minimum"),
         ("30000", "30000", "larger user budget"),
-        ("invalid", "10000", "invalid"),
+        (very_large_timeout, very_large_timeout, "larger than Bash integer range"),
     )
     for inherited_timeout, expected_timeout, label in cases:
         inherited_env = (
