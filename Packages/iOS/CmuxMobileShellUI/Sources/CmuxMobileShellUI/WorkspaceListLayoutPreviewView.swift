@@ -164,8 +164,18 @@ public struct WorkspaceListLayoutPreviewView: View {
         let id: MobileWorkspacePreview.ID
     }
 
-    @State private var fixtureRoute: FixtureWorkspaceRoute?
+    /// Path-based like the production shell's `compactNavigationPath`: a
+    /// path set while the workspaces tab is off-screen still presents when
+    /// the tab returns, whereas `navigationDestination(item:)` drops pushes
+    /// requested during the search-tab transition on iOS 26.
+    @State private var fixturePath: [FixtureWorkspaceRoute] = []
     @State private var pendingSearchFixtureRoute: FixtureWorkspaceRoute?
+    /// UITest probe: proves whether a row's select action actually fired,
+    /// distinguishing a swallowed tap from a dropped navigation push.
+    @State private var fixtureSelectCount = 0
+    /// UITest probe: ordered breadcrumb of navigation events so CI failures
+    /// show the real sequencing (consume attempts, pop-backs, mounts).
+    @State private var fixtureNavTrail: [String] = []
 
     private var scrollMetricsEnabled: Bool {
         ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_METRICS"] == "1"
@@ -488,40 +498,45 @@ public struct WorkspaceListLayoutPreviewView: View {
             } else if UITestConfig.workspaceDetailDelayedTerminalPreviewEnabled {
                 WorkspaceDetailDelayedTerminalPreviewView()
             } else {
-                let workspaceListStack = NavigationStack {
+                let workspaceListStack = NavigationStack(path: $fixturePath) {
                     MobilePrimaryWorkspaceSearchHost(
                         searchCoordinator: primarySearchCoordinator,
                         taskComposerAction: showsTabScaffold ? {} : nil
                     ) { searchText in
                         workspaceListFixture(searchText: searchText)
                     }
-                    .navigationDestination(item: $fixtureRoute) { route in
-                        VStack(spacing: 12) {
-                            Text(
-                                model.workspaces.first(where: { $0.id == route.id })?.name
-                                    ?? route.id.rawValue
-                            )
-                            .font(.title2)
-                            Text("Fixture workspace detail")
-                                .foregroundStyle(.secondary)
-                        }
-                        .accessibilityIdentifier("FixtureWorkspaceDetail")
-                        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
-                        .navigationBarBackButtonHidden(true)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                WorkspaceBackButton(unreadCount: 0) {
-                                    fixtureRoute = nil
-                                }
-                            }
+                    .navigationDestination(for: FixtureWorkspaceRoute.self) { route in
+                        fixtureWorkspaceDetail(route: route) {
+                            fixturePath = []
                         }
                     }
                 }
                 .onAppear {
+                    fixtureNavTrail.append("stackAppear")
+                    // Mount-anchored reconciliation: the search tab's
+                    // .searchable unmounts with its tab without toggling the
+                    // presentation binding, so once this stack is on screen
+                    // with a selection still pending, tell the coordinator
+                    // search ended, then consume.
+                    if selectedPrimaryTab == .workspaces,
+                       pendingSearchFixtureRoute != nil,
+                       primarySearchCoordinator.isPresented {
+                        fixtureNavTrail.append("reconcile")
+                        primarySearchCoordinator.deactivateCurrentSearch()
+                    }
                     consumePendingSearchFixtureNavigation()
                 }
                 .onChange(of: pendingSearchFixtureRoute) { _, _ in
                     consumePendingSearchFixtureNavigation()
+                }
+                .onChange(of: fixturePath) { old, new in
+                    fixtureNavTrail.append("path(\(old.count)->\(new.count))")
+                    if new.isEmpty {
+                        // Self-heal: the system popped the push (for example a
+                        // search-dismissal transition) while a selection is
+                        // still armed; re-apply it from state, no timers.
+                        consumePendingSearchFixtureNavigation()
+                    }
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if scrollMetricsEnabled {
@@ -543,11 +558,17 @@ public struct WorkspaceListLayoutPreviewView: View {
                         Text("Notification feed fixture")
                             .foregroundStyle(.secondary)
                     } workspaceSearch: {
-                        NavigationStack {
+                        NavigationStack(path: $fixturePath) {
                             MobilePrimaryWorkspaceSearchContentHost(
                                 searchCoordinator: primarySearchCoordinator
                             ) { searchText in
                                 workspaceListFixture(searchText: searchText)
+                            }
+                            .navigationDestination(for: FixtureWorkspaceRoute.self) { route in
+                                fixtureWorkspaceDetail(route: route) {
+                                    fixturePath = []
+                                    transitionPrimaryTab(to: .workspaces)
+                                }
                             }
                         }
                     } notificationSearch: {
@@ -560,8 +581,10 @@ public struct WorkspaceListLayoutPreviewView: View {
             }
         }
         .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-            guard !isPresented else { return }
-            consumePendingSearchFixtureNavigation()
+            fixtureNavTrail.append("presented(\(isPresented))")
+        }
+        .onChange(of: selectedPrimaryTab) { old, new in
+            fixtureNavTrail.append("tab(\(old)->\(new))")
         }
         .overlay(alignment: .topLeading) {
             ZStack(alignment: .topLeading) {
@@ -569,6 +592,15 @@ public struct WorkspaceListLayoutPreviewView: View {
                     .frame(width: 1, height: 1)
                     .accessibilityElement()
                     .accessibilityIdentifier("MobileWorkspaceListRefreshGeneration-\(refreshGeneration)")
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("FixtureWorkspaceSelectCount-\(fixtureSelectCount)")
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .accessibilityElement()
+                    .accessibilityIdentifier("FixtureNavTrail")
+                    .accessibilityValue(fixtureNavTrail.joined(separator: " "))
                 if showsTabScaffold {
                     Button {
                         performPreviewRefresh()
@@ -596,33 +628,86 @@ public struct WorkspaceListLayoutPreviewView: View {
         }
     }
 
+    private func fixtureWorkspaceDetail(
+        route: FixtureWorkspaceRoute,
+        back: @escaping () -> Void
+    ) -> some View {
+        VStack(spacing: 12) {
+            Text(
+                model.workspaces.first(where: { $0.id == route.id })?.name
+                    ?? route.id.rawValue
+            )
+            .font(.title2)
+            Text("Fixture workspace detail")
+                .foregroundStyle(.secondary)
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityIdentifier("FixtureWorkspaceDetail")
+        }
+        .onAppear {
+            fixtureNavTrail.append("detailAppear")
+            if pendingSearchFixtureRoute == route {
+                pendingSearchFixtureRoute = nil
+            }
+        }
+        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+        .navigationBarBackButtonHidden(true)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                WorkspaceBackButton(unreadCount: 0, action: back)
+            }
+        }
+    }
+
     private func selectFixtureWorkspace(_ id: MobileWorkspacePreview.ID) {
+        fixtureSelectCount += 1
+        fixtureNavTrail.append("select(\(id.rawValue))")
         selectedWorkspaceID = id
         let route = FixtureWorkspaceRoute(id: id)
         if showsTabScaffold,
            selectedPrimaryTab == .search || primarySearchCoordinator.isPresented {
-            pendingSearchFixtureRoute = route
-            transitionPrimaryTab(to: .workspaces)
-        } else {
-            fixtureRoute = route
+            pendingSearchFixtureRoute = nil
+            primarySearchCoordinator.deactivateCurrentSearch()
+            if fixturePath.last != route {
+                fixtureNavTrail.append("searchSet")
+                fixturePath = [route]
+            }
+        } else if fixturePath.last != route {
+            fixtureNavTrail.append("directSet")
+            fixturePath = [route]
         }
     }
 
+    /// Mirrors WorkspaceShellView: the pending route stays armed until the
+    /// pushed detail actually appears, because a path mutation made while
+    /// the workspaces tab is unmounted (search tab active) has no registered
+    /// destination and SwiftUI pops it back; the stack's onAppear retries.
     private func consumePendingSearchFixtureNavigation() {
+        fixtureNavTrail.append(
+            "consume(presented=\(primarySearchCoordinator.isPresented)"
+                + " tab=\(selectedPrimaryTab)"
+                + " pending=\(pendingSearchFixtureRoute != nil)"
+                + " path=\(fixturePath.count))"
+        )
         guard !primarySearchCoordinator.isPresented,
               selectedPrimaryTab == .workspaces,
               let route = pendingSearchFixtureRoute else { return }
-        pendingSearchFixtureRoute = nil
-        fixtureRoute = route
+        if fixturePath.last != route {
+            fixtureNavTrail.append("consumeSet")
+            fixturePath = [route]
+        }
     }
 
+    /// Only moves the selection; search dismissal is left to the system.
+    /// Manually deactivating the coordinator in the same transaction as a
+    /// programmatic tab change fights the TabView's search transition on
+    /// iOS 26: selection/path state completes but the visible tab never
+    /// switches, so the pushed detail exists off-screen only.
     @discardableResult
     private func transitionPrimaryTab(to tab: MobilePrimaryTab) -> Bool {
         let previousTab = selectedPrimaryTab
-        if (selectedPrimaryTab == .search || primarySearchCoordinator.isPresented),
-           tab.searchScope != nil {
-            primarySearchCoordinator.deactivateCurrentSearch()
-        }
+        fixtureNavTrail.append("transition(\(previousTab)->\(tab))")
         selectedPrimaryTab = tab
         return previousTab != tab
     }

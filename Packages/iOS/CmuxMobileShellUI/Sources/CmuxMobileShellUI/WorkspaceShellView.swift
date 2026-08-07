@@ -255,6 +255,11 @@ struct WorkspaceShellView: View {
                                 createWorkspace: createWorkspaceInCompactStack,
                                 canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
                             )
+                            .onAppear {
+                                if pendingPrimarySearchNotificationNavigationID == workspaceID {
+                                    pendingPrimarySearchNotificationNavigationID = nil
+                                }
+                            }
                             .toolbarVisibility(.hidden, for: .tabBar)
                     }
                 }
@@ -279,10 +284,6 @@ struct WorkspaceShellView: View {
             }
             .environment(\.workspaceRootToolbarContentWidth, geometry.size.width)
             .environment(\.workspaceRootToolbarRenderContext, toolbarRenderContext)
-            .onChange(of: primarySearchCoordinator.isPresented) { _, isPresented in
-                guard !isPresented else { return }
-                consumePendingPrimarySearchNavigation(for: selectedPrimaryTab)
-            }
             .onChange(of: selectedPrimaryTab) { oldValue, newValue in
                 if oldValue == .search, newValue != .search {
                     notificationSearchNavigationPath = []
@@ -344,7 +345,7 @@ struct WorkspaceShellView: View {
 
     private func workspaceSearchTabContent(canCreateWorkspaceForSelection: Bool) -> some View {
         workspaceActionToastOverlay {
-            NavigationStack {
+            NavigationStack(path: $compactNavigationPath) {
                 MobilePrimaryWorkspaceSearchContentHost(
                     searchCoordinator: primarySearchCoordinator
                 ) { searchText in
@@ -361,6 +362,26 @@ struct WorkspaceShellView: View {
                 }
                 .toolbar {
                     rootToolbarContent
+                }
+                .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
+                    workspaceDestination(
+                        for: workspaceID,
+                        createWorkspace: createWorkspaceInCompactStack,
+                        canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                        backButtonConfiguration: WorkspaceBackButtonConfiguration(
+                            unreadCount: unreadWorkspaceCount(excluding: workspaceID),
+                            badgeContrast: .darkBackground,
+                            action: popSearchCompactStack
+                        )
+                    )
+                        .onAppear {
+                            if pendingPrimarySearchWorkspaceNavigationID == workspaceID {
+                                pendingPrimarySearchWorkspaceNavigationID = nil
+                            }
+                        }
+                        .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
+                        .navigationBarBackButtonHidden(true)
+                        .background(InteractiveSwipeBackEnabler())
                 }
             }
         }
@@ -469,6 +490,11 @@ struct WorkspaceShellView: View {
                         action: popCompactStack
                     )
                 )
+                    .onAppear {
+                        if pendingPrimarySearchWorkspaceNavigationID == workspaceID {
+                            pendingPrimarySearchWorkspaceNavigationID = nil
+                        }
+                    }
                     #if os(iOS)
                     .toolbarVisibility(.hidden, for: .tabBar, .bottomBar)
                     #endif
@@ -501,6 +527,9 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: compactNavigationPath) { _, path in
             guard let selectedWorkspaceID = path.last else {
+                if pendingPrimarySearchWorkspaceNavigationID != nil {
+                    consumePendingPrimarySearchNavigation(for: .workspaces)
+                }
                 return
             }
             pendingCompactCreateNavigationWorkspaceIDs = nil
@@ -847,16 +876,24 @@ struct WorkspaceShellView: View {
         guard usesCompactStack else { return }
     }
 
+    /// The pending ID stays set until the pushed destination actually
+    /// appears: since search became its own tab, the target tab's
+    /// NavigationStack is unmounted while search is presented, so a path
+    /// mutation made from the eager `onChange` consume has no registered
+    /// destination and SwiftUI pops it back. Keeping the pending ID armed
+    /// lets the stack's `onAppear` consume retry once the tab is mounted;
+    /// the destination clears it on appear.
     private func consumePendingPrimarySearchNavigation(for tab: MobilePrimaryTab) {
         guard !primarySearchCoordinator.isPresented else { return }
         switch tab {
         case .workspaces:
             guard let workspaceID = pendingPrimarySearchWorkspaceNavigationID else { return }
-            pendingPrimarySearchWorkspaceNavigationID = nil
+            if !usesCompactStack {
+                pendingPrimarySearchWorkspaceNavigationID = nil
+            }
             selectWorkspaceImmediately(workspaceID)
         case .notifications:
             guard let workspaceID = pendingPrimarySearchNotificationNavigationID else { return }
-            pendingPrimarySearchNotificationNavigationID = nil
             if notificationNavigationPath.last != workspaceID {
                 notificationNavigationPath = [workspaceID]
             }
@@ -900,8 +937,16 @@ struct WorkspaceShellView: View {
     }
 
     private func selectWorkspaceFromSearch(_ id: MobileWorkspacePreview.ID) {
-        pendingPrimarySearchWorkspaceNavigationID = id
-        transitionPrimaryTab(to: .workspaces)
+        if usesCompactStack {
+            pendingPrimarySearchWorkspaceNavigationID = nil
+            primarySearchCoordinator.deactivateCurrentSearch()
+            selectWorkspaceImmediately(id)
+            return
+        }
+        transitionPrimaryTab(to: .workspaces) {
+            pendingPrimarySearchWorkspaceNavigationID = nil
+            selectWorkspaceImmediately(id)
+        }
     }
 
     private func createWorkspaceFromSearch() {
@@ -1030,6 +1075,11 @@ struct WorkspaceShellView: View {
     private func popCompactStack() {
         guard !compactNavigationPath.isEmpty else { return }
         compactNavigationPath.removeLast()
+    }
+
+    private func popSearchCompactStack() {
+        popCompactStack()
+        transitionPrimaryTab(to: .workspaces)
     }
 
     @ViewBuilder

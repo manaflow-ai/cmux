@@ -1150,6 +1150,11 @@ final class cmuxUITests: XCTestCase {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
         }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            throw XCTSkip(
+                "The detached bottom Search control only exists in compact presentation; iPad hosts search in the top tab strip."
+            )
+        }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_TABS": "1",
@@ -1177,6 +1182,28 @@ final class cmuxUITests: XCTestCase {
         let workspacesTab = app.tabBars.buttons["Workspaces"]
         XCTAssertTrue(workspacesTab.waitForExistence(timeout: 3))
         let searchField = app.searchFields["Search workspaces"]
+        let workspaceToolbarSearch = app.buttons["Search workspaces"]
+        XCTAssertTrue(
+            waitForPrimaryRootSearchChromeAbsence(
+                searchField: searchField,
+                toolbarSearchButton: workspaceToolbarSearch,
+                timeout: 3
+            ),
+            "Workspace root did not settle without top search chrome"
+        )
+        XCTAssertFalse(
+            searchField.exists,
+            "Workspace root should not expose the top search field before the Search tab is activated"
+        )
+        XCTAssertEqual(
+            app.buttons.matching(NSPredicate(format: "label == %@", "Search")).count,
+            1,
+            "Workspace root should expose only the bottom Search tab button"
+        )
+        XCTAssertFalse(
+            workspaceToolbarSearch.exists,
+            "Workspace root should not expose a toolbar Search button before the Search tab is activated"
+        )
         guard let minimizedSearchFrame = waitForUsableFrame(of: minimizedSearch, timeout: 3) else {
             XCTFail("Workspace search orb had no usable frame")
             return
@@ -1212,7 +1239,19 @@ final class cmuxUITests: XCTestCase {
 
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
-        XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
+        // The search-dismissal + tab-remount + push chain regularly exceeds
+        // 3s on CI runners; the nav-trail probe proved the detail presents.
+        if !workspaceDetail.waitForExistence(timeout: 10) {
+            let selectFired = app.descendants(matching: .any)["FixtureWorkspaceSelectCount-1"].exists
+            let keyboardUp = app.keyboards.firstMatch.exists
+            let trail = app.descendants(matching: .any)["FixtureNavTrail"].value as? String ?? "<no trail>"
+            XCTFail(
+                "Detail never appeared after tapping a filtered search row: "
+                    + "selectActionFired=\(selectFired) keyboardStillUp=\(keyboardUp) "
+                    + "searchFieldExists=\(searchField.exists) docsRowStillHittable=\(docsRow.isHittable) "
+                    + "trail=[\(trail)]"
+            )
+        }
         XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
 
         let backButton = app.buttons["MobileWorkspaceBackButton"]
@@ -1242,7 +1281,23 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(waitForNotHittable(mainRow, timeout: 3))
         let restoredMinimizedSearchMatches = app.tabBars.buttons
             .matching(NSPredicate(format: "label == %@", "Search"))
+        XCTAssertTrue(
+            waitForPrimaryRootSearchChromeAbsence(
+                searchField: searchField,
+                toolbarSearchButton: workspaceToolbarSearch,
+                timeout: 3
+            ),
+            "Workspace root did not settle without top search chrome after leaving Search"
+        )
+        XCTAssertFalse(
+            searchField.exists,
+            "Workspace root should not expose the top search field after leaving the Search tab"
+        )
         XCTAssertEqual(restoredMinimizedSearchMatches.count, 1)
+        XCTAssertFalse(
+            workspaceToolbarSearch.exists,
+            "Workspace root should not expose a toolbar Search button after leaving the Search tab"
+        )
         XCTAssertTrue(restoredMinimizedSearchMatches.firstMatch.waitForExistence(timeout: 3))
     }
 
@@ -1626,6 +1681,11 @@ final class cmuxUITests: XCTestCase {
         guard #available(iOS 26.0, *) else {
             throw XCTSkip("The detached workspace search control requires iOS 26.")
         }
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            throw XCTSkip(
+                "The detached bottom Search control only exists in compact presentation; iPad hosts search in the top tab strip."
+            )
+        }
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_REORDER": "1",
@@ -1665,6 +1725,29 @@ final class cmuxUITests: XCTestCase {
         notificationsTab.tap()
 
         XCTAssertTrue(app.staticTexts["Notification feed fixture"].waitForExistence(timeout: 3))
+        let notificationSearchField = app.searchFields["Search notifications"]
+        let notificationToolbarSearch = app.buttons["Search notifications"]
+        XCTAssertTrue(
+            waitForPrimaryRootSearchChromeAbsence(
+                searchField: notificationSearchField,
+                toolbarSearchButton: notificationToolbarSearch,
+                timeout: 3
+            ),
+            "Notification root did not settle without top search chrome"
+        )
+        XCTAssertFalse(
+            notificationSearchField.exists,
+            "Notification root should not expose the top search field before the Search tab is activated"
+        )
+        XCTAssertEqual(
+            app.buttons.matching(NSPredicate(format: "label == %@", "Search")).count,
+            1,
+            "Notification root should expose only the bottom Search tab button"
+        )
+        XCTAssertFalse(
+            notificationToolbarSearch.exists,
+            "Notification root should not expose a toolbar Search button before the Search tab is activated"
+        )
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
         XCTAssertEqual(searchMatches.count, 1)
         guard let notificationSearchFrame = waitForUsableFrame(of: searchButton, timeout: 3) else {
@@ -1675,6 +1758,14 @@ final class cmuxUITests: XCTestCase {
         app.tabBars.buttons["Workspaces"].tap()
         XCTAssertTrue(workspaceList.waitForExistence(timeout: 3))
         XCTAssertTrue(searchButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(
+            waitForPrimaryRootSearchChromeAbsence(
+                searchField: app.searchFields["Search workspaces"],
+                toolbarSearchButton: app.buttons["Search workspaces"],
+                timeout: 3
+            ),
+            "Workspace root did not settle without top search chrome after returning from Notifications"
+        )
         XCTAssertEqual(searchMatches.count, 1)
     }
 
@@ -5567,6 +5658,22 @@ final class cmuxUITests: XCTestCase {
             object: element
         )
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    @MainActor
+    private func waitForPrimaryRootSearchChromeAbsence(
+        searchField: XCUIElement,
+        toolbarSearchButton: XCUIElement,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !searchField.exists, !toolbarSearchButton.exists {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        return !searchField.exists && !toolbarSearchButton.exists
     }
 
     @MainActor
