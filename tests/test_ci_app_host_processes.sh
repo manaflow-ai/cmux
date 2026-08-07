@@ -151,6 +151,21 @@ case " $PIDS " in
   *" $matching_pid "*) PIDS="${PIDS//$matching_pid/}" ;;
 esac
 
+make_scope unbound-receipt
+spawn_process
+unbound_pid="$CMUX_TEST_SPAWNED_PID"
+printf '%s|%s\n' "$unbound_pid" "$TEST_EXECUTABLE" > "$CMUX_FAKE_LSOF_STATE"
+write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$unbound_pid" "$TEST_EXECUTABLE"
+export CMUX_FAKE_LSOF_MISSING_RECEIPT_PID="$unbound_pid"
+if cmux_app_host_verified_pids \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  > "$TMP_DIR/unbound.out" 2> "$TMP_DIR/unbound.err"; then
+  fail "a live PID without the receipt file open was authenticated"
+fi
+unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID
+/bin/kill -0 "$unbound_pid" 2>/dev/null \
+  || fail "unbound receipt verification signaled the live PID"
+
 make_scope deleted-vnode
 spawn_process
 deleted_vnode_pid="$CMUX_TEST_SPAWNED_PID"
