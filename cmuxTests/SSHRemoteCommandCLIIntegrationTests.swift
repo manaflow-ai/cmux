@@ -2,7 +2,10 @@ import Darwin
 import Foundation
 import Testing
 
-extension SSHStartupManualReconnectTests {
+@Suite(.serialized)
+struct SSHRemoteCommandCLIIntegrationTests {
+    private typealias Harness = SSHStartupManualReconnectTests
+
     private final class RemoteCommandBundleToken {}
 
     private struct RemoteCommandMockedSSHRun {
@@ -102,11 +105,11 @@ extension SSHStartupManualReconnectTests {
         try fileManager.createDirectory(at: remoteHome, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
-        try Self.writeShellFile(at: fakeCLI, lines: [
+        try Harness.writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
             "exit 0",
         ])
-        try Self.writeShellFile(at: fakeSSH, lines: [
+        try Harness.writeShellFile(at: fakeSSH, lines: [
             "#!/bin/sh",
             "cmux_test_remote_command=",
             "for cmux_test_arg in \"$@\"; do",
@@ -119,7 +122,7 @@ extension SSHStartupManualReconnectTests {
             "done",
             "HOME=\"${CMUX_TEST_REMOTE_HOME}\" PATH=\"${CMUX_TEST_REMOTE_PATH}\" /bin/sh -c \"$cmux_test_remote_command\"",
         ])
-        try Self.writeShellFile(at: fakeDocker, lines: [
+        try Harness.writeShellFile(at: fakeDocker, lines: [
             "#!/bin/sh",
             "printf '%s\\n' \"$@\" > \"${CMUX_TEST_DOCKER_ARGUMENTS_LOG}\"",
         ])
@@ -164,7 +167,7 @@ extension SSHStartupManualReconnectTests {
         environment["CMUX_SSH_RECONNECT_LIMIT"] = "0"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
 
-        let result = Self.runProcess(
+        let result = Harness.runProcess(
             executablePath: "/bin/sh",
             arguments: [startupURL.path],
             environment: environment,
@@ -198,12 +201,12 @@ extension SSHStartupManualReconnectTests {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
             for: RemoteCommandBundleToken.self
         )
-        let socketPath = makeSocketPath("ssh-remote-command")
+        let socketPath = Harness.makeSocketPath("ssh-remote-command")
         let homeURL = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-home-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: homeURL, withIntermediateDirectories: true)
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
+        let listenerFD = try Harness.bindUnixSocket(at: socketPath)
+        let state = Harness.MockSocketServerState()
         let workspaceID = "11111111-1111-1111-1111-111111111111"
         let surfaceID = "33333333-3333-3333-3333-333333333333"
         let windowID = "22222222-2222-2222-2222-222222222222"
@@ -221,15 +224,15 @@ extension SSHStartupManualReconnectTests {
                 defer { Darwin.close(clientFD) }
                 cliMockServeLineFramedConnection(clientFD: clientFD) { line in
                     state.append(line)
-                    guard let payload = Self.jsonObject(line),
+                    guard let payload = Harness.jsonObject(line),
                           let id = payload["id"] as? String,
                           let method = payload["method"] as? String else {
-                        return Self.malformedRequestResponse(raw: line)
+                        return Harness.malformedRequestResponse(raw: line)
                     }
 
                     switch method {
                     case "workspace.create":
-                        return Self.v2Response(
+                        return Harness.v2Response(
                             id: id,
                             ok: true,
                             result: [
@@ -239,7 +242,7 @@ extension SSHStartupManualReconnectTests {
                             ]
                         )
                     case "surface.list":
-                        return Self.v2Response(
+                        return Harness.v2Response(
                             id: id,
                             ok: true,
                             result: [
@@ -252,13 +255,13 @@ extension SSHStartupManualReconnectTests {
                             ]
                         )
                     case "workspace.remote.configure":
-                        return Self.v2Response(
+                        return Harness.v2Response(
                             id: id,
                             ok: true,
                             result: ["remote": ["state": "connected"]]
                         )
                     default:
-                        return Self.v2Response(
+                        return Harness.v2Response(
                             id: id,
                             ok: false,
                             error: [
@@ -284,7 +287,7 @@ extension SSHStartupManualReconnectTests {
         environment["XDG_DATA_HOME"] = homeURL.appendingPathComponent("data").path
         environment["XDG_STATE_HOME"] = homeURL.appendingPathComponent("state").path
 
-        let result = runProcess(
+        let result = Harness.runProcess(
             executablePath: cliPath,
             arguments: ["ssh", "example.test", "--no-focus"] + sshArguments,
             environment: environment,
@@ -302,12 +305,12 @@ extension SSHStartupManualReconnectTests {
         #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
 
         return RemoteCommandMockedSSHRun(
-            requests: state.snapshot().compactMap(Self.jsonObject)
+            requests: state.snapshot().compactMap(Harness.jsonObject)
         )
     }
 
     private static func waitForRemoteCommandMockSocketCommand(
-        in state: MockSocketServerState,
+        in state: Harness.MockSocketServerState,
         timeout: TimeInterval = 5,
         predicate: (String) -> Bool
     ) -> Bool {
