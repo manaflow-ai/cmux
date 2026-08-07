@@ -962,6 +962,58 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func freezeBoundsWriteAheadStopJournal(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-stop-budget-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_select_exclusive_groups() { return 0; }
+        cmux_ssh_auth_filter_current_processes() { : > "$3"; }
+        cmux_ssh_auth_order_children_first() { : > "$2"; }
+        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        /usr/bin/awk 'BEGIN { for (group = 1000; group <= 2024; group += 1) print group }' \
+          > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_OWNED"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALED_GROUPS" | /usr/bin/tr -d '[:space:]')" \
+          -eq 1024 || exit 98
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" \
+          -eq 1024 || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root),
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func resumeSignaledProcessesRequiresDurableIdentity(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
