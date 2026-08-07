@@ -883,6 +883,44 @@ struct WorkspaceSidebarObservationTests {
         #expect(workspace.statusEntries["codex"] == nil)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func duplicateExactProcessExitObservationPreservesOriginalWatcher() async throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: process.processIdentifier)
+        )
+        let monitor = AgentProcessExitMonitor()
+        let (events, continuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        var iterator = events.makeAsyncIterator()
+        monitor.observe(key: "codex.duplicate", generation: generation) { _, _ in
+            continuation.yield("original")
+            continuation.finish()
+        }
+        monitor.observe(key: "codex.duplicate", generation: generation) { _, _ in
+            continuation.yield("replacement")
+            continuation.finish()
+        }
+
+        process.terminate()
+
+        #expect(
+            await iterator.next() == "original",
+            "Re-registering an identical process generation must retain its existing exit watcher."
+        )
+    }
+
     @Test func processExitTombstoneRejectsDelayedLifecycleHook() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

@@ -755,20 +755,27 @@ try {
     throw new Error("the hanging native state emitted a false settled boundary");
   }
 
-  const leaseDeadline = Date.now() + 2000;
-  while (
-    hangingThread.observerCount() !== 0
-    && Date.now() < leaseDeadline
-  ) {
-    await new Promise((resolve) => originalSetTimeout(resolve, 5));
+  await new Promise((resolve) => originalSetTimeout(resolve, 25));
+  if (hangingThread.observerCount() !== 1) {
+    throw new Error(
+      "a pending turn lost its event-driven native-state observer"
+    );
+  }
+  const beforeNativeIdle = stopCalls().length;
+  hangingThread.setState("idle");
+  if (stopCalls().length !== beforeNativeIdle + 1) {
+    throw new Error("a late native idle event did not settle the pending turn");
+  }
+  const hangingSettlement = JSON.parse(stopCalls().at(-1).stdin);
+  if (hangingSettlement.cmux_turn_boundary !== "settled") {
+    throw new Error(
+      `Amp late native idle did not publish settlement: ${
+        JSON.stringify(hangingSettlement)
+      }`
+    );
   }
   if (hangingThread.observerCount() !== 0) {
-    throw new Error("a silent native subscription outlived its bounded lease");
-  }
-  const afterLeaseExpiry = stopCalls().length;
-  hangingThread.setState("idle");
-  if (stopCalls().length !== afterLeaseExpiry) {
-    throw new Error("an expired native-state observer retained turn ownership");
+    throw new Error("a settled native-state observer was not released");
   }
 } finally {
   globalThis.setTimeout = originalSetTimeout;
