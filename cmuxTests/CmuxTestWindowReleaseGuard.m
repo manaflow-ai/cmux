@@ -20,13 +20,33 @@
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
+#import <errno.h>
+#import <fcntl.h>
 #import <objc/runtime.h>
 #import <sys/stat.h>
 #import <unistd.h>
 
+static int CmuxAppHostReceiptFD = -1;
+
 static void CmuxFailAppHostProcessReceipt(NSString *reason) {
     fprintf(stderr, "FAIL: app-host process receipt: %s\n", reason.UTF8String);
     abort();
+}
+
+static BOOL CmuxWriteAll(int descriptor, NSData *data) {
+    const uint8_t *bytes = data.bytes;
+    NSUInteger offset = 0;
+    while (offset < data.length) {
+        ssize_t written = write(descriptor, bytes + offset, data.length - offset);
+        if (written > 0) {
+            offset += (NSUInteger)written;
+        } else if (written < 0 && errno == EINTR) {
+            continue;
+        } else {
+            return NO;
+        }
+    }
+    return YES;
 }
 
 static void CmuxWriteAppHostProcessReceipt(void) {
@@ -61,19 +81,28 @@ static void CmuxWriteAppHostProcessReceipt(void) {
     }
 
     pid_t pid = getpid();
-    NSString *receipt = [NSString stringWithFormat:
-                         @"version=1\nkey=%@\npid=%d\nexecutable=%@\n",
-                         appHostKey, pid, executablePath];
-    NSData *receiptData = [receipt dataUsingEncoding:NSUTF8StringEncoding];
     NSURL *receiptURL = [directoryURL URLByAppendingPathComponent:
                          [NSString stringWithFormat:@"app-host-%d.receipt", pid]
                                             isDirectory:NO];
-    if (![receiptData writeToURL:receiptURL options:NSDataWritingAtomic error:&error]) {
-        CmuxFailAppHostProcessReceipt(error.localizedDescription ?: @"atomic write failed");
+    int descriptor = open(receiptURL.fileSystemRepresentation,
+                          O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
+                          S_IRUSR | S_IWUSR);
+    if (descriptor < 0) {
+        CmuxFailAppHostProcessReceipt(@"receipt file could not be opened safely");
     }
-    if (chmod(receiptURL.fileSystemRepresentation, S_IRUSR | S_IWUSR) != 0) {
+    if (fchmod(descriptor, S_IRUSR | S_IWUSR) != 0) {
+        close(descriptor);
         CmuxFailAppHostProcessReceipt(@"receipt permissions could not be restricted");
     }
+    NSString *receipt = [NSString stringWithFormat:
+                         @"version=2\nkey=%@\npid=%d\nexecutable=%@\nreceipt_fd=%d\n",
+                         appHostKey, pid, executablePath, descriptor];
+    NSData *receiptData = [receipt dataUsingEncoding:NSUTF8StringEncoding];
+    if (!CmuxWriteAll(descriptor, receiptData) || fsync(descriptor) != 0) {
+        close(descriptor);
+        CmuxFailAppHostProcessReceipt(@"receipt contents could not be persisted");
+    }
+    CmuxAppHostReceiptFD = descriptor;
 }
 
 static void CmuxSwizzleWindowInitializer(SEL selector) {

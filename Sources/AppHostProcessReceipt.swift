@@ -3,8 +3,17 @@ import Foundation
 
 enum AppHostProcessReceipt {
     static func writeIfRequired() {
+        _ = retainedReceiptDescriptor
+    }
+
+    /// The open descriptor is the process-incarnation proof. Keeping it alive
+    /// until process exit prevents a reused PID at the same executable path
+    /// from inheriting authority from a durable receipt.
+    private static let retainedReceiptDescriptor: Int32 = createIfRequired()
+
+    private static func createIfRequired() -> Int32 {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1" else { return }
+        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1" else { return -1 }
         guard
             let receiptDirectory = environment["CMUX_APP_HOST_RECEIPT_DIR"],
             !receiptDirectory.isEmpty,
@@ -35,15 +44,47 @@ enum AppHostProcessReceipt {
             }
 
             let pid = getpid()
-            let receipt = "version=1\nkey=\(key)\npid=\(pid)\nexecutable=\(executablePath)\n"
             let receiptURL = directoryURL.appendingPathComponent("app-host-\(pid).receipt", isDirectory: false)
-            try Data(receipt.utf8).write(to: receiptURL, options: .atomic)
-            let permissionStatus = receiptURL.path.withCString {
-                Darwin.chmod($0, mode_t(S_IRUSR | S_IWUSR))
+            let descriptor = receiptURL.path.withCString {
+                Darwin.open(
+                    $0,
+                    O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
+                    mode_t(S_IRUSR | S_IWUSR)
+                )
             }
-            guard permissionStatus == 0 else {
+            guard descriptor >= 0 else {
+                fail("receipt file could not be opened safely")
+            }
+            guard Darwin.fchmod(descriptor, mode_t(S_IRUSR | S_IWUSR)) == 0 else {
+                Darwin.close(descriptor)
                 fail("receipt permissions could not be restricted")
             }
+            let receipt = "version=2\nkey=\(key)\npid=\(pid)\nexecutable=\(executablePath)\nreceipt_fd=\(descriptor)\n"
+            let receiptData = Data(receipt.utf8)
+            let wroteReceipt = receiptData.withUnsafeBytes { bytes -> Bool in
+                guard let baseAddress = bytes.baseAddress else { return true }
+                var offset = 0
+                while offset < bytes.count {
+                    let written = Darwin.write(
+                        descriptor,
+                        baseAddress.advanced(by: offset),
+                        bytes.count - offset
+                    )
+                    if written > 0 {
+                        offset += written
+                    } else if written < 0, errno == EINTR {
+                        continue
+                    } else {
+                        return false
+                    }
+                }
+                return true
+            }
+            guard wroteReceipt, Darwin.fsync(descriptor) == 0 else {
+                Darwin.close(descriptor)
+                fail("receipt contents could not be persisted")
+            }
+            return descriptor
         } catch {
             fail(error.localizedDescription)
         }

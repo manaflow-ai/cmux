@@ -156,12 +156,13 @@ cmux_read_app_host_receipt() {
     return 1
   fi
 
-  local line line_number receipt_version receipt_key receipt_pid receipt_executable
+  local line line_number receipt_version receipt_key receipt_pid receipt_executable receipt_fd
   line_number=0
   receipt_version=""
   receipt_key=""
   receipt_pid=""
   receipt_executable=""
+  receipt_fd=""
   while IFS= read -r line || [ -n "$line" ]; do
     line_number=$((line_number + 1))
     case "$line_number" in
@@ -169,6 +170,7 @@ cmux_read_app_host_receipt() {
       2) receipt_key="${line#key=}"; [ "$line" != "$receipt_key" ] || receipt_key="" ;;
       3) receipt_pid="${line#pid=}"; [ "$line" != "$receipt_pid" ] || receipt_pid="" ;;
       4) receipt_executable="${line#executable=}"; [ "$line" != "$receipt_executable" ] || receipt_executable="" ;;
+      5) receipt_fd="${line#receipt_fd=}"; [ "$line" != "$receipt_fd" ] || receipt_fd="" ;;
       *)
         echo "FAIL: app-host process receipt has unexpected fields" >&2
         return 1
@@ -176,7 +178,7 @@ cmux_read_app_host_receipt() {
     esac
   done < "$receipt_file"
 
-  if [ "$line_number" -ne 4 ] || [ "$receipt_version" != "1" ]; then
+  if [ "$line_number" -ne 5 ] || [ "$receipt_version" != "2" ]; then
     echo "FAIL: app-host process receipt version is invalid" >&2
     return 1
   fi
@@ -201,9 +203,16 @@ cmux_read_app_host_receipt() {
       return 1
       ;;
   esac
+  case "$receipt_fd" in
+    ''|0[0-9]*|*[!0-9]*)
+      echo "FAIL: app-host process receipt descriptor is invalid" >&2
+      return 1
+      ;;
+  esac
 
   CMUX_PARSED_APP_HOST_RECEIPT_PID="$receipt_pid"
   CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE="$receipt_executable"
+  CMUX_PARSED_APP_HOST_RECEIPT_FD="$receipt_fd"
 }
 
 # Set CMUX_APP_HOST_PRIMARY_EXECUTABLE. Return 2 when the PID has no text vnode,
@@ -268,6 +277,78 @@ EOF
   CMUX_APP_HOST_PRIMARY_EXECUTABLE="${first_executable% (deleted)}"
 }
 
+# Prove that this process incarnation still owns the exact receipt it authored.
+# Return 2 if the PID disappeared during verification and 1 for a live process
+# without the recorded descriptor or for malformed lsof output.
+cmux_app_host_receipt_descriptor_is_open() {
+  local pid="$1"
+  local receipt_fd="$2"
+  local receipt_file="$3"
+  cmux_select_app_host_lsof || return 1
+
+  local output status line reported_pid reported_fd reported_path
+  if output="$("$CMUX_SELECTED_APP_HOST_LSOF" \
+    -a -p "$pid" -d "$receipt_fd" -Fn -- "$receipt_file" 2>&1)"; then
+    status=0
+  else
+    status=$?
+  fi
+  if [ "$status" -ne 0 ]; then
+    if [ "$status" -eq 1 ] && ! /bin/kill -0 "$pid" 2>/dev/null; then
+      return 2
+    fi
+    echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
+    if [ "$status" -ne 1 ] && [ -n "$output" ]; then
+      echo "$output" >&2
+    fi
+    return 1
+  fi
+
+  reported_pid=""
+  reported_fd=""
+  reported_path=""
+  while IFS= read -r line; do
+    case "$line" in
+      p*)
+        if [ -n "$reported_pid" ] || [ "${line#p}" != "$pid" ]; then
+          echo "FAIL: lsof returned an unexpected receipt owner PID" >&2
+          return 1
+        fi
+        reported_pid="${line#p}"
+        ;;
+      f*)
+        if [ -z "$reported_pid" ] \
+          || [ -n "$reported_fd" ] \
+          || [ "${line#f}" != "$receipt_fd" ]; then
+          echo "FAIL: lsof returned an unexpected receipt descriptor" >&2
+          return 1
+        fi
+        reported_fd="${line#f}"
+        ;;
+      n*)
+        if [ -z "$reported_fd" ] || [ -n "$reported_path" ]; then
+          echo "FAIL: lsof returned an unexpected receipt path" >&2
+          return 1
+        fi
+        reported_path="${line#n}"
+        ;;
+      '') ;;
+      *)
+        echo "FAIL: lsof returned malformed receipt descriptor data" >&2
+        return 1
+        ;;
+    esac
+  done <<EOF
+$output
+EOF
+  if [ "$reported_pid" != "$pid" ] \
+    || [ "$reported_fd" != "$receipt_fd" ] \
+    || [ "$reported_path" != "$receipt_file" ]; then
+    echo "FAIL: live app-host PID $pid does not hold its exact process receipt" >&2
+    return 1
+  fi
+}
+
 # Return 0 for an exact live identity, 2 for a stale receipt, and 1 for any
 # mismatch. Callers must never signal a PID after a 1 or 2 result.
 cmux_verify_app_host_receipt() {
@@ -276,9 +357,10 @@ cmux_verify_app_host_receipt() {
   local derived_data_path="$3"
   cmux_read_app_host_receipt "$receipt_file" "$expected_key" || return 1
 
-  local receipt_pid receipt_executable primary_status
+  local receipt_pid receipt_executable receipt_fd primary_status receipt_status
   receipt_pid="$CMUX_PARSED_APP_HOST_RECEIPT_PID"
   receipt_executable="$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE"
+  receipt_fd="$CMUX_PARSED_APP_HOST_RECEIPT_FD"
   cmux_validate_app_host_executable_scope \
     "$derived_data_path" "$receipt_executable" || return 1
 
@@ -295,6 +377,18 @@ cmux_verify_app_host_receipt() {
   fi
   if [ "$CMUX_APP_HOST_PRIMARY_EXECUTABLE" != "$receipt_executable" ]; then
     echo "FAIL: app-host receipt does not match the PID executable vnode" >&2
+    return 1
+  fi
+  if cmux_app_host_receipt_descriptor_is_open \
+    "$receipt_pid" "$receipt_fd" "$receipt_file"; then
+    receipt_status=0
+  else
+    receipt_status=$?
+  fi
+  if [ "$receipt_status" -eq 2 ]; then
+    return 2
+  fi
+  if [ "$receipt_status" -ne 0 ]; then
     return 1
   fi
   CMUX_VERIFIED_APP_HOST_PID="$receipt_pid"
@@ -618,9 +712,10 @@ cmux_verify_stale_app_host_receipt() {
   runner_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
   cmux_read_app_host_receipt "$receipt_file" "$expected_key" || return 1
 
-  local receipt_pid receipt_executable primary_status
+  local receipt_pid receipt_executable receipt_fd primary_status receipt_status
   receipt_pid="$CMUX_PARSED_APP_HOST_RECEIPT_PID"
   receipt_executable="$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE"
+  receipt_fd="$CMUX_PARSED_APP_HOST_RECEIPT_FD"
   if ! cmux_app_host_derived_data_from_executable \
     "$runner_root" "$receipt_executable"; then
     echo "FAIL: stale app-host receipt executable is outside the runner work root" >&2
@@ -641,6 +736,18 @@ cmux_verify_stale_app_host_receipt() {
   fi
   if [ "$CMUX_APP_HOST_PRIMARY_EXECUTABLE" != "$receipt_executable" ]; then
     echo "FAIL: stale app-host receipt does not match the PID executable vnode" >&2
+    return 1
+  fi
+  if cmux_app_host_receipt_descriptor_is_open \
+    "$receipt_pid" "$receipt_fd" "$receipt_file"; then
+    receipt_status=0
+  else
+    receipt_status=$?
+  fi
+  if [ "$receipt_status" -eq 2 ]; then
+    return 2
+  fi
+  if [ "$receipt_status" -ne 0 ]; then
     return 1
   fi
 

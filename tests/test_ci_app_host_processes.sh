@@ -3,11 +3,22 @@ set -euo pipefail
 
 if [ "$(basename "$0")" = "fake-lsof" ]; then
   pid_filter=""
+  fd_filter=""
+  path_filter=""
   while [ "$#" -gt 0 ]; do
     case "$1" in
       -p)
         pid_filter="$2"
         shift 2
+        ;;
+      -d)
+        fd_filter="$2"
+        shift 2
+        ;;
+      --)
+        shift
+        path_filter="${1:-}"
+        [ "$#" -eq 0 ] || shift
         ;;
       *) shift ;;
     esac
@@ -22,8 +33,16 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
     if ! /bin/kill -0 "$state_pid" 2>/dev/null; then
       continue
     fi
-    printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
-      "$state_pid" "$state_executable"
+    if [ -n "$path_filter" ]; then
+      if [ "${CMUX_FAKE_LSOF_MISSING_RECEIPT_PID:-}" = "$state_pid" ] \
+        || [ "$fd_filter" != "9" ]; then
+        continue
+      fi
+      printf 'p%s\nf9\nn%s\n' "$state_pid" "$path_filter"
+    else
+      printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
+        "$state_pid" "$state_executable"
+    fi
     found=1
   done < "$CMUX_FAKE_LSOF_STATE"
   if [ "$found" -eq 1 ] || [ -z "$pid_filter" ]; then
@@ -96,7 +115,7 @@ write_receipt() {
   local key="$2"
   local pid="$3"
   local executable="$4"
-  printf 'version=1\nkey=%s\npid=%s\nexecutable=%s\n' \
+  printf 'version=2\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\n' \
     "$key" "$pid" "$executable" \
     > "$receipt_dir/app-host-$pid.receipt"
 }

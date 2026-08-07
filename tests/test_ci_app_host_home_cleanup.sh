@@ -4,9 +4,17 @@ set -euo pipefail
 case "${0##*/}" in
   fake-lsof)
     pid_filter=""
+    fd_filter=""
+    path_filter=""
     while [ "$#" -gt 0 ]; do
       case "$1" in
         -p) pid_filter="$2"; shift 2 ;;
+        -d) fd_filter="$2"; shift 2 ;;
+        --)
+          shift
+          path_filter="${1:-}"
+          [ "$#" -eq 0 ] || shift
+          ;;
         *) shift ;;
       esac
     done
@@ -19,8 +27,15 @@ case "${0##*/}" in
       if ! /bin/kill -0 "$state_pid" 2>/dev/null; then
         continue
       fi
-      printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
-        "$state_pid" "$state_executable"
+      if [ -n "$path_filter" ]; then
+        if [ "$fd_filter" != "9" ]; then
+          continue
+        fi
+        printf 'p%s\nf9\nn%s\n' "$state_pid" "$path_filter"
+      else
+        printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
+          "$state_pid" "$state_executable"
+      fi
       found=1
     done < "$CMUX_FAKE_LSOF_STATE"
     [ "$found" -eq 1 ] || [ -z "$pid_filter" ]
@@ -163,7 +178,7 @@ mkdir -p "$(dirname "$APP_HOST_EXECUTABLE")"
 /bin/bash -c 'trap "exit 0" TERM; while :; do /bin/sleep 0.1; done' &
 APP_HOST_PID=$!
 printf '%s|%s\n' "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" > "$FAKE_LSOF_STATE"
-printf 'version=1\nkey=%s\npid=%s\nexecutable=%s\n' \
+printf 'version=2\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\n' \
   "$CMUX_APP_HOST_KEY" "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" \
   > "$CMUX_APP_HOST_RECEIPT_DIR/app-host-$APP_HOST_PID.receipt"
 

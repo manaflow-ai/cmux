@@ -254,7 +254,7 @@ def main() -> int:
     )
     require(
         CONSOLE_WRAPPER,
-        'sudo -n chown -R "$console_user" "$app_host_home"',
+        'sudo -n chown -R -P "$console_user" "$app_host_home"',
         "console-user app-host ownership",
     )
     require(
@@ -264,7 +264,7 @@ def main() -> int:
     )
     require(
         CONSOLE_WRAPPER,
-        'sudo -n chown -R "$console_user" "$app_host_receipt_dir"',
+        'sudo -n chown -R -P "$console_user" "$app_host_receipt_dir"',
         "console-user process receipt ownership",
     )
     require(
@@ -388,6 +388,11 @@ def main() -> int:
         "has no verified receipt",
         "unreceipted live app-host refusal",
     )
+    require(
+        APP_HOST_PROCESSES,
+        "cmux_app_host_receipt_descriptor_is_open",
+        "process-incarnation receipt verification",
+    )
 
     for forbidden_process_authority in (
         "ps -axww -o pid=,command=",
@@ -406,7 +411,9 @@ def main() -> int:
         "receipt isolation marker": "CMUX_APP_HOST_ISOLATION_REQUIRED",
         "receipt external directory": "CMUX_APP_HOST_RECEIPT_DIR",
         "receipt run-derived key": "CMUX_APP_HOST_KEY",
-        "receipt atomic write": "NSDataWritingAtomic",
+        "receipt process-incarnation descriptor": "CmuxAppHostReceiptFD",
+        "receipt descriptor field": "receipt_fd=",
+        "receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_CONSTRUCTOR, needle, context)
 
@@ -414,7 +421,9 @@ def main() -> int:
         "early receipt isolation marker": "CMUX_APP_HOST_ISOLATION_REQUIRED",
         "early receipt external directory": "CMUX_APP_HOST_RECEIPT_DIR",
         "early receipt run-derived key": "CMUX_APP_HOST_KEY",
-        "early receipt atomic write": "options: .atomic",
+        "early retained receipt descriptor": "retainedReceiptDescriptor",
+        "early receipt descriptor field": "receipt_fd=",
+        "early receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_WRITER, needle, context)
     require(
