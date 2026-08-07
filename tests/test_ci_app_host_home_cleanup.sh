@@ -219,7 +219,7 @@ prepare_scope
 set +e
 PATH="$FAKE_BIN:$PATH" \
 CMUX_FAKE_MUTATION_LOG="$TMP_DIR/untrusted-owner-mutations.log" \
-CMUX_FAKE_UNTRUSTED_SCOPE_PATH="$CMUX_APP_HOST_HOME" \
+CMUX_FAKE_UNTRUSTED_SCOPE_PATH="$(cd "$CMUX_APP_HOST_HOME" && pwd -P)" \
   bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
     scripts/ci/cleanup-app-host-home.sh \
     > "$TMP_DIR/untrusted-owner-cleanup.log" 2>&1

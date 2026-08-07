@@ -53,6 +53,7 @@ prepare_app_host_home_for_console_user() {
 
   local app_host_home="$CMUX_RESOLVED_APP_HOST_HOME"
   local app_host_receipt_dir="$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR"
+  local app_host_confirmation_file="$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE"
   if sudo -n test -L "$app_host_home"; then
     echo "FAIL: refusing app-host preparation through a home symlink" >&2
     return 1
@@ -61,9 +62,15 @@ prepare_app_host_home_for_console_user() {
     echo "FAIL: refusing app-host preparation through a receipt symlink" >&2
     return 1
   fi
+  if sudo -n test -L "$app_host_confirmation_file"; then
+    echo "FAIL: refusing app-host preparation through a confirmation symlink" >&2
+    return 1
+  fi
 
+  local home_exists=0 receipt_dir_exists=0 confirmation_exists=0
   local resolved_home resolved_receipt_dir
   if sudo -n test -e "$app_host_home"; then
+    home_exists=1
     resolved_home="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_home")" || {
       echo "FAIL: app-host isolation directory is unavailable" >&2
       return 1
@@ -72,13 +79,12 @@ prepare_app_host_home_for_console_user() {
       echo "FAIL: app-host isolation directory changed identity" >&2
       return 1
     fi
-    sudo -n chown -R "$console_user" "$app_host_home"
-    sudo -n chmod -R u+rwX,go-rwx "$app_host_home"
   elif [ "$cleanup_requested" != "1" ]; then
     echo "FAIL: app-host isolation directory is unavailable" >&2
     return 1
   fi
   if sudo -n test -e "$app_host_receipt_dir"; then
+    receipt_dir_exists=1
     resolved_receipt_dir="$(sudo -n /bin/bash -c 'cd "$1" 2>/dev/null && pwd -P' bash "$app_host_receipt_dir")" || {
       echo "FAIL: app-host process receipt directory is unavailable" >&2
       return 1
@@ -87,21 +93,87 @@ prepare_app_host_home_for_console_user() {
       echo "FAIL: app-host process receipt directory changed identity" >&2
       return 1
     fi
-    sudo -n chown -R "$console_user" "$app_host_receipt_dir"
-    sudo -n chmod -R u+rwX,go-rwx "$app_host_receipt_dir"
   elif [ "$cleanup_requested" != "1" ]; then
     echo "FAIL: app-host process receipt directory is unavailable" >&2
     return 1
   fi
-  if sudo -n test -e "$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE"; then
-    sudo -n chown "$console_user" "$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE"
+  if sudo -n test -e "$app_host_confirmation_file"; then
+    confirmation_exists=1
+  fi
+
+  local scope_exists=0
+  if [ "$home_exists" = "1" ] \
+    || [ "$receipt_dir_exists" = "1" ] \
+    || [ "$confirmation_exists" = "1" ]; then
+    scope_exists=1
+  fi
+
+  local validation_function="cmux_validate_published_app_host_identity"
+  if [ "$cleanup_requested" = "1" ]; then
+    validation_function="cmux_validate_published_app_host_identity_values"
+  fi
+
+  # Cleanup may receive paths owned by either the runner account (setup failed
+  # before the console hop) or the console account (the app host ran). Validate
+  # the root-owned view of the confirmation before changing any ownership.
+  if [ "$scope_exists" = "1" ]; then
+    sudo -n env \
+      GITHUB_RUN_ID="$GITHUB_RUN_ID" \
+      GITHUB_RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+      CMUX_APP_HOST_SHARD="$CMUX_APP_HOST_SHARD" \
+      RUNNER_TEMP="$RUNNER_TEMP" \
+      CMUX_APP_HOST_KEY="$CMUX_APP_HOST_KEY" \
+      CMUX_APP_HOST_HOME="$CMUX_APP_HOST_HOME" \
+      CMUX_APP_HOST_XDG_CONFIG_HOME="$CMUX_APP_HOST_XDG_CONFIG_HOME" \
+      CMUX_APP_HOST_RECEIPT_DIR="$CMUX_APP_HOST_RECEIPT_DIR" \
+      CMUX_APP_HOST_CLEANUP_CONFIRMATION="$CMUX_APP_HOST_CLEANUP_CONFIRMATION" \
+      CMUX_APP_HOST_CONFIRMATION_FILE="$CMUX_APP_HOST_CONFIRMATION_FILE" \
+      /bin/bash -c 'source "$1" && "$2" && cmux_validate_app_host_cleanup_confirmation' \
+        bash "$ci_script_dir/app-host-isolation.sh" "$validation_function"
+
+    local runner_user scope_path scope_owner
+    runner_user="$(id -un)" || {
+      echo "FAIL: app-host runner account is unavailable" >&2
+      return 1
+    }
+    for scope_path in \
+      "$app_host_home" \
+      "$app_host_receipt_dir" \
+      "$app_host_confirmation_file"
+    do
+      if sudo -n test -e "$scope_path"; then
+        scope_owner="$(sudo -n stat -f %Su "$scope_path")" || {
+          echo "FAIL: app-host scope owner is unavailable" >&2
+          return 1
+        }
+        case "$scope_owner" in
+          "$runner_user"|"$console_user") ;;
+          *)
+            echo "FAIL: app-host scope owner is not trusted" >&2
+            return 1
+            ;;
+        esac
+      fi
+    done
+  fi
+
+  if [ "$home_exists" = "1" ]; then
+    sudo -n chown -R -P "$console_user" "$app_host_home"
+    sudo -n chmod -R u+rwX,go-rwx "$app_host_home"
+  fi
+  if [ "$receipt_dir_exists" = "1" ]; then
+    sudo -n chown -R -P "$console_user" "$app_host_receipt_dir"
+    sudo -n chmod -R u+rwX,go-rwx "$app_host_receipt_dir"
+  fi
+  if [ "$confirmation_exists" = "1" ]; then
+    sudo -n chown "$console_user" "$app_host_confirmation_file"
   fi
 
   # Re-run the shared validator after ownership transfer. This validates the
   # paths from the same account that will launch or tear down the app host.
-  local validation_function="cmux_validate_published_app_host_identity"
-  if [ "$cleanup_requested" = "1" ]; then
-    validation_function="cmux_validate_published_app_host_identity_values"
+  local confirmation_validation_function=:
+  if [ "$scope_exists" = "1" ]; then
+    confirmation_validation_function="cmux_validate_app_host_cleanup_confirmation"
   fi
   sudo -n -u "$console_user" env \
     GITHUB_RUN_ID="$GITHUB_RUN_ID" \
@@ -114,8 +186,9 @@ prepare_app_host_home_for_console_user() {
     CMUX_APP_HOST_RECEIPT_DIR="$CMUX_APP_HOST_RECEIPT_DIR" \
     CMUX_APP_HOST_CLEANUP_CONFIRMATION="$CMUX_APP_HOST_CLEANUP_CONFIRMATION" \
     CMUX_APP_HOST_CONFIRMATION_FILE="$CMUX_APP_HOST_CONFIRMATION_FILE" \
-    /bin/bash -c 'source "$1" && "$2"' \
-      bash "$ci_script_dir/app-host-isolation.sh" "$validation_function"
+    /bin/bash -c 'source "$1" && "$2" && "$3"' \
+      bash "$ci_script_dir/app-host-isolation.sh" \
+        "$validation_function" "$confirmation_validation_function"
 }
 
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
