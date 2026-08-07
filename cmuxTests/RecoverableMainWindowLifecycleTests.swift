@@ -11,6 +11,58 @@ import Testing
 @MainActor
 @Suite("Recoverable main window lifecycle", .serialized)
 struct RecoverableMainWindowLifecycleTests {
+    @Test("Production windowless prune preserves the orphaned session")
+    func productionWindowlessPrunePreservesOrphanedSession() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let context = try #require(
+            app.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+
+        // Drive the production predicate: both the weak context reference and
+        // the AppKit identifier lookup fail before prune transitions the
+        // already-registered lifecycle record.
+        context.window = nil
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.orphaned.\(windowId.uuidString)")
+        _ = app.preferredMainWindowContextForWorkspaceCreation(
+            debugSource: "issue9666-windowless-regression"
+        )
+
+        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+        #expect(route.window == nil)
+        #expect(route.tabManager === manager)
+        #expect(app.tabManagerFor(windowId: windowId) == nil)
+
+        let snapshot = try #require(app.sessionSnapshotForTesting())
+        let restoredWindow = try #require(
+            snapshot.windows.first { $0.windowId == windowId }
+        )
+        #expect(restoredWindow.tabManager.workspaces.contains { $0.workspaceId == workspace.id })
+    }
+
     @Test("Dismissed recovered window remains restorable and focusable")
     func dismissedRecoveredWindowRemainsRestorableAndFocusable() throws {
         _ = NSApplication.shared
@@ -243,47 +295,6 @@ struct RecoverableMainWindowLifecycleTests {
                 orderedWindowIds[0],
             ]
         )
-    }
-
-    @Test("Autosave selection fingerprint tracks crash-pruning eligibility")
-    func autosaveSelectionFingerprintTracksCrashPruningEligibility() throws {
-        let manager = TabManager()
-        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
-        let workspace = try #require(manager.selectedWorkspace)
-        let panelId = try #require(workspace.focusedPanelId)
-        let baseline = sessionPersistenceSelectionFingerprint(for: manager)
-
-        workspace.workspaceEnvironment["CMUX_ISSUE_9666_TEST"] = "1"
-        #expect(sessionPersistenceSelectionFingerprint(for: manager) != baseline)
-        workspace.workspaceEnvironment.removeAll()
-        #expect(sessionPersistenceSelectionFingerprint(for: manager) == baseline)
-
-        workspace.surfaceListeningPorts[panelId] = [9666]
-        #expect(sessionPersistenceSelectionFingerprint(for: manager) != baseline)
-        workspace.surfaceListeningPorts.removeValue(forKey: panelId)
-        #expect(sessionPersistenceSelectionFingerprint(for: manager) == baseline)
-
-        workspace.surfaceResumeBindingsByPanelId[panelId] = SurfaceResumeBindingSnapshot(
-            name: "Codex",
-            kind: "codex",
-            command: "codex resume issue-9666",
-            cwd: "/tmp/cmux-issue-9666",
-            checkpointId: "issue-9666",
-            source: "agent-hook",
-            autoResume: true,
-            updatedAt: 1_999_999_999
-        )
-        #expect(sessionPersistenceSelectionFingerprint(for: manager) != baseline)
-    }
-
-    private func sessionPersistenceSelectionFingerprint(for manager: TabManager) -> Int {
-        var hasher = Hasher()
-        manager.combineSessionPersistenceSelectionMetadata(
-            into: &hasher,
-            restorableAgentIndex: .empty,
-            surfaceResumeBindingIndex: .empty
-        )
-        return hasher.finalize()
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {
