@@ -62,6 +62,28 @@ public struct SSHRemoteCommand: Equatable, Sendable {
         guard !ttyRequestArguments.isEmpty else { return options }
 
         let resolver = SSHAgentSocketResolver()
+        let request = effectiveTTYRequest(in: options, resolver: resolver)
+
+        return resolver.removingOptions(named: "RequestTTY", from: options)
+            + ["RequestTTY=\(request.optionValue)"]
+    }
+
+    /// Returns whether the effective OpenSSH configuration explicitly disables a TTY.
+    ///
+    /// - Parameter options: OpenSSH `-o` values applied before
+    ///   ``ttyRequestArguments``.
+    /// - Returns: `true` when the final `RequestTTY` state is `no`.
+    public func disablesTTY(in options: [String]) -> Bool {
+        effectiveTTYRequest(
+            in: options,
+            resolver: SSHAgentSocketResolver()
+        ) == .disabled
+    }
+
+    private func effectiveTTYRequest(
+        in options: [String],
+        resolver: SSHAgentSocketResolver
+    ) -> TTYRequest {
         var request = TTYRequest(
             optionValue: resolver.optionValue(named: "RequestTTY", in: options)
         )
@@ -74,9 +96,7 @@ public struct SSHRemoteCommand: Equatable, Sendable {
                 }
             }
         }
-
-        return resolver.removingOptions(named: "RequestTTY", from: options)
-            + ["RequestTTY=\(request.optionValue)"]
+        return request
     }
 
     private enum TTYRequest: Equatable {
@@ -87,8 +107,8 @@ public struct SSHRemoteCommand: Equatable, Sendable {
 
         init(optionValue: String?) {
             switch optionValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "no": self = .disabled
-            case "yes": self = .enabled
+            case "no", "false": self = .disabled
+            case "yes", "true": self = .enabled
             case "force": self = .forced
             default: self = .automatic
             }
