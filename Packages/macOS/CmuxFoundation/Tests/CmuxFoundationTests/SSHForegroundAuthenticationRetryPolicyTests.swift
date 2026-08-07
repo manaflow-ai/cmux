@@ -3120,6 +3120,90 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test func processSnapshotsEnumerateOnlyOwnedGroupsAndDescendants() {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(
+            !functions.contains("syscall(\n              336, 1, 1, 0, 0"),
+            "Authentication cleanup must not enumerate every PID on the machine"
+        )
+        #expect(
+            functions.contains("my $PROC_PGRP_ONLY = 2;") &&
+                functions.contains("my $PROC_PPID_ONLY = 6;"),
+            "Authentication cleanup must enumerate only owned process groups and descendants"
+        )
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func recoverySchedulerCoalescesBeforeForkingWorker(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-recovery-coalescing-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_resume_failed_auth_group_reapers() {
+          printf 'started\\n' >> "$CMUX_TEST_RECOVERY_STARTED"
+          cmux_test_worker_deadline=$(($(cmux_ssh_auth_now_millis) + 3000))
+          while [ ! -e "$CMUX_TEST_RECOVERY_RELEASE" ]; do
+            cmux_test_worker_now=$(cmux_ssh_auth_now_millis) || return 90
+            [ "$cmux_test_worker_now" -lt "$cmux_test_worker_deadline" ] || return 90
+            /bin/sleep 0.01
+          done
+          printf 'done\\n' >> "$CMUX_TEST_RECOVERY_DONE"
+        }
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 99
+        cmux_ssh_schedule_failed_auth_group_recovery || exit 98
+
+        cmux_test_started_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
+        while :; do
+          cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+            "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\\n')
+          [ "$cmux_test_started_count" -ge 1 ] && break
+          cmux_test_started_now=$(cmux_ssh_auth_now_millis) || exit 97
+          [ "$cmux_test_started_now" -lt "$cmux_test_started_deadline" ] || exit 96
+          /bin/sleep 0.01
+        done
+
+        cmux_test_settle_deadline=$(($(cmux_ssh_auth_now_millis) + 500))
+        while :; do
+          cmux_test_settle_now=$(cmux_ssh_auth_now_millis) || exit 95
+          [ "$cmux_test_settle_now" -lt "$cmux_test_settle_deadline" ] || break
+          /bin/sleep 0.01
+        done
+        cmux_test_started_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+          "$CMUX_TEST_RECOVERY_STARTED" 2>/dev/null || printf '0\\n')
+        : > "$CMUX_TEST_RECOVERY_RELEASE"
+
+        cmux_test_done_deadline=$(($(cmux_ssh_auth_now_millis) + 1000))
+        while :; do
+          cmux_test_done_count=$(/usr/bin/awk 'END { print NR + 0 }' \
+            "$CMUX_TEST_RECOVERY_DONE" 2>/dev/null || printf '0\\n')
+          [ "$cmux_test_done_count" -ge "$cmux_test_started_count" ] && break
+          cmux_test_done_now=$(cmux_ssh_auth_now_millis) || exit 94
+          [ "$cmux_test_done_now" -lt "$cmux_test_done_deadline" ] || exit 93
+          /bin/sleep 0.01
+        done
+        [ "$cmux_test_started_count" -eq 1 ] || exit 92
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_RECOVERY_DONE": root.appendingPathComponent("done").path,
+                "CMUX_TEST_RECOVERY_RELEASE": root.appendingPathComponent("release").path,
+                "CMUX_TEST_RECOVERY_STARTED": root.appendingPathComponent("started").path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func recoveryQueueReclaimsExpiredUnpublishedDirectory() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
