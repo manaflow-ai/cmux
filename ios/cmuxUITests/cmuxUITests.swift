@@ -7093,6 +7093,63 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Rapid, app-driven keyboard reversals exercise the real responder path
+    /// without XCUI waiting for each animation to become idle. The surface's
+    /// DEBUG display-link probe compares its live viewport edge with an
+    /// independent presentation-layer measurement on every rendered frame.
+    @MainActor
+    func testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let attachURL = try attachURL(port: port)
+        let app = launchApp(mockData: true, environment: [
+            "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+            "CMUX_UITEST_KEYBOARD_DOCK_RAPID_TOGGLE_COUNT": "10",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 20))
+
+        let deadline = Date().addingTimeInterval(6)
+        var dock = surfaceDock(in: app)
+        while Date() < deadline, dock["dockTraceComplete"] != "1" {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            dock = surfaceDock(in: app)
+        }
+
+        let sampleCount = dock["dockTraceSamples"].flatMap(Int.init) ?? -1
+        let motionRange = dock["dockTraceMotionRange"].flatMap(Double.init) ?? -1
+        let maxGap = dock["dockTraceMaxGap"].flatMap(Double.init) ?? .infinity
+        let maxViewportError = dock["dockTraceMaxViewportError"].flatMap(Double.init) ?? .infinity
+        XCTAssertEqual(
+            dock["dockTraceComplete"],
+            "1",
+            "The app-driven rapid-toggle sequence must complete without wedging. dock=\(dock)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            sampleCount,
+            10,
+            "The display-link probe must sample the interrupted animations. dock=\(dock)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            motionRange,
+            120,
+            "The repro must observe real keyboard travel, not only settled endpoints. dock=\(dock)"
+        )
+        XCTAssertLessThanOrEqual(
+            maxGap,
+            1,
+            "The accessory must remain pixel-attached to the keyboard key plane. dock=\(dock)"
+        )
+        XCTAssertLessThanOrEqual(
+            maxViewportError,
+            1,
+            "The live terminal viewport must consume the accessory's true presentation position. dock=\(dock)"
+        )
+    }
+
     @MainActor
     private func waitForKeyboardDismissal(in app: XCUIApplication) -> Bool {
         let expectation = XCTNSPredicateExpectation(
