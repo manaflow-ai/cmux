@@ -97,7 +97,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         guard hasRequestInFlight(for: epoch) else { return false }
 
         var buffer = buffersByEpoch[epoch] ?? EpochBuffer()
-        guard buffer.pendingCount < maximumBufferedEvents else {
+        if buffer.pendingCount >= maximumBufferedEvents {
             if discardWhenFull {
                 return true
             }
