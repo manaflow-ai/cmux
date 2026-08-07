@@ -8,18 +8,7 @@ import Testing
 struct SudoApprovalCoordinatorTests {
     @Test("Startup presents an exact snapshot and decisions use the broker")
     func startupAndApprovalUseInjectedBoundaries() async throws {
-        let snapshot = SudoPendingRequest(
-            request: SudoRequest(
-                id: "request-1",
-                reason: "Install helper",
-                requesterPid: 123,
-                requesterCommand: "cmux",
-                currentDirectory: "/tmp/project",
-                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-                timeoutSeconds: 300
-            ),
-            script: "echo reviewed\n"
-        )
+        let snapshot = Self.snapshot(id: "request-1")
         let broker = RecordingSudoBroker(initialSnapshots: [snapshot])
         let presenter = RecordingSudoApprovalPresenter()
         let coordinator = SudoApprovalCoordinator(broker: broker, presenter: presenter)
@@ -40,20 +29,100 @@ struct SudoApprovalCoordinatorTests {
         #expect(presenter.dismissAllCallCount == 1)
         #expect(await broker.stopCallCount == 1)
     }
+
+    @Test("Phase and settlement events update then dismiss the presentation")
+    func lifecycleEventsProjectAuthoritativeState() async throws {
+        let snapshot = Self.snapshot(id: "request-events")
+        let broker = RecordingSudoBroker(initialSnapshots: [snapshot])
+        let presenter = RecordingSudoApprovalPresenter()
+        let coordinator = SudoApprovalCoordinator(broker: broker, presenter: presenter)
+        var presenterEvents = presenter.events.makeAsyncIterator()
+
+        try await coordinator.start()
+        #expect(await presenterEvents.next() == .presented("request-events"))
+        let presentation = try #require(presenter.presentations["request-events"])
+
+        await broker.send(.phaseChanged(id: "request-events", phase: .approved))
+        await broker.send(
+            .settled(
+                SudoResult(id: "request-events", status: .completed, exitCode: 0)
+            )
+        )
+
+        #expect(await presenterEvents.next() == .dismissed("request-events"))
+        #expect(presentation.phase == .approved)
+        #expect(coordinator.presentations["request-events"] == nil)
+        await coordinator.stop()
+    }
+
+    @Test("A request can be denied only once")
+    func denialIsSingleShot() async throws {
+        let snapshot = Self.snapshot(id: "request-deny")
+        let broker = RecordingSudoBroker(initialSnapshots: [snapshot])
+        let coordinator = SudoApprovalCoordinator(
+            broker: broker,
+            presenter: RecordingSudoApprovalPresenter()
+        )
+        try await coordinator.start()
+
+        await coordinator.deny(id: "request-deny")
+        await coordinator.deny(id: "request-deny")
+
+        #expect(await broker.deniedRequestIDs == ["request-deny"])
+        await coordinator.stop()
+    }
+
+    @Test("Shutdown joins startup and never presents a late snapshot")
+    func shutdownDuringStartup() async throws {
+        let broker = BlockingStartSudoBroker(snapshot: Self.snapshot(id: "request-late"))
+        let presenter = RecordingSudoApprovalPresenter()
+        let coordinator = SudoApprovalCoordinator(broker: broker, presenter: presenter)
+        let runtime = SudoApprovalRuntime(coordinator: coordinator)
+        var startEvents = await broker.startEvents().makeAsyncIterator()
+
+        runtime.start { error in
+            Issue.record("Unexpected startup failure: \(error)")
+        }
+        _ = await startEvents.next()
+        await runtime.stop()
+
+        #expect(presenter.presentations.isEmpty)
+        #expect(await broker.stopCallCount == 1)
+    }
+
+    private static func snapshot(id: String) -> SudoPendingRequest {
+        SudoPendingRequest(
+            request: SudoRequest(
+                id: id,
+                reason: "Install helper",
+                requesterPid: 123,
+                requesterCommand: "cmux",
+                currentDirectory: "/tmp/project",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                timeoutSeconds: 300
+            ),
+            script: "echo reviewed\n"
+        )
+    }
 }
 
 private actor RecordingSudoBroker: SudoBrokerServing {
     private let initialSnapshots: [SudoPendingRequest]
     private let eventStream: AsyncStream<SudoBrokerEvent>
     private var approvedIDs: [String] = []
+    private var deniedIDs: [String] = []
     private var stops = 0
+    private let eventContinuation: AsyncStream<SudoBrokerEvent>.Continuation
 
     init(initialSnapshots: [SudoPendingRequest]) {
         self.initialSnapshots = initialSnapshots
-        eventStream = AsyncStream { _ in }
+        let pair = AsyncStream.makeStream(of: SudoBrokerEvent.self)
+        eventStream = pair.stream
+        eventContinuation = pair.continuation
     }
 
     var approvedRequestIDs: [String] { approvedIDs }
+    var deniedRequestIDs: [String] { deniedIDs }
     var stopCallCount: Int { stops }
 
     func events() -> AsyncStream<SudoBrokerEvent> { eventStream }
@@ -63,17 +132,76 @@ private actor RecordingSudoBroker: SudoBrokerServing {
         approvedIDs.append(id)
     }
 
-    func deny(id: String) {}
+    func deny(id: String) {
+        deniedIDs.append(id)
+    }
+
+    func send(_ event: SudoBrokerEvent) {
+        eventContinuation.yield(event)
+    }
 
     func stop() {
         stops += 1
     }
 }
 
+private actor BlockingStartSudoBroker: SudoBrokerServing {
+    private let snapshot: SudoPendingRequest
+    private let eventStream: AsyncStream<SudoBrokerEvent>
+    private let startEventStream: AsyncStream<Void>
+    private let startEventContinuation: AsyncStream<Void>.Continuation
+    private var startContinuation: CheckedContinuation<Void, Never>?
+    private var stops = 0
+
+    init(snapshot: SudoPendingRequest) {
+        self.snapshot = snapshot
+        eventStream = AsyncStream { _ in }
+        let pair = AsyncStream.makeStream(of: Void.self)
+        startEventStream = pair.stream
+        startEventContinuation = pair.continuation
+    }
+
+    var stopCallCount: Int { stops }
+
+    func startEvents() -> AsyncStream<Void> { startEventStream }
+    func events() -> AsyncStream<SudoBrokerEvent> { eventStream }
+
+    func start() async -> [SudoPendingRequest] {
+        startEventContinuation.yield()
+        await withCheckedContinuation { continuation in
+            startContinuation = continuation
+        }
+        return [snapshot]
+    }
+
+    func approve(id: String) {}
+    func deny(id: String) {}
+
+    func stop() {
+        stops += 1
+        startContinuation?.resume()
+        startContinuation = nil
+    }
+}
+
 @MainActor
 private final class RecordingSudoApprovalPresenter: SudoApprovalPresenting {
+    enum Event: Equatable {
+        case presented(String)
+        case dismissed(String)
+        case dismissedAll
+    }
+
     private(set) var presentations: [String: SudoApprovalPresentation] = [:]
     private(set) var dismissAllCallCount = 0
+    let events: AsyncStream<Event>
+    private let eventContinuation: AsyncStream<Event>.Continuation
+
+    init() {
+        let pair = AsyncStream.makeStream(of: Event.self)
+        events = pair.stream
+        eventContinuation = pair.continuation
+    }
 
     func present(
         _ presentation: SudoApprovalPresentation,
@@ -81,14 +209,17 @@ private final class RecordingSudoApprovalPresenter: SudoApprovalPresenting {
         deny: @MainActor @Sendable @escaping () async -> Void
     ) {
         presentations[presentation.request.id] = presentation
+        eventContinuation.yield(.presented(presentation.request.id))
     }
 
     func dismiss(id: String) {
         presentations.removeValue(forKey: id)
+        eventContinuation.yield(.dismissed(id))
     }
 
     func dismissAll() {
         dismissAllCallCount += 1
         presentations.removeAll()
+        eventContinuation.yield(.dismissedAll)
     }
 }

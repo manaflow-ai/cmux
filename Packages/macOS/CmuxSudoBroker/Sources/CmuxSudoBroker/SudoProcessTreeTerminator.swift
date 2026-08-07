@@ -48,14 +48,17 @@ struct SudoProcessTreeTerminator: Sendable {
     private func processTree(root: SudoProcessIdentity) -> [SudoProcessIdentity] {
         guard inspector.isRunning(root) else { return [] }
         var identities = [root]
-        var pending = [root.processIdentifier]
-        var seen = Set([root.processIdentifier])
+        var pending = [root]
+        var seen = Set([root])
         while let parent = pending.popLast() {
-            for child in inspector.directChildProcessIdentifiers(of: parent)
-            where seen.insert(child).inserted {
+            guard inspector.isRunning(parent) else { continue }
+            for child in inspector.directChildProcessIdentifiers(
+                of: parent.processIdentifier
+            ) {
                 guard let identity = inspector.identity(for: child) else { continue }
+                guard seen.insert(identity).inserted else { continue }
                 identities.append(identity)
-                pending.append(child)
+                pending.append(identity)
             }
         }
         return identities
@@ -63,16 +66,20 @@ struct SudoProcessTreeTerminator: Sendable {
 
     private func signal(_ identities: [SudoProcessIdentity], with signal: Int32) {
         let live = identities.filter(inspector.isRunning)
-        let groups = Set(
-            live.compactMap { identity in
-                inspector.processGroupIdentifier(for: identity.processIdentifier)
+        let callerGroup = getpgrp()
+        var membersByGroup: [Int32: [SudoProcessIdentity]] = [:]
+        for identity in live {
+            guard let group = inspector.processGroupIdentifier(
+                for: identity.processIdentifier
+            ) else {
+                continue
             }
-        )
-        for group in groups.sorted() {
-            guard live.contains(where: { identity in
-                inspector.isRunning(identity)
-                    && inspector.processGroupIdentifier(for: identity.processIdentifier) == group
-            }) else {
+            membersByGroup[group, default: []].append(identity)
+        }
+        for group in membersByGroup.keys.sorted() {
+            guard group != callerGroup,
+                  let members = membersByGroup[group],
+                  members.contains(where: inspector.isRunning) else {
                 continue
             }
             signaler.signal(processGroupIdentifier: group, signal: signal)
@@ -83,7 +90,7 @@ struct SudoProcessTreeTerminator: Sendable {
     }
 
     private static func unique(_ identities: [SudoProcessIdentity]) -> [SudoProcessIdentity] {
-        var seen: Set<Int32> = []
-        return identities.filter { seen.insert($0.processIdentifier).inserted }
+        var seen: Set<SudoProcessIdentity> = []
+        return identities.filter { seen.insert($0).inserted }
     }
 }

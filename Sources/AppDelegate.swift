@@ -32,6 +32,12 @@ import CmuxFoundation
 import CmuxSentryReporting
 import CmuxSidebar
 import CmuxGit
+import os
+
+private nonisolated let sudoApprovalLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "SudoApproval"
+)
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -595,8 +601,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
     private let connectivityInvalidationSubscriberCoordinator =
         ConnectivityInvalidationSubscriberCoordinator()
-    private var sudoApprovalCoordinator: SudoApprovalCoordinator?
-    private var sudoApprovalStartTask: Task<Void, Never>?
+    private var sudoApprovalRuntime: SudoApprovalRuntime?
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
@@ -2067,7 +2072,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func deferTerminateForOwnedCleanupAndFreshSnapshot(reason: String) -> Bool {
         let markedForKill = remoteTmuxController.windowsMarkedForKillOnClose()
         let simulatorCleanupTasks = SimulatorPanel.beginApplicationTerminationCleanup()
-        let hasOwnedRuntimeCleanup = !markedForKill.isEmpty || !simulatorCleanupTasks.isEmpty
+        let hasSudoApprovalRuntime = sudoApprovalRuntime != nil
+        let hasOwnedRuntimeCleanup = !markedForKill.isEmpty
+            || !simulatorCleanupTasks.isEmpty
+            || hasSudoApprovalRuntime
+        guard !markedForKill.isEmpty
+                || !simulatorCleanupTasks.isEmpty
+                || hasSudoApprovalRuntime else {
+            return false
+        }
         if !isAwaitingTerminateCleanup {
             isAwaitingTerminateCleanup = true
             terminateCleanupPhase = .ownedRuntimeCleanup
@@ -2077,11 +2090,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "windows": String(markedForKill.count),
                     "simulatorPanels": String(simulatorCleanupTasks.count),
                     "freshAgentIndex": "1",
+                    "sudoApproval": hasSudoApprovalRuntime ? "1" : "0",
                     "reason": reason,
                 ]
             )
             let cleanupTask = Task { @MainActor [weak self] in
                 guard let self else { return }
+                await self.stopSudoApprovalBroker()
+                guard !Task.isCancelled else { return }
                 if !markedForKill.isEmpty {
                     await self.remoteTmuxController.killMarkedSessionsBeforeTerminate()
                 }
@@ -2363,14 +2379,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         BrowserProfileStore.shared.flushPendingSaves()
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
+        sudoApprovalRuntime?.cancelForImmediateTermination()
+        sudoApprovalRuntime = nil
         pendingCrashScanTask?.cancel()
         pendingCrashScanTask = nil
-        sudoApprovalStartTask?.cancel()
-        sudoApprovalStartTask = nil
-        if let sudoApprovalCoordinator {
-            Task { await sudoApprovalCoordinator.stop() }
-        }
-        sudoApprovalCoordinator = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         unregisterDisplayReconfigurationCallbackIfNeeded()
@@ -2525,7 +2537,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func startSudoApprovalBrokerIfAvailable() {
-        guard sudoApprovalCoordinator == nil,
+        guard sudoApprovalRuntime == nil,
               let bundleIdentifier = Bundle.main.bundleIdentifier,
               !bundleIdentifier.isEmpty,
               let applicationSupportDirectory = FileManager.default.urls(
@@ -2550,17 +2562,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             broker: broker,
             presenter: SudoApprovalWindowPresenter()
         )
-        sudoApprovalCoordinator = coordinator
-        sudoApprovalStartTask = Task { [weak self] in
-            do {
-                try await coordinator.start()
-            } catch {
+        let runtime = SudoApprovalRuntime(coordinator: coordinator)
+        sudoApprovalRuntime = runtime
+        runtime.start { [weak self, weak runtime] error in
+            sudoApprovalLogger.error(
+                "startup failed: \(String(describing: error), privacy: .private)"
+            )
 #if DEBUG
-                cmuxDebugLog("sudo.approval.start failed error=\(error.localizedDescription)")
+            cmuxDebugLog("sudo.approval.start failed error=\(String(describing: error))")
 #endif
-            }
-            self?.sudoApprovalStartTask = nil
+            guard let self, let runtime, self.sudoApprovalRuntime === runtime else { return }
+            self.sudoApprovalRuntime = nil
         }
+    }
+
+    private func stopSudoApprovalBroker() async {
+        let runtime = sudoApprovalRuntime
+        sudoApprovalRuntime = nil
+        await runtime?.stop()
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {

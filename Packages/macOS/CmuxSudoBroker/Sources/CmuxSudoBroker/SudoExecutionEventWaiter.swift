@@ -22,6 +22,8 @@ struct SudoExecutionEventWaiter: Sendable {
         after timeout: TimeInterval
     ) -> SudoExecutionWaitDisposition {
         guard inspector.isRunning(process.identity) else { return .exited }
+        // `sudo -p` emits this broker-owned sentinel when it requests a
+        // password. Generic password-like sudo or script output is ignored.
         guard !outputDetector.indicatesPasswordPrompt(at: process.outputURL) else {
             return .authenticationFailed
         }
@@ -72,7 +74,7 @@ struct SudoExecutionEventWaiter: Sendable {
         }
 
         let timerIdentifier = UInt.max
-        let milliseconds = max(1, min(Int.max, Int(ceil(timeout * 1_000))))
+        let milliseconds = SudoKeventTimeout(seconds: timeout).milliseconds
         var timerEvent = kevent(
             ident: timerIdentifier,
             filter: Int16(EVFILT_TIMER),

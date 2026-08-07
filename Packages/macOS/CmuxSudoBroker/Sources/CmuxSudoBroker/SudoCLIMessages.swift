@@ -50,7 +50,7 @@ struct SudoCLIMessages: Sendable {
     var appLaunchFailed: String {
         String(
             localized: "sudo.cli.error.app_launch_failed",
-            defaultValue: "sudo: could not launch the enclosing cmux app"
+            defaultValue: "sudo: could not open cmux for approval; open cmux and retry"
         )
     }
 
@@ -58,6 +58,13 @@ struct SudoCLIMessages: Sendable {
         String(
             localized: "sudo.cli.error.request_write_failed",
             defaultValue: "sudo: could not write the approval request"
+        )
+    }
+
+    var resultWaitFailed: String {
+        String(
+            localized: "sudo.cli.error.result_wait_failed",
+            defaultValue: "sudo: could not monitor the approval result; retry the command"
         )
     }
 
@@ -98,7 +105,14 @@ struct SudoCLIMessages: Sendable {
     }
 
     func queued(id: String, timeoutSeconds: Int) -> String {
-        format(
+        if timeoutSeconds == 1 {
+            return format(
+                key: "sudo.cli.queued.singular",
+                defaultValue: "sudo: request %@ queued; waiting up to 1 second for approval in cmux…",
+                id
+            )
+        }
+        return format(
             key: "sudo.cli.queued",
             defaultValue: "sudo: request %@ queued; waiting up to %d seconds for approval in cmux…",
             id,

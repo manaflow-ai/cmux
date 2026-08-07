@@ -11,15 +11,6 @@ struct SudoAuthenticationOutputDetector: Sendable {
         output(at: outputURL).contains(Self.passwordPrompt.lowercased())
     }
 
-    func indicatesAuthenticationFailure(at outputURL: URL) -> Bool {
-        let output = output(at: outputURL)
-        return output.contains(Self.passwordPrompt.lowercased())
-            || output.contains("password:")
-            || output.contains("authentication failed")
-            || output.contains("sorry, try again")
-            || output.contains("a password is required")
-    }
-
     private func output(at outputURL: URL) -> String {
         let descriptor = Darwin.open(outputURL.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else { return "" }

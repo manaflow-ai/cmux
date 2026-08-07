@@ -9,11 +9,16 @@ struct SudoCLIBehaviorTests {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
         let output = TestCLIOutput()
+        let requesterIdentity = SudoProcessIdentity(
+            processIdentifier: 42,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
         let command = SudoCLICommand(
             store: fixture.store,
             appBundleURL: URL(fileURLWithPath: "/Applications/cmux.app"),
             currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
-            requesterProcessIdentifier: 42,
+            requesterIdentity: requesterIdentity,
             requesterCommand: "test-agent",
             launcher: TestAppLauncher(),
             io: output.io,
@@ -25,6 +30,7 @@ struct SudoCLIBehaviorTests {
 
         #expect(exitCode == 124)
         let request = try #require(try fixture.archivedRequest())
+        #expect(request.requesterIdentity == requesterIdentity)
         let result = try #require(fixture.store.result(id: request.id))
         #expect(result.errorCode == .approvalTimedOut)
         #expect(output.standardError.contains("not approved"))

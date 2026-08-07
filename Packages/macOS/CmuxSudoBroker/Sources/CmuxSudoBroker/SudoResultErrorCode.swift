@@ -6,6 +6,9 @@ public enum SudoResultErrorCode: String, Codable, Sendable, Equatable {
     /// The request expired before approval.
     case approvalTimedOut = "approval_timed_out"
 
+    /// The generation-qualified requesting process exited before approval.
+    case requesterUnavailable = "requester_unavailable"
+
     /// An approved execution exceeded its independent watchdog.
     case executionTimedOut = "execution_timed_out"
 
@@ -29,4 +32,7 @@ public enum SudoResultErrorCode: String, Codable, Sendable, Equatable {
 
     /// LaunchServices could not open the exact enclosing cmux app bundle.
     case appLaunchFailed = "app_launch_failed"
+
+    /// The CLI could not monitor the durable result stream safely.
+    case resultWaitFailed = "result_wait_failed"
 }

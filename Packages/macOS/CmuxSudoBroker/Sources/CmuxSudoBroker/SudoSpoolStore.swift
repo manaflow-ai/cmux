@@ -255,10 +255,10 @@ struct SudoSpoolStore {
                   result(id: id) == nil else {
                 return false
             }
-            let uniqueSurvivors = Dictionary(
-                survivors.map { ($0.processIdentifier, $0) },
-                uniquingKeysWith: { _, latest in latest }
-            ).values.sorted { $0.processIdentifier < $1.processIdentifier }
+            let uniqueSurvivors = Set(survivors).sorted {
+                ($0.processIdentifier, $0.startSeconds, $0.startMicroseconds)
+                    < ($1.processIdentifier, $1.startSeconds, $1.startMicroseconds)
+            }
             try writeState(
                 SudoRequestState(
                     id: id,
@@ -389,8 +389,22 @@ struct SudoSpoolStore {
         guard descriptor >= 0 else { return }
         defer { Darwin.close(descriptor) }
         let data = Data((sanitized + "\n").utf8)
-        _ = data.withUnsafeBytes { bytes in
-            Darwin.write(descriptor, bytes.baseAddress, bytes.count)
+        var offset = 0
+        while offset < data.count {
+            let count = data.withUnsafeBytes { bytes in
+                Darwin.write(
+                    descriptor,
+                    bytes.baseAddress?.advanced(by: offset),
+                    data.count - offset
+                )
+            }
+            if count > 0 {
+                offset += count
+            } else if count < 0, errno == EINTR {
+                continue
+            } else {
+                return
+            }
         }
     }
 
@@ -469,6 +483,8 @@ struct SudoSpoolStore {
             }
             if count > 0 {
                 offset += count
+            } else if count == 0 {
+                throw SudoSpoolError.writeFailed(temporaryURL.path, EIO)
             } else if count < 0, errno != EINTR {
                 throw SudoSpoolError.writeFailed(temporaryURL.path, errno)
             }

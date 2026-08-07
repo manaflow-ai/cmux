@@ -14,16 +14,34 @@ struct SudoTestFixture {
         try store.ensureDirectories()
     }
 
-    func enqueue(id: String, createdAt: Date, timeoutSeconds: Int = 300) throws -> SudoRequest {
-        let request = SudoRequest(
-            id: id,
-            reason: "regression test",
-            requesterPid: 123,
-            requesterCommand: "test-agent",
-            currentDirectory: "/tmp",
-            createdAt: createdAt,
-            timeoutSeconds: timeoutSeconds
-        )
+    func enqueue(
+        id: String,
+        createdAt: Date,
+        timeoutSeconds: Int = 300,
+        requesterIdentity: SudoProcessIdentity? = nil
+    ) throws -> SudoRequest {
+        let request: SudoRequest
+        if let requesterIdentity {
+            request = SudoRequest(
+                id: id,
+                reason: "regression test",
+                requesterIdentity: requesterIdentity,
+                requesterCommand: "test-agent",
+                currentDirectory: "/tmp",
+                createdAt: createdAt,
+                timeoutSeconds: timeoutSeconds
+            )
+        } else {
+            request = SudoRequest(
+                id: id,
+                reason: "regression test",
+                requesterPid: 123,
+                requesterCommand: "test-agent",
+                currentDirectory: "/tmp",
+                createdAt: createdAt,
+                timeoutSeconds: timeoutSeconds
+            )
+        }
         try store.enqueue(SudoPendingRequest(request: request, script: "echo test\n"))
         return request
     }
@@ -34,7 +52,11 @@ struct SudoTestFixture {
 
     func archivedRequest() throws -> SudoRequest? {
         let names = try FileManager.default.contentsOfDirectory(atPath: paths.archive.path)
-        guard let name = names.first(where: { $0.hasSuffix(".json") && !$0.contains(".state.") }) else {
+        let excludedSuffixes = [".state.json", ".execution.json"]
+        guard let name = names.sorted().first(where: { name in
+            name.hasSuffix(".json")
+                && !excludedSuffixes.contains(where: name.hasSuffix)
+        }) else {
             return nil
         }
         let data = try Data(contentsOf: paths.archive.appendingPathComponent(name))

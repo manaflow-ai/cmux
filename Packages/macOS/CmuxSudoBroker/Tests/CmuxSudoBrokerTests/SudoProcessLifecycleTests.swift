@@ -39,7 +39,7 @@ struct SudoProcessLifecycleTests {
         #expect(errno == ECHILD)
     }
 
-    @Test("Execution deadline terminates a script PTY tree")
+    @Test("Execution deadline terminates a script PTY tree", .timeLimit(.minutes(1)))
     func boundedRunnerTerminatesPTYTree() throws {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
@@ -73,7 +73,10 @@ struct SudoProcessLifecycleTests {
         #expect(!inspector.isRunning(process.identity))
     }
 
-    @Test("Password fallback terminates the script PTY tree before the deadline")
+    @Test(
+        "Password fallback terminates the script PTY tree before the deadline",
+        .timeLimit(.minutes(1))
+    )
     func passwordFallbackTerminatesPTYTree() throws {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }

@@ -2,7 +2,7 @@ import Foundation
 
 protocol SudoInterruptedExecutionRecovering: Sendable {
     func recover(
-        state: SudoRequestState,
+        states: [SudoRequestState],
         approvedDirectory: URL
-    ) async -> SudoExecutionRecoveryDisposition
+    ) async -> [String: SudoExecutionRecoveryDisposition]
 }

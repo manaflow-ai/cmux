@@ -10,6 +10,8 @@ public final class SudoApprovalCoordinator {
     @ObservationIgnored private let broker: any SudoBrokerServing
     @ObservationIgnored private let presenter: any SudoApprovalPresenting
     @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var shutdownTask: Task<Void, Never>?
+    @ObservationIgnored private var lifecycle = Lifecycle.idle
 
     /// Creates an approval coordinator with injected lifecycle and presentation seams.
     ///
@@ -28,8 +30,10 @@ public final class SudoApprovalCoordinator {
     ///
     /// - Throws: A broker startup error when the durable spool cannot be observed safely.
     public func start() async throws {
-        guard eventTask == nil else { return }
+        guard lifecycle == .idle else { return }
+        lifecycle = .starting
         let events = await broker.events()
+        guard lifecycle == .starting, !Task.isCancelled else { return }
         eventTask = Task { [weak self] in
             for await event in events {
                 guard !Task.isCancelled else { return }
@@ -39,23 +43,42 @@ public final class SudoApprovalCoordinator {
 
         do {
             let snapshots = try await broker.start()
+            guard lifecycle == .starting, !Task.isCancelled else { return }
+            lifecycle = .running
             for snapshot in snapshots {
                 present(snapshot)
             }
         } catch {
             eventTask?.cancel()
             eventTask = nil
+            await broker.stop()
+            guard lifecycle == .starting else { return }
+            presenter.dismissAll()
+            presentations.removeAll()
+            lifecycle = .idle
+            guard !Task.isCancelled else { return }
             throw error
         }
     }
 
     /// Stops observation and dismisses UI without abandoning bounded runners.
     public func stop() async {
+        if let shutdownTask {
+            await shutdownTask.value
+            return
+        }
+        guard lifecycle != .stopped else { return }
+        lifecycle = .stopping
         eventTask?.cancel()
         eventTask = nil
         presenter.dismissAll()
         presentations.removeAll()
-        await broker.stop()
+        let broker = self.broker
+        let task = Task { await broker.stop() }
+        shutdownTask = task
+        await task.value
+        shutdownTask = nil
+        lifecycle = .stopped
     }
 
     /// Applies the user's approval through the shared broker mutation path.
@@ -77,6 +100,7 @@ public final class SudoApprovalCoordinator {
     }
 
     private func receive(_ event: SudoBrokerEvent) {
+        guard lifecycle == .starting || lifecycle == .running else { return }
         switch event {
         case .discovered(let snapshot):
             present(snapshot)
@@ -89,6 +113,7 @@ public final class SudoApprovalCoordinator {
     }
 
     private func present(_ snapshot: SudoPendingRequest) {
+        guard lifecycle == .starting || lifecycle == .running else { return }
         if let existing = presentations[snapshot.request.id] {
             existing.update(phase: snapshot.phase)
             return
@@ -102,5 +127,21 @@ public final class SudoApprovalCoordinator {
             approve: { [weak self] in await self?.approve(id: id) },
             deny: { [weak self] in await self?.deny(id: id) }
         )
+    }
+
+    func cancelForImmediateTermination() {
+        lifecycle = .stopping
+        eventTask?.cancel()
+        eventTask = nil
+        presenter.dismissAll()
+        presentations.removeAll()
+    }
+
+    private enum Lifecycle {
+        case idle
+        case starting
+        case running
+        case stopping
+        case stopped
     }
 }

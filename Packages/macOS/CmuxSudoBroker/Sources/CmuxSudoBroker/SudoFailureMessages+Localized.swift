@@ -12,6 +12,10 @@ extension SudoFailureMessages {
                 localized: "sudo.error.approval_timeout",
                 defaultValue: "sudo request expired before approval"
             ),
+            requesterUnavailable: String(
+                localized: "sudo.error.requester_unavailable",
+                defaultValue: "sudo request cancelled because the requesting process exited"
+            ),
             executionInterrupted: String(
                 localized: "sudo.error.execution_interrupted",
                 defaultValue: "approved sudo execution was interrupted before a result was written"

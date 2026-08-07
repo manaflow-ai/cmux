@@ -13,7 +13,11 @@ public actor SudoBroker {
     private var records: [String: SudoPendingRequest] = [:]
     private var expiryTasks: [String: Task<Void, Never>] = [:]
     private var runnerMonitorTasks: [String: Task<Void, Never>] = [:]
+    private var refreshTask: Task<Void, Never>?
+    private var refreshRequested = false
     private var isWatching = false
+    private var shouldWatch = false
+    private var watcherGeneration: UInt64 = 0
 
     /// Creates the production broker hosted by one cmux app bundle.
     ///
@@ -43,7 +47,8 @@ public actor SudoBroker {
                     inspector: inspector,
                     signaler: signaler
                 ),
-                watcher: SudoSpoolWatcher()
+                watcher: SudoSpoolWatcher(),
+                requesterInspector: inspector
             ),
             messages: messages
         )
@@ -78,12 +83,21 @@ public actor SudoBroker {
     /// - Returns: Newly discovered request snapshots.
     /// - Throws: A spool or watcher error when safe observation cannot start.
     public func start() async throws -> [SudoPendingRequest] {
+        watcherGeneration &+= 1
+        let generation = watcherGeneration
+        shouldWatch = true
         try store.ensureDirectories()
         if !isWatching, let watcher = dependencies.watcher {
             try await watcher.start(paths: store.paths) { [weak self] in
-                Task {
-                    try? await self?.refresh()
+                Task { await self?.requestRefresh() }
+            }
+            guard generation == watcherGeneration,
+                  shouldWatch,
+                  !Task.isCancelled else {
+                if !shouldWatch {
+                    await watcher.stop()
                 }
+                throw CancellationError()
             }
             isWatching = true
         }
@@ -96,8 +110,8 @@ public actor SudoBroker {
     /// - Throws: A spool error when reconciliation cannot settle durable state.
     @discardableResult
     public func refresh() async throws -> [SudoPendingRequest] {
+        try Task.checkCancellation()
         let now = await dependencies.clock.now()
-        try await recoverCleanupFailures(at: now)
         settleCompletedRecords()
 
         for (id, record) in records {
@@ -114,25 +128,51 @@ public actor SudoBroker {
         }
 
         let snapshots = store.pendingRequests()
-        var discovered: [SudoPendingRequest] = []
-        for snapshot in snapshots where records[snapshot.request.id] == nil {
+        let cleanupFailureStates = store.cleanupFailureStates()
+        var phasesByID: [String: SudoRequestPhase] = [:]
+        var recoveryStatesByID = Dictionary(
+            uniqueKeysWithValues: cleanupFailureStates.map { ($0.id, $0) }
+        )
+        for snapshot in snapshots {
             let id = snapshot.request.id
             let phase = store.state(id: id)?.phase ?? snapshot.phase
+            phasesByID[id] = phase
+            if phase == .approved || phase == .executing,
+               let state = store.state(id: id) {
+                recoveryStatesByID[id] = state
+            }
+        }
+        let recoveryStates = recoveryStatesByID.values.sorted { $0.id < $1.id }
+        let recoveries = recoveryStates.isEmpty
+            ? [:]
+            : await dependencies.recovery.recover(
+                states: recoveryStates,
+                approvedDirectory: store.paths.approved
+            )
+        try Task.checkCancellation()
+        recoverCleanupFailures(
+            cleanupFailureStates,
+            recoveries: recoveries,
+            at: now
+        )
+
+        var discovered: [SudoPendingRequest] = []
+        for snapshot in snapshots where records[snapshot.request.id] == nil {
+            try Task.checkCancellation()
+            let id = snapshot.request.id
+            let phase = phasesByID[id] ?? snapshot.phase
             if phase == .approved || phase == .executing {
-                guard let state = store.state(id: id) else {
-                    try settleInterrupted(id: id, at: now)
+                guard recoveryStatesByID[id] != nil else {
+                    settleInterruptedIfPossible(id: id, at: now)
                     continue
                 }
-                let recovery = await dependencies.recovery.recover(
-                    state: state,
-                    approvedDirectory: store.paths.approved
-                )
+                let recovery = recoveries[id] ?? .cleanupIncomplete
                 if recovery == .recovered {
-                    try settleInterrupted(id: id, at: now)
+                    settleInterruptedIfPossible(id: id, at: now)
                     continue
                 }
                 if recovery == .cleanupIncomplete {
-                    try settleCleanupFailure(id: id, at: now)
+                    settleCleanupFailureIfPossible(id: id, at: now)
                     continue
                 }
                 let executing = SudoPendingRequest(
@@ -147,7 +187,7 @@ public actor SudoBroker {
             }
 
             if snapshot.request.approvalDeadline <= now {
-                try settle(
+                settleIfPossible(
                     SudoResult(
                         id: id,
                         status: .failed,
@@ -155,6 +195,20 @@ public actor SudoBroker {
                         note: messages.approvalTimedOut
                     ),
                     auditStatus: "expired",
+                    at: now
+                )
+                continue
+            }
+
+            guard requesterIsAvailable(snapshot.request) else {
+                settleIfPossible(
+                    SudoResult(
+                        id: id,
+                        status: .failed,
+                        errorCode: .requesterUnavailable,
+                        note: messages.requesterUnavailable
+                    ),
+                    auditStatus: "failed requester-validation",
                     at: now
                 )
                 continue
@@ -186,8 +240,21 @@ public actor SudoBroker {
     public func approve(id: String) async {
         guard let pending = records[id], pending.phase == .pendingApproval else { return }
         let now = await dependencies.clock.now()
+        guard requesterIsAvailable(pending.request) else {
+            settleIfPossible(
+                SudoResult(
+                    id: id,
+                    status: .failed,
+                    errorCode: .requesterUnavailable,
+                    note: messages.requesterUnavailable
+                ),
+                auditStatus: "failed requester-validation",
+                at: now
+            )
+            return
+        }
         guard dependencies.pam.touchIDIsEnabled() else {
-            try? settle(
+            settleIfPossible(
                 SudoResult(
                     id: id,
                     status: .failed,
@@ -200,51 +267,15 @@ public actor SudoBroker {
             return
         }
 
+        let transition: SudoSpoolStore.ApprovalTransition
         do {
-            switch try store.transitionToApproved(
+            transition = try store.transitionToApproved(
                 pending: pending,
                 now: now,
                 executionGraceSeconds: Self.executionGraceSeconds
-            ) {
-            case .expired:
-                try settle(
-                    SudoResult(
-                        id: id,
-                        status: .failed,
-                        errorCode: .approvalTimedOut,
-                        note: messages.approvalTimedOut
-                    ),
-                    auditStatus: "expired approval-race",
-                    at: now
-                )
-            case .unavailable:
-                try await refresh()
-            case .approved:
-                cancelExpiry(id: id)
-                records[id] = SudoPendingRequest(
-                    request: pending.request,
-                    script: pending.script,
-                    phase: .approved
-                )
-                eventContinuation.yield(.phaseChanged(id: id, phase: .approved))
-                do {
-                    let runner = try await dependencies.runner.launch(requestID: id)
-                    monitor(runner: runner, requestID: id)
-                } catch {
-                    try settle(
-                        SudoResult(
-                            id: id,
-                            status: .failed,
-                            errorCode: .runnerLaunchFailed,
-                            note: messages.runnerLaunchFailed
-                        ),
-                        auditStatus: "failed runner-launch",
-                        at: now
-                    )
-                }
-            }
+            )
         } catch {
-            try? settle(
+            settleIfPossible(
                 SudoResult(
                     id: id,
                     status: .failed,
@@ -254,6 +285,52 @@ public actor SudoBroker {
                 auditStatus: "failed staging",
                 at: now
             )
+            return
+        }
+
+        switch transition {
+        case .expired:
+            settleIfPossible(
+                SudoResult(
+                    id: id,
+                    status: .failed,
+                    errorCode: .approvalTimedOut,
+                    note: messages.approvalTimedOut
+                ),
+                auditStatus: "expired approval-race",
+                at: now
+            )
+        case .unavailable:
+            do {
+                try await refresh()
+            } catch {
+                store.appendAudit(
+                    "\(now.ISO8601Format()) \(id) failed approval-refresh"
+                )
+            }
+        case .approved:
+            cancelExpiry(id: id)
+            records[id] = SudoPendingRequest(
+                request: pending.request,
+                script: pending.script,
+                phase: .approved
+            )
+            eventContinuation.yield(.phaseChanged(id: id, phase: .approved))
+            do {
+                let runner = try await dependencies.runner.launch(requestID: id)
+                monitor(runner: runner, requestID: id)
+            } catch {
+                settleIfPossible(
+                    SudoResult(
+                        id: id,
+                        status: .failed,
+                        errorCode: .runnerLaunchFailed,
+                        note: messages.runnerLaunchFailed
+                    ),
+                    auditStatus: "failed runner-launch",
+                    at: now
+                )
+            }
         }
     }
 
@@ -263,7 +340,7 @@ public actor SudoBroker {
     public func deny(id: String) async {
         guard records[id]?.phase == .pendingApproval else { return }
         let now = await dependencies.clock.now()
-        try? settle(
+        settleIfPossible(
             SudoResult(id: id, status: .denied),
             auditStatus: "denied",
             at: now
@@ -272,14 +349,40 @@ public actor SudoBroker {
 
     /// Stops observation and pending expiry work without abandoning live runners.
     public func stop() async {
-        for task in expiryTasks.values {
+        watcherGeneration &+= 1
+        shouldWatch = false
+        isWatching = false
+        let activeRefreshTask = refreshTask
+        activeRefreshTask?.cancel()
+        refreshRequested = false
+        let activeExpiryTasks = Array(expiryTasks.values)
+        for task in activeExpiryTasks {
             task.cancel()
         }
         expiryTasks.removeAll()
-        if isWatching {
-            await dependencies.watcher?.stop()
-            isWatching = false
+        await dependencies.watcher?.stop()
+        await activeRefreshTask?.value
+        for task in activeExpiryTasks {
+            await task.value
         }
+        refreshTask = nil
+    }
+
+    private func requestRefresh() {
+        guard isWatching else { return }
+        refreshRequested = true
+        guard refreshTask == nil else { return }
+        refreshTask = Task { [weak self] in
+            await self?.drainRefreshRequests()
+        }
+    }
+
+    private func drainRefreshRequests() async {
+        while isWatching, refreshRequested, !Task.isCancelled {
+            refreshRequested = false
+            _ = try? await refresh()
+        }
+        refreshTask = nil
     }
 
     private func scheduleExpiry(for pending: SudoPendingRequest) {
@@ -301,7 +404,7 @@ public actor SudoBroker {
     private func expirePending(id: String) async {
         guard records[id]?.phase == .pendingApproval else { return }
         let now = await dependencies.clock.now()
-        try? settle(
+        settleIfPossible(
             SudoResult(
                 id: id,
                 status: .failed,
@@ -339,17 +442,64 @@ public actor SudoBroker {
         )
     }
 
-    private func recoverCleanupFailures(at date: Date) async throws {
-        for state in store.cleanupFailureStates() {
-            let recovery = await dependencies.recovery.recover(
-                state: state,
-                approvedDirectory: store.paths.approved
-            )
-            guard recovery == .recovered else { continue }
-            try store.archiveRecoveredCleanup(id: state.id)
+    private func settleInterruptedIfPossible(id: String, at date: Date) {
+        do {
+            try settleInterrupted(id: id, at: date)
+        } catch {
             store.appendAudit(
-                "\(date.ISO8601Format()) \(state.id) recovered cleanup"
+                "\(date.ISO8601Format()) \(id) failed recovery-settle"
             )
+        }
+    }
+
+    private func settleCleanupFailureIfPossible(id: String, at date: Date) {
+        do {
+            try settleCleanupFailure(id: id, at: date)
+        } catch {
+            store.appendAudit(
+                "\(date.ISO8601Format()) \(id) failed recovery-cleanup-settle"
+            )
+        }
+    }
+
+    private func settleIfPossible(
+        _ result: SudoResult,
+        auditStatus: String,
+        at date: Date
+    ) {
+        do {
+            try settle(result, auditStatus: auditStatus, at: date)
+        } catch {
+            store.appendAudit(
+                "\(date.ISO8601Format()) \(result.id) failed \(auditStatus)-settle"
+            )
+        }
+    }
+
+    private func requesterIsAvailable(_ request: SudoRequest) -> Bool {
+        guard let identity = request.requesterIdentity,
+              let inspector = dependencies.requesterInspector else {
+            return true
+        }
+        return inspector.isRunning(identity)
+    }
+
+    private func recoverCleanupFailures(
+        _ states: [SudoRequestState],
+        recoveries: [String: SudoExecutionRecoveryDisposition],
+        at date: Date
+    ) {
+        for state in states where recoveries[state.id] == .recovered {
+            do {
+                try store.archiveRecoveredCleanup(id: state.id)
+                store.appendAudit(
+                    "\(date.ISO8601Format()) \(state.id) recovered cleanup"
+                )
+            } catch {
+                store.appendAudit(
+                    "\(date.ISO8601Format()) \(state.id) failed cleanup-archive"
+                )
+            }
         }
     }
 
@@ -383,24 +533,24 @@ public actor SudoBroker {
 
         let now = await dependencies.clock.now()
         guard let state = store.state(id: requestID) else {
-            try? settleInterrupted(id: requestID, at: now)
+            settleInterruptedIfPossible(id: requestID, at: now)
             return
         }
-        let recovery = await dependencies.recovery.recover(
-            state: state,
+        let recoveries = await dependencies.recovery.recover(
+            states: [state],
             approvedDirectory: store.paths.approved
         )
         guard store.result(id: requestID) == nil else {
             settleCompletedRecords()
             return
         }
-        switch recovery {
+        switch recoveries[state.id] ?? .cleanupIncomplete {
         case .runnerActive:
             return
         case .recovered:
-            try? settleInterrupted(id: requestID, at: now)
+            settleInterruptedIfPossible(id: requestID, at: now)
         case .cleanupIncomplete:
-            try? settleCleanupFailure(id: requestID, at: now)
+            settleCleanupFailureIfPossible(id: requestID, at: now)
         }
     }
 

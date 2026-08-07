@@ -14,32 +14,50 @@ struct SudoExecutionRecovery: SudoInterruptedExecutionRecovering {
         terminator = SudoProcessTreeTerminator(inspector: inspector, signaler: signaler)
     }
 
+    @concurrent
     func recover(
-        state: SudoRequestState,
+        states: [SudoRequestState],
         approvedDirectory: URL
-    ) async -> SudoExecutionRecoveryDisposition {
-        if let runner = state.runner, inspector.isRunning(runner) {
-            // A generation-safe live runner still owns the persisted deadline.
-            return .runnerActive
+    ) async -> [String: SudoExecutionRecoveryDisposition] {
+        let recoverableStates = states.filter { state in
+            guard let runner = state.runner else { return true }
+            return !inspector.isRunning(runner)
         }
+        let approvedScriptURLs = recoverableStates.map { state in
+            approvedDirectory.appendingPathComponent("\(state.id).sh", isDirectory: false)
+        }
+        let identitiesByPath = inventory.identitiesByScriptPath(
+            approvedScriptURLs: approvedScriptURLs
+        )
+        var dispositions: [String: SudoExecutionRecoveryDisposition] = [:]
 
-        let approvedScriptURL = approvedDirectory
-            .appendingPathComponent("\(state.id).sh", isDirectory: false)
-        var roots = inventory.identities(approvedScriptURL: approvedScriptURL)
-        if let execution = state.execution,
-           inspector.isRunning(execution),
-           !roots.contains(execution) {
-            roots.append(execution)
-        }
-        for survivor in state.cleanupSurvivors ?? []
-        where inspector.isRunning(survivor) && !roots.contains(survivor) {
-            roots.append(survivor)
-        }
+        for state in states {
+            if let runner = state.runner, inspector.isRunning(runner) {
+                // A generation-safe live runner still owns the persisted deadline.
+                dispositions[state.id] = .runnerActive
+                continue
+            }
 
-        var survivors: [SudoProcessIdentity] = []
-        for root in roots where inspector.isRunning(root) {
-            survivors.append(contentsOf: terminator.terminate(root: root))
+            let approvedScriptPath = approvedDirectory
+                .appendingPathComponent("\(state.id).sh", isDirectory: false)
+                .standardizedFileURL.path
+            var roots = identitiesByPath[approvedScriptPath] ?? []
+            if let execution = state.execution,
+               inspector.isRunning(execution),
+               !roots.contains(execution) {
+                roots.append(execution)
+            }
+            for survivor in state.cleanupSurvivors ?? []
+            where inspector.isRunning(survivor) && !roots.contains(survivor) {
+                roots.append(survivor)
+            }
+
+            var survivors: [SudoProcessIdentity] = []
+            for root in roots where inspector.isRunning(root) {
+                survivors.append(contentsOf: terminator.terminate(root: root))
+            }
+            dispositions[state.id] = survivors.isEmpty ? .recovered : .cleanupIncomplete
         }
-        return survivors.isEmpty ? .recovered : .cleanupIncomplete
+        return dispositions
     }
 }

@@ -7,28 +7,51 @@ struct SudoOrphanProcessInventory: Sendable {
         self.inspector = inspector
     }
 
-    /// Finds only exact broker commands that reference one approved script.
-    func identities(approvedScriptURL: URL) -> [SudoProcessIdentity] {
-        let path = approvedScriptURL.standardizedFileURL.path
-        let expectedArguments: Set<[String]> = [
-            [
-                "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
-                "-p", SudoAuthenticationOutputDetector.passwordPrompt,
-                "/bin/bash", path,
-            ],
-            [
-                "/usr/bin/sudo", "-k", "-p",
-                SudoAuthenticationOutputDetector.passwordPrompt, "/bin/bash", path,
-            ],
-            ["/bin/bash", path],
-        ]
-        return inspector.allProcessIdentifiers().compactMap { processIdentifier in
+    /// Inventories exact broker commands for every requested approved script in one scan.
+    func identitiesByScriptPath(
+        approvedScriptURLs: [URL]
+    ) -> [String: [SudoProcessIdentity]] {
+        let requestedPaths = Set(
+            approvedScriptURLs.map { $0.standardizedFileURL.path }
+        )
+        var identitiesByPath = Dictionary(
+            uniqueKeysWithValues: requestedPaths.map { ($0, [SudoProcessIdentity]()) }
+        )
+        guard !requestedPaths.isEmpty else { return identitiesByPath }
+
+        for processIdentifier in inspector.allProcessIdentifiers() {
             guard let arguments = inspector.arguments(for: processIdentifier),
-                  expectedArguments.contains(arguments),
+                  let scriptPath = approvedScriptPath(arguments: arguments),
+                  requestedPaths.contains(scriptPath),
                   let identity = inspector.identity(for: processIdentifier) else {
-                return nil
+                continue
             }
-            return identity
-        }.sorted { $0.processIdentifier < $1.processIdentifier }
+            identitiesByPath[scriptPath, default: []].append(identity)
+        }
+        for path in identitiesByPath.keys {
+            identitiesByPath[path]?.sort { $0.processIdentifier < $1.processIdentifier }
+        }
+        return identitiesByPath
+    }
+
+    private func approvedScriptPath(arguments: [String]) -> String? {
+        let prompt = SudoAuthenticationOutputDetector.passwordPrompt
+        if arguments.count == 9,
+           arguments[0...7].elementsEqual([
+               "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
+               "-p", prompt, "/bin/bash",
+           ]) {
+            return arguments[8]
+        }
+        if arguments.count == 6,
+           arguments[0...4].elementsEqual([
+               "/usr/bin/sudo", "-k", "-p", prompt, "/bin/bash",
+           ]) {
+            return arguments[5]
+        }
+        if arguments.count == 2, arguments[0] == "/bin/bash" {
+            return arguments[1]
+        }
+        return nil
     }
 }
