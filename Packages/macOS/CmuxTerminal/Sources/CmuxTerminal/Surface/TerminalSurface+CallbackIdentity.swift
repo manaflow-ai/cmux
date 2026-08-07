@@ -1,4 +1,4 @@
-internal import CmuxTerminalCore
+public import CmuxTerminalCore
 
 extension TerminalSurface {
     /// Returns whether `callbackContext` still owns this model's native
