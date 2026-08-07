@@ -913,11 +913,10 @@ jobs:
           LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
           LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
 
-          # cmux-unit disables in-process parallelization because these suites
-          # share one app host and mutate process-global UI/runtime state. Keep
-          # cross-machine parallelism, but give each worker two balanced,
-          # sequential app-host processes so each stays inside the existing
-          # per-invocation timeout.
+          # These suites share process-global UI/runtime state for an app host's
+          # lifetime. Keep cross-machine parallelism, but give each worker two
+          # balanced, sequential app-host processes so each stays inside the
+          # existing per-invocation timeout without changing the shared scheme.
 
           run_unit_test_batch() {
             local logical_shard="$1"
