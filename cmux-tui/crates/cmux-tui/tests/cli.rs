@@ -1661,6 +1661,17 @@ fn assert_subscribe_reports_tree_changed(server: &HeadlessServer) {
 
     std::thread::sleep(Duration::from_millis(200));
     let tab = json_cli(server, &["tab", "create", "terminal"]);
+    if !tab.status.success() {
+        let mut lines = Vec::new();
+        while let Ok(line) = rx.recv_timeout(Duration::from_millis(250)) {
+            lines.push(line);
+        }
+        panic!(
+            "tab creation failed while subscribed; stdout={} stderr={} events={lines:?}",
+            String::from_utf8_lossy(&tab.stdout),
+            String::from_utf8_lossy(&tab.stderr),
+        );
+    }
     assert_success(&tab);
 
     let deadline = Instant::now() + Duration::from_secs(10);
