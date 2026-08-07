@@ -1004,6 +1004,40 @@
         }
       }
     },
+    "mobile.browserStream.newPage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいブラウザ"
+          }
+        }
+      }
+    },
+    "mobile.browserStream.newPageDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search or enter an address in the bar below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のバーで検索するか、アドレスを入力してください。"
+          }
+        }
+      }
+    },
     "mobile.browserStream.noAddress": {
       "extractionState": "manual",
       "localizations": {
@@ -1826,13 +1860,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
+            "value": "Turn a computer off to hide its workspaces on this iPhone. It stays signed in to your account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントにサインインしているコンピュータ。ワークスペースのタイトルピッカーで 1 台のコンピュータに絞り込むか、すべてのコンピュータを表示できます。"
+            "value": "コンピュータをオフにすると、このiPhoneでそのワークスペースを非表示にできます。コンピュータはアカウントにサインインしたままです。"
           }
         }
       }
@@ -2088,6 +2122,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "再表示"
+          }
+        }
+      }
+    },
+    "mobile.computers.visibilityToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show this computer on this iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneにこのコンピュータを表示"
+          }
+        }
+      }
+    },
+    "mobile.computers.visibilityToggle.named": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show %@ on this iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneに%@を表示"
           }
         }
       }
@@ -2999,13 +3067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap a computer to reconnect. Swipe left to hide one."
+            "value": "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータをタップすると再接続します。左にスワイプすると非表示にできます。"
+            "value": "表示中のコンピュータをタップすると再接続します。スイッチでこのiPhoneでの表示と非表示を切り替えられます。"
           }
         }
       }
@@ -3526,13 +3594,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The feed is ready to open in the iOS app. Review the navigation and approve the final interaction pass."
+            "value": "The feed screen is implemented. Review the navigation and approve the final interaction pass."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知フィードをiOSアプリで開けるようになりました。ナビゲーションを確認し、最終の操作チェックを承認してください。"
+            "value": "フィード画面の実装が完了しました。ナビゲーションを確認し、最終の操作チェックを承認してください。"
           }
         }
       }
@@ -3577,13 +3645,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The onboarding copy now explains the notification history."
+            "value": "The getting-started guide now covers pairing and notifications."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "オンボーディングで通知履歴について説明するようになりました。"
+            "value": "はじめにガイドでペアリングと通知を説明するようになりました。"
           }
         }
       }
@@ -3628,13 +3696,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose whether to retry the unavailable builder or keep the current artifact. This longer message verifies wrapping without hiding the workspace and Mac context below it."
+            "value": "The remote builder went offline mid-build. Choose whether to retry on another machine or keep the current artifact."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "利用できないビルダーを再試行するか、現在の成果物を維持するか選んでください。この長いメッセージでは、下にあるワークスペースとMacの情報を隠さずに折り返せることを確認します。"
+            "value": "リモートビルダーがビルド中にオフラインになりました。別のマシンで再試行するか、現在の成果物を維持するか選んでください。"
           }
         }
       }
@@ -3679,13 +3747,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "English and Japanese notification-feed strings are ready."
+            "value": "English and Japanese strings are translated and ready for review."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "通知フィードの英語と日本語の文言がそろいました。"
+            "value": "英語と日本語の文言の翻訳が完了し、レビューできる状態です。"
           }
         }
       }
@@ -3832,13 +3900,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All focused iOS notification tests passed in 42 seconds."
+            "value": "All 214 tests passed in 42 seconds on the release branch."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS通知の対象テストはすべて42秒で合格しました。"
+            "value": "リリースブランチで214件のテストがすべて42秒で合格しました。"
           }
         }
       }
@@ -9772,6 +9840,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sendFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t send. Check the connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sendFailed.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信に失敗しました"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信中"
           }
         }
       }

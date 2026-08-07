@@ -7,6 +7,7 @@ struct OnboardingConnectionView: View {
     let phase: OnboardingConnectionPhase
     let connectionMethod: MobileConnectionMethod
     let onSelectConnectionMethod: (MobileConnectionMethod) -> Void
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
         ZStack {
@@ -31,14 +32,38 @@ struct OnboardingConnectionView: View {
     }
 
     private var visual: some View {
-        VStack(spacing: 14) {
-            OnboardingConnectionPreview(phase: phase)
-            if showsMethodPicker {
+        ViewThatFits(in: .vertical) {
+            connectionVisual(density: .regular)
+            connectionVisual(density: .compact)
+        }
+    }
+
+    @ViewBuilder
+    private func connectionVisual(density: OnboardingConnectionVisualDensity) -> some View {
+        if verticalSizeClass == .compact, showsMethodPicker {
+            HStack(alignment: .center, spacing: density.sectionSpacing) {
+                OnboardingConnectionPreview(phase: phase, density: density)
+                    .frame(maxWidth: .infinity)
                 OnboardingConnectionMethodPicker(
                     method: connectionMethod,
+                    density: density,
                     onSelect: onSelectConnectionMethod
                 )
+                .frame(maxWidth: .infinity)
             }
+            .fixedSize(horizontal: false, vertical: true)
+        } else {
+            VStack(spacing: density.sectionSpacing) {
+                OnboardingConnectionPreview(phase: phase, density: density)
+                if showsMethodPicker {
+                    OnboardingConnectionMethodPicker(
+                        method: connectionMethod,
+                        density: density,
+                        onSelect: onSelectConnectionMethod
+                    )
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -81,6 +106,18 @@ struct OnboardingConnectionView: View {
             "mobile.onboarding.connect.body",
             defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
         )
+    }
+}
+
+enum OnboardingConnectionVisualDensity {
+    case regular
+    case compact
+
+    var sectionSpacing: CGFloat {
+        switch self {
+        case .regular: 14
+        case .compact: 8
+        }
     }
 }
 #endif

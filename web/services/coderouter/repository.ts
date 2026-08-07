@@ -60,10 +60,23 @@ export async function revokeRouteTokensForUser(
     ));
 }
 
+export async function revokeRouteTokensForTeam(
+  teamId: string,
+  now = new Date(),
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterRouteTokens.teamId, teamId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ));
+}
+
 export async function authenticateRouteToken(
   token: string,
   now = new Date(),
-): Promise<{ teamId: string } | null> {
+): Promise<{ teamId: string; stackUserId: string } | null> {
   if (!/^crt_[A-Za-z0-9_-]{40,}$/.test(token)) return null;
   const [row] = await cloudDb()
     .update(coderouterRouteTokens)
@@ -74,7 +87,10 @@ export async function authenticateRouteToken(
       gt(coderouterRouteTokens.expiresAt, now),
       isNull(coderouterRouteTokens.revokedAt),
     ))
-    .returning({ teamId: coderouterRouteTokens.teamId });
+    .returning({
+      teamId: coderouterRouteTokens.teamId,
+      stackUserId: coderouterRouteTokens.stackUserId,
+    });
   return row ?? null;
 }
 

@@ -5,8 +5,8 @@ import SwiftUI
 
 /// **Workspace Colors** section — mirrors the legacy in-app section:
 /// indicator-style picker, selection highlight color, notification
-/// badge color, then a per-palette-entry editor and a Reset Palette
-/// action.
+/// badge color, pane attention color, then a per-palette-entry editor
+/// and a Reset Palette action.
 @MainActor
 public struct WorkspaceColorsSection: View {
     private let jsonStore: JSONConfigStore
@@ -16,6 +16,7 @@ public struct WorkspaceColorsSection: View {
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
+    @State private var paneFlashHex: DefaultsValueModel<String>
     @State private var paletteModel: DefaultsValueModel<[String: String]>
     @State private var paletteReconcileTracker = WorkspacePaletteColorReconcileTracker()
 
@@ -55,6 +56,7 @@ public struct WorkspaceColorsSection: View {
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
+        _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
         _paletteModel = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.palette))
     }
 
@@ -77,6 +79,7 @@ public struct WorkspaceColorsSection: View {
             indicator,
             selectionHex,
             badgeHex,
+            paneFlashHex,
             paletteModel,
         ]
         models.forEach { $0.startObserving() }
@@ -116,6 +119,16 @@ public struct WorkspaceColorsSection: View {
                 model: badgeHex
             )
             SettingsCardDivider()
+            colorRow(
+                title: String(localized: "settings.workspaceColors.paneFlashColor", defaultValue: "Pane Flash"),
+                subtitle: String(localized: "settings.workspaceColors.paneFlashColor.subtitle", defaultValue: "Color of the attention ring and pane flash when a pane needs input."),
+                json: "notifications.paneFlashColor",
+                resetLabel: String(localized: "settings.workspaceColors.paneFlashColor.reset", defaultValue: "Reset"),
+                model: paneFlashHex,
+                // Matches the runtime's system-blue fallback.
+                fallback: Color(nsColor: .systemBlue)
+            )
+            SettingsCardDivider()
 
             SettingsCardNote(
                 String(localized: "settings.workspaceColors.dictionaryNote", defaultValue: "Edit cmux.json to add or remove named colors. \"Choose Custom Color...\" still adds local Custom N entries.")
@@ -152,7 +165,7 @@ public struct WorkspaceColorsSection: View {
     }
 
     @ViewBuilder
-    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>) -> some View {
+    private func colorRow(title: String, subtitle: String, json: String, resetLabel: String, model: DefaultsValueModel<String>, fallback: Color = Self.cmuxAccentColor()) -> some View {
         let isCustom = !model.current.isEmpty
         SettingsCardRow(
             configurationReview: .json(json),
@@ -167,7 +180,7 @@ public struct WorkspaceColorsSection: View {
                 }
                 HexColorPicker(
                     storedHex: model.current,
-                    fallback: Self.cmuxAccentColor(),
+                    fallback: fallback,
                     reconcileRevision: model.revision
                 ) { hex in
                     model.set(hex)

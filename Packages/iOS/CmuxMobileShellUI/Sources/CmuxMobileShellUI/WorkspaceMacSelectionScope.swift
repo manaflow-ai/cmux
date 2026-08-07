@@ -211,7 +211,10 @@ struct WorkspaceMacSelectionScope {
         }
     }
 
-    var canRenderGroupsForSelection: Bool {
+    /// Whether foreground-only group mutations such as reorder and create-in-
+    /// group are safe for the current picker scope. Rendering is independent:
+    /// every Mac's immutable group snapshot can render under All Computers.
+    var canMutateForegroundGroupsForSelection: Bool {
         switch visibleSelection {
         case .machine(let id):
             // Groups belong to the exact foreground BUILD: device match alone

@@ -295,6 +295,11 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
 private var cmuxWebViewScreenshotCaptureGateKey: UInt8 = 0
 private var cmuxWebViewScreenshotSelectionOverlayKey: UInt8 = 0
 
+#if DEBUG
+extension BrowserScreenshotFlashView: WindowScreenshotOwnedNativeOverlay {}
+extension BrowserScreenshotSelectionOverlayView: WindowScreenshotOwnedNativeOverlay {}
+#endif
+
 extension CmuxWebView {
     @MainActor
     private var screenshotCaptureGate: BrowserScreenshotCaptureGate {
