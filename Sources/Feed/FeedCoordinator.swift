@@ -254,8 +254,8 @@ final class FeedCoordinator: @unchecked Sendable {
                     guard case .accepted(let acceptedEvent, _) = acceptance else {
                         return nil
                     }
-                    // Surface in-app attention (needs-input status + bell +
-                    // workspace elevation) for the blocking decision. This fires
+                    // Surface in-app attention (needs-input status + workspace
+                    // elevation) for the blocking decision. This fires
                     // regardless of app focus, unlike the desktop banner below,
                     // so the pending decision is visible in the sidebar even
                     // while the user is in another workspace of the same window.
@@ -585,8 +585,8 @@ extension FeedCoordinator {
 
     /// Surfaces in-app attention for a blocking feed decision: flips the
     /// owning workspace's agent lifecycle to `.needsInput`, sets the
-    /// "Needs input" sidebar status, elevates the workspace when
-    /// *Reorder on Notification* is enabled, and rings the bell.
+    /// "Needs input" sidebar status, and elevates the workspace when
+    /// *Reorder on Notification* is enabled.
     ///
     /// This is the convergence point the PreToolUse→PermissionRequest
     /// migration left behind: the `feed.push` bridge ingested the card and
@@ -594,6 +594,10 @@ extension FeedCoordinator {
     /// attention path the `cmux hooks <agent> notification` hook uses. Doing
     /// it here — once, for every blocking decision — keeps a new event type
     /// from silently swallowing.
+    ///
+    /// Process-level AppKit attention is intentionally excluded: Stage Manager
+    /// can promote the entire cmux window set even though no user action targeted
+    /// cmux. The lifecycle and status mutations below are the attention surface.
     ///
     /// The overlay is cleared by ``concludeBlockingDecisionAttention(_:)``
     /// when the decision resolves or times out. Clearing is refcounted per
@@ -665,9 +669,6 @@ extension FeedCoordinator {
         if UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             tabManager.moveTabToTopForNotification(resolved.workspaceId)
         }
-
-        // Ring the bell (dock bounce while the app is in the background).
-        NSApp.requestUserAttention(.informationalRequest)
 
         return target
     }
@@ -788,7 +789,7 @@ enum FeedCoordinatorTestHooks {
     static var isAppActiveOverride: (@Sendable () -> Bool)?
     static var notificationPostObserver: (@Sendable (WorkstreamEvent, String) -> Void)?
     /// Fires when a blocking decision event requests in-app attention
-    /// surfacing (needs-input status + bell + elevation). When set, the
+    /// surfacing (needs-input status + elevation). When set, the
     /// production surfacing is short-circuited so tests can assert the
     /// request without a live `TabManager`.
     static var attentionSurfaceObserver: (@Sendable (WorkstreamEvent) -> Void)?
