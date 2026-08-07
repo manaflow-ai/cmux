@@ -630,11 +630,17 @@ func isTerminalPublicID(_ value: String) -> Bool {
     }
 }
 
+let terminalCStringMaximumPayloadBytes = 16 * 1024 * 1024
+let terminalCStringMaximumAttempts = 4
+
 func copyGrowingCString(
     _ copy: (_ buffer: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
-) -> String {
-    var capacity = copy(nil, 0) + 1
-    while true {
+) -> String? {
+    let maximumCapacity = terminalCStringMaximumPayloadBytes + 1
+    let initialLength = copy(nil, 0)
+    guard initialLength >= 0, initialLength < maximumCapacity else { return nil }
+    var capacity = initialLength + 1
+    for _ in 0..<terminalCStringMaximumAttempts {
         var buffer = [CChar](repeating: 0, count: capacity)
         let actual = copy(&buffer, buffer.count)
         if actual < buffer.count {
@@ -643,10 +649,12 @@ func copyGrowingCString(
                 as: UTF8.self
             )
         }
+        guard actual >= 0, actual < maximumCapacity else { return nil }
         // The producer grew between sizing and copying. Its returned complete
         // length becomes the next capacity, so no truncated UTF-8 is decoded.
         capacity = actual + 1
     }
+    return nil
 }
 
 let terminalInputMaximumPayloadBytes = 1_048_576

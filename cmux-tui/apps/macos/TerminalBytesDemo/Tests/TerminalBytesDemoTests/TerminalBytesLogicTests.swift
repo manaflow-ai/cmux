@@ -449,6 +449,23 @@ struct TerminalBytesLogicTests {
     }
 
     @Test
+    func cStringCopyStopsAfterBoundedGrowth() {
+        var calls = 0
+        let value = copyGrowingCString { buffer, capacity in
+            calls += 1
+            let bytes = Array(repeating: UInt8(ascii: "x"), count: 32)
+            if let buffer, capacity > 0 {
+                buffer[0] = CChar(bitPattern: bytes[0])
+                buffer[1] = 0
+            }
+            return bytes.count + calls
+        }
+
+        #expect(value == nil)
+        #expect(calls == terminalCStringMaximumAttempts + 1)
+    }
+
+    @Test
     func namedKeysAndModifiersBecomeGhosttyChords() {
         #expect(terminalKeyChord(keyCode: 126, modifiers: []) == "up")
         #expect(
