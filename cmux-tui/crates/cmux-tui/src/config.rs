@@ -124,10 +124,8 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
-#[cfg(not(test))]
-use std::process::Stdio as ProcessStdio;
-#[cfg(unix)]
 use std::process::Stdio;
+use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
@@ -2743,12 +2741,20 @@ fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
     let mut command = Command::new(exe);
     command
         .arg("__ghostty-config-defaults")
-        .stdin(ProcessStdio::null())
-        .stdout(ProcessStdio::piped())
-        .stderr(ProcessStdio::null());
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
     #[cfg(unix)]
     command.process_group(0);
     scrub_ghostty_helper_secret_environment(&mut command);
+    ghostty_defaults_from_helper_command(command, GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE)
+}
+
+#[cfg(any(not(test), all(test, unix)))]
+fn ghostty_defaults_from_helper_command(
+    mut command: Command,
+    parent_deadline: Duration,
+) -> GhosttyHelperDefaults {
     let Ok(mut child) = command.spawn() else {
         return GhosttyHelperDefaults::Unavailable;
     };
@@ -2760,7 +2766,7 @@ fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
         terminate_ghostty_helper_child(child);
         return GhosttyHelperDefaults::Unavailable;
     };
-    let status = match child.wait_timeout(GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE) {
+    let status = match child.wait_timeout(parent_deadline) {
         Ok(status) => status,
         Err(_) => {
             terminate_ghostty_helper_child(child);
@@ -2780,7 +2786,7 @@ fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
         }
         return GhosttyHelperDefaults::Unavailable;
     }
-    match output_reader.join().ok().flatten() {
+    match output_reader.wait() {
         Some(output) => GhosttyHelperDefaults::Resolved(parse_resolved_ghostty_defaults(&output)),
         None => GhosttyHelperDefaults::Unavailable,
     }
@@ -2788,11 +2794,42 @@ fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
 
 fn read_ghostty_helper_output_async(
     stdout: impl Read + Send + 'static,
-) -> Option<std::thread::JoinHandle<Option<String>>> {
+) -> Option<GhosttyHelperOutputReader> {
+    read_ghostty_limited_output_async(
+        stdout,
+        GHOSTTY_HELPER_OUTPUT_MAX_BYTES,
+        "cmux-tui-ghostty-helper-output",
+    )
+}
+
+fn read_ghostty_limited_output_async(
+    stdout: impl Read + Send + 'static,
+    max_bytes: u64,
+    thread_name: &'static str,
+) -> Option<GhosttyHelperOutputReader> {
+    let (sender, receiver) = mpsc::channel();
     std::thread::Builder::new()
-        .name("cmux-tui-ghostty-helper-output".to_string())
-        .spawn(move || read_ghostty_limited_string(stdout, GHOSTTY_HELPER_OUTPUT_MAX_BYTES))
-        .ok()
+        .name(thread_name.to_string())
+        .spawn(move || {
+            let _ = sender.send(read_ghostty_limited_string(stdout, max_bytes));
+        })
+        .ok()?;
+    Some(GhosttyHelperOutputReader { receiver })
+}
+
+struct GhosttyHelperOutputReader {
+    receiver: mpsc::Receiver<Option<String>>,
+}
+
+impl GhosttyHelperOutputReader {
+    fn wait(self) -> Option<String> {
+        self.receiver.recv().ok().flatten()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn recv_timeout(&self, timeout: Duration) -> Result<Option<String>, mpsc::RecvTimeoutError> {
+        self.receiver.recv_timeout(timeout)
+    }
 }
 
 fn terminate_ghostty_helper_child(mut child: Child) {
@@ -2836,7 +2873,11 @@ fn ghostty_helper_process_table_snapshot() -> Option<String> {
         terminate_ghostty_process_scan_child(child);
         return None;
     };
-    let Some(output_reader) = read_ghostty_helper_output_async(stdout) else {
+    let Some(output_reader) = read_ghostty_limited_output_async(
+        stdout,
+        GHOSTTY_PROCESS_SCAN_OUTPUT_MAX_BYTES,
+        "cmux-tui-ghostty-process-scan-output",
+    ) else {
         terminate_ghostty_process_scan_child(child);
         return None;
     };
@@ -2850,7 +2891,7 @@ fn ghostty_helper_process_table_snapshot() -> Option<String> {
     if !status.success() {
         return None;
     }
-    output_reader.join().ok().flatten()
+    output_reader.wait()
 }
 
 #[cfg(unix)]
@@ -3016,11 +3057,14 @@ const GHOSTTY_CONFIG_MAX_FILES: usize = 64;
 const GHOSTTY_CONFIG_MAX_DEPTH: usize = 16;
 const GHOSTTY_CONFIG_MAX_BYTES: u64 = 1024 * 1024;
 const GHOSTTY_HELPER_OUTPUT_MAX_BYTES: u64 = 64 * 1024;
+#[cfg(unix)]
+const GHOSTTY_PROCESS_SCAN_OUTPUT_MAX_BYTES: u64 = 1024 * 1024;
 const GHOSTTY_CONFIG_PARSE_DEADLINE: Duration = Duration::from_millis(250);
 #[cfg(unix)]
 const GHOSTTY_PROCESS_SCAN_DEADLINE: Duration = Duration::from_millis(150);
-#[cfg(not(test))]
-const GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE: Duration = Duration::from_millis(300);
+// The child owns a 250 ms parse deadline. The parent starts timing before
+// spawn/exec and still needs room for setup, stdout drain, and normal exit.
+const GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE: Duration = Duration::from_millis(500);
 #[cfg(not(target_os = "macos"))]
 const GHOSTTY_DESKTOP_APPEARANCE_DEADLINE: Duration = Duration::from_millis(75);
 
@@ -3113,9 +3157,24 @@ fn ghostty_config_deadline_expired(deadline_at: Option<Instant>) -> bool {
 
 #[cfg(not(target_os = "macos"))]
 fn ghostty_config_deadline_remaining(deadline_at: Option<Instant>) -> Option<Duration> {
-    deadline_at.map_or(Some(Duration::MAX), |deadline_at| {
-        deadline_at.checked_duration_since(Instant::now())
-    })
+    deadline_at.map_or(Some(Duration::MAX), |deadline_at| Some(ghostty_duration_until(deadline_at)))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ghostty_duration_until(deadline_at: Instant) -> Duration {
+    deadline_at.checked_duration_since(Instant::now()).unwrap_or(Duration::ZERO)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn kill_ghostty_process_group(group: libc::pid_t) {
+    if group <= 0 {
+        return;
+    }
+    unsafe {
+        // SAFETY: callers pass process-group IDs that were either created by
+        // cmux-tui for short-lived helpers or discovered under those helpers.
+        libc::killpg(group, libc::SIGKILL);
+    }
 }
 
 struct ParsedGhosttyConfig {
@@ -3304,6 +3363,7 @@ fn desktop_theme_command_output(
     if timeout.is_zero() {
         return None;
     }
+    let command_deadline = Instant::now() + timeout;
     let mut command = Command::new(program);
     command
         .args(args)
@@ -3313,6 +3373,8 @@ fn desktop_theme_command_output(
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command.spawn().ok()?;
+    #[cfg(unix)]
+    let child_group = child.id() as libc::pid_t;
     let Some(stdout) = child.stdout.take() else {
         terminate_ghostty_helper_child(child);
         return None;
@@ -3331,7 +3393,16 @@ fn desktop_theme_command_output(
     if !status.success() {
         return None;
     }
-    output_reader.join().ok().flatten()
+    match output_reader.recv_timeout(ghostty_duration_until(command_deadline)) {
+        Ok(output) => output,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            #[cfg(unix)]
+            kill_ghostty_process_group(child_group);
+            let _ = output_reader.recv_timeout(Duration::from_millis(10));
+            None
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => None,
+    }
 }
 
 #[cfg(any(test, not(target_os = "macos")))]
@@ -5074,6 +5145,82 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn ghostty_config_helper_parent_deadline_allows_startup_margin() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "sleep 0.32; printf 'foreground=#010203\nbackground=#040506\n'"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+
+        let defaults =
+            ghostty_defaults_from_helper_command(command, GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE);
+
+        let GhosttyHelperDefaults::Resolved(defaults) = defaults else {
+            panic!("helper should resolve within parent startup margin");
+        };
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn ghostty_desktop_probe_cleanup_kills_stdout_inheriting_child() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-desktop-probe-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script_path = dir.join("probe.sh");
+        let child_pid_path = dir.join("child.pid");
+        let script = format!(
+            "sleep 5 &\necho $! > {}\nprintf \"'prefer-dark'\\n\"\nexit 0\n",
+            shell_quote_path(&child_pid_path)
+        );
+        std::fs::write(&script_path, script).unwrap();
+        let script_arg = script_path.to_string_lossy().to_string();
+
+        let started_at = Instant::now();
+        let output = desktop_theme_command_output(
+            "/bin/sh",
+            &[script_arg.as_str()],
+            Some(Instant::now() + Duration::from_secs(1)),
+        );
+
+        assert_eq!(output, None);
+        assert!(
+            started_at.elapsed() < Duration::from_secs(1),
+            "desktop probe output drain was not bounded"
+        );
+
+        let child_pid = {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
+                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
+                {
+                    break pid;
+                }
+                assert!(Instant::now() < deadline, "desktop probe child pid was not written");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while unix_process_is_live(child_pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(
+            !unix_process_is_live(child_pid),
+            "stdout-inheriting desktop probe child {child_pid} was not killed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn ghostty_config_helper_cleanup_reaps_process_group_children() {
         let dir = std::env::temp_dir().join(format!(
             "cmux-tui-ghostty-helper-process-group-{}-{}",
@@ -5206,6 +5353,11 @@ mod tests {
         std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
     }
 
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn shell_quote_path(path: &Path) -> String {
+        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    }
+
     #[test]
     fn ghostty_config_helper_output_reader_drains_large_palette() {
         let mut output = String::new();
@@ -5217,7 +5369,7 @@ mod tests {
         let reader =
             read_ghostty_helper_output_async(std::io::Cursor::new(output.clone())).unwrap();
 
-        assert_eq!(reader.join().unwrap(), Some(output));
+        assert_eq!(reader.wait(), Some(output));
     }
 
     #[test]
@@ -5226,7 +5378,7 @@ mod tests {
 
         let reader = read_ghostty_helper_output_async(std::io::Cursor::new(output)).unwrap();
 
-        assert_eq!(reader.join().unwrap(), None);
+        assert_eq!(reader.wait(), None);
     }
 
     #[test]
