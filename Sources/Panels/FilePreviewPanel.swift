@@ -2546,7 +2546,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         from anchorView: NSView,
         activation: FilePreviewPDFShareActivation
     ) {
-        guard anchorView.window === window,
+        guard let anchorWindow = anchorView.window,
+              let window,
+              anchorWindow === window,
               let currentURL else { return }
         sharingPresenter.present(fileURL: currentURL, from: anchorView, activation: activation)
     }
