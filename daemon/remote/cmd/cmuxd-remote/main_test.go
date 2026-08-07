@@ -2013,12 +2013,13 @@ func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
 		t.Fatalf("listen unix: %v", err)
 	}
 
+	var stderr bytes.Buffer
 	done := make(chan error, 1)
 	go func() {
 		done <- servePersistentDaemonWithVerifierConfig(
 			listener,
 			persistentDaemonFixedTokenVerifier("idle-token"),
-			io.Discard,
+			&stderr,
 			persistentDaemonServerConfig{
 				emptyIdleTimeout: 500 * time.Millisecond,
 				acceptPollStep:   25 * time.Millisecond,
@@ -2063,6 +2064,12 @@ func TestPersistentDaemonServerExitsAfterEmptySlotIdleTimeout(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("persistent daemon did not stop after empty idle timeout")
+	}
+	if logOutput := stderr.String(); !strings.Contains(
+		logOutput,
+		"reason=empty_idle_timeout active_connections=0 active_sessions=0",
+	) {
+		t.Fatalf("persistent daemon exit log = %q, want empty idle reason and activity counts", logOutput)
 	}
 }
 
