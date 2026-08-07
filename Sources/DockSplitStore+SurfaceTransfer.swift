@@ -287,6 +287,7 @@ extension DockSplitStore {
             restorableAgentResumeState: transferredResumeState,
             restoredAgentCompletedGeneration: transferredCompletedGeneration,
             shellActivityState: transferredShellActivityState,
+            restoredPanelTitleBoundary: preservedTransfer?.restoredPanelTitleBoundary,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: managedResumeBinding,

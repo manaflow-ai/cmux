@@ -33,9 +33,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }> = [
     { path: "", lastModified: "2026-03-18", changeFrequency: "weekly" as const, priority: 1 },
     { path: "/ios", lastModified: "2026-06-22", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/browser", lastModified: "2026-08-05", changeFrequency: "weekly" as const, priority: 0.9 },
     ...DOWNLOAD_PLATFORMS.map((platform) => ({
       path: PLATFORM_DOWNLOADS[platform].page,
-      lastModified: "2026-07-28",
+      lastModified: "2026-08-04",
       changeFrequency: "weekly" as const,
       priority: 0.9,
     })),

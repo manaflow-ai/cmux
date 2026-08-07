@@ -215,6 +215,8 @@ extension Workspace {
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
         restoredGuardedWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeAll(keepingCapacity: false)
+        restoredPanelTitleBoundariesByPanelId.removeAll(keepingCapacity: false)
+        panelShellActivityStates.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration(
             localSocketPath: TerminalController.shared.currentSocketPathForRemoteRestore()
@@ -1751,6 +1753,10 @@ extension Workspace {
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
+            armRestoredPanelTitleBoundary(
+                panelId: terminalPanel.id,
+                internallySeededInput: restoredStartupInput
+            )
             return terminalPanel.id
         case .browser:
             guard let browserPanel = newBrowserSurface(
@@ -1902,7 +1908,11 @@ extension Workspace {
             panelGitBranches.removeValue(forKey: panelId)
         }
 
-        surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+        if snapshot.terminal?.hibernation != nil {
+            surfaceListeningPorts.removeValue(forKey: panelId)
+        } else {
+            surfaceListeningPorts[panelId] = Array(Set(snapshot.listeningPorts)).sorted()
+        }
 
         if let ttyName = snapshot.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
             restorePersistedSurfaceTTYName(ttyName, panelId: panelId)
@@ -2595,6 +2605,9 @@ final class Workspace: Identifiable, ObservableObject {
         get { surfaceRegistry.panelShellActivityStates }
         set { surfaceRegistry.panelShellActivityStates = newValue }
     }
+    /// Per-panel admission state preventing restored PTY startup noise from
+    /// taking ownership of the persisted title.
+    var restoredPanelTitleBoundariesByPanelId: [UUID: RestoredPanelTitleBoundary] = [:]
     /// Agent runtime maps that affect sidebar status visibility.
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
@@ -4997,6 +5010,15 @@ final class Workspace: Identifiable, ObservableObject {
             }
             return
         }
+        let pendingRestoredTitle = restoredPanelTitleAfterShellActivity(
+            panelId: panelId,
+            state: state
+        )
+        defer {
+            if let pendingRestoredTitle {
+                _ = updatePanelTitle(panelId: panelId, title: pendingRestoredTitle)
+            }
+        }
         panelShellActivityStates[panelId] = state
         if let terminalPanel = panels[panelId] as? TerminalPanel {
             terminalPanel.updateShellActivityState(state)
@@ -5060,6 +5082,13 @@ final class Workspace: Identifiable, ObservableObject {
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
+        if !isRemoteWorkspace {
+            // Hibernation destroys the local PTY. Clear its derived badge and
+            // reject any queued publication captured before that teardown.
+            surfaceListeningPorts.removeValue(forKey: panelId)
+            recomputeListeningPorts()
+            PortScanner.shared.unregisterPanel(workspaceId: id, panelId: panelId)
+        }
         let keys = agentPIDKeysByPanelId[panelId] ?? []
         for key in keys {
             _ = clearAgentPID(key: key, panelId: panelId, clearStatus: false, refreshPorts: false)
@@ -5377,6 +5406,9 @@ final class Workspace: Identifiable, ObservableObject {
         pruneRemoteRelaySurfaceAliases(validSurfaceIds: validSurfaceIds)
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
+        restoredPanelTitleBoundariesByPanelId = restoredPanelTitleBoundariesByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
         let staleAgentPIDPanelIds = agentPIDKeysByPanelId.keys.filter { !validSurfaceIds.contains($0) }
         var didClearStaleAgentRuntime = false
@@ -9760,6 +9792,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         bindSurface(newTabId, toPanelId: detached.panelId)
         panels[detached.panelId] = detached.panel
+        if let restoredPanelTitleBoundary = detached.restoredPanelTitleBoundary {
+            restoredPanelTitleBoundariesByPanelId[detached.panelId] = restoredPanelTitleBoundary
+        } else {
+            restoredPanelTitleBoundariesByPanelId.removeValue(forKey: detached.panelId)
+        }
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
             configureTerminalPanel(terminalPanel)
@@ -9895,6 +9932,7 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
             applyTabSelection(tabId: newTabId, inPane: paneId, focusIntent: focusIntent)
+            applyFocusedPanelTitle(panelId: detached.panelId)
         } else {
             scheduleFocusReconcile()
         }
@@ -12582,6 +12620,7 @@ extension Workspace: BonsplitDelegate {
                 restorableAgentResumeState: restorableAgentResumeState,
                 restoredAgentCompletedGeneration: restoredAgentLifecycle.completedGeneration(panelId: panelId),
                 shellActivityState: panelShellActivityStates[panelId],
+                restoredPanelTitleBoundary: restoredPanelTitleBoundariesByPanelId[panelId],
                 restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectoriesByPanelId[panelId],
                 resumeBinding: resumeBinding,
                 managedAgentResumeBinding: resumeBinding.flatMap {

@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
 import CmuxSettings
@@ -28,6 +29,13 @@ final class FeedCoordinator: @unchecked Sendable {
     // The store runs on the main actor. The coordinator is not isolated,
     // so it hops to main explicitly when touching the store.
     @MainActor private(set) var store: WorkstreamStore!
+    @MainActor private var userNotificationCenter: (any UserNotificationCenterServing)?
+
+    /// The bounded notification-center boundary. `install(store:)` injects it;
+    /// the shared store's service covers the pre-install window.
+    @MainActor private var resolvedUserNotificationCenter: any UserNotificationCenterServing {
+        userNotificationCenter ?? TerminalNotificationStore.shared.userNotificationCenter
+    }
 
     /// Pending blocking-hook waiters keyed by request id. The waiter owns
     /// a semaphore plus a slot for the resolved decision; the reply
@@ -61,8 +69,15 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Must be called once at app launch to install the store.
     @MainActor
-    func install(store: WorkstreamStore) {
+    func install(
+        store: WorkstreamStore,
+        userNotificationCenter: (any UserNotificationCenterServing)? = nil
+    ) {
         self.store = store
+        // Resolved here rather than as a default argument: default-argument
+        // expressions evaluate outside the method's main-actor isolation.
+        self.userNotificationCenter = userNotificationCenter
+            ?? TerminalNotificationStore.shared.userNotificationCenter
         NotificationCenter.default.post(name: Self.storeInstalledNotification, object: self)
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
@@ -1141,52 +1156,57 @@ private extension FeedCoordinator {
             trigger: nil
         )
 
-        let center = UNUserNotificationCenter.current()
-        center.getNotificationSettings { settings in
-            Task { @MainActor [weak self] in
-                guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
-                switch settings.authorizationStatus {
-                case .authorized, .provisional:
+        let center = resolvedUserNotificationCenter
+        Task { @MainActor [weak self] in
+            let statusResult = await center.authorizationStatus()
+            guard let self, self.isAwaitingDecision(requestId: requestId) else { return }
+            let status: UserNotificationAuthorizationStatus
+            switch statusResult {
+            case .success(let value):
+                status = value
+            case .failure:
+                // The notification daemon is unresponsive; treat authorization
+                // as unknown and stay audible (fail-open) via local fallback.
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: TerminalNotificationStore.fallbackEffects(
+                        effects,
+                        authorizationState: .unknown
+                    ),
+                    runCommand: false
+                )
+                return
+            }
+            switch status {
+            case .authorized, .provisional:
+                self.addNotificationIfStillAwaiting(
+                    request: request,
+                    requestId: requestId,
+                    effects: effects
+                )
+            case .notDetermined:
+                let authorization = await center.requestAuthorization(options: [.alert, .sound])
+                guard self.isAwaitingDecision(requestId: requestId) else { return }
+                if case .success(true) = authorization {
                     self.addNotificationIfStillAwaiting(
-                        center: center,
                         request: request,
                         requestId: requestId,
                         effects: effects
                     )
-                case .notDetermined:
-                    var granted = false
-                    var requestFailed = false
-                    do {
-                        granted = try await center.requestAuthorization(options: [.alert, .sound])
-                    } catch {
+                } else {
+                    // A non-grant without an error is the user declining
+                    // the prompt just now: honor the fresh denial on this
+                    // very notification. A request failure is not a user
+                    // decision, so the fallback stays audible (fail-open).
+                    let requestFailed: Bool
+                    if case .failure = authorization {
                         requestFailed = true
-                    }
-                    guard self.isAwaitingDecision(requestId: requestId) else { return }
-                    if granted {
-                        self.addNotificationIfStillAwaiting(
-                            center: center,
-                            request: request,
-                            requestId: requestId,
-                            effects: effects
-                        )
                     } else {
-                        // A non-grant without an error is the user declining
-                        // the prompt just now: honor the fresh denial on this
-                        // very notification. A request error is not a user
-                        // decision, so the fallback stays audible (fail-open).
-                        self.runFallbackEffectsIfStillAwaiting(
-                            requestId: requestId,
-                            title: title,
-                            subtitle: subtitle,
-                            body: body,
-                            effects: TerminalNotificationStore.fallbackEffects(
-                                effects,
-                                authorizationState: requestFailed ? .unknown : .denied
-                            ),
-                            runCommand: false
-                        )
+                        requestFailed = false
                     }
-                default:
                     self.runFallbackEffectsIfStillAwaiting(
                         requestId: requestId,
                         title: title,
@@ -1194,20 +1214,29 @@ private extension FeedCoordinator {
                         body: body,
                         effects: TerminalNotificationStore.fallbackEffects(
                             effects,
-                            authorizationState: TerminalNotificationStore.authorizationState(
-                                from: settings.authorizationStatus
-                            )
+                            authorizationState: requestFailed ? .unknown : .denied
                         ),
                         runCommand: false
                     )
                 }
+            case .denied, .ephemeral, .unknown:
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: TerminalNotificationStore.fallbackEffects(
+                        effects,
+                        authorizationState: TerminalNotificationStore.authorizationState(from: status)
+                    ),
+                    runCommand: false
+                )
             }
         }
     }
 
     @MainActor
     func addNotificationIfStillAwaiting(
-        center: UNUserNotificationCenter,
         request: UNNotificationRequest,
         requestId: String,
         effects: TerminalNotificationPolicyEffects
@@ -1216,32 +1245,31 @@ private extension FeedCoordinator {
         let title = request.content.title
         let subtitle = request.content.subtitle
         let body = request.content.body
-        center.add(request) { error in
-            let didFail = error != nil
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !self.isAwaitingDecision(requestId: requestId) {
-                    self.cancelNotification(requestId: requestId)
-                    return
-                }
-                if didFail {
-                    self.runFallbackEffectsIfStillAwaiting(
-                        requestId: requestId,
-                        title: title,
-                        subtitle: subtitle,
-                        body: body,
-                        effects: effects,
-                        runCommand: false
-                    )
-                    return
-                }
-                if effects.command {
-                    NotificationSoundSettings.runCustomCommand(
-                        title: title,
-                        subtitle: subtitle,
-                        body: body
-                    )
-                }
+        let center = resolvedUserNotificationCenter
+        Task { @MainActor [weak self] in
+            let result = await center.add(request)
+            guard let self else { return }
+            if !self.isAwaitingDecision(requestId: requestId) {
+                self.cancelNotification(requestId: requestId)
+                return
+            }
+            if case .failure = result {
+                self.runFallbackEffectsIfStillAwaiting(
+                    requestId: requestId,
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    effects: effects,
+                    runCommand: false
+                )
+                return
+            }
+            if effects.command {
+                NotificationSoundSettings.runCustomCommand(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body
+                )
             }
         }
     }
@@ -1266,9 +1294,12 @@ private extension FeedCoordinator {
 
     func cancelNotification(requestId: String) {
         let identifier = "feed.\(requestId)"
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequestsOffMain(withIdentifiers: [identifier])
-        center.removeDeliveredNotificationsOffMain(withIdentifiers: [identifier])
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let center = self.resolvedUserNotificationCenter
+            _ = await center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            _ = await center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        }
     }
 }
 
