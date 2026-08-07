@@ -1083,15 +1083,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_identity() {
           case "$1" in
-            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
+            101) printf '7|11|Thu_Jan_1_00:00:00_1970\n' ;;
             102) printf '9|99|Thu_Jan_1_00:00:00_1970\n' ;;
-            103) printf '1|13|Thu_Jan_1_00:00:00_1970\n' ;;
+            103) printf '8|13|Thu_Jan_1_00:00:00_1970\n' ;;
             *) return 1 ;;
           esac
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '11 101 1 Thu_Jan_1_00:00:00_1970\n12 102 1 Thu_Jan_1_00:00:00_1970\n13\n14\n' \
           > "$CMUX_TEST_SIGNALED_GROUPS"
+        # The recorded members were reparented after cleanup crashed. Their
+        # stable PID, process-group, and start-time identities still match.
         printf '103 1 13 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALED_PIDS"
         : > "$CMUX_TEST_SIGNALS"
