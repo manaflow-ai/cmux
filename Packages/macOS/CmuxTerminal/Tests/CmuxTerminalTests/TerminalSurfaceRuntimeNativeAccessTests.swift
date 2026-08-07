@@ -52,6 +52,8 @@ import Testing
             surface: surface,
             nativeAccessGate: nativeAccessGate,
             callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
             freeSurface: { _ in
                 _ = releaseNativeFree.wait(timeout: .distantFuture)
             }
@@ -120,6 +122,8 @@ import Testing
             surface: surface,
             nativeAccessGate: nativeAccessGate,
             callbackContext: nil,
+            manualIOContext: nil,
+            byteTeeLease: nil,
             freeSurface: { _ in
                 nativeFreeCount.withLock { $0 += 1 }
             }

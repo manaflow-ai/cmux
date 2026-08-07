@@ -7,7 +7,7 @@ internal import GhosttyKit
 /// admits a native-access borrow before its first suspension, and the runtime
 /// coordinator executes this request without suspension while that borrow
 /// defers process termination and native free. `@unchecked Sendable` is limited
-/// to transporting the borrowed pointer onto the coordinator actor.
+/// to transporting the borrowed pointer onto the concurrent read executor.
 struct TerminalSurfaceRuntimeScreenTailRequest: @unchecked Sendable {
     let surface: ghostty_surface_t
     let maxRows: Int

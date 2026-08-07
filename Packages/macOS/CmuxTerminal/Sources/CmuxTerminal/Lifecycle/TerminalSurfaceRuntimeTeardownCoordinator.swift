@@ -99,10 +99,15 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     }
 
     /// Reads a bounded screen tail away from the main actor under an admitted borrow.
-    func readScreenTailVT(
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
+    nonisolated func readScreenTailVT(
         _ request: TerminalSurfaceRuntimeScreenTailRequest,
         borrow: TerminalSurfaceRuntimeNativeAccessBorrow
-    ) -> String? {
+    ) async -> String? {
         defer { borrow.release() }
         return request.read()
     }

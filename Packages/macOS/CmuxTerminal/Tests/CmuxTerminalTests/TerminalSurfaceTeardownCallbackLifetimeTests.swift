@@ -88,6 +88,32 @@ import Testing
         #expect(recorder.events == [.nativeFree, .teeLeaseRelease])
     }
 
+    @Test func installingNewRuntimeSurfaceReplacesClosedNativeAccessGate() async throws {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        let runtimeSurface = fakeRuntimeSurface()
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let retiredGate = surface.runtimeNativeAccessGate
+        surface.teardownSurface()
+
+        #expect(retiredGate.acquireBorrow() == nil)
+        #expect(await recorder.waitForEventCount(1))
+
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        let replacementGate = surface.runtimeNativeAccessGate
+        #expect(replacementGate !== retiredGate)
+        let replacementBorrow = try #require(replacementGate.acquireBorrow())
+        replacementBorrow.release()
+
+        surface.teardownSurface()
+        #expect(await recorder.waitForEventCount(2))
+    }
+
     @Test func agentHibernationSuspendKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let registry = TerminalSurfaceRegistry()
