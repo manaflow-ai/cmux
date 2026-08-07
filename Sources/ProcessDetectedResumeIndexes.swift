@@ -34,6 +34,19 @@ struct ProcessDetectedResumeIndexes: Sendable {
         loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
     }
 
+    /// Returns the last published agent index without filesystem or process capture.
+    ///
+    /// This is the bounded fallback for a watchdog whose fresh capture already
+    /// exceeded its deadline. Process-backed surface bindings fail closed.
+    static func cached(
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> ProcessDetectedResumeIndexes {
+        ProcessDetectedResumeIndexes(
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: .empty
+        )
+    }
+
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,

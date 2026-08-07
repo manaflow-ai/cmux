@@ -4,7 +4,7 @@ import Foundation
 struct HermesProfileAliasResolver {
     struct Alias: Equatable, Sendable {
         let commandName: String
-        let profileName: String
+        let wrapperPath: String
     }
 
     private let wrapperDirectoryURL: URL
@@ -40,10 +40,13 @@ struct HermesProfileAliasResolver {
               fileManager.isExecutableFile(atPath: url.path),
               (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
               let contents = boundedContents(of: url),
-              let profileName = Self.officialProfileName(in: contents) else {
+              Self.officialProfileName(in: contents) != nil else {
             return nil
         }
-        return Alias(commandName: commandName, profileName: profileName)
+        return Alias(
+            commandName: commandName,
+            wrapperPath: url.standardizedFileURL.path
+        )
     }
 
     private func boundedContents(of url: URL) -> String? {

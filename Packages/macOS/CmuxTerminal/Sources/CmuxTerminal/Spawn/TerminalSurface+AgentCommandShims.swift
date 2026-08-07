@@ -117,7 +117,10 @@ extension TerminalSurface {
                 guard let shim = installAgentCommandShim(
                     definition: hermesDefinition.definition,
                     commandName: alias.commandName,
-                    wrapperArguments: ["-p", alias.profileName],
+                    hermesProfileAliasURL: URL(
+                        fileURLWithPath: alias.wrapperPath,
+                        isDirectory: false
+                    ),
                     wrapperURL: hermesDefinition.wrapperURL,
                     shimDirectory: shimDirectory,
                     fileManager: fileManager
@@ -144,19 +147,60 @@ extension TerminalSurface {
     private static func installAgentCommandShim(
         definition: TerminalSurfaceAgentCommandShimDefinition,
         commandName: String? = nil,
-        wrapperArguments: [String] = [],
+        hermesProfileAliasURL: URL? = nil,
         wrapperURL: URL,
         shimDirectory: URL,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShim? {
         let commandName = commandName ?? definition.commandName
         let shimURL = shimDirectory.appendingPathComponent(commandName, isDirectory: false)
-        let wrapperArgumentPrefix = wrapperArguments
-            .map(shellSingleQuoted)
-            .joined(separator: " ")
-        let wrapperInvocation = wrapperArgumentPrefix.isEmpty
-            ? "exec \"$cmux_wrapper\" \"$@\""
-            : "exec \"$cmux_wrapper\" \(wrapperArgumentPrefix) \"$@\""
+        let wrapperInvocation: String
+        if let hermesProfileAliasURL {
+            // Hermes owns and can retarget this two-line wrapper while the
+            // terminal remains open. Revalidate its bounded canonical form on
+            // every invocation instead of freezing a profile into the shim.
+            wrapperInvocation = """
+            cmux_alias_path=\(shellSingleQuoted(hermesProfileAliasURL.path))
+            cmux_alias_contents=""
+            if [[ -f "$cmux_alias_path" && -x "$cmux_alias_path" ]]; then
+                IFS= read -r -d '' -n 2049 cmux_alias_contents < "$cmux_alias_path" || true
+                if (( ${#cmux_alias_contents} <= 2048 )); then
+                    cmux_alias_contents="${cmux_alias_contents//$'\\r\\n'/$'\\n'}"
+                    if [[ "$cmux_alias_contents" == *$'\\n' ]]; then
+                        cmux_alias_contents="${cmux_alias_contents%$'\\n'}"
+                    fi
+                    if [[ "$cmux_alias_contents" == *$'\\n'* ]]; then
+                        cmux_alias_header="${cmux_alias_contents%%$'\\n'*}"
+                        cmux_alias_line="${cmux_alias_contents#*$'\\n'}"
+                        cmux_alias_argument_suffix=' "$@"'
+                        if [[ "$cmux_alias_header" == '#!/bin/sh' &&
+                              "$cmux_alias_line" != *$'\\n'* &&
+                              "$cmux_alias_line" == exec\\ *"$cmux_alias_argument_suffix" ]]; then
+                            cmux_alias_command="${cmux_alias_line#exec }"
+                            cmux_alias_command="${cmux_alias_command%"$cmux_alias_argument_suffix"}"
+                            if [[ "$cmux_alias_command" == *" -p "* ]]; then
+                                cmux_alias_profile="${cmux_alias_command##* -p }"
+                                cmux_alias_executable="${cmux_alias_command% -p *}"
+                                cmux_alias_resolved_executable="$cmux_alias_executable"
+                                if [[ "${cmux_alias_executable:0:1}" == "'" &&
+                                      "${cmux_alias_executable: -1}" == "'" ]]; then
+                                    cmux_alias_resolved_executable="${cmux_alias_executable:1:${#cmux_alias_executable}-2}"
+                                elif [[ "$cmux_alias_executable" == *[[:space:]]* ]]; then
+                                    cmux_alias_resolved_executable=""
+                                fi
+                                if [[ "$cmux_alias_profile" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ &&
+                                      "${cmux_alias_resolved_executable##*/}" == "hermes" ]]; then
+                                    exec "$cmux_wrapper" -p "$cmux_alias_profile" "$@"
+                                fi
+                            fi
+                        fi
+                    fi
+                fi
+            fi
+            """
+        } else {
+            wrapperInvocation = "exec \"$cmux_wrapper\" \"$@\""
+        }
         let script = """
         #!/usr/bin/env bash
         cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))

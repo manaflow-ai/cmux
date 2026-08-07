@@ -1300,7 +1300,8 @@ struct RestorableAgentSessionIndex: Sendable {
                         currentProcessIdentity: currentProcessIdentity,
                         processArgumentsProvider: processArgumentsProvider,
                         processPresenceProvider: processPresenceProvider,
-                        validator: cachedAgentProcessValidator
+                        validator: cachedAgentProcessValidator,
+                        hermesSessionValidation: .currentHookRecord
                     )
                 }
                 let liveProcessID = processObservation.processID
@@ -2359,7 +2360,8 @@ struct RestorableAgentSessionIndex: Sendable {
         currentProcessIdentity: AgentPIDProcessIdentity?,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments?,
         processPresenceProvider: (Int) -> PIDPresence,
-        validator: CachedAgentProcessIdentityValidator
+        validator: CachedAgentProcessIdentityValidator,
+        hermesSessionValidation: CachedAgentProcessIdentityValidator.HermesSessionValidation = .cachedSnapshot
     ) -> RestorableAgentProcessMatch {
         guard let recordedProcessIdentity,
               Int(recordedProcessIdentity.pid) == processID else {
@@ -2380,7 +2382,11 @@ struct RestorableAgentSessionIndex: Sendable {
         guard process.matchesCMUXScope(workspaceId: workspaceId, surfaceId: panelId) else {
             return .mismatches
         }
-        return validator.currentProcess(process, matches: snapshot) ? .matches : .mismatches
+        return validator.currentProcess(
+            process,
+            matches: snapshot,
+            hermesSessionValidation: hermesSessionValidation
+        ) ? .matches : .mismatches
     }
 
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {

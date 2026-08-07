@@ -1993,7 +1993,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 guard !Task.isCancelled else { return }
                 cleanupTask.cancel()
                 guard hasOwnedRuntimeCleanup else {
-                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(
+                    _ = self.saveSessionSnapshotUsingCachedProcessDetectedIndexes(
                         includeScrollback: true,
                         removeWhenEmpty: false
                     )
@@ -4474,6 +4474,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) -> Bool {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadFreshSynchronously()
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+    }
+
+    @discardableResult
+    private func saveSessionSnapshotUsingCachedProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) -> Bool {
+        // This path runs only after the fresh process scan exceeded its watchdog.
+        // It must not retry process or filesystem work on the main actor.
+        let resumeIndexes = ProcessDetectedResumeIndexes.cached(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.index ?? .empty
+        )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
