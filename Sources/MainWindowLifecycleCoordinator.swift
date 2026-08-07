@@ -152,6 +152,22 @@ final class MainWindowLifecycleCoordinator {
             .map { $0.1 }
     }
 
+    @discardableResult
+    func replaceOrphanedRoute(
+        windowId: UUID,
+        with replacement: RecoverableMainWindowRoute
+    ) -> Bool {
+        guard replacement.windowId == windowId,
+              var record = recordsByWindowId[windowId],
+              case .orphaned = record.phase else {
+            return false
+        }
+        record.phase = .orphaned(replacement)
+        recordsByWindowId[windowId] = record
+        bumpPersistenceTopologyRevision()
+        return true
+    }
+
     func teardownRoute(windowId: UUID) -> RecoverableMainWindowRoute? {
         guard let phase = recordsByWindowId[windowId]?.phase else { return nil }
         switch phase {

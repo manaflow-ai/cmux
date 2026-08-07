@@ -20,7 +20,8 @@ struct RecoverableMainWindowLifecycleTests {
 
         let windowId = UUID()
         let window = makeMainWindow(id: windowId)
-        let manager = TabManager()
+        var manager: TabManager? = TabManager()
+        weak var releasedManager = manager
         defer {
             app.forgetRecoverableMainWindowRoute(windowId: windowId)
             window.orderOut(nil)
@@ -28,39 +29,51 @@ struct RecoverableMainWindowLifecycleTests {
             AppDelegate.shared = previousAppDelegate
         }
 
-        app.registerMainWindow(
-            window,
-            windowId: windowId,
-            tabManager: manager,
-            sidebarState: SidebarState(),
-            sidebarSelectionState: SidebarSelectionState(),
-            fileExplorerState: FileExplorerState()
-        )
-        let workspace = try #require(manager.selectedWorkspace)
-        let context = try #require(
-            app.mainWindowContexts.values.first { $0.windowId == windowId }
-        )
+        let workspaceId: UUID
+        do {
+            let liveManager = try #require(manager)
+            app.registerMainWindow(
+                window,
+                windowId: windowId,
+                tabManager: liveManager,
+                sidebarState: SidebarState(),
+                sidebarSelectionState: SidebarSelectionState(),
+                fileExplorerState: FileExplorerState()
+            )
+            workspaceId = try #require(liveManager.selectedWorkspace).id
+            let context = try #require(
+                app.mainWindowContexts.values.first { $0.windowId == windowId }
+            )
 
-        // Drive the production predicate: both the weak context reference and
-        // the AppKit identifier lookup fail before prune transitions the
-        // already-registered lifecycle record.
-        context.window = nil
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.orphaned.\(windowId.uuidString)")
-        _ = app.preferredMainWindowContextForWorkspaceCreation(
-            debugSource: "issue9666-windowless-regression"
-        )
+            // Drive the production predicate: both the weak context reference
+            // and AppKit identifier lookup fail before prune transitions the
+            // already-registered lifecycle record.
+            context.window = nil
+            window.identifier = NSUserInterfaceItemIdentifier(
+                "cmux.orphaned.\(windowId.uuidString)"
+            )
+            _ = app.preferredMainWindowContextForWorkspaceCreation(
+                debugSource: "issue9666-windowless-regression"
+            )
 
-        #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
-        let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
-        #expect(route.window == nil)
-        #expect(route.tabManager === manager)
-        #expect(app.tabManagerFor(windowId: windowId) == nil)
+            #expect(!app.mainWindowContexts.values.contains { $0.windowId == windowId })
+            let route = try #require(app.recoverableMainWindowRoute(windowId: windowId))
+            #expect(route.window == nil)
+            #expect(route.tabManager == nil)
+            #expect(route.frozenWindowSnapshot != nil)
+            #expect(!app.recoverableMainWindowRoutes().contains { $0.windowId == windowId })
+            #expect(app.tabManagerFor(windowId: windowId) == nil)
+            #expect(liveManager.tabs.allSatisfy { $0.panels.isEmpty })
+        }
+
+        manager = nil
+        #expect(releasedManager == nil)
 
         let snapshot = try #require(app.sessionSnapshotForTesting())
         let restoredWindow = try #require(
             snapshot.windows.first { $0.windowId == windowId }
         )
-        #expect(restoredWindow.tabManager.workspaces.contains { $0.workspaceId == workspace.id })
+        #expect(restoredWindow.tabManager.workspaces.contains { $0.workspaceId == workspaceId })
     }
 
     @Test("Dismissed recovered window remains restorable and focusable")
@@ -234,6 +247,115 @@ struct RecoverableMainWindowLifecycleTests {
         #expect(frozenSnapshot.panels.first?.terminal?.scrollback == "preserved output")
     }
 
+    @Test("Frozen window snapshot strips scrollback from every container")
+    func frozenWindowSnapshotStripsScrollbackFromEveryContainer() throws {
+        let workspacePanelId = UUID()
+        let workspaceDockPanelId = UUID()
+        let windowDockPanelId = UUID()
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            isPinned: false,
+            currentDirectory: "/tmp",
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [workspacePanelId],
+                selectedPanelId: workspacePanelId
+            )),
+            panels: [terminalPanelSnapshot(
+                id: workspacePanelId,
+                scrollback: "workspace output"
+            )],
+            statusEntries: [],
+            logEntries: []
+        )
+        workspace.dock = splitContainerSnapshot(
+            panel: terminalPanelSnapshot(
+                id: workspaceDockPanelId,
+                scrollback: "workspace dock output"
+            )
+        )
+        let frozen = SessionWindowSnapshot(
+            windowId: UUID(),
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [workspace]
+            ),
+            sidebar: SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: SessionPersistencePolicy.defaultSidebarWidth
+            ),
+            dock: splitContainerSnapshot(
+                panel: terminalPanelSnapshot(
+                    id: windowDockPanelId,
+                    scrollback: "window dock output"
+                )
+            )
+        )
+
+        let lightweight = frozen.respectingScrollbackInclusion(false)
+        let full = frozen.respectingScrollbackInclusion(true)
+
+        #expect(lightweight.tabManager.workspaces[0].panels[0].terminal?.scrollback == nil)
+        #expect(lightweight.tabManager.workspaces[0].dock?.panels[0].terminal?.scrollback == nil)
+        #expect(lightweight.dock?.panels[0].terminal?.scrollback == nil)
+        #expect(full.tabManager.workspaces[0].panels[0].terminal?.scrollback == "workspace output")
+        #expect(full.tabManager.workspaces[0].dock?.panels[0].terminal?.scrollback == "workspace dock output")
+        #expect(full.dock?.panels[0].terminal?.scrollback == "window dock output")
+        #expect(frozen.dock?.panels[0].terminal?.scrollback == "window dock output")
+    }
+
+    @Test("Browser-only close retires its closing lifecycle record immediately")
+    func browserOnlyCloseRetiresClosingLifecycleRecordImmediately() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        defer {
+            app.forgetRecoverableMainWindowRoute(windowId: windowId)
+            window.orderOut(nil)
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
+        let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
+        let browser = try #require(workspace.newBrowserSurface(
+            inPane: paneId,
+            url: URL(string: "https://example.com/browser-only-close"),
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        #expect(workspace.closePanel(terminal.id, force: true))
+        #expect(workspace.panels[browser.id] != nil)
+        #expect(!workspace.panels.values.contains { $0 is TerminalPanel })
+
+        app.unregisterMainWindowContextForTesting(windowId: windowId)
+        #expect(app.tabManagerForWindowTeardown(windowId: windowId) === manager)
+
+        NotificationCenter.default.post(
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
+
+        #expect(app.tabManagerForWindowTeardown(windowId: windowId) == nil)
+        #expect(app.mainWindowLifecycleCoordinator.teardownRoute(windowId: windowId) == nil)
+    }
+
     @Test("Recovery freeze makes an unverified process-detected Dock binding manual")
     func recoveryFreezeMakesUnverifiedProcessDetectedDockBindingManual() throws {
         let sourceWorkspaceId = UUID()
@@ -307,5 +429,43 @@ struct RecoverableMainWindowLifecycleTests {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         window.isReleasedWhenClosed = false
         return window
+    }
+
+    private func terminalPanelSnapshot(
+        id: UUID,
+        scrollback: String
+    ) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .terminal,
+            title: "Terminal",
+            customTitle: nil,
+            directory: "/tmp",
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: "/tmp",
+                scrollback: scrollback
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+    }
+
+    private func splitContainerSnapshot(
+        panel: SessionPanelSnapshot
+    ) -> SessionSplitContainerSnapshot {
+        SessionSplitContainerSnapshot(
+            focusedPanelId: panel.id,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [panel.id],
+                selectedPanelId: panel.id
+            )),
+            panels: [panel]
+        )
     }
 }

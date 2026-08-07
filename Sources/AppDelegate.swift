@@ -4116,9 +4116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // for the bounded persisted-window projection below.
         for route in routes {
             hasher.combine(route.windowId)
-            hasher.combine(route.tabManager.tabs.count)
-            hasher.combine(route.tabManager.selectedTabId)
-            hasher.combine(route.dock != nil)
+            hasher.combine(route.workspaceCount)
+            hasher.combine(route.selectedWorkspaceId)
+            hasher.combine(route.hasWindowDock)
         }
 
         let routesByWindowId = Dictionary(
@@ -4127,28 +4127,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         hasher.combine(routeProjection.fingerprintWindowIds.count)
         for windowId in routeProjection.fingerprintWindowIds {
             guard let route = routesByWindowId[windowId] else { continue }
-            hasher.combine(
-                route.tabManager.sessionAutosaveFingerprint(
-                    restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            switch route {
+            case .live(let liveRoute):
+                hasher.combine(
+                    liveRoute.tabManager.sessionAutosaveFingerprint(
+                        restorableAgentIndex: restorableAgentIndex,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    )
                 )
-            )
-            hasher.combine(route.sidebar.isVisible)
-            hasher.combine(
-                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebar.persistedWidth)).rounded())
-            )
+                hasher.combine(liveRoute.sidebar.isVisible)
+                hasher.combine(
+                    Int(
+                        SessionPersistencePolicy.sanitizedSidebarWidth(
+                            Double(liveRoute.sidebar.persistedWidth)
+                        ).rounded()
+                    )
+                )
 
-            switch route.sidebarSelection.selection {
-            case .tabs:
-                hasher.combine(0)
-            case .notifications:
-                hasher.combine(1)
-            }
+                switch liveRoute.sidebarSelection.selection {
+                case .tabs:
+                    hasher.combine(0)
+                case .notifications:
+                    hasher.combine(1)
+                }
 
-            if let window = route.window {
-                Self.hashFrame(window.frame, into: &hasher)
-            } else {
-                hasher.combine(-1)
+                if let window = liveRoute.window {
+                    Self.hashFrame(window.frame, into: &hasher)
+                } else {
+                    hasher.combine(-1)
+                }
+            case .frozen:
+                // Frozen routes are immutable. Their transition increments the
+                // coordinator revision, so repeated autosaves need no deep walk.
+                hasher.combine("frozen")
             }
         }
 
@@ -4213,7 +4224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if !includeScrollback {
-            lastPersistedSessionWindowIds = snapshot.windows.map(\.windowId)
+            lastPersistedSessionWindowIds = snapshot.windows.compactMap(\.windowId)
         }
 
         let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in
@@ -4627,16 +4638,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var removedCrashDiagnosticState = false
         let createdAt = Date().timeIntervalSince1970
         for route in routes {
-            let windowSnapshot = sessionWindowSnapshot(
-                for: route,
-                includeScrollback: includeScrollback,
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-            )
-            // A window whose live workspaces are only remote-tmux mirrors needs
-            // live SSH control connections and should not restore as an empty
-            // shell. If local workspaces were dragged in, keep those snapshots.
-            if windowSnapshot.omitsRemoteMirrorOnlyWindow(liveWorkspaces: route.tabManager.tabs) { continue }
+            let windowSnapshot: SessionWindowSnapshot
+            switch route {
+            case .live(let liveRoute):
+                windowSnapshot = sessionWindowSnapshot(
+                    for: liveRoute,
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+                )
+                // A window whose live workspaces are only remote-tmux mirrors
+                // needs live SSH control connections and should not restore as
+                // an empty shell. If local workspaces were dragged in, keep it.
+                if windowSnapshot.omitsRemoteMirrorOnlyWindow(
+                    liveWorkspaces: liveRoute.tabManager.tabs
+                ) {
+                    continue
+                }
+            case .frozen(_, let frozenWindowSnapshot):
+                windowSnapshot = frozenWindowSnapshot.respectingScrollbackInclusion(
+                    includeScrollback
+                )
+            }
 
             let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
                 from: AppSessionSnapshot(
@@ -4662,7 +4685,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return (snapshot, removedCrashDiagnosticState)
     }
 
-    private func sessionWindowSnapshot(
+    func sessionWindowSnapshot(
         for context: MainWindowContext,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
@@ -4676,7 +4699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func sessionWindowSnapshot(
+    func sessionWindowSnapshot(
         for route: MainWindowRouteSnapshot,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
@@ -17110,6 +17133,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             activateMainWindowContext(nextContext)
         }
+
+        // Terminal-backed routes retire from the registry callback after their
+        // surfaces finish closing. Browser-only windows have no such callback,
+        // so finalize those closing records synchronously.
+        retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(
+            reason: "window.finalization"
+        )
 
         // During app termination we already persisted a full snapshot (with scrollback)
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
