@@ -35,9 +35,18 @@ struct FeedEventClassification: Equatable {
     /// Execution proceeded for an agent whose approval prompts notify via
     /// ``notifiesNativeApprovalPrompt`` — the approval resolved (user or
     /// auto-reviewer), so the bridge clears the pane's stale notifications.
-    /// Mirrors Claude's `pre-tool-use` hook, which runs `clear_notifications`
-    /// whenever the agent continues. Also the self-heal path for a prompt the
-    /// agent's auto-reviewer approved without user input.
+    /// Also the self-heal path for a prompt the agent's auto-reviewer
+    /// approved without user input.
+    ///
+    /// The clear is deliberately pane-wide and uncorrelated with any single
+    /// request: notifications carry no request identity anywhere in cmux,
+    /// and every agent integration clears the same way on progress signals —
+    /// Claude's `session-start`/`prompt-submit`/`pre-tool-use` hooks, the
+    /// generic `.approvalResponse` action (Hermes' resolved native
+    /// approvals), and codex's own `prompt-submit` hook (which also clears
+    /// deny-without-further-tools residue at the next turn). Pane
+    /// notifications are attention signals; agent progress in the pane makes
+    /// them stale as a set.
     let clearsNativeApprovalPrompt: Bool
 }
 
