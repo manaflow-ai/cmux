@@ -210,6 +210,33 @@ extension CmxIrohClientRuntimeTests {
     }
 
     @Test
+    func repeatedUnchangedNetworkEventsDoNotContactBroker() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+
+        await endpoint.emit(.networkChanged)
+        await endpoint.emit(.networkChanged)
+        for _ in 0..<1_000 { await Task.yield() }
+
+        #expect(await broker.observedRegistrations().count == 1)
+        #expect(await broker.observedDiscoveryCount() == 1)
+        await runtime.stop()
+    }
+
+    @Test
     func networkChangeDuringActiveRefreshUsesReadOnlyDiscoveryForSameReachability() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
