@@ -4,8 +4,9 @@ import Foundation
 protocol SleepyPowerControlling: Sendable {
     /// Turns the display off now (system idle-sleep assertion still holds).
     func sleepDisplayNow() async
-    /// Engages the real macOS login lock (`CGSession -suspend`).
-    func lockMacNow() async
+    /// Engages the real macOS login lock; returns whether a lock mechanism was
+    /// available and invoked.
+    @discardableResult func lockMacNow() async -> Bool
     /// Whether Low Power Mode is currently on.
     func isLowPowerOn() async -> Bool
     /// Enables/disables Low Power Mode; returns the re-read state.

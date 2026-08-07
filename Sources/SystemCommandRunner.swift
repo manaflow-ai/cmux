@@ -60,6 +60,17 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     }
 
     @discardableResult
+    func lockScreen() async -> Bool {
+        // The SAC call IPCs to loginwindow; keep it off the caller's actor
+        // like every other system effect here.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(returning: LoginFrameworkScreenLock.lockNow())
+            }
+        }
+    }
+
+    @discardableResult
     func runPrivileged(_ tool: String, _ args: [String]) async -> Bool {
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             privilegedQueue.async {
