@@ -301,6 +301,9 @@ _ARGV_COMMAND_LABELS = frozenset({"args"})
 _BUN_OBJECT_COMMAND_LABELS = frozenset({"cmd"})
 _SHELL_MODE_LABELS = frozenset({"shell"})
 _NO_ARGUMENT_LABELS: frozenset[str] = frozenset()
+_JAVASCRIPT_SUFFIXES = frozenset(
+    {".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"}
+)
 
 _SHELL_COMMAND_FLAG = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|--command)$")
 _SHELL_OPTIONS_WITH_VALUES = frozenset(
@@ -807,7 +810,16 @@ def _trim_bounds(line: str, start: int, end: int) -> tuple[int, int]:
 
 
 _ARGUMENT_LABEL = re.compile(
-    r"(?P<label>[A-Za-z_][A-Za-z0-9_]*)\s*(?:=|:)\s*"
+    r"""(?x)
+    (?:
+        (?P<bare>[A-Za-z_][A-Za-z0-9_]*)\s*(?:=|:)
+      | (?P<quote>["'])(?P<quoted>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)\s*:
+      | \[\s*(?P<computed_quote>["'])
+        (?P<computed>[A-Za-z_][A-Za-z0-9_]*)
+        (?P=computed_quote)\s*\]\s*:
+    )
+    \s*
+    """
 )
 
 
@@ -817,7 +829,18 @@ def _parse_call_argument(
 ) -> _CallArgument:
     start, end = bounds
     label_match = _ARGUMENT_LABEL.match(line[start:end])
-    label = label_match.group("label") if label_match else None
+    label = (
+        next(
+            (
+                label_match.group(group)
+                for group in ("bare", "quoted", "computed")
+                if label_match.group(group) is not None
+            ),
+            None,
+        )
+        if label_match
+        else None
+    )
     if label_match:
         start += len(label_match.group(0))
     return _CallArgument(
@@ -1009,6 +1032,112 @@ def _argv_literal_tokens(
     return literals
 
 
+_SHELL_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SHELL_COMMAND_WRAPPERS = frozenset({"builtin", "command", "exec", "nohup", "time"})
+
+
+def _shell_command_region_bounds(
+    line: str,
+    offset: int,
+) -> tuple[int, int]:
+    """Return the shell command region containing an executable offset."""
+    executable = _executable_code_positions(line, ".sh")
+    contexts: list[str] = []
+    starts = [0]
+
+    for index in range(min(offset, len(line))):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character == "(":
+            contexts.append("paren")
+            starts.append(index + 1)
+        elif character == ")" and contexts and contexts[-1] == "paren":
+            contexts.pop()
+            starts.pop()
+        elif character == "`":
+            if contexts and contexts[-1] == "backtick":
+                contexts.pop()
+                starts.pop()
+            else:
+                contexts.append("backtick")
+                starts.append(index + 1)
+        elif character in ";|&\n":
+            starts[-1] = index + 1
+
+    start = starts[-1]
+    base_depth = len(contexts)
+    for index in range(offset, len(line)):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character == "(":
+            contexts.append("paren")
+        elif character == ")":
+            if len(contexts) == base_depth and contexts[-1:] == ["paren"]:
+                return start, index
+            if contexts and contexts[-1] == "paren":
+                contexts.pop()
+        elif character == "`":
+            if contexts and contexts[-1] == "backtick":
+                if len(contexts) == base_depth:
+                    return start, index
+                contexts.pop()
+            else:
+                contexts.append("backtick")
+        elif character in ";|&\n" and len(contexts) == base_depth:
+            return start, index
+    return start, len(line)
+
+
+def _shell_command_word_bounds(
+    line: str,
+    offset: int,
+) -> Optional[tuple[int, int]]:
+    """Return the shell word that owns command position around an offset."""
+    start, end = _shell_command_region_bounds(line, offset)
+    words = _shell_word_bounds(line, start, end)
+    index = 0
+    while index < len(words):
+        raw = line[words[index][0] : words[index][1]]
+        if raw[:1] not in ("'", '"') and _SHELL_ASSIGNMENT_WORD.match(raw):
+            index += 1
+            continue
+        break
+
+    while index < len(words):
+        command, _ = _shell_word_value_and_bounds(line, words[index])
+        command_name = command.rsplit("/", 1)[-1]
+        if command_name == "env":
+            index += 1
+            while index < len(words):
+                argument, _ = _shell_word_value_and_bounds(line, words[index])
+                if argument == "--":
+                    index += 1
+                    break
+                if argument in ("-u", "--unset"):
+                    index += 2
+                    continue
+                if argument.startswith("-") or _SHELL_ASSIGNMENT_WORD.match(argument):
+                    index += 1
+                    continue
+                break
+            continue
+        if command_name in _SHELL_COMMAND_WRAPPERS:
+            index += 1
+            while index < len(words):
+                argument, _ = _shell_word_value_and_bounds(line, words[index])
+                if argument == "--":
+                    index += 1
+                    break
+                if not argument.startswith("-"):
+                    break
+                index += 1
+            continue
+        return words[index]
+    return None
+
+
 def _shell_statement_end(line: str, start: int) -> int:
     executable = _executable_code_positions(line, ".sh")
     for index in range(start, len(line)):
@@ -1124,10 +1253,11 @@ def _call_uses_explicit_shell(
 ) -> bool:
     arguments = _call_arguments(line, opening_paren, path_suffix)
     candidates = list(arguments)
-    for argument in arguments:
-        candidates.extend(
-            _object_properties(line, argument.value_bounds, path_suffix)
-        )
+    if path_suffix in _JAVASCRIPT_SUFFIXES:
+        for argument in arguments:
+            candidates.extend(
+                _object_properties(line, argument.value_bounds, path_suffix)
+            )
 
     shell_mode = _select_labeled_argument(candidates, _SHELL_MODE_LABELS)
     if shell_mode is None:
@@ -1310,9 +1440,18 @@ def _launcher_target_ranges(
     for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
-        if _is_inside_string_literal(line, launcher.start(), path_suffix):
+        launcher_end = launcher.end()
+        if path_suffix == ".sh":
+            command_word = _shell_command_word_bounds(line, launcher.start())
+            if command_word is None or not _bounds_contain_offset(
+                command_word,
+                launcher.start(),
+            ):
+                continue
+            launcher_end = command_word[1]
+        elif _is_inside_string_literal(line, launcher.start(), path_suffix):
             continue
-        bounds = _shell_command_source_bounds(line, launcher.end())
+        bounds = _shell_command_source_bounds(line, launcher_end)
         if bounds is not None and _bounds_contain_offset(bounds, verb_start):
             return [bounds]
 
@@ -1343,11 +1482,20 @@ def _direct_network_target_ranges(
 ) -> list[tuple[int, int]]:
     matched_verb = match.group(0).lower()
     if matched_verb.strip() == "curl":
-        statement_end = (
-            _shell_statement_end(line, match.start())
-            if path_suffix == ".sh"
-            else line.find("\n", match.start())
-        )
+        if path_suffix == ".sh":
+            command_word = _shell_command_word_bounds(line, match.start())
+            if command_word is None or not _bounds_contain_offset(
+                command_word,
+                match.start(),
+            ):
+                return []
+            command, _ = _shell_word_value_and_bounds(line, command_word)
+            if command.rsplit("/", 1)[-1] != "curl":
+                return []
+            _, statement_end = _shell_command_region_bounds(line, match.start())
+            return [(command_word[0], statement_end)]
+
+        statement_end = line.find("\n", match.start())
         return [(match.start(), len(line) if statement_end == -1 else statement_end)]
 
     opening_paren = line.find("(", match.start(), match.end())
@@ -1376,6 +1524,10 @@ def _network_target_ranges(
     path_suffix: str,
 ) -> list[tuple[int, int]]:
     verb_start = match.start()
+    if path_suffix == ".sh" and match.group(0).lower().strip() == "curl":
+        direct_ranges = _direct_network_target_ranges(line, match, path_suffix)
+        if direct_ranges:
+            return direct_ranges
     if _is_inside_string_literal(line, verb_start, path_suffix):
         return _launcher_target_ranges(line, verb_start, path_suffix)
     return _direct_network_target_ranges(line, match, path_suffix)
@@ -1811,6 +1963,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/quoted_curl_command.sh",
+            '"/usr/bin/curl" -fsSL https://api.openai.com/v1/items\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/quoted_shell_command.sh",
+            "'bash' -c 'curl -fsSL https://api.openai.com/v1/items'\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/subprocess_curl.py",
             'subprocess.run(["curl", "https://api.openai.com/v1/items"], check=True)\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1854,11 +2016,47 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/child_process_spawn_quoted_shell_key.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  "shell": "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_computed_shell_key.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  ["shell"]: "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/bun_spawn_options_curl.ts",
             (
                 "Bun.spawn({\n"
                 '  cmd: ["curl", "https://api.openai.com/v1/items"],\n'
                 '  stdout: "pipe",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_quoted_cmd_key.ts",
+            (
+                "Bun.spawn({\n"
+                '  "cmd": ["curl", "https://api.openai.com/v1/items"],\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_computed_cmd_key.ts",
+            (
+                "Bun.spawn({\n"
+                '  ["cmd"]: ["curl", "https://api.openai.com/v1/items"],\n'
                 "});\n"
             ),
             {RULE_LIVE_NETWORK_HOST},
@@ -2236,6 +2434,15 @@ def _self_test() -> int:
                 "});\n"
             ),
         ),
+        # A dictionary entry named shell is process environment data, not
+        # Python's shell= call argument.
+        (
+            "tests/n18i_python_shell_env.py",
+            (
+                'subprocess.run("curl https://api.openai.com/v1/items",\n'
+                '    env={"shell": "/bin/bash"})\n'
+            ),
+        ),
         # Bun's object form executes only cmd[0]. Later argv strings and option
         # metadata are data and must not become network invocation targets.
         (
@@ -2246,6 +2453,12 @@ def _self_test() -> int:
                 '  env: { DOCS_URL: "https://cmux.com" },\n'
                 "});\n"
             ),
+        ),
+        # Unquoted shell arguments are still data when curl does not own
+        # command position.
+        (
+            "tests/n18i_shell_argument.sh",
+            "printf curl https://api.openai.com/v1/items\n",
         ),
         # Python does not split a string command unless shell=True is explicit.
         (
