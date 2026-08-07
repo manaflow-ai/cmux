@@ -91,6 +91,7 @@ struct KeyboardShortcutSettingsFileStoreNoOpPersistenceTests {
         #expect(defaults.data(forKey: settingsFileBackupsDefaultsKey) == legacyBackupsData)
     }
 
+    @MainActor
     @Test
     func languageResetRemovesOverrideFromInjectedDefaultsSuite() throws {
         let defaultsSuiteName = "KeyboardShortcutSettingsFileStoreLanguageTests.\(UUID().uuidString)"
