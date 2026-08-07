@@ -20,10 +20,10 @@ final class ArtifactImportStagingLease {
     convenience init(root: URL, fileManager: FileManager) throws {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let identity = UUID().uuidString
-        let claim = root.appendingPathComponent(".\(identity)\(claimSuffix)", isDirectory: true)
-        let directory = root.appendingPathComponent("\(identity)\(batchSuffix)", isDirectory: true)
+        let claim = root.appendingPathComponent(".\(identity)\(Self.claimSuffix)", isDirectory: true)
+        let directory = root.appendingPathComponent("\(identity)\(Self.batchSuffix)", isDirectory: true)
         try fileManager.createDirectory(at: claim, withIntermediateDirectories: false)
-        let leasePath = claim.appendingPathComponent(leaseFilename, isDirectory: false).path
+        let leasePath = claim.appendingPathComponent(Self.leaseFilename, isDirectory: false).path
         let descriptor = Darwin.open(
             leasePath,
             O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
