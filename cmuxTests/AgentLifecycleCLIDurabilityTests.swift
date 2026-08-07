@@ -139,12 +139,13 @@ struct AgentLifecycleCLIDurabilityTests {
         var leases: [CursorNativeApprovalObserverLease] = []
         defer { leases.forEach { $0.release() } }
 
-        for _ in 0 ..< CursorNativeApprovalObserverLease
+        for index in 0 ..< CursorNativeApprovalObserverLease
             .maximumConcurrentObserversPerProcess {
             leases.append(
                 try #require(
                     CursorNativeApprovalObserverLease.claim(
                         processIdentity: firstGeneration,
+                        observationID: "first-generation-\(index)",
                         rootDirectory: root
                     )
                 )
@@ -154,22 +155,29 @@ struct AgentLifecycleCLIDurabilityTests {
         #expect(
             CursorNativeApprovalObserverLease.claim(
                 processIdentity: firstGeneration,
+                observationID: "over-capacity",
                 rootDirectory: root
             ) == nil
         )
         let otherGenerationLease = try #require(
             CursorNativeApprovalObserverLease.claim(
                 processIdentity: secondGeneration,
+                observationID: "second-generation",
                 rootDirectory: root
             )
         )
         otherGenerationLease.release()
 
-        let releasedLease = leases.removeLast()
-        releasedLease.release()
+        let cancelledLease = leases.removeLast()
+        CursorNativeApprovalObserverLease.cancel(
+            processIdentity: firstGeneration,
+            observationID: cancelledLease.observationID,
+            rootDirectory: root
+        )
         let replacementLease = try #require(
             CursorNativeApprovalObserverLease.claim(
                 processIdentity: firstGeneration,
+                observationID: "replacement-observation",
                 rootDirectory: root
             )
         )
