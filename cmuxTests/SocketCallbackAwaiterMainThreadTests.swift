@@ -9,6 +9,10 @@ import Testing
 @testable import cmux
 #endif
 
+@MainActor
+private final class WindowScreenshotTestOwnedOverlay: NSView,
+    WindowScreenshotOwnedNativeOverlay {}
+
 /// Regression coverage for
 /// https://github.com/manaflow-ai/cmux/issues/5830.
 ///
@@ -134,6 +138,22 @@ import Testing
         #expect(!legacyWithoutAccess.allowsScreenCaptureKit)
         #expect(legacyWithAccess.allowsScreenCaptureKit)
         #expect(currentProcessAPI.allowsScreenCaptureKit)
+    }
+
+    @MainActor
+    @Test func ownedBrowserOverlaysExcludeUnownedWebKitSubviews() {
+        let webView = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let webKitInternalView = NSView(frame: webView.bounds)
+        let ownedOverlay = WindowScreenshotTestOwnedOverlay(frame: webView.bounds)
+        webView.addSubview(webKitInternalView)
+        webView.addSubview(ownedOverlay)
+
+        let candidates = WindowAppKitCapture.ownedNativeOverlayCandidates(
+            inside: webView
+        )
+
+        #expect(candidates.count == 1)
+        #expect(candidates.first === ownedOverlay)
     }
 
     @MainActor

@@ -2457,6 +2457,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		9065A0030000000000000001 /* WindowScreenshotCaptureLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0030000000000000002 /* WindowScreenshotCaptureLease.swift */; };
 		9065A0060000000000000001 /* WindowScreenshotLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0060000000000000002 /* WindowScreenshotLabel.swift */; };
 		9065A0040000000000000001 /* WindowScreenshotOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0040000000000000002 /* WindowScreenshotOverlay.swift */; };
+		9065A00B0000000000000001 /* WindowScreenshotOwnedNativeOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A00B0000000000000002 /* WindowScreenshotOwnedNativeOverlay.swift */; };
 		9065A00A0000000000000001 /* WindowScreenshotScreenCapturePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A00A0000000000000002 /* WindowScreenshotScreenCapturePolicy.swift */; };
 		9065A0070000000000000001 /* WindowScreenshotTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0070000000000000002 /* WindowScreenshotTarget.swift */; };
 		9065A0080000000000000001 /* WindowScreenshotWindowSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0080000000000000002 /* WindowScreenshotWindowSelector.swift */; };
@@ -5074,6 +5075,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		9065A0030000000000000002 /* WindowScreenshotCaptureLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotCaptureLease.swift; sourceTree = "<group>"; };
 		9065A0060000000000000002 /* WindowScreenshotLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotLabel.swift; sourceTree = "<group>"; };
 		9065A0040000000000000002 /* WindowScreenshotOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotOverlay.swift; sourceTree = "<group>"; };
+		9065A00B0000000000000002 /* WindowScreenshotOwnedNativeOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotOwnedNativeOverlay.swift; sourceTree = "<group>"; };
 		9065A00A0000000000000002 /* WindowScreenshotScreenCapturePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotScreenCapturePolicy.swift; sourceTree = "<group>"; };
 		9065A0070000000000000002 /* WindowScreenshotTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotTarget.swift; sourceTree = "<group>"; };
 		9065A0080000000000000002 /* WindowScreenshotWindowSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotWindowSelector.swift; sourceTree = "<group>"; };
@@ -6332,6 +6334,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9065A0090000000000000002 /* WindowScreenshotBackendAttempt.swift */,
 				9065A0030000000000000002 /* WindowScreenshotCaptureLease.swift */,
 				9065A0040000000000000002 /* WindowScreenshotOverlay.swift */,
+				9065A00B0000000000000002 /* WindowScreenshotOwnedNativeOverlay.swift */,
 				9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */,
 				9065A0060000000000000002 /* WindowScreenshotLabel.swift */,
 				9065A00A0000000000000002 /* WindowScreenshotScreenCapturePolicy.swift */,
@@ -10072,6 +10075,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9065A0030000000000000001 /* WindowScreenshotCaptureLease.swift in Sources */,
 				9065A0060000000000000001 /* WindowScreenshotLabel.swift in Sources */,
 				9065A0040000000000000001 /* WindowScreenshotOverlay.swift in Sources */,
+				9065A00B0000000000000001 /* WindowScreenshotOwnedNativeOverlay.swift in Sources */,
 				9065A00A0000000000000001 /* WindowScreenshotScreenCapturePolicy.swift in Sources */,
 				9065A0070000000000000001 /* WindowScreenshotTarget.swift in Sources */,
 				9065A0080000000000000001 /* WindowScreenshotWindowSelector.swift in Sources */,

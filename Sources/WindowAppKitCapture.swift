@@ -54,5 +54,17 @@ struct WindowAppKitCapture: Sendable {
                 !containsSystemCompositorContent(in: view)
         }
     }
+
+    /// Returns explicitly owned overlays without treating WebKit's internal
+    /// native view hierarchy as cmux UI.
+    @MainActor
+    static func ownedNativeOverlayCandidates(inside externalView: NSView) -> [NSView] {
+        externalView.subviews.filter { view in
+            view is WindowScreenshotOwnedNativeOverlay &&
+                !view.isHiddenOrHasHiddenAncestor &&
+                view.alphaValue > 0 &&
+                !containsSystemCompositorContent(in: view)
+        }
+    }
 }
 #endif

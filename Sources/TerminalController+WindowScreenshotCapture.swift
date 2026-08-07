@@ -50,22 +50,28 @@ extension TerminalController {
             return "ERROR: No window available"
         }
 
-        // Each backend owns independent admission until its task actually
-        // retires. A stalled compositor cannot accumulate more compositor
-        // work or block the permission-free AppKit fallback.
-        let appKitAttempt = captureAppKitWindowPNGData(captureTarget)
+        // Prefer the system compositor when policy permits it, and avoid the
+        // heavier main-actor fallback on the normal path. Independent backend
+        // admission keeps a stalled compositor from accumulating more work or
+        // blocking the permission-free AppKit fallback.
         let screenCaptureKitAttempt = captureScreenCaptureKitWindowPNGData(
             captureTarget
         )
-        guard let pngData = screenCaptureKitAttempt.capturedValue ??
-            appKitAttempt.capturedValue?.pngData else {
-            if appKitAttempt.isBusy || screenCaptureKitAttempt.isBusy {
-                return "ERROR: screenshot capture already in progress"
+        let pngData: Data
+        if let captured = screenCaptureKitAttempt.capturedValue {
+            pngData = captured
+        } else {
+            let appKitAttempt = captureAppKitWindowPNGData(captureTarget)
+            guard let captured = appKitAttempt.capturedValue else {
+                if appKitAttempt.isBusy || screenCaptureKitAttempt.isBusy {
+                    return "ERROR: screenshot capture already in progress"
+                }
+                if appKitAttempt.didTimeOut || screenCaptureKitAttempt.didTimeOut {
+                    return "ERROR: screenshot capture timed out"
+                }
+                return "ERROR: Failed to create PNG data"
             }
-            if appKitAttempt.didTimeOut || screenCaptureKitAttempt.didTimeOut {
-                return "ERROR: screenshot capture timed out"
-            }
-            return "ERROR: Failed to create PNG data"
+            pngData = captured.pngData
         }
 
         do {
@@ -309,6 +315,16 @@ extension TerminalController {
                     alpha: alpha,
                     zOrder: zOrder
                 ))
+                for overlayView in WindowAppKitCapture.ownedNativeOverlayCandidates(
+                    inside: webView
+                ) {
+                    appendNativeOverlay(
+                        overlayView,
+                        through: captureRoot,
+                        capturedViews: &capturedOccludingViews,
+                        to: &overlays
+                    )
+                }
                 appendNativeOccluderOverlays(
                     above: webView,
                     through: captureRoot,
