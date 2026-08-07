@@ -19,9 +19,19 @@ if [ "$original_status" -eq 0 ]; then
   exit 0
 fi
 
-# xcodebuild_noninteractive.py reserves 126 for a required Swift Testing phase
-# that never produced a terminal result. An earlier clean XCTest summary cannot
-# make that incomplete mixed-framework run successful.
+# xcodebuild_noninteractive.py reserves these statuses for authoritative
+# mixed-framework outcomes. An earlier clean XCTest summary cannot override
+# any of them, even if console backpressure omitted the decisive output line.
+if [ "$original_status" -eq 123 ]; then
+  echo "Swift Testing failures detected" >&2
+  exit 1
+fi
+
+if [ "$original_status" -eq 124 ]; then
+  echo "App-host test run timed out" >&2
+  exit 1
+fi
+
 if [ "$original_status" -eq 126 ]; then
   echo "Required Swift Testing phase did not complete" >&2
   exit 1
