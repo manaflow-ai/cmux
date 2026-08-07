@@ -87,8 +87,13 @@ struct CLICommandArgumentParser {
                           arguments[valueIndex] != "--" else {
                         throw missingValueError(optionName)
                     }
-                    // Required options own the next token, including values such as `-1` and `-c`.
-                    value = arguments[valueIndex]
+                    let candidate = arguments[valueIndex]
+                    let candidateName = attachedValue(in: candidate)?.name ?? candidate
+                    if isFlag(candidate), definitions[candidateName] != nil {
+                        throw missingValueError(optionName)
+                    }
+                    // Unrecognized dash-prefixed tokens can still be values, such as `-1` and `-c`.
+                    value = candidate
                     index += 1
                 }
                 guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
