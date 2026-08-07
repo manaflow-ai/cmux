@@ -159,13 +159,11 @@ import Testing
 
         let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
         let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
-        if panel.surface.surface == nil {
-            for await notification in readyNotifications {
-                guard notification.userInfo?["workspaceId"] as? UUID == created.id else {
-                    continue
-                }
-                break
+        for await notification in readyNotifications {
+            guard notification.userInfo?["workspaceId"] as? UUID == created.id else {
+                continue
             }
+            break
         }
 
         #expect(panel.surface.debugInitialInputForTesting() == initialInput)
