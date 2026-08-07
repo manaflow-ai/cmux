@@ -233,7 +233,9 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
     )
 
 
-def run_app_host_unit_test_step_with_late_batch_crash() -> subprocess.CompletedProcess[str]:
+def run_app_host_unit_test_step(
+    shard_mode: str = "selectors",
+) -> tuple[subprocess.CompletedProcess[str], bool]:
     script = workflow_job_step_script("app-host-unit-tests", "Run unit tests")
     script = script.replace("${{ matrix.shard }}", "1")
 
@@ -249,12 +251,17 @@ def run_app_host_unit_test_step_with_late_batch_crash() -> subprocess.CompletedP
         shard_helper = ci_scripts / "cmux_unit_test_shard.py"
         shard_helper.write_text(
             """
+import os
 import sys
 from pathlib import Path
 
+mode = os.environ.get("CMUX_TEST_SHARD_MODE", "selectors")
+if mode == "fail":
+    raise SystemExit(23)
 output = Path(sys.argv[sys.argv.index("--output") + 1])
 output.parent.mkdir(parents=True, exist_ok=True)
-output.write_text("", encoding="utf-8")
+selectors = "" if mode == "empty" else "-only-testing:cmuxTests/FakeTests\\n"
+output.write_text(selectors, encoding="utf-8")
 """.lstrip(),
             encoding="utf-8",
         )
@@ -265,6 +272,7 @@ output.write_text("", encoding="utf-8")
 #!/bin/bash
 set -euo pipefail
 counter="${CMUX_TEST_BATCH_COUNTER:?}"
+printf 'invoked\n' > "${CMUX_TEST_RUNNER_MARKER:?}"
 iteration=0
 if [ -f "$counter" ]; then
   iteration="$(cat "$counter")"
@@ -286,7 +294,8 @@ exit 9
         fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         fake_sleep.chmod(0o755)
 
-        return subprocess.run(
+        runner_marker = root / "runner-invoked"
+        result = subprocess.run(
             ["bash", "-c", script],
             cwd=root,
             env={
@@ -295,11 +304,14 @@ exit 9
                 "RUNNER_TEMP": str(runner_temp),
                 "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
                 "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
+                "CMUX_TEST_RUNNER_MARKER": str(runner_marker),
+                "CMUX_TEST_SHARD_MODE": shard_mode,
             },
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        return result, runner_marker.exists()
 
 
 def linux_preflight_needs(
@@ -799,11 +811,28 @@ def test_settings_store_noop_persistence_uses_a_nontolerant_focused_gate() -> No
     assert block.index(step) < block.index("- name: Run unit tests")
 
 
-def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> None:
-    result = run_app_host_unit_test_step_with_late_batch_crash()
+def test_determinism_workflow_runs_self_test_before_strict_scan() -> None:
+    script = workflow_job_step_script("workflow-guard-tests", "Validate test determinism gate")
 
+    assert "scripts/check-test-determinism.py --self-test" in script
+    assert "scripts/check-test-determinism.py --strict" in script
+    assert script.index("--self-test") < script.index("--strict")
+
+
+def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> None:
+    result, runner_invoked = run_app_host_unit_test_step()
+
+    assert runner_invoked
     assert result.returncode != 0, result.stdout
     assert "simulated app-host crash before test summary" in result.stdout
+
+
+def test_app_host_rejects_failed_or_empty_shard_generation() -> None:
+    for shard_mode in ("fail", "empty"):
+        result, runner_invoked = run_app_host_unit_test_step(shard_mode)
+
+        assert result.returncode != 0, (shard_mode, result.stdout)
+        assert not runner_invoked, (shard_mode, result.stdout)
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:
