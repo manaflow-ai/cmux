@@ -3577,11 +3577,14 @@ fn resolve_ghostty_theme_defaults(
     if ghostty_config_deadline_expired(deadline_at) {
         return DefaultColors::default();
     }
+    let mut theme_mode = None;
     for candidate in theme_candidates {
         if ghostty_config_deadline_expired(deadline_at) {
             return DefaultColors::default();
         }
-        if let Some(defaults) = load_ghostty_theme(candidate, theme_dirs, deadline_at) {
+        if let Some(defaults) =
+            load_ghostty_theme(candidate, theme_dirs, deadline_at, &mut theme_mode)
+        {
             return defaults;
         }
     }
@@ -3713,12 +3716,13 @@ fn load_ghostty_theme(
     candidate: &GhosttyThemeCandidate,
     theme_dirs: &[PathBuf],
     deadline_at: Option<Instant>,
+    theme_mode: &mut Option<GhosttyThemeMode>,
 ) -> Option<DefaultColors> {
     if ghostty_config_deadline_expired(deadline_at) {
         return None;
     }
     let value = candidate.value.trim_matches('"');
-    let theme = selected_ghostty_theme(value, deadline_at);
+    let theme = selected_ghostty_theme(value, deadline_at, theme_mode);
     if ghostty_config_deadline_expired(deadline_at) {
         return None;
     }
@@ -3771,11 +3775,18 @@ fn expand_home_relative_path(value: &str) -> Option<PathBuf> {
     }
 }
 
-fn selected_ghostty_theme(value: &str, deadline_at: Option<Instant>) -> &str {
+fn selected_ghostty_theme<'a>(
+    value: &'a str,
+    deadline_at: Option<Instant>,
+    theme_mode: &mut Option<GhosttyThemeMode>,
+) -> &'a str {
     let Some((light, dark)) = conditional_ghostty_themes(value) else {
         return value;
     };
-    match system_ghostty_theme_mode(platform_appearance_theme_mode(deadline_at)) {
+    let mode = *theme_mode.get_or_insert_with(|| {
+        system_ghostty_theme_mode(platform_appearance_theme_mode(deadline_at))
+    });
+    match mode {
         GhosttyThemeMode::Light => light,
         GhosttyThemeMode::Dark => dark,
     }
@@ -5411,10 +5422,40 @@ mod tests {
     #[test]
     fn ghostty_fixed_theme_selection_does_not_require_appearance_budget() {
         let expired = Instant::now().checked_sub(Duration::from_millis(1)).unwrap();
+        let mut theme_mode = None;
 
-        let selected = selected_ghostty_theme("Monokai", Some(expired));
+        let selected = selected_ghostty_theme("Monokai", Some(expired), &mut theme_mode);
 
         assert_eq!(selected, "Monokai");
+        assert_eq!(theme_mode, None);
+    }
+
+    #[test]
+    fn ghostty_conditional_theme_selection_reuses_cached_appearance_mode() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let mut theme_mode = None;
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Dark") };
+
+        let missing = selected_ghostty_theme(
+            "light:Missing Light Theme,dark:Missing Dark Theme",
+            None,
+            &mut theme_mode,
+        );
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+        let fallback = selected_ghostty_theme(
+            "light:Light Fallback Theme,dark:Dark Fallback Theme",
+            None,
+            &mut theme_mode,
+        );
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+
+        assert_eq!(missing, "Missing Dark Theme");
+        assert_eq!(fallback, "Dark Fallback Theme");
+        assert_eq!(theme_mode, Some(GhosttyThemeMode::Dark));
     }
 
     #[test]
