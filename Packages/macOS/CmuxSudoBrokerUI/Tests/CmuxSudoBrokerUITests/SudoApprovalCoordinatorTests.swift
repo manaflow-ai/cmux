@@ -90,6 +90,36 @@ struct SudoApprovalCoordinatorTests {
         #expect(await broker.stopCallCount == 1)
     }
 
+    @Test("A restart requested during shutdown begins only after shutdown joins")
+    func restartAfterCancelledTermination() async {
+        let broker = BlockingStopSudoBroker()
+        let coordinator = SudoApprovalCoordinator(
+            broker: broker,
+            presenter: RecordingSudoApprovalPresenter()
+        )
+        let runtime = SudoApprovalRuntime(coordinator: coordinator)
+        var startEvents = await broker.startEvents().makeAsyncIterator()
+        var stopEvents = await broker.stopEvents().makeAsyncIterator()
+
+        runtime.start { error in
+            Issue.record("Unexpected initial startup failure: \(error)")
+        }
+        _ = await startEvents.next()
+        let stopTask = Task { await runtime.stop() }
+        _ = await stopEvents.next()
+
+        runtime.start { error in
+            Issue.record("Unexpected restart failure: \(error)")
+        }
+        #expect(await broker.startCallCount == 1)
+        await broker.releaseFirstStop()
+        await stopTask.value
+        _ = await startEvents.next()
+
+        #expect(await broker.startCallCount == 2)
+        await runtime.stop()
+    }
+
     private static func snapshot(id: String) -> SudoPendingRequest {
         SudoPendingRequest(
             request: SudoRequest(
@@ -181,6 +211,56 @@ private actor BlockingStartSudoBroker: SudoBrokerServing {
         stops += 1
         startContinuation?.resume()
         startContinuation = nil
+    }
+}
+
+private actor BlockingStopSudoBroker: SudoBrokerServing {
+    private let eventStream: AsyncStream<SudoBrokerEvent>
+    private let startEventStream: AsyncStream<Void>
+    private let startEventContinuation: AsyncStream<Void>.Continuation
+    private let stopEventStream: AsyncStream<Void>
+    private let stopEventContinuation: AsyncStream<Void>.Continuation
+    private var firstStopContinuation: CheckedContinuation<Void, Never>?
+    private var starts = 0
+    private var stops = 0
+
+    init() {
+        eventStream = AsyncStream { _ in }
+        let startPair = AsyncStream.makeStream(of: Void.self)
+        startEventStream = startPair.stream
+        startEventContinuation = startPair.continuation
+        let stopPair = AsyncStream.makeStream(of: Void.self)
+        stopEventStream = stopPair.stream
+        stopEventContinuation = stopPair.continuation
+    }
+
+    var startCallCount: Int { starts }
+
+    func startEvents() -> AsyncStream<Void> { startEventStream }
+    func stopEvents() -> AsyncStream<Void> { stopEventStream }
+    func events() -> AsyncStream<SudoBrokerEvent> { eventStream }
+
+    func start() -> [SudoPendingRequest] {
+        starts += 1
+        startEventContinuation.yield()
+        return []
+    }
+
+    func approve(id: String) {}
+    func deny(id: String) {}
+
+    func stop() async {
+        stops += 1
+        stopEventContinuation.yield()
+        guard stops == 1 else { return }
+        await withCheckedContinuation { continuation in
+            firstStopContinuation = continuation
+        }
+    }
+
+    func releaseFirstStop() {
+        firstStopContinuation?.resume()
+        firstStopContinuation = nil
     }
 }
 
