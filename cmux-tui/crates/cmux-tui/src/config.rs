@@ -2638,14 +2638,23 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
-    #[cfg(test)]
-    let parsed = parse_ghostty_defaults_from_paths(
-        platform::ghostty_config_paths(),
-        platform::ghostty_theme_dirs(),
-    )
-    .unwrap_or_default();
+    let config_paths = platform::ghostty_config_paths();
+    let theme_dirs = platform::ghostty_theme_dirs();
     #[cfg(not(test))]
-    let parsed = parse_ghostty_defaults_from_helper().unwrap_or_default();
+    let helper_defaults = parse_ghostty_defaults_from_helper();
+    #[cfg(test)]
+    let helper_defaults = None;
+    ghostty_defaults_from_sources(config_paths, theme_dirs, helper_defaults)
+}
+
+fn ghostty_defaults_from_sources(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+    helper_defaults: Option<DefaultColors>,
+) -> DefaultColors {
+    let parsed = helper_defaults
+        .or_else(|| parse_ghostty_defaults_from_paths(config_paths, theme_dirs))
+        .unwrap_or_default();
     resolve_ghostty_application_defaults(parsed)
 }
 
@@ -4412,6 +4421,27 @@ mod tests {
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(!stdout.contains("CMUX_MACHINE_PROVIDER_TOKEN="), "{stdout}");
         assert!(!stdout.contains("CMUX_PROVIDER_WORKSPACE_AUTHORITY="), "{stdout}");
+    }
+
+    #[test]
+    fn ghostty_defaults_falls_back_to_files_when_helper_is_unavailable() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-fallback-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
+
+        let defaults = ghostty_defaults_from_sources(vec![config], Vec::new(), None);
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
     }
 
     #[test]
