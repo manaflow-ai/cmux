@@ -32,4 +32,34 @@ struct AgentTurnSettlementReconcilerTests {
 
         #expect(decision == .terminateWithoutCompletion)
     }
+
+    @Test("Active structured work withholds completion")
+    func activeBackgroundWorkKeepsRunning() {
+        let decision = AgentTurnSettlementReconciler().resolve(
+            integration: .codex,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 1,
+                processLiveness: .live,
+                turnFreshness: .current
+            )
+        )
+
+        #expect(decision == .keepRunning)
+    }
+
+    @Test("A superseded turn cannot publish completion")
+    func supersededTurnKeepsRunning() {
+        let decision = AgentTurnSettlementReconciler().resolve(
+            integration: .codex,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 0,
+                processLiveness: .live,
+                turnFreshness: .superseded
+            )
+        )
+
+        #expect(decision == .keepRunning)
+    }
 }

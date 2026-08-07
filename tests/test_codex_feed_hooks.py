@@ -988,6 +988,33 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             env,
         )
 
+    def finish_work(
+        *,
+        source: str,
+        session_id: str,
+        turn_id: str,
+        work_id: str,
+        env: dict[str, str],
+    ) -> None:
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                source,
+                "--event",
+                "SubagentStop",
+            ],
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "hook_event_name": "SubagentStop",
+                "agent_id": work_id,
+            },
+            env,
+        )
+
     def session_state(state_dir: Path, source: str, session_id: str) -> dict:
         state = json.loads(
             (state_dir / f"{source}-hook-sessions.json").read_text(
@@ -1018,6 +1045,24 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             time.sleep(0.05)
         raise AssertionError(
             "bounded structured-work Stop never reached Feed: "
+            f"{fake.frames[index:]!r}"
+        )
+
+    def wait_for_raw_prefix(
+        fake: FakeCmuxSocket,
+        index: int,
+        prefix: str,
+    ) -> None:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if any(
+                frame.get("raw", "").startswith(prefix)
+                for frame in fake.frames[index:]
+            ):
+                return
+            time.sleep(0.05)
+        raise AssertionError(
+            f"bounded structured-work recovery never emitted {prefix!r}: "
             f"{fake.frames[index:]!r}"
         )
 
@@ -1135,6 +1180,110 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             raise AssertionError(
                 "Overflowing structured work did not keep Stop provisional: "
                 f"{stopped_state!r}"
+            )
+
+        per_turn_session_id = (
+            f"structured-background-work-per-turn-recovery-{os.getpid()}"
+        )
+        per_turn_id = "per-turn-overflow"
+        per_turn_work_ids = [f"per-turn-work-{index:02d}" for index in range(65)]
+        for work_id in per_turn_work_ids:
+            record_work(
+                source="codex",
+                session_id=per_turn_session_id,
+                turn_id=per_turn_id,
+                work_id=work_id,
+                env=bounds_env,
+            )
+        per_turn_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": per_turn_session_id,
+                "turn_id": per_turn_id,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, per_turn_stop_start)
+        per_turn_recovery_start = len(fake.frames)
+        for work_id in reversed(per_turn_work_ids):
+            finish_work(
+                source="codex",
+                session_id=per_turn_session_id,
+                turn_id=per_turn_id,
+                work_id=work_id,
+                env=bounds_env,
+            )
+        wait_for_raw_prefix(
+            fake,
+            per_turn_recovery_start,
+            "set_agent_lifecycle codex idle",
+        )
+        per_turn_recovered = session_state(
+            bounds_state_dir,
+            "codex",
+            per_turn_session_id,
+        )
+        if per_turn_recovered.get("backgroundWorkOverflowTurnKeys"):
+            raise AssertionError(
+                "A terminal turn retained its drained per-turn overflow: "
+                f"{per_turn_recovered!r}"
+            )
+
+        turn_overflow_session_id = (
+            f"structured-background-work-turn-recovery-{os.getpid()}"
+        )
+        turn_overflow_ids = [f"turn-overflow-{index:02d}" for index in range(33)]
+        for turn_id in turn_overflow_ids:
+            record_work(
+                source="codex",
+                session_id=turn_overflow_session_id,
+                turn_id=turn_id,
+                work_id=f"work-{turn_id}",
+                env=bounds_env,
+            )
+        turn_stop_start = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": turn_overflow_session_id,
+                "turn_id": turn_overflow_ids[0],
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, turn_stop_start)
+        turn_recovery_start = len(fake.frames)
+        for turn_id in reversed(turn_overflow_ids[1:]):
+            finish_work(
+                source="codex",
+                session_id=turn_overflow_session_id,
+                turn_id=turn_id,
+                work_id=f"work-{turn_id}",
+                env=bounds_env,
+            )
+        finish_work(
+            source="codex",
+            session_id=turn_overflow_session_id,
+            turn_id=turn_overflow_ids[0],
+            work_id=f"work-{turn_overflow_ids[0]}",
+            env=bounds_env,
+        )
+        wait_for_raw_prefix(
+            fake,
+            turn_recovery_start,
+            "set_agent_lifecycle codex idle",
+        )
+        turns_recovered = session_state(
+            bounds_state_dir,
+            "codex",
+            turn_overflow_session_id,
+        )
+        if turns_recovered.get("hasBackgroundWorkTurnOverflow") is True:
+            raise AssertionError(
+                "A fully drained session retained its turn-overflow latch: "
+                f"{turns_recovered!r}"
             )
 
         older_process = subprocess.Popen(["/bin/sleep", "30"])
@@ -2986,7 +3135,6 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             )
             requested_payload = {
                 "conversation_id": "cursor-session",
-                "generation_id": "cursor-turn-1",
                 "model": "cursor-test-model",
                 "cwd": str(root),
                 "tool_name": "Shell",
@@ -3046,7 +3194,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 "postToolUse",
                 {
                     **requested_payload,
-                    "tool_output": "command completed",
+                    "tool_output": "x" * (1024 * 1024 + 128),
                     "duration": 10,
                 },
             )
@@ -3064,6 +3212,14 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 raise AssertionError(
                     "Cursor shell completion cleared a different observation: "
                     f"begin={attention_begin!r} end={attention_end!r}"
+                )
+            if any(
+                frame.get("method") == "feed.push"
+                for frame in fake.frames[before_shell_done:]
+            ):
+                raise AssertionError(
+                    "Oversized Cursor output should conclude native attention "
+                    "without forwarding the oversized Feed payload"
                 )
 
             auto_payload = {
@@ -3249,6 +3405,29 @@ def test_amp_native_attention_helper_publishes_exact_generation(
     ):
         environment.pop(key, None)
     environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+    oversized_pid = subprocess.run(
+        [
+            cli_path,
+            "hooks",
+            "amp",
+            "__native-attention",
+            "identify",
+            "--pid",
+            str(2**31),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=environment,
+        timeout=10,
+    )
+    if oversized_pid.returncode == 0:
+        raise AssertionError("Amp native attention accepted a PID above pid_t.max")
+    if "Invalid native approval observer process" not in oversized_pid.stderr:
+        raise AssertionError(
+            "Amp oversized PID did not follow normal CLI validation: "
+            f"stderr={oversized_pid.stderr!r}"
+        )
     identify = subprocess.run(
         [
             cli_path,

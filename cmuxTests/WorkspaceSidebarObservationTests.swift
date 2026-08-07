@@ -215,6 +215,73 @@ struct WorkspaceSidebarObservationTests {
         #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .running)
     }
 
+    @Test
+    func relayBlockingAttentionDoesNotUseTheLocalProcessTable() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "test-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_002,
+            relayID: "relay-blocking-attention-test",
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-relay-blocking-attention-test.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh test-remote"
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "relay-blocking-attention",
+            hookEventName: .permissionRequest,
+            source: "codex",
+            workspaceId: workspace.id.uuidString,
+            surfaceId: panelId.uuidString,
+            requestId: "relay-blocking-attention-request",
+            ppid: Int(getpid())
+        )
+        let target = try #require(
+            FeedCoordinator.shared.surfaceBlockingDecisionAttention(
+                event: event,
+                resolved: (workspace.id, panelId)
+            )
+        )
+        defer {
+            FeedCoordinator.shared.concludeBlockingDecisionAttention(target)
+        }
+
+        #expect(
+            target.token.processGeneration == nil,
+            "A relay PID must not be resolved against the Mac's local process namespace."
+        )
+    }
+
+    @Test
+    func sessionScopedBuiltInKeysRequireExactProcessGeneration() {
+        #expect(
+            TerminalController.shared
+                .controlSidebarRequiresAgentProcessGeneration(
+                    "codex.session-id",
+                    target: .workspace(UUID()),
+                    panelID: nil
+                )
+        )
+    }
+
     @Test func terminalAgentContextDoesNotObserveAgentRuntimeMaps() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

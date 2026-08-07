@@ -84,6 +84,25 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentPIDRecordCall == nil)
     }
 
+    @Test func localBuiltInStatusPIDRequiresExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args:
+                "codex Running --pid=4242 "
+                + "--tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Agent process generation is required for 'codex'"
+        )
+        #expect(context.statusUpsertCall == nil)
+    }
+
     @Test func partialAgentProcessGenerationIsRejected() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
