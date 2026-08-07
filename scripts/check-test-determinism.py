@@ -1438,6 +1438,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_long_options_network.sh",
+            (
+                "bash --noprofile --norc --rcfile /tmp/empty "
+                '-c "curl -fsSL https://api.openai.com/v1/items"\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_eval_network.sh",
             'eval "curl -fsSL https://api.openai.com/v1/items"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1453,6 +1461,16 @@ def _self_test() -> int:
         (
             "web/tests/eval_fetch.ts",
             'eval(\'fetch("https://api.openai.com/v1/items")\');\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/xhr_open.ts",
+            'xhr.open("GET", "https://api.openai.com/v1/items");\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/requests_request.py",
+            'requests.request("GET", "https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -1729,6 +1747,35 @@ def _self_test() -> int:
             (
                 'eval "printf ok"; '
                 'printf "%s\\n" "curl https://api.openai.com/v1/items"\n'
+            ),
+        ),
+        # Public metadata does not turn a loopback argv target into live access.
+        (
+            "tests/n18r_argv_env_url.py",
+            (
+                "subprocess.run(\n"
+                '    ["curl", "http://127.0.0.1:4321/health"],\n'
+                '    env={"DOCS_URL": "https://cmux.com"},\n'
+                ")\n"
+            ),
+        ),
+        # Network API metadata is not the target URL.
+        (
+            "web/tests/n18s_fetch_header.ts",
+            (
+                "await fetch(\n"
+                '  "http://127.0.0.1:4321/health",\n'
+                '  { headers: { Referer: "https://cmux.com" } },\n'
+                ");\n"
+            ),
+        ),
+        (
+            "tests/n18t_requests_header.py",
+            (
+                "requests.get(\n"
+                '    "http://127.0.0.1:4321/health",\n'
+                '    headers={"Referer": "https://cmux.com"},\n'
+                ")\n"
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
