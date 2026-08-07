@@ -98,14 +98,14 @@ struct ResourceSnapshot: Decodable, Sendable {
     let screens: [ScreenSnapshot]
     let panes: [PaneSnapshot]
     let tabs: [TabSnapshot]
-    let terminals: [TerminalSnapshot]
+    private(set) var terminals: [TerminalSnapshot]
     let browsers: [BrowserSnapshot]
-    let cursor: ResourceCursor
+    private(set) var cursor: ResourceCursor
 
     private let screensByWorkspaceID: [String: [ScreenSnapshot]]
     private let panesByID: [String: PaneSnapshot]
     private let tabsByPaneID: [String: [TabSnapshot]]
-    private let terminalsByID: [String: TerminalSnapshot]
+    private var terminalsByID: [String: TerminalSnapshot]
     private let browsersByID: [String: BrowserSnapshot]
 
     private enum CodingKeys: String, CodingKey {
@@ -159,6 +159,24 @@ struct ResourceSnapshot: Decodable, Sendable {
 
     func terminal(for tab: TabSnapshot) -> TerminalSnapshot? {
         terminalsByID[tab.contentID]
+    }
+
+    mutating func upsertTerminal(_ terminal: TerminalSnapshot) {
+        if let index = terminals.firstIndex(where: { $0.id == terminal.id }) {
+            terminals[index] = terminal
+        } else {
+            terminals.append(terminal)
+        }
+        terminalsByID[terminal.id] = terminal
+    }
+
+    mutating func removeTerminal(id: String) {
+        terminals.removeAll { $0.id == id }
+        terminalsByID.removeValue(forKey: id)
+    }
+
+    mutating func setRevision(_ revision: String) {
+        cursor = ResourceCursor(generation: cursor.generation, revision: revision)
     }
 
     func browser(for tab: TabSnapshot) -> BrowserSnapshot? {

@@ -184,8 +184,32 @@ final class FrontendModel {
               let item = object["item"] as? [String: Any],
               item["kind"] as? String == "delta",
               let changes = item["changes"] as? [[String: Any]],
-              !changes.isEmpty else { return false }
-        return false
+              let revision = item["revision"] as? String,
+              let previous = item["previous_revision"] as? String,
+              revision != previous else { return false }
+        guard var next = snapshot else { return false }
+        guard next.cursor.revision == previous else { return false }
+        for change in changes {
+            guard let resource = change["resource"] as? String,
+                  let kind = change["kind"] as? String,
+                  let id = change["id"] as? String else { return false }
+            guard resource == "terminal" else { return false }
+            if kind == "delete" {
+                next.removeTerminal(id: id)
+            } else if kind == "upsert",
+                      let value = change["value"],
+                      JSONSerialization.isValidJSONObject(value),
+                      let encoded = try? JSONSerialization.data(withJSONObject: value),
+                      let terminal = try? JSONDecoder().decode(TerminalSnapshot.self, from: encoded) {
+                next.upsertTerminal(terminal)
+            } else {
+                return false
+            }
+        }
+        next.setRevision(revision)
+        snapshot = next
+        pruneTerminalControllers(next)
+        return true
     }
 
     private func scheduleRefresh() {
