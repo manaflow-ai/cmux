@@ -79,6 +79,11 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
     an ignoring grandchild is still escalated after its parent exits.
   - Keeps `ghostty_surface_free` as the final synchronization and ownership
     boundary for renderer, IO, callback userdata, and native allocation release.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-88c3325dc9698d887da7e07ee0f9b79c53020be2-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `56869d9d8702d6710d5a1992a3d21c02e29b12d1130964ee546f80bff7353604`
+    is pinned in `scripts/ghosttykit-checksums.txt`; the downloaded archive
+    passed `scripts/validate-xcframework-archive.py`.
 - Conflict note:
   - Preserve the two-phase contract during future embedded-surface or termio
     merges: the pre-free request must prevent new app-action retains, remain
