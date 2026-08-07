@@ -315,8 +315,8 @@ def main() -> int:
                 {"workspace_id": WORKSPACE_ID, "surface_id": SURFACE_ID, "direction": "right", "focus": True},
             )
 
-            assert_cli_fails(cli, socket_path, ["new-split", "--bogus"], "new-split requires a direction")
-            assert_cli_fails(cli, socket_path, ["split-off", "--surface", SURFACE_ID, "--bogus"], "split-off requires a direction")
+            assert_cli_fails(cli, socket_path, ["new-split", "--bogus"], "new-split: unknown flag '--bogus'. Known flags:")
+            assert_cli_fails(cli, socket_path, ["split-off", "--surface", SURFACE_ID, "--bogus"], "split-off: unknown flag '--bogus'. Known flags:")
             assert_cli_fails(cli, socket_path, ["break-pane", "--focus", "true", "--no-focus"], "--focus and --no-focus cannot be used together")
             assert_cli_fails(cli, socket_path, ["move-surface", "--workspace", WORKSPACE_ID], "move-surface requires --surface")
             assert_cli_fails(cli, socket_path, ["reorder-surface", "--workspace", WORKSPACE_ID], "reorder-surface requires --surface")

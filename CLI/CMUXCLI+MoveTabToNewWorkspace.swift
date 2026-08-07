@@ -1,6 +1,35 @@
 import Foundation
 
 extension CMUXCLI {
+    func splitCommandArguments(
+        commandName: String,
+        commandArgs: [String]
+    ) throws -> SplitCommandArguments {
+        let parsed = try CLICommandArgumentParser(
+            context: commandName,
+            options: [
+                .value("--workspace", "<id|ref|index>"),
+                .value("--panel", "<id|ref|index>"),
+                .value("--surface", "<id|ref|index>"),
+                .value("--focus", "<true|false>"),
+                .value("--window", "<id|ref|index>"),
+            ]
+        ).parse(commandArgs)
+        let direction = try validatedSplitDirection(
+            parsed.positionals.first,
+            commandName: commandName
+        )
+        try parsed.rejectUnexpectedPositionals(allowing: 1)
+        return SplitCommandArguments(
+            workspace: parsed.value(for: "--workspace"),
+            panel: parsed.value(for: "--panel"),
+            surface: parsed.value(for: "--surface"),
+            focus: parsed.value(for: "--focus"),
+            window: parsed.value(for: "--window"),
+            direction: direction
+        )
+    }
+
     func applyFocusOption(_ focusOpt: String?, defaultValue: Bool? = nil, to params: inout [String: Any]) throws {
         if let focusOpt {
             guard let focus = parseBoolString(focusOpt) else {
@@ -94,17 +123,34 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let surfaceRaw = optionValue(commandArgs, name: "--surface")
-            ?? commandArgs.first.flatMap { $0.hasPrefix("--") ? nil : $0 }
+        let arguments = try CLICommandArgumentParser(
+            context: "move-surface",
+            options: [
+                .value("--surface", "<id|ref|index>"),
+                .value("--workspace", "<id|ref|index>"),
+                .value("--window", "<id|ref|index>"),
+                .value("--pane", "<id|ref|index>"),
+                .value("--before", "<id|ref|index>"),
+                .value("--before-surface", "<id|ref|index>"),
+                .value("--after", "<id|ref|index>"),
+                .value("--after-surface", "<id|ref|index>"),
+                .value("--index", "<index>"),
+                .value("--focus", "<true|false>"),
+            ]
+        ).parse(commandArgs)
+        try arguments.rejectUnexpectedPositionals(allowing: 1)
+        let surfaceRaw = arguments.value(for: "--surface") ?? arguments.positionals.first
         guard let surfaceRaw else {
             throw CLIError(message: "move-surface requires --surface <id|ref|index>")
         }
 
-        let workspaceRaw = optionValue(commandArgs, name: "--workspace")
-        let windowRaw = optionValue(commandArgs, name: "--window")
-        let paneRaw = optionValue(commandArgs, name: "--pane")
-        let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-surface")
-        let afterRaw = optionValue(commandArgs, name: "--after") ?? optionValue(commandArgs, name: "--after-surface")
+        let workspaceRaw = arguments.value(for: "--workspace")
+        let windowRaw = arguments.value(for: "--window")
+        let paneRaw = arguments.value(for: "--pane")
+        let beforeRaw = arguments.value(for: "--before")
+            ?? arguments.value(for: "--before-surface")
+        let afterRaw = arguments.value(for: "--after")
+            ?? arguments.value(for: "--after-surface")
 
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
@@ -125,13 +171,13 @@ extension CMUXCLI {
         if let beforeHandle { params["before_surface_id"] = beforeHandle }
         if let afterHandle { params["after_surface_id"] = afterHandle }
 
-        if let indexRaw = optionValue(commandArgs, name: "--index") {
+        if let indexRaw = arguments.value(for: "--index") {
             guard let index = Int(indexRaw) else {
                 throw CLIError(message: "--index must be an integer")
             }
             params["index"] = index
         }
-        if let focusRaw = optionValue(commandArgs, name: "--focus") {
+        if let focusRaw = arguments.value(for: "--focus") {
             guard let focus = parseBoolString(focusRaw) else {
                 throw CLIError(message: "--focus must be true|false")
             }
@@ -150,28 +196,27 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
-        let (panelArg, rem1) = parseOption(rem0, name: "--panel")
-        let (workspaceArg, rem2) = parseOption(rem1, name: "--workspace")
-        let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
-        let (windowArg, rem4) = parseOption(rem3, name: "--window")
+        let arguments = try splitCommandArguments(
+            commandName: commandName,
+            commandArgs: commandArgs
+        )
 
-        guard let surfaceRaw = surfaceArg ?? panelArg else {
+        guard let surfaceRaw = arguments.surface ?? arguments.panel else {
             throw CLIError(message: "\(commandName) requires --surface <id|ref|index>")
         }
-        let direction = try validatedSplitDirection(rem4.first, commandName: commandName)
-        if let unknown = rem4.dropFirst().first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'")
-        }
 
-        var params: [String: Any] = ["direction": direction]
-        let windowHandle = try normalizeWindowHandle(windowArg, client: client)
+        var params: [String: Any] = ["direction": arguments.direction]
+        let windowHandle = try normalizeWindowHandle(arguments.window, client: client)
         if let windowHandle { params["window_id"] = windowHandle }
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: windowHandle)
+        let workspaceHandle = try normalizeWorkspaceHandle(
+            arguments.workspace,
+            client: client,
+            windowHandle: windowHandle
+        )
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
-        try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+        try applyFocusOption(arguments.focus, defaultValue: false, to: &params)
 
         let payload = try client.sendV2(method: "surface.split_off", params: params)
         let summary = v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace", "window"])
@@ -184,21 +229,37 @@ extension CMUXCLI {
         jsonOutput: Bool,
         idFormat: CLIIDFormat
     ) throws {
-        let surfaceRaw = optionValue(commandArgs, name: "--surface")
-            ?? commandArgs.first.flatMap { $0.hasPrefix("--") ? nil : $0 }
+        let arguments = try CLICommandArgumentParser(
+            context: "reorder-surface",
+            options: [
+                .value("--surface", "<id|ref|index>"),
+                .value("--workspace", "<id|ref|index>"),
+                .value("--window", "<id|ref|index>"),
+                .value("--before", "<id|ref|index>"),
+                .value("--before-surface", "<id|ref|index>"),
+                .value("--after", "<id|ref|index>"),
+                .value("--after-surface", "<id|ref|index>"),
+                .value("--index", "<index>"),
+                .value("--focus", "<true|false>"),
+            ]
+        ).parse(commandArgs)
+        try arguments.rejectUnexpectedPositionals(allowing: 1)
+        let surfaceRaw = arguments.value(for: "--surface") ?? arguments.positionals.first
         guard let surfaceRaw else {
             throw CLIError(message: "reorder-surface requires --surface <id|ref|index>")
         }
 
-        let workspaceRaw = optionValue(commandArgs, name: "--workspace")
-        let windowRaw = optionValue(commandArgs, name: "--window")
+        let workspaceRaw = arguments.value(for: "--workspace")
+        let windowRaw = arguments.value(for: "--window")
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
         let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
-        let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-surface")
-        let afterRaw = optionValue(commandArgs, name: "--after") ?? optionValue(commandArgs, name: "--after-surface")
-        let focusRaw = optionValue(commandArgs, name: "--focus")
+        let beforeRaw = arguments.value(for: "--before")
+            ?? arguments.value(for: "--before-surface")
+        let afterRaw = arguments.value(for: "--after")
+            ?? arguments.value(for: "--after-surface")
+        let focusRaw = arguments.value(for: "--focus")
         let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
         let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
@@ -208,7 +269,7 @@ extension CMUXCLI {
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let beforeHandle { params["before_surface_id"] = beforeHandle }
         if let afterHandle { params["after_surface_id"] = afterHandle }
-        if let indexRaw = optionValue(commandArgs, name: "--index") {
+        if let indexRaw = arguments.value(for: "--index") {
             guard let index = Int(indexRaw) else {
                 throw CLIError(message: "--index must be an integer")
             }

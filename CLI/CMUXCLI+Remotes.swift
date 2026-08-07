@@ -66,6 +66,10 @@ extension CMUXCLI {
             print(Self.remotesUsage)
 
         case "list", "ls":
+            _ = try CLICommandArgumentParser(
+                context: "remotes list",
+                options: []
+            ).parse(rest)
             let response = try client.sendV2(method: "remotes.list")
             if jsonOutput {
                 print(jsonString(response))
@@ -79,9 +83,16 @@ extension CMUXCLI {
             printRemotesTable(remotes)
 
         case "add":
-            let (routeValues, rem0) = parseRepeatedOption(rest, name: "--route")
-            let (tagOpt, rem1) = parseOption(rem0, name: "--tag")
-            let positionals = rem1.filter { !$0.hasPrefix("-") }
+            let arguments = try CLICommandArgumentParser(
+                context: "remotes add",
+                options: [
+                    .value("--route", "<host:port>", repeatable: true),
+                    .value("--tag", "<tag>"),
+                ]
+            ).parse(rest)
+            let routeValues = arguments.values(for: "--route")
+            let tagOpt = arguments.value(for: "--tag")
+            let positionals = arguments.positionals
             guard let name = positionals.first, !name.isEmpty else {
                 throw CLIError(message: """
                     remotes add requires a name.
@@ -120,7 +131,11 @@ extension CMUXCLI {
             if let tagOpt, !tagOpt.isEmpty { print("  tag:      \(tagOpt)") }
 
         case "remove", "rm", "delete":
-            let positionals = rest.filter { !$0.hasPrefix("-") }
+            let arguments = try CLICommandArgumentParser(
+                context: "remotes remove",
+                options: []
+            ).parse(rest)
+            let positionals = arguments.positionals
             guard let target = positionals.first, !target.isEmpty else {
                 throw CLIError(message: """
                     remotes remove requires a name or deviceId.
@@ -130,6 +145,7 @@ extension CMUXCLI {
                     List remotes: cmux remotes list
                     """)
             }
+            try arguments.rejectUnexpectedPositionals(allowing: 1)
             let response = try client.sendV2(method: "remotes.remove", params: ["target": target])
             if jsonOutput {
                 print(jsonString(response))
@@ -155,8 +171,12 @@ extension CMUXCLI {
             print(Self.aiAccountsUsage)
 
         case "list", "ls":
-            let (teamOpt, remaining) = parseOption(rest, name: "--team")
-            try rejectUnexpectedAIAccountArguments(remaining, command: "ai-accounts list")
+            let arguments = try CLICommandArgumentParser(
+                context: "ai-accounts list",
+                options: [.value("--team", "<id>")]
+            ).parse(rest)
+            try arguments.rejectUnexpectedPositionals()
+            let teamOpt = arguments.value(for: "--team")
             var params: [String: Any] = [:]
             if let teamOpt, !teamOpt.isEmpty { params["teamId"] = teamOpt }
             let response = try client.sendV2(method: "aiAccounts.list", params: params)
@@ -172,15 +192,20 @@ extension CMUXCLI {
             printAIAccountsTable(accounts)
 
         case "upload":
-            let (labelOpt, rem0) = parseOption(rest, name: "--label")
-            let (keyOpt, rem1) = parseOption(rem0, name: "--key")
-            let (teamOpt, rem2) = parseOption(rem1, name: "--team")
-            let validate = rem2.contains("--validate")
-            let remaining = rem2.filter { $0 != "--validate" }
-            if let unknown = remaining.first(where: Self.isAIAccountsFlagToken) {
-                throw CLIError(message: "ai-accounts upload: unknown flag '\(unknown)'.\n\n\(Self.aiAccountsUsage)")
-            }
-            let positionals = remaining.filter { !Self.isAIAccountsFlagToken($0) }
+            let arguments = try CLICommandArgumentParser(
+                context: "ai-accounts upload",
+                options: [
+                    .value("--label", "<label>"),
+                    .value("--key", "<key>"),
+                    .value("--team", "<id>"),
+                    .flag("--validate"),
+                ]
+            ).parse(rest)
+            let labelOpt = arguments.value(for: "--label")
+            let keyOpt = arguments.value(for: "--key")
+            let teamOpt = arguments.value(for: "--team")
+            let validate = arguments.contains("--validate")
+            let positionals = arguments.positionals
             guard let provider = positionals.first, !provider.isEmpty else {
                 throw CLIError(message: """
                     ai-accounts upload requires a provider.
@@ -188,9 +213,7 @@ extension CMUXCLI {
                     \(Self.aiAccountsUsage)
                     """)
             }
-            if positionals.count > 1 {
-                throw CLIError(message: "ai-accounts upload: unexpected argument '\(positionals[1])'.")
-            }
+            try arguments.rejectUnexpectedPositionals(allowing: 1)
             let normalizedProvider = provider.lowercased()
             guard ["claude", "codex", "anthropic-key", "openai-key"].contains(normalizedProvider) else {
                 throw CLIError(message: "ai-accounts upload: unsupported provider '\(provider)'. Use claude, codex, anthropic-key, or openai-key.")
@@ -224,9 +247,11 @@ extension CMUXCLI {
             printAIAccountUploadResult(response, fallbackProvider: normalizedProvider)
 
         case "remove", "rm", "delete":
-            let (teamOpt, remaining) = parseOption(rest, name: "--team")
-            try rejectUnexpectedAIAccountArguments(Array(remaining.dropFirst()), command: "ai-accounts remove")
-            guard let accountID = remaining.first, !accountID.isEmpty, !Self.isAIAccountsFlagToken(accountID) else {
+            let arguments = try CLICommandArgumentParser(
+                context: "ai-accounts remove",
+                options: [.value("--team", "<id>")]
+            ).parse(rest)
+            guard let accountID = arguments.positionals.first, !accountID.isEmpty else {
                 throw CLIError(message: """
                     ai-accounts remove requires an account id.
 
@@ -235,6 +260,8 @@ extension CMUXCLI {
                     List accounts: cmux ai-accounts list
                     """)
             }
+            try arguments.rejectUnexpectedPositionals(allowing: 1)
+            let teamOpt = arguments.value(for: "--team")
             var params: [String: Any] = ["id": accountID]
             if let teamOpt, !teamOpt.isEmpty { params["teamId"] = teamOpt }
             let response = try client.sendV2(method: "aiAccounts.remove", params: params)
@@ -250,15 +277,6 @@ extension CMUXCLI {
 
                 \(Self.aiAccountsUsage)
                 """)
-        }
-    }
-
-    private func rejectUnexpectedAIAccountArguments(_ args: [String], command: String) throws {
-        if let unknown = args.first(where: Self.isAIAccountsFlagToken) {
-            throw CLIError(message: "\(command): unknown flag '\(unknown)'.\n\n\(Self.aiAccountsUsage)")
-        }
-        if let extra = args.first {
-            throw CLIError(message: "\(command): unexpected argument '\(extra)'.")
         }
     }
 
@@ -283,10 +301,6 @@ extension CMUXCLI {
         if let label = (account["label"] as? String).map(Self.sanitizeForTerminal), !label.isEmpty {
             print("  label: \(label)")
         }
-    }
-
-    private static func isAIAccountsFlagToken(_ value: String) -> Bool {
-        value.hasPrefix("-") && value != "-"
     }
 
     /// Lightweight client-side host:port validation for `remotes add --route`.
