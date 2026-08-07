@@ -15982,6 +15982,18 @@ mod tests {
             .collect()
     }
 
+    fn journal_event_payloads(mux: &Mux, kind: &str) -> Vec<Value> {
+        let registry = mux.workspace_registry.lock().unwrap();
+        registry
+            .session_journal_after(0, 1024)
+            .unwrap()
+            .records
+            .into_iter()
+            .filter(|record| record.kind == kind)
+            .map(|record| record.payload)
+            .collect()
+    }
+
     fn public_request(
         mux: &Arc<Mux>,
         id: &str,
@@ -20028,6 +20040,48 @@ mod tests {
             registry.terminal_record(TERMINAL).unwrap().unwrap().lifecycle,
             TerminalLifecycle::Exited
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn host_liveness_dead_journals_interruption_before_exit_detach() {
+        const TERMINAL: &str = "00000000000040008000000000000063";
+        const INCARNATION: &str = "10000000000040008000000000000063";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("runtime-host-loss-detector".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001063".into()),
+                None,
+            )
+            .unwrap();
+        let surface_id =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let identity =
+            mux.resource_terminal_host_identity(&surface).expect("test terminal has host identity");
+        let public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+
+        assert!(mux.terminal_host_liveness_dead(surface_id, &identity));
+        assert!(mux.terminal_host_liveness_dead(surface_id, &identity));
+        mux.surface_exited(surface_id);
+
+        let loss_payloads = journal_event_payloads(&mux, "runtime.host_loss.proven");
+        assert_eq!(loss_payloads.len(), 1);
+        assert_eq!(loss_payloads[0]["terminal_id"], public_id.as_str());
+        assert_eq!(loss_payloads[0]["runtime_id"], INCARNATION);
+        assert_eq!(loss_payloads[0]["host_epoch"], INCARNATION);
+        assert_eq!(loss_payloads[0]["lease_generation"], INCARNATION);
+        assert_eq!(loss_payloads[0]["proof"], "host_liveness_dead");
+        let states = runtime_attachment_event_payloads(&mux)
+            .into_iter()
+            .map(|payload| payload["state"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(states, vec!["attached"]);
+        let kinds = journal_event_kinds(&mux);
+        assert!(!kinds.iter().any(|kind| kind.starts_with("session.hibernate")));
+        assert!(!kinds.iter().any(|kind| kind.starts_with("session.recover")));
     }
 
     #[test]
