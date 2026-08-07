@@ -11,7 +11,7 @@ struct FilePreviewPDFZoomChromeView: View {
     let rotateLeft: () -> Void
     let rotateRight: () -> Void
     let refresh: () -> Void
-    let share: (NSView) -> Void
+    let share: (NSView, FilePreviewPDFShareActivation) -> Void
 
     var body: some View {
         if chromeStyleVariant == .systemControlGroup {

@@ -4,14 +4,14 @@ import SwiftUI
 /// AppKit-backed PDF share control that dispatches while handling mouse-down.
 struct FilePreviewPDFShareButton: NSViewRepresentable {
     let label: String
-    let action: (NSView) -> Void
+    let action: (NSView, FilePreviewPDFShareActivation) -> Void
 
     func makeCoordinator() -> FilePreviewPDFShareButtonCoordinator {
         FilePreviewPDFShareButtonCoordinator(action: action)
     }
 
     func makeNSView(context: Context) -> NSButton {
-        let button = NSButton()
+        let button = FilePreviewPDFShareButtonControl()
         button.identifier = NSUserInterfaceItemIdentifier("FilePreviewPDFShareButton")
         button.title = ""
         button.image = NSImage(

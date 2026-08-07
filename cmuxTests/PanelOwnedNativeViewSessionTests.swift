@@ -303,9 +303,7 @@ struct FilePreviewPDFSharingTests {
 
         var dispatchedEventType: NSEvent.EventType?
         var pickers: [SharingPickerProbe] = []
-        let presenter = FilePreviewPDFSharingPresenter(
-            currentEventType: { _ in dispatchedEventType }
-        ) { items in
+        let presenter = FilePreviewPDFSharingPresenter { items in
             let picker = SharingPickerProbe(
                 items: items,
                 dispatchedEventType: { dispatchedEventType }
@@ -375,9 +373,7 @@ struct FilePreviewPDFSharingTests {
         try Data("%PDF-1.4".utf8).write(to: secondURL)
 
         var pickers: [SharingPickerProbe] = []
-        let presenter = FilePreviewPDFSharingPresenter(
-            currentEventType: { _ in .leftMouseDown }
-        ) { items in
+        let presenter = FilePreviewPDFSharingPresenter { items in
             let picker = SharingPickerProbe(items: items)
             pickers.append(picker)
             return picker
@@ -400,11 +396,12 @@ struct FilePreviewPDFSharingTests {
         )
         window.isReleasedWhenClosed = false
         window.contentView = container
+        window.makeKeyAndOrderFront(nil)
         container.layoutSubtreeIfNeeded()
         defer { window.close() }
 
         let firstButton = try #require(findShareButton(in: container))
-        #expect(firstButton.sendAction(firstButton.action, to: firstButton.target))
+        try dispatchPrimaryClick(to: firstButton, in: window) { _ in }
         let firstPicker = try #require(pickers.first)
         #expect((firstPicker.sharedItems as? [URL]) == [firstURL])
         #expect(firstPicker.presentedView === firstButton)
@@ -416,7 +413,7 @@ struct FilePreviewPDFSharingTests {
         container.layoutSubtreeIfNeeded()
 
         let secondButton = try #require(findShareButton(in: container))
-        #expect(secondButton.sendAction(secondButton.action, to: secondButton.target))
+        try dispatchPrimaryClick(to: secondButton, in: window) { _ in }
         let secondPicker = try #require(pickers.last)
         #expect((secondPicker.sharedItems as? [URL]) == [secondURL])
 
@@ -435,7 +432,6 @@ struct FilePreviewPDFSharingTests {
         var presentedMenu: NSMenu?
         var presentedAnchor: NSView?
         let presenter = FilePreviewPDFSharingPresenter(
-            currentEventType: { _ in nil },
             presentMenu: { menu, anchorView in
                 presentedMenu = menu
                 presentedAnchor = anchorView

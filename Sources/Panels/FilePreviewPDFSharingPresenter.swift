@@ -5,20 +5,13 @@ import AppKit
 final class FilePreviewPDFSharingPresenter: NSObject {
     typealias PickerFactory = ([Any]) -> NSSharingServicePicker
     typealias MenuPresenter = (NSMenu, NSView) -> Void
-    typealias EventTypeProvider = (NSView) -> NSEvent.EventType?
 
-    private let currentEventType: EventTypeProvider
     private let presentMenu: MenuPresenter
     private let makePicker: PickerFactory
     private var activePicker: NSSharingServicePicker?
     private var activeMenu: NSMenu?
 
     init(
-        currentEventType: @escaping EventTypeProvider = { anchorView in
-            guard let event = NSApp.currentEvent,
-                  event.window === anchorView.window else { return nil }
-            return event.type
-        },
         presentMenu: @escaping MenuPresenter = { menu, anchorView in
             menu.popUp(
                 positioning: nil,
@@ -28,25 +21,25 @@ final class FilePreviewPDFSharingPresenter: NSObject {
         },
         makePicker: @escaping PickerFactory = { NSSharingServicePicker(items: $0) }
     ) {
-        self.currentEventType = currentEventType
         self.presentMenu = presentMenu
         self.makePicker = makePicker
     }
 
     /// Presents sharing services for the current PDF from its visible chrome control.
-    func present(fileURL: URL, from anchorView: NSView) {
+    func present(fileURL: URL, from anchorView: NSView, activation: FilePreviewPDFShareActivation) {
         close()
 
         let picker = makePicker([fileURL])
         picker.delegate = self
         activePicker = picker
-        if currentEventType(anchorView) == .leftMouseDown {
+        switch activation {
+        case .pointerDown:
             picker.show(
                 relativeTo: anchorView.bounds,
                 of: anchorView,
                 preferredEdge: .maxY
             )
-        } else {
+        case .nonPointer:
             let menu = NSMenu()
             menu.addItem(picker.standardShareMenuItem)
             activeMenu = menu

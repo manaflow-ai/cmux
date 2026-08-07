@@ -2542,10 +2542,13 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
         }
     }
 
-    private func share(from anchorView: NSView) {
+    private func share(
+        from anchorView: NSView,
+        activation: FilePreviewPDFShareActivation
+    ) {
         guard anchorView.window === window,
               let currentURL else { return }
-        sharingPresenter.present(fileURL: currentURL, from: anchorView)
+        sharingPresenter.present(fileURL: currentURL, from: anchorView, activation: activation)
     }
 
     private func applyLoadedPDFDocument(_ document: PDFDocument?, for url: URL) {
@@ -2871,7 +2874,9 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
             rotateLeft: { [weak self] in self?.rotateLeft() },
             rotateRight: { [weak self] in self?.rotateRight() },
             refresh: { [weak panel] in panel?.reloadFromDisk() },
-            share: { [weak self] anchorView in self?.share(from: anchorView) }
+            share: { [weak self] anchorView, activation in
+                self?.share(from: anchorView, activation: activation)
+            }
         ))
     }
 
