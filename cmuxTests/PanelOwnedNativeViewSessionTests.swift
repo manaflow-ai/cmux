@@ -111,14 +111,33 @@ struct PanelOwnedNativeViewSessionTests {
             backgroundColor: .clear,
             drawsBackground: false
         ) as? FilePreviewQuickLookContainerView)
-        defer { session.dismantle(container) }
         let previewView = try #require(container.livePreviewView())
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            session.dismantle(container)
+            window.close()
+        }
 
         for actionName in ["share:", "shareFromButton:"] {
+            window.makeKeyAndOrderFront(nil)
+            try #require(window.makeFirstResponder(previewView))
             let action = NSSelectorFromString(actionName)
+            let target = NSApp.target(forAction: action, to: nil, from: previewView)
             #expect(
-                container.tryToPerform(action, with: previewView),
+                (target as? FilePreviewQuickLookContainerView) === container,
                 "The embedded Quick Look toolbar's \(actionName) action must resolve in the mounted preview responder chain"
+            )
+            #expect(
+                NSApp.sendAction(action, to: nil, from: previewView),
+                "The mounted Quick Look preview must dispatch its \(actionName) action"
             )
         }
     }
