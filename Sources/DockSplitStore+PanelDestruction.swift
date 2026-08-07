@@ -23,6 +23,7 @@ extension DockSplitStore {
             forTabId: workspaceId,
             surfaceId: panelId
         )
+        TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId])
         removeDetachedSurfaceTransfer(forPanelID: panelId)
         clearSessionRestoreState(panelId: panelId)
 

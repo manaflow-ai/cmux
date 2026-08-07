@@ -80,6 +80,38 @@ struct RemoteShellPromptRelayTests {
         ), Comment(rawValue: output))
     }
 
+    @Test("remote zsh surface shell state carries terminal lifecycle identity")
+    func remoteZshSurfaceShellStateCarriesTerminalLifecycleIdentity() throws {
+        let output = try runPrompt(
+            shell: "/bin/zsh",
+            integrationName: "cmux-zsh-integration.zsh",
+            shellArguments: ["-f", "-c"],
+            promptFunction: "_cmux_precmd",
+            mode: "shell-state",
+            surfaceID: "22222222-2222-2222-2222-222222222222"
+        )
+
+        #expect(output.contains(
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","surface_id":"22222222-2222-2222-2222-222222222222","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
+        ), Comment(rawValue: output))
+    }
+
+    @Test("remote bash surface shell state carries terminal lifecycle identity")
+    func remoteBashSurfaceShellStateCarriesTerminalLifecycleIdentity() throws {
+        let output = try runPrompt(
+            shell: "/bin/bash",
+            integrationName: "cmux-bash-integration.bash",
+            shellArguments: ["--noprofile", "--norc", "-c"],
+            promptFunction: "_cmux_prompt_command",
+            mode: "shell-state",
+            surfaceID: "22222222-2222-2222-2222-222222222222"
+        )
+
+        #expect(output.contains(
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","surface_id":"22222222-2222-2222-2222-222222222222","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
+        ), Comment(rawValue: output))
+    }
+
     @Test(
         "remote fish retries TTY registration until the relay acknowledges it",
         .enabled(if: remoteShellPromptFishExecutablePath != nil)
@@ -217,6 +249,7 @@ struct RemoteShellPromptRelayTests {
             "CMUX_BUNDLED_CLI_PATH": cmuxFile.path,
             "CMUX_SOCKET_PATH": "127.0.0.1:64011",
             "CMUX_TAB_ID": "11111111-1111-1111-1111-111111111111",
+            "CMUX_TERMINAL_LIFECYCLE_ID": "33333333-3333-3333-3333-333333333333",
             "CMUX_TEST_LOG": logFile.path,
             "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
             "HOME": directory.path,

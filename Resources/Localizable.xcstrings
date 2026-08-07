@@ -81635,6 +81635,40 @@
         }
       }
     },
+    "controlSocket.reportShellState.invalidTerminalLifecycleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Missing or invalid terminal lifecycle id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー: ターミナルライフサイクルIDがないか、無効です"
+          }
+        }
+      }
+    },
+    "controlSocket.surface.reportShellState.invalidTerminalLifecycleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid terminal_lifecycle_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal_lifecycle_idがないか、無効です"
+          }
+        }
+      }
+    },
     "crashBreadcrumb.body": {
       "extractionState": "manual",
       "localizations": {

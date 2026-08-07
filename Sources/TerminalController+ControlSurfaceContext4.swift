@@ -138,6 +138,7 @@ extension TerminalController {
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution {
         guard let state = PanelShellActivityState(rawValue: stateRawValue) else {
@@ -145,31 +146,18 @@ extension TerminalController {
             return .pending
         }
         if let requestedSurfaceID {
-            let shouldPublish = socketFastPathState.shouldPublishShellActivity(
-                workspaceId: workspaceID,
-                panelId: requestedSurfaceID,
-                state: state.rawValue
+            let shouldPublish = controlScheduleScopedShellActivityState(
+                scope: ControlSidebarPanelScope(
+                    workspaceID: workspaceID,
+                    panelID: requestedSurfaceID,
+                    terminalLifecycleID: terminalLifecycleID
+                ),
+                stateRawValue: state.rawValue
             )
-            if shouldPublish {
-                DispatchQueue.main.async {
-                    if let dock = DockSplitStore.liveStores.first(where: {
-                        $0.containsPanel(requestedSurfaceID)
-                    }) {
-                        dock.updatePanelShellActivityState(panelId: requestedSurfaceID, state: state)
-                        return
-                    }
-                    guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else { return }
-                    tabManager.updateSurfaceShellActivity(
-                        tabId: workspaceID,
-                        surfaceId: requestedSurfaceID,
-                        state: state
-                    )
-                }
-            }
             return .explicit(surfaceID: requestedSurfaceID, published: shouldPublish)
         }
 
-        DispatchQueue.main.async { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             guard let tab = self.controlTabForSidebarMutation(id: workspaceID) else { return }
             let validSurfaceIds = Set(tab.panels.keys)
@@ -180,10 +168,21 @@ extension TerminalController {
                 validSurfaceIds: validSurfaceIds
             )
             guard let surfaceId, validSurfaceIds.contains(surfaceId) else { return }
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
-            tabManager.updateSurfaceShellActivity(tabId: tab.id, surfaceId: surfaceId, state: state)
+            self.controlApplyScopedShellActivityState(
+                workspaceID: tab.id,
+                surfaceID: surfaceId,
+                terminalLifecycleID: terminalLifecycleID,
+                state: state
+            )
         }
         return .pending
+    }
+
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
+        String(
+            localized: "controlSocket.surface.reportShellState.invalidTerminalLifecycleID",
+            defaultValue: "Missing or invalid terminal_lifecycle_id"
+        )
     }
 
     // MARK: - ports_kick

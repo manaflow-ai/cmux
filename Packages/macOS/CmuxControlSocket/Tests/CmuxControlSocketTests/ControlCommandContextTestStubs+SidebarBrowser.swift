@@ -178,6 +178,10 @@ extension ControlSidebarContext {
 
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {}
 
+    nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String {
+        "ERROR: Missing or invalid terminal lifecycle id"
+    }
+
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution {
         .tabNotFound
     }

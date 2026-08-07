@@ -34,4 +34,49 @@ struct SocketFastPathStateTests {
         #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
         #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
     }
+
+    @Test func removedPanelPublishesItsInitialStateWhenTheIDIsReused() {
+        let state = SocketFastPathState()
+        let workspace = UUID()
+        let otherWorkspace = UUID()
+        let panel = UUID()
+        let otherPanel = UUID()
+
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: otherPanel, state: "promptIdle"))
+        #expect(state.shouldPublishShellActivity(workspaceId: otherWorkspace, panelId: panel, state: "promptIdle"))
+
+        state.removeShellActivity(panelId: panel)
+
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+        #expect(state.shouldPublishShellActivity(workspaceId: otherWorkspace, panelId: panel, state: "promptIdle"))
+        #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: otherPanel, state: "promptIdle"))
+    }
+
+    @Test func replacementTerminalGenerationPublishesTheSameState() {
+        let state = SocketFastPathState()
+        let workspace = UUID()
+        let panel = UUID()
+        let oldLifecycle = UUID()
+        let replacementLifecycle = UUID()
+
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: oldLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: oldLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: replacementLifecycle,
+            state: "promptIdle"
+        ))
+    }
 }

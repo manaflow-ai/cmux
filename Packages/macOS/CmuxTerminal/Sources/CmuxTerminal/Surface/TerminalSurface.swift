@@ -737,9 +737,12 @@ extension TerminalSurface: TerminalSurfaceControlling {
 }
 
 // The engine's surface registry tracks surfaces behind the cross-domain
-// TerminalSurfacing seam; TerminalSurface satisfies it with its immutable
-// `id` and `focusPlacement`.
-extension TerminalSurface: TerminalSurfacing {}
+// TerminalSurfacing seam; TerminalSurface satisfies it with immutable stable
+// and process-generation identities plus its registry-tracked placement.
+extension TerminalSurface: TerminalSurfacing {
+    /// The immutable process-generation identity exposed to the registry.
+    public var terminalLifecycleID: UUID { terminalLifecycleId }
+}
 
 /// Transports the hidden bootstrap window from a nonisolated `deinit` to the
 /// main actor for closing. `@unchecked Sendable` because the window is

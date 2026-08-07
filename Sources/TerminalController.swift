@@ -349,6 +349,7 @@ class TerminalController {
 
     func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
         for surfaceId in Set(surfaceIds) {
+            socketFastPathState.removeShellActivity(panelId: surfaceId)
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)

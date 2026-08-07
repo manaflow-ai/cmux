@@ -345,19 +345,40 @@ extension ControlCommandCoordinator {
         return (panelId, nil)
     }
 
-    /// The explicit shell-integration scope when both `--tab` and `--panel`
-    /// are UUIDs (the legacy `explicitSocketScope`, which stays app-side for
-    /// its unit tests).
-    nonisolated func sidebarExplicitScope(options: [String: String]) -> ControlSidebarPanelScope? {
+    /// Resolves the explicit shell-integration scope when both `--tab` and
+    /// `--panel` are UUIDs. A supplied terminal lifecycle token is parsed as
+    /// part of that same scope so telemetry cannot lose process-generation
+    /// identity while crossing the v1 compatibility path.
+    nonisolated func sidebarExplicitScope(
+        options: [String: String]
+    ) -> (scope: ControlSidebarPanelScope?, invalidTerminalLifecycleID: Bool) {
+        let terminalLifecycleID: UUID?
+        if let rawLifecycleID = options["terminal-lifecycle-id"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) {
+            guard !rawLifecycleID.isEmpty,
+                  let parsedLifecycleID = UUID(uuidString: rawLifecycleID) else {
+                return (nil, true)
+            }
+            terminalLifecycleID = parsedLifecycleID
+        } else {
+            terminalLifecycleID = nil
+        }
         guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tabRaw.isEmpty,
               let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
               !panelRaw.isEmpty,
               let workspaceId = UUID(uuidString: tabRaw),
               let panelId = UUID(uuidString: panelRaw) else {
-            return nil
+            return (nil, false)
         }
-        return ControlSidebarPanelScope(workspaceID: workspaceId, panelID: panelId)
+        return (
+            ControlSidebarPanelScope(
+                workspaceID: workspaceId,
+                panelID: panelId,
+                terminalLifecycleID: terminalLifecycleID
+            ),
+            false
+        )
     }
 
     /// Splits a metadata-block command line at the first ` -- ` separator
@@ -419,7 +440,7 @@ extension ControlCommandCoordinator {
         }
 
         let target = ControlSidebarPanelMutationTarget(
-            scope: sidebarExplicitScope(options: options),
+            scope: sidebarExplicitScope(options: options).scope,
             tabArg: options["tab"],
             panelID: surfaceIdFromOptions
         )

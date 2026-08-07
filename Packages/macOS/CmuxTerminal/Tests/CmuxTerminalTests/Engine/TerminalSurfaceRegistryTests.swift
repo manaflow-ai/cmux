@@ -5,14 +5,20 @@ import Testing
 
 @testable import CmuxTerminal
 
-/// Minimal registered-surface stand-in: identity plus focus placement,
+/// Minimal registered-surface stand-in: lifecycle identity plus focus placement,
 /// matching exactly what the registry reads through `TerminalSurfacing`.
 private final class FakeSurface: TerminalSurfacing {
     let id: UUID
+    let terminalLifecycleID: UUID
     let focusPlacement: TerminalSurfaceFocusPlacement
 
-    init(id: UUID = UUID(), focusPlacement: TerminalSurfaceFocusPlacement = .workspace) {
+    init(
+        id: UUID = UUID(),
+        terminalLifecycleID: UUID = UUID(),
+        focusPlacement: TerminalSurfaceFocusPlacement = .workspace
+    ) {
         self.id = id
+        self.terminalLifecycleID = terminalLifecycleID
         self.focusPlacement = focusPlacement
     }
 }
@@ -95,6 +101,57 @@ struct TerminalSurfaceRegistryTests {
 
         registry.unregister(second)
         #expect(!registry.isRightSidebarDockSurface(id: sharedId))
+    }
+
+    @Test func newestRegistrationOwnsSharedIdLifecycle() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedId = UUID()
+        let first = FakeSurface(id: sharedId)
+        let replacement = FakeSurface(id: sharedId)
+        registry.register(first)
+        registry.register(replacement)
+
+        #expect(registry.surface(id: sharedId) === replacement)
+        #expect(
+            registry.isCurrentSurface(
+                id: sharedId,
+                terminalLifecycleID: replacement.terminalLifecycleID
+            )
+        )
+        #expect(
+            !registry.isCurrentSurface(
+                id: sharedId,
+                terminalLifecycleID: first.terminalLifecycleID
+            )
+        )
+
+        registry.unregister(first)
+        #expect(registry.surface(id: sharedId) === replacement)
+    }
+
+    @Test func unregisteringNewestSharedIdRegistrationRestoresPreviousOwner() {
+        let registry = TerminalSurfaceRegistry()
+        let sharedId = UUID()
+        let first = FakeSurface(id: sharedId)
+        let replacement = FakeSurface(id: sharedId)
+        registry.register(first)
+        registry.register(replacement)
+
+        registry.unregister(replacement)
+
+        #expect(registry.surface(id: sharedId) === first)
+        #expect(
+            registry.isCurrentSurface(
+                id: sharedId,
+                terminalLifecycleID: first.terminalLifecycleID
+            )
+        )
+        #expect(
+            !registry.isCurrentSurface(
+                id: sharedId,
+                terminalLifecycleID: replacement.terminalLifecycleID
+            )
+        )
     }
 
     @Test func evictsDeallocatedSurfaces() {

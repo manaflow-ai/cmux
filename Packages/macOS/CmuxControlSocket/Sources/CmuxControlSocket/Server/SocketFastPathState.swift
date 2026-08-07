@@ -20,6 +20,7 @@ public final class SocketFastPathState: Sendable {
     private struct SocketSurfaceKey: Hashable {
         let workspaceId: UUID
         let panelId: UUID
+        let terminalLifecycleID: UUID?
     }
 
     // Lock carve-out: synchronous compare-and-set on the socket telemetry hot
@@ -42,15 +43,22 @@ public final class SocketFastPathState: Sendable {
     /// - Parameters:
     ///   - workspaceId: The reporting workspace.
     ///   - panelId: The reporting surface/panel.
+    ///   - terminalLifecycleID: The reporting terminal process generation, or
+    ///     `nil` for backward-compatible clients.
     ///   - state: The shell-activity state's raw token.
     /// - Returns: `true` when the state differs from the last published value
     ///   for this surface (recording it), `false` for a duplicate.
     public func shouldPublishShellActivity(
         workspaceId: UUID,
         panelId: UUID,
+        terminalLifecycleID: UUID? = nil,
         state: String
     ) -> Bool {
-        let key = SocketSurfaceKey(workspaceId: workspaceId, panelId: panelId)
+        let key = SocketSurfaceKey(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            terminalLifecycleID: terminalLifecycleID
+        )
         return lastReportedShellStates.withLock { lastReportedShellStates in
             if lastReportedShellStates[key] == state {
                 return false
@@ -60,6 +68,22 @@ public final class SocketFastPathState: Sendable {
             }
             lastReportedShellStates[key] = state
             return true
+        }
+    }
+
+    /// Discards shell-activity dedupe state when a panel lifecycle ends.
+    ///
+    /// A restored surface may intentionally reuse its previous panel ID. Its
+    /// replacement shell must publish its first state even when that state
+    /// matches the shell that was closed.
+    ///
+    /// - Parameter panelId: The panel ID whose entries should be removed from
+    ///   every workspace scope.
+    public func removeShellActivity(panelId: UUID) {
+        lastReportedShellStates.withLock { lastReportedShellStates in
+            lastReportedShellStates = lastReportedShellStates.filter {
+                $0.key.panelId != panelId
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxControlSocket
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -262,6 +263,284 @@ struct DockSessionPersistenceTests {
 
         #expect(decoded.windows.first?.dock == nil)
         #expect(decoded.windows.first?.tabManager.workspaces.first?.dock == nil)
+    }
+
+    @Test(
+        "Directly restored Dock terminal protects its persisted title through startup",
+        arguments: [DockScope.workspace, DockScope.global]
+    )
+    @MainActor
+    func directlyRestoredTerminalProtectsPersistedTitle(
+        scope: DockScope
+    ) async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let store: DockSplitStore
+        switch scope {
+        case .workspace:
+            store = workspace.dockSplit
+        case .global:
+            store = manager.makeWindowDockStore(windowId: UUID())
+        }
+        defer {
+            store.closeAllPanels()
+            workspace.teardownAllPanels()
+        }
+
+        let snapshotPanelID = UUID()
+        let persistedTitle = "Persisted Dock task"
+        let panelSnapshot = SessionPanelSnapshot(
+            id: snapshotPanelID,
+            type: .terminal,
+            title: persistedTitle,
+            customTitle: nil,
+            directory: "/tmp",
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(workingDirectory: "/tmp"),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+        let restoredPanelIDs = store.restoreSessionSnapshot(
+            SessionSplitContainerSnapshot(
+                focusedPanelId: snapshotPanelID,
+                layout: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [snapshotPanelID],
+                    selectedPanelId: snapshotPanelID
+                )),
+                panels: [panelSnapshot]
+            )
+        )
+        let panelID = try #require(restoredPanelIDs[snapshotPanelID])
+        let tabID = try #require(store.surfaceId(forPanelId: panelID))
+        let terminal = try #require(store.panels[panelID] as? TerminalPanel)
+        #expect(store.bonsplitController.tab(tabID)?.title == persistedTitle)
+        #expect(store.bonsplitController.tab(tabID)?.hasCustomTitle == false)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: panelID,
+                title: "zsh",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+        for _ in 0..<10 { await Task.yield() }
+        #expect(store.bonsplitController.tab(tabID)?.title == persistedTitle)
+
+        let detached = try #require(store.detachSurface(panelId: panelID))
+        #expect(detached.title == persistedTitle)
+        #expect(detached.cachedTitle == persistedTitle)
+        #expect(detached.restoredPanelTitleBoundary != nil)
+
+        let destinationManager = TabManager()
+        let destinationWorkspace = try #require(destinationManager.selectedWorkspace)
+        let destinationStore = destinationWorkspace.dockSplit
+        defer {
+            destinationStore.closeAllPanels()
+            destinationWorkspace.teardownAllPanels()
+        }
+        let destinationPane = try #require(
+            destinationStore.bonsplitController.allPaneIds.first
+        )
+        #expect(
+            destinationStore.attachDetachedSurface(
+                detached,
+                inPane: destinationPane,
+                focus: false
+            ) == panelID
+        )
+        let destinationTabID = try #require(
+            destinationStore.surfaceId(forPanelId: panelID)
+        )
+        #expect(
+            destinationStore.bonsplitController.tab(destinationTabID)?.title
+                == persistedTitle
+        )
+
+        destinationStore.updatePanelShellActivityState(
+            panelId: panelID,
+            state: .promptIdle
+        )
+        destinationStore.updatePanelShellActivityState(
+            panelId: panelID,
+            state: .commandRunning
+        )
+        for _ in 0..<10 { await Task.yield() }
+        #expect(
+            destinationStore.bonsplitController.tab(destinationTabID)?.title
+                == persistedTitle
+        )
+
+        let commandTitle = "codex · restored Dock"
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: destinationStore.workspaceId,
+                surfaceId: panelID,
+                title: commandTitle,
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+        destinationStore.flushPendingTerminalTitleUpdates()
+        #expect(terminal.displayTitle == commandTitle)
+        #expect(
+            destinationStore.bonsplitController.tab(destinationTabID)?.title
+                == commandTitle
+        )
+    }
+
+    @Test("Idle Dock snapshot trusts live shell state over Ghostty close fallback")
+    @MainActor
+    func idleSnapshotTrustsLiveShellStateOverGhosttyCloseFallback() throws {
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { "/tmp" }
+        )
+        defer { store.closeAllPanels() }
+
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            store.newSurface(
+                kind: .terminal,
+                inPane: paneID,
+                workingDirectory: "/tmp",
+                focus: false
+            )
+        )
+        let terminal = try #require(
+            store.panels[panelID] as? TerminalPanel
+        )
+        #expect(terminal.shellActivity.state == .promptIdle)
+
+        terminal.surface.setNeedsConfirmCloseOverrideForTesting(true)
+        defer {
+            terminal.surface.setNeedsConfirmCloseOverrideForTesting(nil)
+        }
+        let fallbackScrollback = "persisted idle Dock output"
+        store.restoredTerminalScrollbackByPanelId[panelID] = fallbackScrollback
+
+        let snapshot = store.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(
+            snapshot.panels.first { $0.id == panelID }
+        )
+
+        #expect(panelSnapshot.terminal?.scrollback == fallbackScrollback)
+    }
+
+    @Test("Reopened Dock terminal accepts the replacement shell's initial prompt")
+    @MainActor
+    func reopenedTerminalAcceptsReplacementShellInitialPrompt() throws {
+        let history = ClosedItemHistoryStore(loadPersisted: false)
+        let workspaceID = UUID()
+        let store = DockSplitStore(
+            workspaceId: workspaceID,
+            baseDirectoryProvider: { "/tmp" },
+            closedItemHistoryStore: history
+        )
+        defer { store.closeAllPanels() }
+
+        let paneID = try #require(store.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            store.newSurface(
+                kind: .terminal,
+                inPane: paneID,
+                workingDirectory: "/tmp",
+                focus: false
+            )
+        )
+        let originalTerminal = try #require(
+            store.panels[panelID] as? TerminalPanel
+        )
+        let originalLifecycleID = originalTerminal.surface.terminalLifecycleId
+        let controller = TerminalController.shared
+        controller.socketFastPathState.removeShellActivity(panelId: panelID)
+        defer {
+            controller.socketFastPathState.removeShellActivity(panelId: panelID)
+        }
+
+        controller.controlSidebarScheduleScopedShellState(
+            scope: ControlSidebarPanelScope(
+                workspaceID: workspaceID,
+                panelID: panelID,
+                terminalLifecycleID: originalLifecycleID
+            ),
+            stateRawValue: PanelShellActivityState.promptIdle.rawValue
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(originalTerminal.shellActivity.state == .promptIdle)
+
+        #expect(store.closePanel(panelID))
+        #expect(history.canReopen)
+        #expect(store.reopenMostRecentlyClosedPanel())
+
+        let restoredPanelID = try #require(store.panels.keys.first)
+        try #require(restoredPanelID == panelID)
+        let restoredTerminal = try #require(
+            store.panels[restoredPanelID] as? TerminalPanel
+        )
+        let replacementLifecycleID = restoredTerminal.surface.terminalLifecycleId
+        #expect(replacementLifecycleID != originalLifecycleID)
+
+        // This report came from the process that owned the persisted panel ID
+        // before close. Admission must reject it before it can occupy the
+        // replacement surface's queue slot.
+        #expect(!controller.controlScheduleScopedShellActivityState(
+            scope: ControlSidebarPanelScope(
+                workspaceID: workspaceID,
+                panelID: restoredPanelID,
+                terminalLifecycleID: originalLifecycleID
+            ),
+            stateRawValue: PanelShellActivityState.commandRunning.rawValue
+        ))
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(restoredTerminal.shellActivity.state == .promptIdle)
+
+        let runningTitle = "codex · reopened Dock"
+        #expect(store.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: workspaceID,
+            surfaceId: restoredPanelID,
+            title: runningTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(restoredTerminal.surface)
+        )))
+        #expect(restoredTerminal.displayTitle != runningTitle)
+
+        controller.controlSidebarScheduleScopedShellState(
+            scope: ControlSidebarPanelScope(
+                workspaceID: workspaceID,
+                panelID: restoredPanelID,
+                terminalLifecycleID: replacementLifecycleID
+            ),
+            stateRawValue: PanelShellActivityState.promptIdle.rawValue
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        #expect(restoredTerminal.shellActivity.state == .promptIdle)
+        #expect(restoredTerminal.displayTitle != runningTitle)
+
+        controller.controlSidebarScheduleScopedShellState(
+            scope: ControlSidebarPanelScope(
+                workspaceID: workspaceID,
+                panelID: restoredPanelID,
+                terminalLifecycleID: replacementLifecycleID
+            ),
+            stateRawValue: PanelShellActivityState.commandRunning.rawValue
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        let restoredTabID = try #require(
+            store.surfaceId(forPanelId: restoredPanelID)
+        )
+        #expect(restoredTerminal.displayTitle == runningTitle)
+        #expect(
+            store.bonsplitController.tab(restoredTabID)?.title == runningTitle
+        )
     }
 
     @Test("Restored Dock snapshot wins over a late initial config seed")

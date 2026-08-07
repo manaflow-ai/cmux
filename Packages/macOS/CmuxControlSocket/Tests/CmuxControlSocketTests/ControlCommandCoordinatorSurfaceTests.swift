@@ -613,6 +613,64 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(context.reportedGit == nil)
     }
 
+    @Test func reportShellStateForwardsTerminalLifecycleIdentity() {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let terminalLifecycleID = UUID()
+        context.reportShellStateResolution = .explicit(
+            surfaceID: surfaceID,
+            published: true
+        )
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "terminal_lifecycle_id": .string(
+                    terminalLifecycleID.uuidString
+                ),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(context.reportedShellState?.workspaceID == workspaceID)
+        #expect(context.reportedShellState?.requestedSurfaceID == surfaceID)
+        #expect(
+            context.reportedShellState?.terminalLifecycleID
+                == terminalLifecycleID
+        )
+        #expect(context.reportedShellState?.stateRawValue == "promptIdle")
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected shell-state report success")
+            return
+        }
+        #expect(payload["published"] == .bool(true))
+    }
+
+    @Test func reportShellStateRejectsMalformedTerminalLifecycleIdentity() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "terminal_lifecycle_id": .string("not-a-uuid"),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Missing or invalid terminal_lifecycle_id",
+            data: nil
+        ))
+        #expect(context.reportedShellState == nil)
+    }
+
     @Test func clearGitBranchResolvesWorkspaceScopedTmuxSurface() {
         let (coordinator, context) = makeCoordinator()
         let workspaceID = UUID()
