@@ -26,8 +26,13 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
       "$state_pid" "$state_executable"
     found=1
   done < "$CMUX_FAKE_LSOF_STATE"
-  [ "$found" -eq 1 ] || [ -z "$pid_filter" ]
-  exit
+  if [ "$found" -eq 1 ] || [ -z "$pid_filter" ]; then
+    exit 0
+  fi
+  if [ "${CMUX_FAKE_LSOF_DEAD_PID_DIAGNOSTIC:-0}" = "1" ]; then
+    printf 'lsof: status error on %s: No such process\n' "$pid_filter" >&2
+  fi
+  exit 1
 fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -113,6 +118,23 @@ empty_verified="$(cmux_app_host_verified_pids \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA")" \
   || fail "an empty current scope was treated as malformed"
 [ -z "$empty_verified" ] || fail "an empty current scope returned a process"
+
+make_scope dead-pid-diagnostic
+spawn_process
+dead_pid="$CMUX_TEST_SPAWNED_PID"
+printf '%s|%s\n' "$dead_pid" "$TEST_EXECUTABLE" > "$CMUX_FAKE_LSOF_STATE"
+write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$dead_pid" "$TEST_EXECUTABLE"
+/bin/kill -TERM "$dead_pid"
+wait "$dead_pid" 2>/dev/null || true
+case " $PIDS " in
+  *" $dead_pid "*) PIDS="${PIDS//$dead_pid/}" ;;
+esac
+export CMUX_FAKE_LSOF_DEAD_PID_DIAGNOSTIC=1
+dead_verified="$(cmux_app_host_verified_pids \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA")" \
+  || fail "a dead-PID lsof diagnostic was treated as an inspection failure"
+unset CMUX_FAKE_LSOF_DEAD_PID_DIAGNOSTIC
+[ -z "$dead_verified" ] || fail "a dead PID was returned as a live process"
 
 make_scope matching
 spawn_process
