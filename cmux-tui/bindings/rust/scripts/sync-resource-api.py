@@ -9,7 +9,7 @@ from pathlib import Path
 
 
 RUST_ROOT = Path(__file__).resolve().parents[1]
-CATALOG = RUST_ROOT.parents[1] / "spec" / "resource-operations-v1.json"
+CATALOG = RUST_ROOT.parents[1] / "spec" / "resource-operations-v2.json"
 MANIFEST = RUST_ROOT / ".cmux-resource-api.json"
 
 

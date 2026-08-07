@@ -3,6 +3,13 @@ import Darwin
 import Foundation
 
 extension CMUXCLI {
+    var restoreCommandUsageLine: String {
+        String(
+            localized: "cli.help.restore",
+            defaultValue: "restore [--surface <id|ref>] <kind> <checkpoint-id> | restore --surface [id|ref]"
+        )
+    }
+
     func controlAgentLaunchCommandPayload(
         _ command: AgentLaunchCommand
     ) -> [String: Any] {
@@ -193,21 +200,12 @@ extension CMUXCLI {
             )
         }
 
-        let resolution = AgentProcessBindingResolution.controllingTTY.rawValue
         do {
-            let payload = try client.sendV2(
-                method: "agent.resolve_delivery_target",
-                params: [
-                    "pid": Int(ProcessInfo.processInfo.processIdentifier),
-                    "pid_resolution": resolution,
-                ]
+            let payload = try implicitCallerIdentifyResponse(
+                client: client,
+                processEnvironment: processEnvironment
             )
-            guard payload["source"] as? String == "pid",
-                  payload["pid_resolution"] as? String == resolution,
-                  let workspaceID = normalizedHandleValue(payload["workspace_id"] as? String),
-                  isUUID(workspaceID),
-                  let surfaceID = normalizedHandleValue(payload["surface_id"] as? String),
-                  isUUID(surfaceID) else {
+            guard let surfaceID = identifiedCallerSurfaceID(in: payload) else {
                 throw currentRestoreSurfaceUnknownError()
             }
             return surfaceID
@@ -331,41 +329,60 @@ extension CMUXCLI {
     }
 
     private func restoreSelector(_ arguments: [String]) throws -> RestoreSelector {
-        if arguments.first == "--surface" {
-            if arguments.count == 1 {
-                return RestoreSelector(
-                    surface: nil,
-                    usesCurrentSurface: true,
-                    kind: nil,
-                    checkpointID: nil
-                )
-            }
-            guard arguments.count == 2, !arguments[1].isEmpty else {
+        if arguments == ["--surface"] {
+            return RestoreSelector(
+                surface: nil,
+                usesCurrentSurface: true,
+                kind: nil,
+                checkpointID: nil
+            )
+        }
+
+        let surfaceOptionCount = arguments.filter { argument in
+            argument == "--surface" || argument.hasPrefix("--surface=")
+        }.count
+        guard surfaceOptionCount <= 1 else {
+            throw CLIError(message: String(
+                localized: "cli.restore.usage.surface",
+                defaultValue: "Usage: cmux restore --surface [id|ref]"
+            ))
+        }
+        let (surface, positionalArguments) = parseOption(arguments, name: "--surface")
+        if surfaceOptionCount == 1 {
+            guard let surface,
+                  !surface.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.restore.usage.surface",
                     defaultValue: "Usage: cmux restore --surface [id|ref]"
                 ))
             }
-            return RestoreSelector(
-                surface: arguments[1],
-                usesCurrentSurface: false,
-                kind: nil,
-                checkpointID: nil
-            )
+            if positionalArguments.isEmpty {
+                return RestoreSelector(
+                    surface: surface,
+                    usesCurrentSurface: false,
+                    kind: nil,
+                    checkpointID: nil
+                )
+            }
         }
-        guard arguments.count == 2,
-              !arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+
+        guard positionalArguments.count == 2,
+              !positionalArguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !positionalArguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.restore.usage.positional",
-                defaultValue: "Usage: cmux restore <kind> <checkpoint-id>"
+                defaultValue: """
+                Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
+                       cmux restore <kind> <checkpoint-id> --surface <id|ref>
+                       cmux restore --surface=<id|ref> <kind> <checkpoint-id>
+                """
             ))
         }
         return RestoreSelector(
-            surface: nil,
-            usesCurrentSurface: true,
-            kind: arguments[0],
-            checkpointID: arguments[1]
+            surface: surface,
+            usesCurrentSurface: surface == nil,
+            kind: positionalArguments[0],
+            checkpointID: positionalArguments[1]
         )
     }
 

@@ -1299,21 +1299,14 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 panelChanged: false
             )
         )
-        XCTAssertFalse(
-            ContentView.commandPaletteShouldReuseForkableAgentProbeResult(
-                panelKey: panelKey,
-                supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
-                expectedSnapshotFingerprint: nil,
-                isRemoteTerminal: false,
-                cachedResultHadFallback: true,
-                panelChanged: false
-            )
-        )
     }
 
-    func testForkableAgentProbeResultClearBeforeProbeClearsFallbackBackedCache() {
+    // A fallback-backed cache used to be refused here outright. That is no longer this
+    // helper's job: reuse is gated on TTL freshness, and the fallback case is re-verified
+    // against SharedLiveAgentIndex at the call site. Both directions of the freshness gate
+    // are covered by commandPaletteFallbackProbeResultReusesUntilValidationTTL in
+    // WorkspaceForkConversationContextMenuTests, so there is nothing to assert twice.
+    func testForkableAgentProbeResultClearBeforeProbeClearsStaleCache() {
         let workspaceId = UUID()
         let panelId = UUID()
         let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
@@ -1331,18 +1324,6 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
                 expectedSnapshotFingerprint: fingerprint,
                 isRemoteTerminal: false,
                 cachedResultHadFallback: false,
-                panelChanged: false
-            )
-        )
-        XCTAssertTrue(
-            ContentView.commandPaletteShouldClearForkableAgentProbeResultBeforeProbe(
-                panelKey: panelKey,
-                supportedPanelKeys: [panelKey],
-                supportedRemoteContextsByPanelKey: [panelKey: false],
-                snapshotFingerprintsByPanelKey: [panelKey: fingerprint],
-                expectedSnapshotFingerprint: fingerprint,
-                isRemoteTerminal: false,
-                cachedResultHadFallback: true,
                 panelChanged: false
             )
         )
