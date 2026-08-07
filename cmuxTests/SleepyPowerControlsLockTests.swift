@@ -39,7 +39,9 @@ struct SleepyPowerControlsLockTests {
     @MainActor
     @Test func lockMacDoesNotShellOutToRemovedCGSessionBinary() async throws {
         let runner = RecordingSleepyRunner()
-        let defaults = try #require(UserDefaults(suiteName: "SleepyPowerControlsLockTests-\(UUID().uuidString)"))
+        let suiteName = "SleepyPowerControlsLockTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let controls = SleepyPowerControls(runner: runner, defaults: defaults)
 
         await controls.lockMacNow()
@@ -52,7 +54,9 @@ struct SleepyPowerControlsLockTests {
     @MainActor
     @Test func lockMacEngagesTheRunnersInProcessLockWithoutSubprocesses() async throws {
         let runner = LockCapableRecordingRunner()
-        let defaults = try #require(UserDefaults(suiteName: "SleepyPowerControlsLockTests-\(UUID().uuidString)"))
+        let suiteName = "SleepyPowerControlsLockTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let controls = SleepyPowerControls(runner: runner, defaults: defaults)
 
         let locked = await controls.lockMacNow()
@@ -67,7 +71,9 @@ struct SleepyPowerControlsLockTests {
     @MainActor
     @Test func lockMacReportsFailureWhenNoLockMechanismIsAvailable() async throws {
         let runner = RecordingSleepyRunner()
-        let defaults = try #require(UserDefaults(suiteName: "SleepyPowerControlsLockTests-\(UUID().uuidString)"))
+        let suiteName = "SleepyPowerControlsLockTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         let controls = SleepyPowerControls(runner: runner, defaults: defaults)
 
         let locked = await controls.lockMacNow()
