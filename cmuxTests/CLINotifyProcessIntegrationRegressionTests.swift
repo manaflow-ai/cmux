@@ -6126,15 +6126,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-            XCTAssertEqual(method, "notification.mark_read")
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["tab_id"] as? String, workspaceId)
-            XCTAssertEqual(params["surface_id"] as? String, surfaceId)
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: ["marked_read": 1, "workspace_id": workspaceId, "surface_id": surfaceId]
-            )
+            switch method {
+            case "surface.list":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "notification.mark_read":
+                XCTAssertEqual(params["tab_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["marked_read": 1, "workspace_id": workspaceId, "surface_id": surfaceId]
+                )
+            default:
+                XCTFail("Unexpected method \(method)")
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
         }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
