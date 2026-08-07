@@ -295,7 +295,7 @@ struct WindowDockLifecycleTests {
                 workspace.bonsplitController.focusedPaneId
                     ?? workspace.bonsplitController.allPaneIds.first
             )
-            let workspaceBrowserId = try #require(
+            let workspaceBrowser = try #require(
                 workspace.newBrowserSurface(
                     inPane: workspacePane,
                     url: URL(string: "https://example.com/route-owner"),
@@ -304,7 +304,7 @@ struct WindowDockLifecycleTests {
                 )
             )
             #expect(workspace.closePanel(terminal.id, force: true))
-            #expect(workspace.browserPanel(for: workspaceBrowserId) != nil)
+            #expect(workspace.browserPanel(for: workspaceBrowser.id) === workspaceBrowser)
             #expect(!workspace.panels.values.contains { $0 is TerminalPanel })
             // Drain the initial terminal's unregister before a recoverable route
             // exists, so no terminal-topology callback can satisfy this test.
