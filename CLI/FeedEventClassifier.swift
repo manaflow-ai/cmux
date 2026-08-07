@@ -220,7 +220,6 @@ struct FeedEventClassifier {
             ], uniquingKeysWith: { _, replacement in replacement })
         case .kiro:
             semantics.merge([
-                "preToolUse": .toolStartMaybeApproval,
                 "postToolUse": .toolEnd,
                 "userPromptSubmit": .promptSubmit,
                 "agentSpawn": .sessionStart,

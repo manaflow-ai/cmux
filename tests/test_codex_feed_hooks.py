@@ -1192,10 +1192,12 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             older_start = (
                 int(older_owner.get("startSeconds", -1)),
                 int(older_owner.get("startMicroseconds", -1)),
+                int(older_owner.get("pid", -1)),
             )
             newer_start = (
                 int(owner.get("startSeconds", -1)),
                 int(owner.get("startMicroseconds", -1)),
+                int(owner.get("pid", -1)),
             )
             if newer_start <= older_start:
                 raise AssertionError(

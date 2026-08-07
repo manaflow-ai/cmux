@@ -532,12 +532,35 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             let turnKey = structuredBackgroundWorkTurnKey(turnId)
-            if let owner = record.backgroundWorkProcessGeneration,
-               processGeneration != owner {
-                return max(
-                    1,
-                    structuredBackgroundWorkCount(record, turnKey: turnKey)
-                )
+            if let owner = record.backgroundWorkProcessGeneration {
+                guard let processGeneration else {
+                    return max(
+                        1,
+                        structuredBackgroundWorkCount(
+                            record,
+                            turnKey: turnKey
+                        )
+                    )
+                }
+                if processGeneration != owner {
+                    guard processGeneration > owner else {
+                        return max(
+                            1,
+                            structuredBackgroundWorkCount(
+                                record,
+                                turnKey: turnKey
+                            )
+                        )
+                    }
+                    // The newer process generation owns an independent turn.
+                    // Retaining the old generation's work would permanently
+                    // defer settlement for the replacement process.
+                    clearStructuredBackgroundWorkState(on: &record)
+                    record.backgroundWorkProcessGeneration = processGeneration
+                    record.updatedAt = now
+                    state.sessions[normalizedSessionId] = record
+                    return 0
+                }
             }
             let activeWorkCount = structuredBackgroundWorkCount(
                 record,

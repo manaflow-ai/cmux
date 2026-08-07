@@ -103,14 +103,28 @@ extension TerminalController: ControlSidebarContext {
         processGeneration: ControlSidebarAgentProcessGeneration?,
         panelID: UUID?
     ) {
-        let acceptedProcessIdentity = processGeneration.map {
+        let exactProcessIdentity = processGeneration.map {
             AgentPIDProcessIdentity(
                 pid: $0.pid,
                 startSeconds: $0.startSeconds,
                 startMicroseconds: $0.startMicroseconds
             )
-        } ?? AgentPIDProcessIdentity(pid: pid)
+        }
+        let reconstructedProcessIdentity = AgentPIDProcessIdentity(pid: pid)
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+            // The coordinator rejects missing generations for built-ins. Keep
+            // the same invariant at the mutation boundary so a queued command
+            // cannot reconstruct ownership from a recycled numeric PID.
+            let acceptedProcessIdentity: AgentPIDProcessIdentity?
+            if let exactProcessIdentity {
+                acceptedProcessIdentity = exactProcessIdentity
+            } else if AgentHibernationLifecycleStatusKeys(
+                rawValue: key
+            ).isAllowed {
+                return
+            } else {
+                acceptedProcessIdentity = reconstructedProcessIdentity
+            }
             let result = owner.recordAgentPID(
                 key: key,
                 pid: pid,
@@ -216,20 +230,10 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> Bool {
-        guard AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed else {
-            return false
-        }
-        return v2MainSync {
-            guard let owner = self.controlSidebarResolvePanelOwner(
-                target: target,
-                panelID: panelID
-            ) else {
-                return true
-            }
-            // Never reconstruct a missing generation from the current numeric
-            // PID: a delayed hook could then bind to a recycled process.
-            return !owner.usesRemoteAgentProcessNamespace(panelId: panelID)
-        }
+        // Never reconstruct a missing generation from the current numeric PID:
+        // local and relayed hooks can both arrive after that PID was recycled
+        // in their respective process namespaces.
+        AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed
     }
 
     nonisolated func controlSidebarScheduleAgentLifecycle(
@@ -251,17 +255,21 @@ extension TerminalController: ControlSidebarContext {
             )
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            if AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed,
-               !owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
-                // The parser rejects missing generations for local built-ins;
-                // keep this mutation-boundary guard for replacement races.
-                guard let exactProcessGeneration,
+            if AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed {
+                // The parser rejects missing generations for built-ins; keep
+                // this mutation-boundary guard for queued replacement races.
+                guard let exactProcessGeneration else {
+                    return
+                }
+                if !owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
+                    guard
                       owner.hasLiveAgentProcess(
                           statusKey: key,
                           panelId: panelID,
                           matching: exactProcessGeneration
                       ) else {
-                    return
+                        return
+                    }
                 }
             }
             owner.setAgentLifecycle(

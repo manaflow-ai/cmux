@@ -328,7 +328,20 @@ extension DockSplitStore {
             }
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
                 let staleKeys = runtime.agentPIDKeys.filter {
-                    $0 != key && Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
+                    guard $0 != key,
+                          Self.isStructuredAgentHookPIDKey(
+                              $0,
+                              runtime: runtime
+                          ) else {
+                        return false
+                    }
+                    return Self.agentStatusKey(
+                        forAgentPIDKey: $0,
+                        runtime: runtime
+                    ) != statusKey
+                        || processIdentity == nil
+                        || runtime.agentPIDProcessIdentities[$0]
+                            != processIdentity
                 }
                 for staleKey in staleKeys {
                     agentProcessExitMonitor.cancel(
@@ -578,8 +591,25 @@ extension DockSplitStore {
         if runtime.agentPIDs.removeValue(forKey: key) != nil { didChange = true }
         if runtime.agentPIDProcessIdentities.removeValue(forKey: key) != nil { didChange = true }
         if runtime.agentPIDKeys.remove(key) != nil { didChange = true }
+        let hasRemainingStatusRuntime = runtime.agentPIDKeys.contains {
+            agentStatusKey(
+                forAgentPIDKey: $0,
+                runtime: runtime
+            ) == statusKey
+        }
+        let hasRemainingGenerationOwner = generation.map {
+            retainedGeneration in
+            runtime.agentPIDKeys.contains {
+                agentStatusKey(
+                    forAgentPIDKey: $0,
+                    runtime: runtime
+                ) == statusKey
+                    && runtime.agentPIDProcessIdentities[$0]
+                        == retainedGeneration
+            }
+        } ?? false
         let didClearLifecycle: Bool
-        if let generation {
+        if let generation, !hasRemainingGenerationOwner {
             didClearLifecycle = runtime.agentLifecycleReconciliationState.recordProcessExit(
                 key: statusKey,
                 panelId: runtime.panelId,
@@ -587,37 +617,33 @@ extension DockSplitStore {
             )
         } else if AgentHibernationLifecycleStatusKeys(
             rawValue: statusKey
-        ).isAllowed {
+        ).isAllowed,
+                  !hasRemainingStatusRuntime {
             didClearLifecycle = runtime.agentLifecycleReconciliationState
                 .recordUnidentifiedProcessExit(
                     key: statusKey,
                     panelId: runtime.panelId,
                     isBuiltIn: true
                 )
-        } else {
+        } else if !hasRemainingStatusRuntime {
             didClearLifecycle = runtime.agentLifecycleReconciliationState.removeKey(
                 key: statusKey,
                 panelId: runtime.panelId
             )
+        } else {
+            didClearLifecycle = false
         }
         if didClearLifecycle {
             didChange = true
         }
         if clearStatus, runtime.statusEntries[statusKey] != nil {
-            let hasRemainingRuntime =
-                runtime.agentPIDKeys.contains {
-                    agentStatusKey(
-                        forAgentPIDKey: $0,
-                        runtime: runtime
-                    ) == statusKey
-                }
             let feedAttentionStillVisible =
                 runtime.agentLifecycleReconciliationState
                     .hasFeedAttention(
                         key: statusKey,
                         panelId: runtime.panelId
                     )
-            if !hasRemainingRuntime
+            if !hasRemainingStatusRuntime
                 || (hadFeedAttention && !feedAttentionStillVisible) {
                 runtime.statusEntries.removeValue(forKey: statusKey)
                 didChange = true

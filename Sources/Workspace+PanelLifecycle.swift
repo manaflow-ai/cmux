@@ -146,11 +146,18 @@ extension Workspace {
         }
     }
 
-    private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
-        for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+    private func hasAgentRuntime(
+        forStatusKey statusKey: String,
+        excluding excludedKey: String? = nil
+    ) -> Bool {
+        for key in agentPIDs.keys
+        where key != excludedKey
+            && agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
         }
-        for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+        for key in agentPIDPanelIdsByKey.keys
+        where key != excludedKey
+            && agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
         }
         return false
@@ -186,11 +193,22 @@ extension Workspace {
     }
 
     @discardableResult
-    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
+    private func clearOtherStructuredAgentRuntimes(
+        onPanel panelId: UUID,
+        keeping retainedKey: String,
+        processGeneration retainedGeneration: AgentPIDProcessIdentity?
+    ) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
+        let retainedStatusKey = agentStatusKey(forAgentPIDKey: retainedKey)
         let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
+            if agentStatusKey(forAgentPIDKey: staleKey) == retainedStatusKey,
+               let retainedGeneration,
+               agentPIDProcessIdentitiesByKey[staleKey]
+                    == retainedGeneration {
+                continue
+            }
             if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
                 didChange = true
             }
@@ -234,14 +252,10 @@ extension Workspace {
         }
         if replacesProcessGeneration {
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            let hasOtherRuntime = agentPIDs.keys.contains {
-                $0 != key
-                    && agentStatusKey(forAgentPIDKey: $0) == statusKey
-            } || agentPIDPanelIdsByKey.keys.contains {
-                $0 != key
-                    && agentStatusKey(forAgentPIDKey: $0) == statusKey
-            }
-            if !hasOtherRuntime {
+            if !hasAgentRuntime(
+                forStatusKey: statusKey,
+                excluding: key
+            ) {
                 statusEntries.removeValue(forKey: statusKey)
             }
             if let previousPanelId = previous.panelId {
@@ -252,7 +266,14 @@ extension Workspace {
             }
         }
         var didClearOtherStructuredAgentRuntime = false
-        if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
+        if let panelId {
+            didClearOtherStructuredAgentRuntime =
+                clearOtherStructuredAgentRuntimes(
+                    onPanel: panelId,
+                    keeping: key,
+                    processGeneration: processIdentity
+                )
+        }
         agentPIDs[key] = pid
         if let processIdentity {
             agentPIDProcessIdentitiesByKey[key] = processIdentity
@@ -460,8 +481,22 @@ extension Workspace {
         if let changedPanelId = lifecyclePanelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         if let lifecyclePanelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
+            let remainingKeys = agentPIDKeysByPanelId[lifecyclePanelId] ?? []
+            let hasRemainingStatusRuntime = remainingKeys.contains {
+                agentStatusKey(forAgentPIDKey: $0) == lifecycleStatusKey
+            }
+            let hasRemainingGenerationOwner = recordedProcessIdentity.map {
+                generation in
+                remainingKeys.contains {
+                    agentStatusKey(forAgentPIDKey: $0)
+                        == lifecycleStatusKey
+                        && agentPIDProcessIdentitiesByKey[$0]
+                            == generation
+                }
+            } ?? false
             let didClearLifecycle: Bool
-            if let recordedProcessIdentity {
+            if let recordedProcessIdentity,
+               !hasRemainingGenerationOwner {
                 didClearLifecycle = sidebarAgentRuntimeObservation.recordAgentProcessExit(
                     key: lifecycleStatusKey,
                     panelId: lifecyclePanelId,
@@ -469,18 +504,21 @@ extension Workspace {
                 )
             } else if AgentHibernationLifecycleStatusKeys(
                 rawValue: lifecycleStatusKey
-            ).isAllowed {
+            ).isAllowed,
+                      !hasRemainingStatusRuntime {
                 didClearLifecycle = sidebarAgentRuntimeObservation
                     .recordUnidentifiedAgentProcessExit(
                         key: lifecycleStatusKey,
                         panelId: lifecyclePanelId,
                         isBuiltIn: true
                     )
-            } else {
+            } else if !hasRemainingStatusRuntime {
                 didClearLifecycle = sidebarAgentRuntimeObservation.removeAgentLifecycleKey(
                     key: lifecycleStatusKey,
                     panelId: lifecyclePanelId
                 )
+            } else {
+                didClearLifecycle = false
             }
             if didClearLifecycle {
                 didChange = true
