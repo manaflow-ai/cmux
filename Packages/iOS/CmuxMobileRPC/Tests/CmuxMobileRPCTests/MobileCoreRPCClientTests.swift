@@ -270,6 +270,28 @@ import Testing
         #expect(mapped.customColorHex == nil)
     }
 
+    @Test func workspaceListResponseTracksWhetherGroupsFieldWasPresent() throws {
+        let absentGroupsJSON = Data("""
+        {
+          "workspaces": []
+        }
+        """.utf8)
+        let emptyGroupsJSON = Data("""
+        {
+          "workspaces": [],
+          "groups": []
+        }
+        """.utf8)
+
+        let absentGroups = try MobileSyncWorkspaceListResponse.decode(absentGroupsJSON)
+        let emptyGroups = try MobileSyncWorkspaceListResponse.decode(emptyGroupsJSON)
+
+        #expect(absentGroups.groups.isEmpty)
+        #expect(!absentGroups.groupsFieldWasPresent)
+        #expect(emptyGroups.groups.isEmpty)
+        #expect(emptyGroups.groupsFieldWasPresent)
+    }
+
     @Test func workspaceListResponseCarriesWorkspaceGroupIcon() throws {
         let json = Data("""
         {

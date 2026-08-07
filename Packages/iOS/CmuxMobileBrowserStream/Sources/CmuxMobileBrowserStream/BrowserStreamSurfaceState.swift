@@ -160,6 +160,16 @@ public final class BrowserStreamSurfaceState: Identifiable {
     /// Whether the hidden input proxy should hold first responder.
     public var shouldFocusInput: Bool { keyboardPolicy.shouldFocusInput }
 
+    /// Whether the panel has never opened a page (a fresh New Browser pane).
+    ///
+    /// A blank pane mirrors an empty white surface, which reads as a rendering
+    /// glitch; the pane shows a purposeful new-page placeholder instead until
+    /// the first navigation gives the panel a URL.
+    public var isBlankPage: Bool {
+        let trimmed = url?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty || trimmed == "about:blank"
+    }
+
     /// Prepares sequence and status state for a new Mac stream subscription.
     public func prepareForStreamStart() {
         newestDisplayedSequence = nil

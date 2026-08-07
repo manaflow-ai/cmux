@@ -17,6 +17,28 @@ extension MobileShellComposite {
         browserStreamEvents?.replaceBrowserPanels(in: workspaceID, with: panels)
     }
 
+    /// Creates a new Mac browser panel in a workspace so the phone can stream
+    /// it with the same surface as discovered panels.
+    /// - Parameter workspaceID: The Mac-local workspace identifier.
+    /// - Returns: The created panel's descriptor, or `nil` when creation is
+    ///   unsupported, disconnected, or rejected by the Mac.
+    public func createMobileBrowserPanel(workspaceID: String) async -> MobileBrowserPanelDescriptor? {
+        guard connectionState == .connected,
+              supportsBrowserStreamCreate,
+              let client = remoteClient else { return nil }
+        guard let descriptor = try? await client.createMobileBrowserPanel(workspaceID: workspaceID),
+              remoteClient === client else {
+            // The Mac may have committed the panel even though the outcome was
+            // lost (timeout, decode failure, or a client swap mid-flight).
+            // Reconcile discovery so a committed panel surfaces in the picker
+            // instead of becoming an orphan the phone never learns about.
+            await refreshMobileBrowserPanels(workspaceID: workspaceID)
+            return nil
+        }
+        browserStreamEvents?.browserPanelCreated(descriptor)
+        return descriptor
+    }
+
     /// Starts streaming a discovered Mac browser panel.
     /// - Parameter panelID: The Mac browser panel identifier.
     public func startMobileBrowserStream(panelID: String) async {

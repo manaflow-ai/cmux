@@ -76,7 +76,7 @@ struct CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func embeddedDiscoveryMustExactlyMatchTheRegistrationRevision() async throws {
+    func embeddedDiscoveryMayFollowTheRegistrationRevision() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let discovery = try ClientRuntimeTestFixture.discovery(
             binding: fixture.binding,
@@ -98,9 +98,11 @@ struct CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
 
-        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
-            try await runtime.start()
-        }
+        try await runtime.start()
+
+        #expect(await runtime.snapshot().state == .active)
+        #expect(await runtime.connectivityEngine.snapshot().routeRevision == 2)
+        await runtime.stop()
     }
 
     @Test

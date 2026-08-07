@@ -168,8 +168,18 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public func sharesPhysicalTransportRoute(
         with otherRoute: CmxAttachRoute
     ) -> Bool {
-        MobileRPCConnectAttemptKey(route: route)
-            == MobileRPCConnectAttemptKey(route: otherRoute)
+        Self.routesSharePhysicalTransport(route, otherRoute)
+    }
+
+    /// Returns whether two routes compete for the same physical connection
+    /// lease. Shell ownership arbitration uses this before either route has a
+    /// live client, including while a background admission is still suspended.
+    public static func routesSharePhysicalTransport(
+        _ lhs: CmxAttachRoute,
+        _ rhs: CmxAttachRoute
+    ) -> Bool {
+        MobileRPCConnectAttemptKey(route: lhs)
+            == MobileRPCConnectAttemptKey(route: rhs)
     }
 
     /// Synchronously prevent this client from allocating another transport.
@@ -672,9 +682,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
         switch method {
         case "mobile.workspace.list", "workspace.list",
+             "mobile.task.models.list",
              "mobile.directory.list", "mobile.directory.search":
             return false
-        case "workspace.create":
+        case "workspace.create", "mobile.task.attachment.upload":
             return false
         case "workspace.action", "workspace.close":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
@@ -712,7 +723,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // token so legacy pairings cannot accidentally narrow the global
             // feed; Stack auth is still attached to every TCP request.
             return true
-        case "mobile.browser.list":
+        case "mobile.browser.list", "mobile.browser.create":
             return !ticketCoverage.ticketCoversWorkspaceRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value

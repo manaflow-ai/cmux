@@ -943,6 +943,14 @@ fn parse_terminal(
             let params = destination_params(flags)?;
             request(ResourceOperation::TerminalMove, selectors, flags, params)
         }
+        [selector, "project"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = destination_params(flags)?;
+            if let Some(name) = flags.take("name") {
+                params.insert("name".into(), Value::String(name));
+            }
+            request(ResourceOperation::TerminalProject, selectors, flags, params)
+        }
         [selector, "attach"] => {
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();
@@ -2193,7 +2201,7 @@ mod tests {
     fn operation_catalog() -> Value {
         serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../spec/resource-operations-v1.json"
+            "/../../spec/resource-operations-v2.json"
         )))
         .expect("canonical operation catalog")
     }
@@ -3079,6 +3087,24 @@ mod tests {
                 vec![
                     "terminal",
                     TERMINAL,
+                    "project",
+                    "--workspace",
+                    WORKSPACE,
+                    "--screen",
+                    SCREEN,
+                    "--pane",
+                    PANE,
+                    "--index",
+                    "1",
+                    "--name",
+                    "mirror",
+                ],
+                "terminal.project",
+            ),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
                     "attach",
                     "--cols",
                     "100",
@@ -3203,9 +3229,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 105);
+        assert_eq!(cases.len(), 106);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 112);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 113);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

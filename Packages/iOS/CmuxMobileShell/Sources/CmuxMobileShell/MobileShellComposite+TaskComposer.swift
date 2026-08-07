@@ -247,7 +247,7 @@ extension MobileShellComposite {
         )
     }
 
-    private func taskComposerTargetName(macDeviceID: String, instanceTag: String?) -> String {
+    func taskComposerTargetName(macDeviceID: String, instanceTag: String?) -> String {
         displayPairedMacs.first {
             $0.macDeviceID == macDeviceID
                 && (instanceTag == nil || $0.instanceTag == instanceTag)

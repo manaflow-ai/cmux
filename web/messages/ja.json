@@ -32,7 +32,6 @@
     "title": "{platform} 版 cmux",
     "tagline": "Chromium ブラウザとエージェントワークスペースを、ひとつに。",
     "logoAlt": "cmux アプリアイコン",
-    "portableCta": "ポータブル ZIP",
     "featuresTitle": "エージェント作業のための設計",
     "features": {
       "chromium": {
@@ -54,7 +53,7 @@
     },
     "installTitle": "インストール",
     "releaseTitle": "リリースとアップデート",
-    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新安定版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
+    "releaseBody": "リンクは常に <github>GitHub Releases</github> の最新ナイトリー版を指します。cmux は署名済みアップデートマニフェストを検証してから更新をインストールします。",
     "sourceLink": "GitHub でソースを見る",
     "otherPlatform": "{platform} 版 cmux",
     "macLink": "Mac 版 cmux ターミナル",
@@ -64,6 +63,7 @@
       "metaDescription": "Windows x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
       "subtitle": "Chromium タブ、cmux ワークスペース、Windows で慣れたキー操作を備えたネイティブ x64 ビルドです。",
       "primaryCta": "インストーラー（.exe）をダウンロード",
+      "secondaryCta": "ポータブル ZIP",
       "requirements": "Windows 10 以降 · x64",
       "installBody": "インストーラーを実行し、Windows の案内に従ってください。システム全体にインストールせずフォルダ内で使いたい場合は、ポータブル ZIP を選べます。"
     },
@@ -72,9 +72,10 @@
       "metaTitle": "Linux 版 cmux をダウンロード",
       "metaDescription": "Linux x64 版 cmux をダウンロード。タスク単位のタブとターミナルサーフェスを備えた、無料・オープンソースの Chromium ブラウザ兼エージェントワークスペースです。",
       "subtitle": "Chromium タブ、cmux ワークスペース、統合ターミナルサーフェスを備えたネイティブ x64 ビルドです。",
-      "primaryCta": ".deb をダウンロード",
-      "requirements": "Debian または Ubuntu · x64",
-      "installBody": "Debian パッケージをダウンロードし、パッケージマネージャーでインストールしてください。ユーザー単位のインストールとアプリ内更新にはポータブル ZIP を選べます。"
+      "primaryCta": "自動更新対応インストーラー（.run）をダウンロード",
+      "secondaryCta": "Debian パッケージ（.deb）",
+      "requirements": "Linux · x64",
+      "installBody": "ユーザー単位インストーラーを一度実行してください。root 権限なしで ~/.local にインストールされ、署名済みのアプリ内更新が有効になります。更新をパッケージマネージャーで管理したい場合は、代わりに Debian パッケージを選択してください。"
     }
   },
   "meta": {
@@ -99,7 +100,6 @@
       "vaultGroup": "vault",
       "vaultOverview": "概要",
       "vaultSessions": "セッション",
-      "vaultCliSetup": "CLI設定",
       "subrouterGroup": "subrouter",
       "subrouterOverview": "概要",
       "accountGroup": "アカウント",
@@ -237,6 +237,8 @@
       "teamSwitcherLabel": "チーム",
       "notConfiguredTitle": "AIアカウント管理はまだ利用できません",
       "notConfiguredBody": "このデプロイではチームAIアカウントが有効になっていません。しばらくしてから再試行するか、サポートにお問い合わせください。",
+      "migrationPendingTitle": "アカウントを移行中です",
+      "migrationPendingBody": "共有アカウントは移行が完了するまで一時的に利用できません。しばらくしてからもう一度お試しください。",
       "loadErrorTitle": "アカウントを読み込めませんでした",
       "loadErrorBody": "アカウントサービスに接続できませんでした。しばらくしてから再試行してください。",
       "accountsTitle": "接続済みアカウント",
@@ -2319,7 +2321,16 @@
     "changelog": {
       "title": "変更履歴",
       "metaDescription": "cmuxのリリースノートとバージョン履歴。ネイティブmacOSターミナルの新機能、バグ修正、変更点。",
-      "metaTitle": "変更履歴"
+      "metaTitle": "変更履歴",
+      "versionTitle": "cmux {version} · 変更履歴",
+      "releaseNavLabel": "cmux {version} 付近のリリース",
+      "sections": {
+        "added": "追加",
+        "changed": "変更",
+        "fixed": "修正",
+        "removed": "削除",
+        "contributors": "コントリビューター"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
