@@ -237,7 +237,6 @@ def run_wrapper_terminal_env_probe(
     hooks_disabled: bool = False,
     socket_state: str = "live",
     restore_token: str | None = None,
-    inherited_env: dict[str, str] | None = None,
 ) -> tuple[int, dict[str, str], list[str], str, set[str]]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-env-probe-") as td:
         tmp = Path(td)
@@ -273,8 +272,7 @@ def run_wrapper_terminal_env_probe(
             fingerprint_env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
         if restore_token is not None:
             fingerprint_env["CMUX_AGENT_RESTORE_LAUNCH"] = restore_token
-        probe_keys = [*fingerprint_env, "CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"]
-        probe_key_lines = "\n".join(f"  {key}" for key in probe_keys)
+        probe_key_lines = "\n".join(f"  {key}" for key in fingerprint_env)
 
         make_executable(
             real_dir / "claude",
@@ -320,11 +318,8 @@ exit 0
                 test_socket.bind(socket_path)
 
             env = os.environ.copy()
-            env.pop("CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS", None)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
             env.update(fingerprint_env)
-            if inherited_env is not None:
-                env.update(inherited_env)
             env["FAKE_REAL_ENV_LOG"] = str(env_log)
             env["FAKE_REAL_ARGS_LOG"] = str(args_log)
             env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
@@ -342,7 +337,7 @@ exit 0
                 test_socket.close()
 
         observed_env = dict(line.split("=", 1) for line in read_lines(env_log))
-        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), set(probe_keys)
+        return proc.returncode, observed_env, read_lines(args_log), proc.stderr.strip(), set(fingerprint_env)
 
 
 def expect(condition: bool, message: str, failures: list[str]) -> None:
@@ -627,40 +622,6 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SessionEnd hook should have a 10-second timeout, got {session_end_hooks}",
         failures,
     )
-
-
-def test_live_socket_sets_effective_session_end_hook_budget(failures: list[str]) -> None:
-    very_large_timeout = "9" * 100
-    cases = (
-        (None, "__UNSET__", "unset settings-derived budget"),
-        ("", "__UNSET__", "empty invalid budget"),
-        ("invalid", "__UNSET__", "invalid budget"),
-        ("0", "0", "zero settings-derived budget"),
-        ("1000", "10000", "too small"),
-        ("00009999", "10000", "too small with leading zeroes"),
-        ("10000", "10000", "exact minimum"),
-        ("30000", "30000", "larger user budget"),
-        (very_large_timeout, very_large_timeout, "larger than Bash integer range"),
-    )
-    for inherited_timeout, expected_timeout, label in cases:
-        inherited_env = (
-            {}
-            if inherited_timeout is None
-            else {"CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS": inherited_timeout}
-        )
-        code, observed_env, real_argv, stderr, _ = run_wrapper_terminal_env_probe(
-            ["hello"],
-            inherited_env=inherited_env,
-        )
-        expect(code == 0, f"SessionEnd budget ({label}): wrapper exited {code}: {stderr}", failures)
-        expect("--settings" in real_argv, f"SessionEnd budget ({label}): hooks were not injected", failures)
-        expect(
-            observed_env.get("CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS") == expected_timeout,
-            "SessionEnd budget "
-            f"({label}): expected {expected_timeout}ms, got "
-            f"{observed_env.get('CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS')!r}",
-            failures,
-        )
 
 
 def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> None:
@@ -1983,7 +1944,6 @@ def main() -> int:
         return 0
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
-    test_live_socket_sets_effective_session_end_hook_budget(failures)
     test_live_socket_merges_user_settings_into_hooks(failures)
     test_live_socket_merges_inline_settings_form(failures)
     test_live_socket_repeated_settings_user_value_wins_conflict(failures)

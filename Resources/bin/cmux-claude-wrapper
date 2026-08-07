@@ -764,31 +764,6 @@ install_cmux_node_options() {
     fi
 }
 
-# Claude gives SessionEnd a separate exit budget and caps each hook's configured
-# timeout to that budget. An absent or zero override makes Claude derive the
-# budget from the configured hooks, so only raise an inherited positive value
-# that would cut cmux's 10-second callback short.
-ensure_claude_session_end_hook_timeout_budget() {
-    local minimum_timeout_ms=10000
-    [[ ${CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS+x} ]] || return
-
-    local configured_timeout_ms="$CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS"
-
-    if ! cmux_claude_wrapper_is_nonnegative_integer "$configured_timeout_ms"; then
-        unset CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS
-        return
-    fi
-
-    # Compare digit counts instead of evaluating user input as shell arithmetic:
-    # environment values can exceed Bash's integer range. The minimum is a power
-    # of ten, so every positive value with fewer significant digits is smaller.
-    local significant_digits="${configured_timeout_ms#"${configured_timeout_ms%%[!0]*}"}"
-    if [[ -n "$significant_digits" \
-          && ${#significant_digits} -lt ${#minimum_timeout_ms} ]]; then
-        export CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS="$minimum_timeout_ms"
-    fi
-}
-
 encode_launch_argv() {
     {
         printf '%s\0' "$REAL_CLAUDE"
@@ -931,7 +906,6 @@ export CMUX_AGENT_LAUNCH_KIND="claude"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
 export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
-ensure_claude_session_end_hook_timeout_budget
 install_cmux_node_options
 
 # Build Claude settings JSON.
@@ -940,7 +914,8 @@ install_cmux_node_options
 #   channel inside cmux so hooks are the only notification source.
 # - SessionStart/Stop/Notification: existing lifecycle hooks
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't
-#   fire). SYNC with a 10s timeout and matching dedicated Claude exit budget.
+#   fire). SYNC with a 10s timeout; absent an explicit user override, Claude
+#   derives its dedicated SessionEnd exit budget from this configured hook.
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
 # - PreToolUse: rejects unsupported durable cron requests synchronously, then
 #   (async) clears "Needs input" / sets "Running" for ordinary tools, and flags
