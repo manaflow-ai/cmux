@@ -1019,6 +1019,19 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/multiline_subprocess_shell.py",
+            "subprocess.run(\n"
+            '    "curl https://api.openai.com/v1/items",\n'
+            "    shell=True,\n"
+            ")\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/env_curl.py",
+            'subprocess.run(["/usr/bin/env", "curl", "https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -1200,6 +1213,26 @@ def _self_test() -> int:
         (
             "tests/n18k.py",
             'subprocess.run(["printf", "bash", "-c", "curl https://api.openai.com/v1/items"])\n',
+        ),
+        # Multiline literal contents are fixture text in every scanned language,
+        # even when a middle physical line looks like executable source.
+        (
+            "tests/n18l.py",
+            'fixture = """\n'
+            'fetch("https://api.openai.com/v1/items")\n'
+            '"""\n',
+        ),
+        (
+            "web/tests/n18m.ts",
+            "const fixture = `\n"
+            'fetch("https://api.openai.com/v1/items")\n'
+            "`;\n",
+        ),
+        (
+            "cmuxTests/n18n.swift",
+            'let fixture = """\n'
+            'fetch("https://api.openai.com/v1/items")\n'
+            '"""\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
