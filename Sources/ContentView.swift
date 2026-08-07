@@ -6877,6 +6877,10 @@ struct ContentView: View {
                 (panelContext.panel as? FilePreviewPanel)?.previewMode == .text
             )
             snapshot.setBool(
+                CommandPaletteContextKeys.panelIsFilePreview,
+                panelContext.panel is FilePreviewPanel
+            )
+            snapshot.setBool(
                 CommandPaletteContextKeys.panelBrowserOmnibarVisible,
                 (panelContext.panel as? BrowserPanel)?.isOmnibarVisible ?? true
             )
@@ -6971,6 +6975,11 @@ struct ContentView: View {
         func markdownPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
             let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
             return String(localized: "commandPalette.subtitle.markdownWithName", defaultValue: "Markdown • \(name)")
+        }
+
+        func filePreviewPanelSubtitle(_ context: CommandPaletteContextSnapshot) -> String {
+            let name = context.string(CommandPaletteContextKeys.panelName) ?? String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
+            return String(localized: "commandPalette.subtitle.filePreviewWithName", defaultValue: "File • \(name)")
         }
 
         func workspaceColorCommandTitle(_ paletteName: String) -> String {
@@ -7764,6 +7773,24 @@ struct ContentView: View {
                 subtitle: markdownPanelSubtitle,
                 keywords: ["markdown", "zoom", "reset", "actual size", "font", "default"],
                 when: { $0.bool(CommandPaletteContextKeys.panelIsMarkdown) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.filePreviewOpenExternally",
+                title: constant(String(localized: "command.filePreviewOpenExternally.title", defaultValue: "Open File in Default App")),
+                subtitle: filePreviewPanelSubtitle,
+                keywords: ["file", "open", "default", "external", "app", "application", "preview"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsFilePreview) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.filePreviewRevealInFinder",
+                title: constant(String(localized: "command.filePreviewRevealInFinder.title", defaultValue: "Reveal File in Finder")),
+                subtitle: filePreviewPanelSubtitle,
+                keywords: ["file", "reveal", "finder", "show", "folder", "preview"],
+                when: { $0.bool(CommandPaletteContextKeys.panelIsFilePreview) }
             )
         )
         contributions.append(
@@ -8676,6 +8703,16 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.markdownZoomReset") {
             if !tabManager.resetZoomFocusedMarkdown() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.filePreviewOpenExternally") {
+            if !openFocusedFilePreviewExternally() {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.filePreviewRevealInFinder") {
+            if !revealFocusedFilePreviewInFinder() {
                 NSSound.beep()
             }
         }
@@ -10049,6 +10086,21 @@ struct ContentView: View {
             return false
         }
         return NSWorkspace.shared.open(url)
+    }
+
+    private func focusedFilePreviewFileURL() -> URL? {
+        FilePreviewCommandTarget.fileURL(for: focusedPanelContext?.panel)
+    }
+
+    private func openFocusedFilePreviewExternally() -> Bool {
+        guard let fileURL = focusedFilePreviewFileURL() else { return false }
+        return FileExternalOpenAction.openDefault(fileURL: fileURL)
+    }
+
+    private func revealFocusedFilePreviewInFinder() -> Bool {
+        guard let fileURL = focusedFilePreviewFileURL() else { return false }
+        FileExternalOpenAction.revealInFinder(fileURL: fileURL)
+        return true
     }
 
     private func openWorkspacePullRequestsInConfiguredBrowser() -> Bool {
