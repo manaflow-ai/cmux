@@ -358,7 +358,10 @@ struct TerminalClipboardInputSequencerTests {
             pressure: 1
         ))
 
-        terminalView.terminalClipboardInputSequencer.beginRequest(id: 1)
+        terminalView.terminalClipboardInputSequencer.beginRequest(
+            id: 1,
+            epoch: .max
+        )
         terminalView.mouseDown(with: event)
         #expect(window.firstResponder === priorResponder)
 
