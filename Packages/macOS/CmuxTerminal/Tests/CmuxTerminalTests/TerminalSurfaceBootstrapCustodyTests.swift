@@ -120,7 +120,8 @@ import CmuxTerminalCore
             scheduler: scheduler,
             nativeView: nativeView,
             paneHost: paneHost,
-            runtimeFilesystem: runtimeFilesystem
+            runtimeFilesystem: runtimeFilesystem,
+            claudeCommandShimInstallDeadline: .milliseconds(100)
         )
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
@@ -132,6 +133,9 @@ import CmuxTerminalCore
         // task never completes (disk pressure, starved queues), PTY spawn must
         // still proceed without it instead of waiting forever (#9769).
         await waitForCreateAttemptCount(surface, 1)
+
+        // Resume the parked install continuation so teardown stays clean.
+        await shimInstaller.complete()
     }
 
     private func waitForCreateAttemptCount(
@@ -156,7 +160,8 @@ import CmuxTerminalCore
             claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
             installClaudeCommandShim: { _, _, _ in nil },
             isExecutableFile: { _ in false }
-        )
+        ),
+        claudeCommandShimInstallDeadline: Duration = .seconds(5)
     ) -> TerminalSurface {
         TerminalSurface(
             tabId: UUID(),
@@ -174,6 +179,7 @@ import CmuxTerminalCore
                 runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator(),
                 restoreSpawnScheduler: scheduler,
                 runtimeFilesystem: runtimeFilesystem,
+                claudeCommandShimInstallDeadline: claudeCommandShimInstallDeadline,
                 sessionPortBase: 40_000,
                 sessionPortRangeSize: 100,
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"

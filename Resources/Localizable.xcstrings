@@ -37690,6 +37690,23 @@
         }
       }
     },
+    "cli.send.queuedSuffix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "queued (terminal starting; input delivers when its PTY spawns)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キュー済み（ターミナル起動中。PTY 生成後に入力が送信されます）"
+          }
+        }
+      }
+    },
     "cli.error.dismissNotificationSelector": {
       "extractionState": "manual",
       "localizations": {
