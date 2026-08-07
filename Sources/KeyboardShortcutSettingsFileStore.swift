@@ -510,11 +510,11 @@ final class CmuxSettingsFileStore {
         applyBooleanSettings(NotificationSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
         if let raw = jsonString(section["sound"]) {
             let allowed = Set(NotificationSoundSettings.systemSounds.map(\.value))
-            guard allowed.contains(raw) else {
+            if allowed.contains(raw) {
+                snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
+            } else {
                 logInvalid("notifications.sound", sourcePath: sourcePath)
-                return
             }
-            snapshot.managedUserDefaults[NotificationSoundSettings.key] = .string(raw)
         }
         applyStringSettings(NotificationSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
         if section.keys.contains("paneFlashColor") {
