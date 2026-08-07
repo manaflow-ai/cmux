@@ -49,7 +49,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// command containing it must reach those shells wrapped via
     /// ``portableClaudeResumeShellCommand(posixCommand:)``.
     public static let claudeWrapperShellExecutableToken =
-        "\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\""
+        ManagedAgentWrapperDescriptor.claude.wrapperShellExecutableToken
 
     /// The shell token that resolves cmux's `codex` wrapper at exec time.
     ///
@@ -76,7 +76,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// csh/tcsh reject, so any command containing it must reach those shells
     /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
     public static let codexWrapperShellExecutableToken =
-        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        ManagedAgentWrapperDescriptor.codex.wrapperShellExecutableToken
+
+    /// The shell token that resolves cmux's managed Amp wrapper at restore time.
+    public static let ampWrapperShellExecutableToken =
+        ManagedAgentWrapperDescriptor.amp.wrapperShellExecutableToken
 
     /// The shell token that resolves cmux's Hermes wrapper at restore time.
     ///
@@ -145,7 +149,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// *before* prepending any working-directory guard, so cd-prefix rewriting keeps
     /// composing on the outside. https://github.com/manaflow-ai/cmux/issues/5639
     public static func portableClaudeResumeShellCommand(posixCommand: String) -> String {
-        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+        ManagedAgentWrapperDescriptor.claude.portableShellCommand(posixCommand: posixCommand)
     }
 
     /// Renders claude command `parts` through ``renderingClaudeWrapperExecutable(parts:quote:)``
@@ -161,10 +165,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> String {
-        let rendered = renderingClaudeWrapperExecutable(parts: parts, quote: quote)
-        let joined = rendered.joined(separator: " ")
-        guard rendered.contains(claudeWrapperShellExecutableToken) else { return joined }
-        return portableClaudeResumeShellCommand(posixCommand: joined)
+        renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            descriptor: .claude,
+            quote: quote
+        )
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
@@ -181,14 +186,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == "claude" {
-                replaced = true
-                return claudeWrapperShellExecutableToken
-            }
-            return quote(part)
-        }
+        renderingManagedWrapperExecutable(parts: parts, descriptor: .claude, quote: quote)
     }
 
     /// Wraps a rendered codex resume command so it parses in any login shell.
@@ -202,7 +200,15 @@ public struct AgentResumeArgv: Sendable, Equatable {
     /// identically while `sh` still inherits `CMUX_CODEX_WRAPPER_SHIM` from the
     /// managed terminal environment (and falls back to bare `codex` when unset).
     public static func portableCodexResumeShellCommand(posixCommand: String) -> String {
-        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+        ManagedAgentWrapperDescriptor.codex.portableShellCommand(posixCommand: posixCommand)
+    }
+
+    /// Wraps a rendered Amp resume command so it parses in any login shell.
+    ///
+    /// - Parameter posixCommand: The rendered POSIX command containing the Amp wrapper token.
+    /// - Returns: A `/bin/sh -c` command that dispatching shells can parse consistently.
+    public static func portableAmpResumeShellCommand(posixCommand: String) -> String {
+        ManagedAgentWrapperDescriptor.amp.portableShellCommand(posixCommand: posixCommand)
     }
 
     /// Wraps a rendered Hermes restore command so it parses in any login shell.
@@ -221,10 +227,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> String {
-        let rendered = renderingCodexWrapperExecutable(parts: parts, quote: quote)
-        let joined = rendered.joined(separator: " ")
-        guard rendered.contains(codexWrapperShellExecutableToken) else { return joined }
-        return portableCodexResumeShellCommand(posixCommand: joined)
+        renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            descriptor: .codex,
+            quote: quote
+        )
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
@@ -238,14 +245,84 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
+        renderingManagedWrapperExecutable(parts: parts, descriptor: .codex, quote: quote)
+    }
+
+    /// Renders an Amp resume command through cmux's managed wrapper shim.
+    ///
+    /// - Parameters:
+    ///   - parts: The complete resume command, including any environment prefix.
+    ///   - quote: The shell-word quoting function supplied by the caller.
+    /// - Returns: A shell-portable command routed through the Amp wrapper when available.
+    public static func renderedPortableAmpResumeShellCommand(
+        parts: [String],
+        quote: (String) -> String
+    ) -> String {
+        renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            descriptor: .amp,
+            quote: quote
+        )
+    }
+
+    /// Returns the safe custom-executable environment needed by a managed wrapper.
+    ///
+    /// - Parameters:
+    ///   - kind: The managed agent kind.
+    ///   - executablePath: The captured executable path, when available.
+    ///   - arguments: The captured argv, including `argv[0]`.
+    /// - Returns: A single wrapper environment binding, or an empty dictionary
+    ///   when the capture uses the default executable name.
+    public static func managedWrapperCustomExecutableEnvironment(
+        kind: String,
+        executablePath: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        guard let descriptor = ManagedAgentWrapperDescriptor.registered(kind: kind),
+              let executable = normalizedManagedExecutable(executablePath ?? arguments.first),
+              (executable as NSString).lastPathComponent == descriptor.executableName,
+              executable != descriptor.executableName else {
+            return [:]
+        }
+        return [descriptor.customExecutablePathEnvironmentKey: executable]
+    }
+
+    private static func renderedPortableManagedResumeShellCommand(
+        parts: [String],
+        descriptor: ManagedAgentWrapperDescriptor,
+        quote: (String) -> String
+    ) -> String {
+        let rendered = renderingManagedWrapperExecutable(
+            parts: parts,
+            descriptor: descriptor,
+            quote: quote
+        )
+        let joined = rendered.joined(separator: " ")
+        guard rendered.contains(descriptor.wrapperShellExecutableToken) else { return joined }
+        return descriptor.portableShellCommand(posixCommand: joined)
+    }
+
+    private static func renderingManagedWrapperExecutable(
+        parts: [String],
+        descriptor: ManagedAgentWrapperDescriptor,
+        quote: (String) -> String
+    ) -> [String] {
         var replaced = false
         return parts.map { part in
-            if !replaced, part == "codex" {
+            if !replaced, part == descriptor.executableName {
                 replaced = true
-                return codexWrapperShellExecutableToken
+                return descriptor.wrapperShellExecutableToken
             }
             return quote(part)
         }
+    }
+
+    private static func normalizedManagedExecutable(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value
     }
 
     /// The result of resolving a cmux wrapper launcher (the `claude-teams` / `codex-teams` / `omo`
@@ -360,7 +437,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "amp":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "amp")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "amp", args: parts.tail) else { return nil }
-            return [parts.executable, "threads", "continue"] + preserved + [sessionId]
+            return ["amp", "threads", "continue"] + preserved + [sessionId]
         case "cursor":
             return withOption("cursor", executable: "cursor-agent", option: "--resume", sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "gemini":
@@ -458,9 +535,4 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
         return trimmed
     }
-}
-
-/// Single-quotes `value` as one POSIX `sh` word, escaping embedded quotes as `'\''`.
-private func posixSingleQuoted(_ value: String) -> String {
-    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }

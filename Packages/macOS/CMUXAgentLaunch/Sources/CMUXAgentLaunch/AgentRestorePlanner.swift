@@ -243,7 +243,13 @@ public struct AgentRestorePlanner: Sendable {
             return arguments
         }
 
-        if first != restoreLaunch.executableName {
+        environment.merge(AgentResumeArgv.managedWrapperCustomExecutableEnvironment(
+            kind: kind,
+            executablePath: request.launchCommand?.executablePath,
+            arguments: request.launchCommand?.arguments ?? []
+        )) { _, captured in captured }
+        if first != restoreLaunch.executableName,
+           (first as NSString).lastPathComponent == restoreLaunch.executableName {
             environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
         }
         environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue

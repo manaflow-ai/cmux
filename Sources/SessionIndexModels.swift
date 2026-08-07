@@ -202,7 +202,10 @@ enum AgentSpecifics: Hashable, Sendable {
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
-    case registered(CmuxVaultAgentRegistration)
+    case registered(
+        CmuxVaultAgentRegistration,
+        launchCommand: AgentLaunchCommandSnapshot? = nil
+    )
 }
 
 enum ClaudeConfigurationRoot {
@@ -267,7 +270,7 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
 
     var resumeWorkingDirectory: String? {
         guard let cwd, !cwd.isEmpty else { return nil }
-        if case .registered(let registration) = specifics,
+        if case .registered(let registration, _) = specifics,
            registration.cwd == .ignore {
             return nil
         }
@@ -390,19 +393,20 @@ struct SessionEntry: Identifiable, Hashable, Sendable {
                 model: model,
                 hermesHome: hermesHome
             )
-        case .registered(let registration):
+        case .registered(let registration, let launchCommand):
+            let capturedLaunch = launchCommand ?? AgentLaunchCommandSnapshot(
+                launcher: registration.id,
+                executablePath: nil,
+                arguments: [registration.defaultExecutable],
+                workingDirectory: resumeWorkingDirectory,
+                environment: nil,
+                capturedAt: nil,
+                source: "vault"
+            )
             if let command = AgentResumeCommandBuilder.resumeShellCommand(
                 kind: .custom(registration.id),
                 sessionId: sessionId,
-                launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: registration.id,
-                    executablePath: nil,
-                    arguments: [registration.defaultExecutable],
-                    workingDirectory: resumeWorkingDirectory,
-                    environment: nil,
-                    capturedAt: nil,
-                    source: "vault"
-                ),
+                launchCommand: capturedLaunch,
                 workingDirectory: resumeWorkingDirectory,
                 registrationOverride: registration,
                 includeWorkingDirectoryPrefix: false

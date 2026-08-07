@@ -40642,6 +40642,29 @@
         }
       }
     },
+    "cli.hooks.amp.alreadyUpToDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp hooks already up to date at %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の Amp フックはすでに最新です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 Amp 훅은 이미 최신 상태입니다"
+          }
+        }
+      }
+    },
     "cli.hooks.antigravity.aborted": {
       "extractionState": "manual",
       "localizations": {
@@ -157225,6 +157248,52 @@
         }
       }
     },
+    "sessionIndex.amp.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp セッション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 세션"
+          }
+        }
+      }
+    },
+    "sessionIndex.amp.titleInDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp session in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp セッション（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 Amp 세션"
+          }
+        }
+      }
+    },
     "sessionIndex.directory.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -157284,6 +157353,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "볼트가 비어 있습니다"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.ampStoreRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp: cannot read amp-hook-sessions.json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp: amp-hook-sessions.json を読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp: amp-hook-sessions.json을 읽을 수 없습니다"
           }
         }
       }
@@ -170742,19 +170834,19 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."
+            "value": "cmux installs and refreshes Amp hooks automatically in cmux terminals. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フックは`cmux hooks amp install`でインストールする必要があります。cmuxターミナル外では動作しません。無効にすると、インストール済みAmpプラグインは削除せずに停止状態に保たれます。"
+            "value": "cmuxターミナルでは、cmuxがAmpフックを自動的にインストールして更新します。cmuxターミナル外では動作しません。無効にすると、インストール済みのAmpプラグインは削除しなくても停止状態になります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "`cmux hooks amp install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 설치된 Amp 플러그인은 제거하지 않고도 비활성 상태로 유지됩니다."
+            "value": "cmux 터미널에서는 cmux가 Amp 훅을 자동으로 설치하고 갱신합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 설치된 Amp 플러그인을 제거하지 않아도 비활성 상태로 유지됩니다."
           }
         }
       }

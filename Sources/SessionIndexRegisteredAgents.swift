@@ -377,8 +377,19 @@ extension SessionIndexStore {
         needle: String,
         cwdFilter: String?,
         offset: Int,
-        limit: Int
+        limit: Int,
+        errorBag: ErrorBag = ErrorBag()
     ) async -> [SessionEntry] {
+        if case .cmuxHookStore = registration.sessionIdSource {
+            return loadCmuxHookStoreEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: errorBag
+            )
+        }
         if registration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
             return loadAntigravityHistoryEntries(
                 registration: registration,
@@ -674,7 +685,7 @@ extension SessionIndexStore {
         switch registration.sessionIdSource {
         case .argvOption:
             needsNativeSessionID = true
-        case .piSessionFile, .grokSessionDirectory, .persistedStore:
+        case .piSessionFile, .grokSessionDirectory, .cmuxHookStore:
             needsNativeSessionID = false
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
