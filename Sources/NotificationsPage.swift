@@ -7,10 +7,13 @@ struct NotificationsPage: View {
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @AppStorage(PhonePushSettings.forwardEnabledKey) private var forwardToPhone = false
-    @AppStorage(PhonePushSettings.hideContentKey) private var hidePhoneNotificationContent = false
-    @AppStorage(PhonePushSettings.forwardModeKey) private var forwardToPhoneMode = PhoneForwardingMode.defaultMode.rawValue
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var phonePushConfigurationState =
+        PhonePushClient.shared.configurationState
+
+    private var phonePushConfiguration: PhonePushConfiguration {
+        phonePushConfigurationState.configuration
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -111,19 +114,20 @@ struct NotificationsPage: View {
 
     private var phoneForwardingRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle(isOn: $forwardToPhone) {
+            Toggle(isOn: forwardToPhoneBinding) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
-                    Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send agent notifications to the cmux iPhone app. Off by default; nothing is uploaded unless this is on."))
+                    Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."))
                         .cmuxFont(.caption)
                         .foregroundColor(.secondary)
                 }
             }
-            if forwardToPhone {
+            .accessibilityIdentifier("notificationsPage.forwardToPhone")
+            if phonePushConfiguration.forwardingEnabled {
                 VStack(alignment: .leading, spacing: 4) {
                     Picker(
                         String(localized: "notifications.forwardToPhone.mode.label", defaultValue: "When to send"),
-                        selection: $forwardToPhoneMode
+                        selection: forwardToPhoneModeBinding
                     ) {
                         Text(String(localized: "notifications.forwardToPhone.mode.onlyWhenAway", defaultValue: "Only when away from this Mac"))
                             .tag(PhoneForwardingMode.onlyWhenAway.rawValue)
@@ -133,14 +137,14 @@ struct NotificationsPage: View {
                     .pickerStyle(.menu)
                     .fixedSize()
                     .cmuxFont(.caption)
-                    if forwardToPhoneMode == PhoneForwardingMode.onlyWhenAway.rawValue {
+                    if phonePushConfiguration.mode == .onlyWhenAway {
                         Text(awayModeExplanation)
                             .cmuxFont(.caption)
                             .foregroundColor(.secondary)
                     }
                 }
                 .padding(.leading, 20)
-                Toggle(isOn: $hidePhoneNotificationContent) {
+                Toggle(isOn: hidePhoneNotificationContentBinding) {
                     Text(String(localized: "notifications.forwardToPhone.hideContent", defaultValue: "Hide content (send a generic message instead of the terminal text)"))
                         .cmuxFont(.caption)
                 }
@@ -149,6 +153,42 @@ struct NotificationsPage: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var forwardToPhoneBinding: Binding<Bool> {
+        Binding(
+            get: { phonePushConfiguration.forwardingEnabled },
+            set: { enabled in
+                PhonePushClient.shared.updateSettings(
+                    forwardingEnabled: enabled
+                )
+            }
+        )
+    }
+
+    private var forwardToPhoneModeBinding: Binding<String> {
+        Binding(
+            get: { phonePushConfiguration.mode.rawValue },
+            set: { rawValue in
+                guard let mode = PhoneForwardingMode(rawValue: rawValue) else {
+                    return
+                }
+                PhonePushClient.shared.updateSettings(
+                    mode: mode
+                )
+            }
+        )
+    }
+
+    private var hidePhoneNotificationContentBinding: Binding<Bool> {
+        Binding(
+            get: { phonePushConfiguration.hideContent },
+            set: { hideContent in
+                PhonePushClient.shared.updateSettings(
+                    hideContent: hideContent
+                )
+            }
+        )
     }
 
     private var awayModeExplanation: String {

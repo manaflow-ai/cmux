@@ -5,35 +5,51 @@ import SwiftUI
 
 /// A large, automatically focused prompt canvas for the agent's first instruction.
 struct TaskComposerPromptCard: View {
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     @Binding var prompt: String
     let placeholder: String
     let isDisabled: Bool
+    let endEditing: () -> Void
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
+    let modelPickerVariant: TaskComposerModelPickerVariant
+    let models: [MobileTaskAgentModel]
+    let selectedModelID: String?
+    let attachments: [TaskComposerAttachment]
+    let showsAttachmentButton: Bool
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
+    let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
+    let selectModel: (String?) -> Void
     let editTemplates: () -> Void
+    let chooseAttachmentPhotos: () -> Void
+    let chooseAttachmentFiles: () -> Void
+    let removeAttachment: (UUID) -> Void
 
     @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                TaskComposerAgentMenu(
-                    value: TaskComposerAgentMenuValue(
-                        templates: templates,
-                        selectedTemplateID: selectedTemplateID,
-                        isDisabled: isDisabled
-                    ),
-                    actions: TaskComposerAgentMenuActions(
-                        selectTemplate: selectTemplate,
-                        editTemplates: editTemplates
-                    )
+            agentRow
+
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .separateRow {
+                TaskComposerModelRow(
+                    models: models,
+                    selectedModelID: selectedModelID,
+                    isDisabled: isDisabled,
+                    selectModel: selectModel
                 )
-                .equatable()
-                Spacer(minLength: 0)
+            }
+
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .pillStrip {
+                TaskComposerModelPillStrip(
+                    models: models,
+                    selectedModelID: selectedModelID,
+                    isDisabled: isDisabled,
+                    selectModel: selectModel
+                )
             }
 
             TextField(placeholder, text: $prompt, axis: .vertical)
@@ -47,26 +63,70 @@ struct TaskComposerPromptCard: View {
                 .accessibilityLabel(L10n.string("mobile.taskComposer.prompt", defaultValue: "Prompt"))
                 .accessibilityHint(placeholder)
                 .accessibilityIdentifier("MobileTaskComposerPrompt")
+                .taskComposerEditingCompletion(
+                    isFocused: isFocused,
+                    endEditing: endEditing
+                )
+
+            if !attachments.isEmpty {
+                TaskComposerAttachmentStrip(
+                    attachments: attachments,
+                    isDisabled: isDisabled,
+                    remove: removeAttachment
+                )
+            }
         }
         .padding(14)
         .mobileGlassField(cornerRadius: 26)
-        .overlay {
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .strokeBorder(
-                    isFocused ? Color.accentColor.opacity(0.58) : Color.primary.opacity(0.06),
-                    lineWidth: isFocused ? 1.25 : 1
+    }
+
+    @ViewBuilder
+    private var agentRow: some View {
+        HStack(spacing: 8) {
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .trailingChip {
+                agentMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                TaskComposerModelChip(
+                    models: models,
+                    selectedModelID: selectedModelID,
+                    isDisabled: isDisabled,
+                    selectModel: selectModel
                 )
-                .allowsHitTesting(false)
+            } else {
+                agentMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if showsAttachmentButton {
+                TaskComposerAttachmentPickerMenu(
+                    style: .paperclip,
+                    isDisabled: isDisabled,
+                    choosePhotos: chooseAttachmentPhotos,
+                    chooseFiles: chooseAttachmentFiles
+                )
+            }
         }
-        .shadow(
-            color: isFocused ? Color.accentColor.opacity(0.1) : Color.black.opacity(0.035),
-            radius: isFocused ? 16 : 10,
-            y: 6
+    }
+
+    private var agentMenu: some View {
+        TaskComposerAgentMenu(
+            value: TaskComposerAgentMenuValue(
+                templates: templates,
+                selectedTemplateID: selectedTemplateID,
+                modelPickerVariant: modelPickerVariant,
+                models: models,
+                selectedModelID: selectedModelID,
+                isDisabled: isDisabled
+            ),
+            actions: TaskComposerAgentMenuActions(
+                selectTemplate: selectTemplate,
+                selectTemplateAndModel: selectTemplateAndModel,
+                editTemplates: editTemplates
+            )
         )
-        .animation(
-            accessibilityReduceMotion ? nil : .easeOut(duration: 0.18),
-            value: isFocused
-        )
+        .equatable()
     }
 
     private var promptLineLimit: ClosedRange<Int> {

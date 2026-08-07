@@ -9,6 +9,7 @@ struct WorkspaceTitleMenuValue: Equatable {
     let isEnabled: Bool
     let workspaceName: String
     let hasUnread: Bool
+    let canCustomizeWorkspace: Bool
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool

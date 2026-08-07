@@ -79,6 +79,36 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.terminalFolderTapEnabled") as? Bool == false)
     }
 
+    @Test func hapticFeedbackDefaultsToEnabledWithoutAWrite() throws {
+        let defaults = try makeDefaults("hapticFeedbackDefaults")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        #expect(settings.hapticFeedbackEnabled)
+        #expect(defaults.object(forKey: "cmux.mobile.hapticFeedbackEnabled") == nil)
+    }
+
+    @Test func hapticFeedbackPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("hapticFeedbackPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.hapticFeedbackEnabled = false
+        #expect(!MobileDisplaySettings(defaults: defaults).hapticFeedbackEnabled)
+
+        settings.hapticFeedbackEnabled = true
+        #expect(MobileDisplaySettings(defaults: defaults).hapticFeedbackEnabled)
+    }
+
+    @Test func hapticFeedbackPolicyReadsSettingsWrites() throws {
+        let defaults = try makeDefaults("hapticFeedbackPolicyReadsSettingsWrites")
+        let settings = MobileDisplaySettings(defaults: defaults)
+
+        settings.hapticFeedbackEnabled = false
+        #expect(!settings.haptics.isEnabled)
+
+        settings.hapticFeedbackEnabled = true
+        #expect(settings.haptics.isEnabled)
+    }
+
     @Test func terminalFolderTapReadsStoredFalse() throws {
         let defaults = try makeDefaults("terminalFolderTapReadsStoredFalse")
         defaults.set(false, forKey: "cmux.mobile.terminalFolderTapEnabled")
@@ -134,11 +164,16 @@ import Testing
         let defaults = try makeDefaults("debugLayoutDefaults")
         let settings = MobileDisplaySettings(defaults: defaults)
         #expect(settings.unreadIndicatorLeftShift == 1.5)
-        #expect(settings.profilePictureLeftShift == 4)
-        #expect(settings.profilePictureSize == 45)
         #expect(defaults.object(forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2") == nil)
-        #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureLeftShift") == nil)
-        #expect(defaults.object(forKey: "cmux.mobile.debug.profilePictureSize") == nil)
+        #if DEBUG
+        #expect(settings.taskComposerLayoutStyle == .composer)
+        #expect(settings.taskComposerModelPickerVariant == .combined)
+        #else
+        #expect(settings.taskComposerLayoutStyle == .classic)
+        #expect(settings.taskComposerModelPickerVariant == .off)
+        #endif
+        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerLayoutStyle.v1") == nil)
+        #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1") == nil)
         #expect(settings.taskComposerShellIconVariant == .current)
         #expect(defaults.object(forKey: "cmux.mobile.debug.taskComposerShellIconVariant.v1") == nil)
     }
@@ -168,6 +203,64 @@ import Testing
     }
 
     #if DEBUG
+    @Test func taskComposerLayoutStylePersistsAndRejectsUnknownValues() throws {
+        let defaults = try makeDefaults("taskComposerLayoutStyle")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerLayoutStyle = .classic
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerLayoutStyle == .classic)
+
+        defaults.set("removed-style", forKey: "cmux.mobile.debug.taskComposerLayoutStyle.v1")
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerLayoutStyle == .composer)
+    }
+
+    @Test func modelPickerVariantPersistsAndRejectsUnknownValues() throws {
+        let defaults = try makeDefaults("modelPickerVariant")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.taskComposerModelPickerVariant = .pillStrip
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerModelPickerVariant == .pillStrip)
+
+        defaults.set("removed-variant", forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1")
+        #expect(MobileDisplaySettings(defaults: defaults).taskComposerModelPickerVariant == .combined)
+    }
+
+    @Test func taskComposerPreviewPinsStableLabDefaults() throws {
+        // A fresh install under the accessibility preview keeps the shipping
+        // classic layout and no model UI so the XCUITest suite's element tree
+        // stays stable across lab default changes.
+        let defaults = try makeDefaults("previewLabDefaults")
+        let preview = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
+        let settings = MobileDisplaySettings(defaults: defaults, environment: preview)
+        #expect(settings.taskComposerLayoutStyle == .classic)
+        #expect(settings.taskComposerModelPickerVariant == .off)
+    }
+
+    @Test func taskComposerPreviewHonorsExplicitLabOverrides() throws {
+        let defaults = try makeDefaults("previewLabOverrides")
+        let environment = [
+            "CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1",
+            "CMUX_UITEST_TASK_COMPOSER_LAYOUT": "composer",
+            "CMUX_UITEST_TASK_COMPOSER_MODEL_VARIANT": "contextRow",
+        ]
+        let settings = MobileDisplaySettings(defaults: defaults, environment: environment)
+        #expect(settings.taskComposerLayoutStyle == .composer)
+        #expect(settings.taskComposerModelPickerVariant == .contextRow)
+    }
+
+    @Test func taskComposerPreviewPrefersPersistedLabValues() throws {
+        // The dev screenshot recipe writes defaults then relaunches with the
+        // preview env; the persisted choice must win over the preview fallback.
+        let defaults = try makeDefaults("previewLabPersisted")
+        defaults.set("composer", forKey: "cmux.mobile.debug.taskComposerLayoutStyle.v1")
+        defaults.set(
+            "pillStrip",
+            forKey: "cmux.mobile.debug.taskComposerModelPickerVariant.v1"
+        )
+        let preview = ["CMUX_UITEST_TASK_COMPOSER_PREVIEW": "1"]
+        let settings = MobileDisplaySettings(defaults: defaults, environment: preview)
+        #expect(settings.taskComposerLayoutStyle == .composer)
+        #expect(settings.taskComposerModelPickerVariant == .pillStrip)
+    }
+
     @Test func shellIconVariantPersistsAndRejectsUnknownValues() throws {
         let defaults = try makeDefaults("shellIconVariant")
         let settings = MobileDisplaySettings(defaults: defaults)
@@ -183,31 +276,19 @@ import Testing
         let defaults = try makeDefaults("debugLayoutPersists")
         let settings = MobileDisplaySettings(defaults: defaults)
         settings.unreadIndicatorLeftShift = 7
-        settings.profilePictureLeftShift = 11
-        settings.profilePictureSize = 55
 
         let reloaded = MobileDisplaySettings(defaults: defaults)
         #expect(reloaded.unreadIndicatorLeftShift == 7)
-        #expect(reloaded.profilePictureLeftShift == 11)
-        #expect(reloaded.profilePictureSize == 55)
     }
 
     @Test func debugLayoutSettingsClampToSupportedRanges() throws {
         let defaults = try makeDefaults("debugLayoutClamps")
         let settings = MobileDisplaySettings(defaults: defaults)
         settings.unreadIndicatorLeftShift = 99
-        settings.profilePictureLeftShift = -1
-        settings.profilePictureSize = 100
         #expect(settings.unreadIndicatorLeftShift == 24)
-        #expect(settings.profilePictureLeftShift == 0)
-        #expect(settings.profilePictureSize == 64)
 
         defaults.set(-5.0, forKey: "cmux.mobile.debug.unreadIndicatorLeftShift.v2")
-        defaults.set(99.0, forKey: "cmux.mobile.debug.profilePictureLeftShift")
-        defaults.set(1.0, forKey: "cmux.mobile.debug.profilePictureSize")
         let reloaded = MobileDisplaySettings(defaults: defaults)
         #expect(reloaded.unreadIndicatorLeftShift == 0)
-        #expect(reloaded.profilePictureLeftShift == 24)
-        #expect(reloaded.profilePictureSize == 36)
     }
 }

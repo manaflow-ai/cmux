@@ -72,7 +72,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$)' /tmp/changed-files.txt; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -99,8 +99,8 @@ jobs:
           # namespace-enums) plus the repo-wide namespace-type rule (no
           # all-static "namespace" types in any package). Exits non-zero on any
           # unjustified ERROR; sanctioned exceptions carry a lint:allow /
-          # TRANSITIONAL / carve-out marker, and pre-existing namespace-type
-          # debt is grandfathered in scripts/lint-namespace-types-baseline.txt.
+          # TRANSITIONAL / carve-out marker, and pre-existing debt is
+          # grandfathered in the lint baseline files under scripts/.
           ./scripts/lint-ios-package-conventions.sh
 
   mobile-core-package:
@@ -162,12 +162,22 @@ jobs:
         run: |
           swift test --package-path Packages/iOS/CmuxMobilePairedMac
 
+      - name: Run CmuxMobileChanges package tests
+        run: |
+          swift test --package-path Packages/iOS/CmuxMobileChanges
+
       - name: Run CmuxMobileShell package tests
         run: |
           # iOS shell replay/liveness regressions live in this package target.
           # Keep them under the iOS package gate so PR CI enforces the mobile
           # terminal mirror behavior without relying on local-only SwiftPM runs.
           swift test --package-path Packages/iOS/CmuxMobileShell
+
+      - name: Run CmuxMobileShellModel package tests
+        run: |
+          # Pure shell-model queue and ordering regressions live in this package.
+          # Keep them beside the shell package gate so input framing stays covered.
+          swift test --package-path Packages/iOS/CmuxMobileShellModel
 
   ios-simulator:
     needs: detect-ios-changes
@@ -395,6 +405,9 @@ jobs:
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              ./scripts/ci/require_selected_test_execution.sh \
+                "$LOG_PATH" \
+                "${TEST_FILTER:-}"
               exit 0
             fi
             status="${PIPESTATUS[0]}"

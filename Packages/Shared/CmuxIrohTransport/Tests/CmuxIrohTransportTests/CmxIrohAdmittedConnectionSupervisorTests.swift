@@ -18,11 +18,19 @@ struct CmxIrohAdmittedConnectionSupervisorTests {
                 started.continuation.yield()
                 for await _ in control.stream {}
                 await childExitRecorder.record("control")
+                return CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlReadFailed,
+                    failure: .transportIdleTimedOut
+                )
             },
             runApplicationLanes: {
                 started.continuation.yield()
                 for await _ in lanes.stream {}
                 await childExitRecorder.record("lanes")
+                return CmxIrohAdmittedConnectionExit(
+                    lifecycle: .applicationLaneFailed,
+                    failure: .connectionClosed
+                )
             },
             closeConnection: {
                 await cleanupRecorder.record("connection.close")
@@ -54,11 +62,11 @@ struct CmxIrohAdmittedConnectionSupervisorTests {
         default:
             runTask.cancel()
         }
-        await runTask.value
+        let exit = await runTask.value
 
         // One actor instance owns one admitted connection lifetime. A repeated
         // call cannot launch or clean up the same connection again.
-        await supervisor.run()
+        let repeatedExit = await supervisor.run()
 
         #expect(
             await cleanupRecorder.observedEvents()
@@ -68,5 +76,21 @@ struct CmxIrohAdmittedConnectionSupervisorTests {
             Set(await childExitRecorder.observedEvents())
                 == Set(["control", "lanes"])
         )
+        if trigger == "control" {
+            #expect(
+                exit == CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlReadFailed,
+                    failure: .transportIdleTimedOut
+                )
+            )
+        } else if trigger == "lanes" {
+            #expect(
+                exit == CmxIrohAdmittedConnectionExit(
+                    lifecycle: .applicationLaneFailed,
+                    failure: .connectionClosed
+                )
+            )
+        }
+        #expect(repeatedExit == exit)
     }
 }

@@ -128,6 +128,53 @@ import Testing
         ) == false)
     }
 
+    @Test(arguments: ["1", "diff", "empty", "states"])
+    func changesPreviewAcceptsSupportedModes(_ mode: String) {
+        #if DEBUG
+        #expect(UITestConfig.changesPreviewMode(
+            from: ["CMUX_UITEST_CHANGES_PREVIEW": mode]
+        ) == mode)
+        #else
+        #expect(UITestConfig.changesPreviewMode(
+            from: ["CMUX_UITEST_CHANGES_PREVIEW": mode]
+        ) == nil)
+        #endif
+    }
+
+    @Test func changesPreviewRejectsUnknownModeAndReadsArguments() {
+        #expect(UITestConfig.changesPreviewMode(
+            from: ["CMUX_UITEST_CHANGES_PREVIEW": "unknown"]
+        ) == nil)
+        #if DEBUG
+        #expect(UITestConfig.changesPreviewMode(
+            from: [:],
+            arguments: ["CMUX_UITEST_CHANGES_PREVIEW=diff"]
+        ) == "diff")
+        #else
+        #expect(UITestConfig.changesPreviewMode(
+            from: [:],
+            arguments: ["CMUX_UITEST_CHANGES_PREVIEW=diff"]
+        ) == nil)
+        #endif
+    }
+
+    @Test func pushReadinessPreviewUsesExplicitInputsWithEnvironmentPrecedence() {
+        #if DEBUG
+        #expect(UITestConfig.pushReadinessPreviewState(
+            from: ["CMUX_UITEST_PUSH_READINESS_PREVIEW": "healthy"],
+            arguments: ["CMUX_UITEST_PUSH_READINESS_PREVIEW=unavailable"]
+        ) == "healthy")
+        #expect(UITestConfig.pushReadinessPreviewState(
+            from: [:],
+            arguments: ["CMUX_UITEST_PUSH_READINESS_PREVIEW=permission-denied"]
+        ) == "permission-denied")
+        #else
+        #expect(UITestConfig.pushReadinessPreviewState(
+            from: ["CMUX_UITEST_PUSH_READINESS_PREVIEW": "healthy"]
+        ) == nil)
+        #endif
+    }
+
     @Test func notificationFeedPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_NOTIFICATION_FEED_PREVIEW": "1"]
         #if DEBUG

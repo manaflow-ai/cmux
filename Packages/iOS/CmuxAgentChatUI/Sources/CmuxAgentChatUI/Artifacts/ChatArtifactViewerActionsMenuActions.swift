@@ -12,5 +12,6 @@ struct ChatArtifactViewerActionsMenuActions {
     let selectMarkdownMode: (String, ChatArtifactMarkdownMode) -> Void
     let notifyCopied: () -> Void
     let notifyPathCopied: () -> Void
+    let performFileAction: @MainActor (ChatArtifactAction, ChatArtifactViewerPageSnapshot) -> Void
 }
 #endif

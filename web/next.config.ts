@@ -1,6 +1,7 @@
 import "./app/env";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
+import { withSentryConfig } from "@sentry/nextjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
@@ -36,6 +37,22 @@ const baseNightlyMoves = ["", ".md", ".txt"].flatMap((ext) => [
     permanent: false,
   },
 ]);
+const tuiInstallerHeaderRules = [
+  {
+    source: "/tui/install.sh",
+    headers: [
+      { key: "Content-Type", value: "text/plain; charset=utf-8" },
+      { key: "Content-Disposition", value: "inline" },
+    ],
+  },
+  {
+    source: "/tui/install.ps1",
+    headers: [
+      { key: "Content-Type", value: "text/plain; charset=utf-8" },
+      { key: "Content-Disposition", value: "inline" },
+    ],
+  },
+];
 
 const nextConfig: NextConfig = {
   poweredByHeader,
@@ -130,14 +147,17 @@ const nextConfig: NextConfig = {
     return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
   },
   async headers() {
-    if (docsChannel !== "nightly") return securityHeaderRules;
-    return securityHeaderRules.map((rule) => ({
-      ...rule,
-      headers: [
-        ...rule.headers,
-        { key: "X-Robots-Tag", value: "noindex, follow" },
-      ],
-    }));
+    const channelSecurityHeaders =
+      docsChannel !== "nightly"
+        ? securityHeaderRules
+        : securityHeaderRules.map((rule) => ({
+            ...rule,
+            headers: [
+              ...rule.headers,
+              { key: "X-Robots-Tag", value: "noindex, follow" },
+            ],
+          }));
+    return [...channelSecurityHeaders, ...tuiInstallerHeaderRules];
   },
   turbopack: {
     root: webRoot,
@@ -148,6 +168,7 @@ const nextConfig: NextConfig = {
       "./app/**/assets/landing-image.png",
       "./public/logo.png",
     ],
+    "**/browser-opengraph-image": ["./public/logo.png"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +
@@ -165,4 +186,16 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withNextIntl(nextConfig);
+const configuredNext = withNextIntl(nextConfig);
+
+export default process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(configuredNext, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      silent: true,
+      telemetry: false,
+      widenClientFileUpload: true,
+      disableLogger: true,
+    })
+  : configuredNext;
