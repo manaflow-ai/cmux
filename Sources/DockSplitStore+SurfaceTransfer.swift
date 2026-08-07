@@ -320,12 +320,7 @@ extension DockSplitStore {
         guard bonsplitController.allPaneIds.contains(paneId), panels[detached.panelId] == nil else { return nil }
         let panel = detached.panel
 
-        if let terminal = panel as? TerminalPanel {
-            terminal.surface.setFocusPlacement(.rightSidebarDock)
-            terminal.updateWorkspaceId(workspaceId)
-        } else if let browser = panel as? BrowserPanel {
-            browser.updateWorkspaceId(workspaceId)
-        }
+        retargetTransferredPanelForAttachment(panel)
 
         panels[detached.panelId] = panel
         // Cache the transfer as-is, transient resume state included: while the
@@ -412,12 +407,7 @@ extension DockSplitStore {
         }
         let panel = detached.panel
 
-        if let terminal = panel as? TerminalPanel {
-            terminal.surface.setFocusPlacement(.rightSidebarDock)
-            terminal.updateWorkspaceId(workspaceId)
-        } else if let browser = panel as? BrowserPanel {
-            browser.updateWorkspaceId(workspaceId)
-        }
+        retargetTransferredPanelForAttachment(panel)
 
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         let tab = Bonsplit.Tab(

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxPanes
 import WebKit
 
 @MainActor
@@ -224,7 +225,11 @@ struct MarkdownWebTheme: Equatable {
 /// logical `MarkdownPanel` instead of the transient representable instance.
 @MainActor
 final class MarkdownRendererSession {
-    private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
+    private let ownedCoordinator: MarkdownWebRenderer.Coordinator
+
+    init(fileLinkResolver: MarkdownPanelFileLinkResolver) {
+        ownedCoordinator = MarkdownWebRenderer.Coordinator(fileLinkResolver: fileLinkResolver)
+    }
 
     func coordinator(
         panelId: UUID,
@@ -233,6 +238,16 @@ final class MarkdownRendererSession {
     ) -> MarkdownWebRenderer.Coordinator {
         ownedCoordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         return ownedCoordinator
+    }
+
+    func updateFileLinkContext(
+        workspaceId: UUID,
+        fileLinkResolver: MarkdownPanelFileLinkResolver
+    ) {
+        ownedCoordinator.updateFileLinkContext(
+            workspaceId: workspaceId,
+            fileLinkResolver: fileLinkResolver
+        )
     }
 
     func close() {

@@ -8792,7 +8792,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         guard let paneId = sourcePaneId else { return nil }
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath, fontSize: fontSize)
+        let markdownPanel = makeMarkdownPanel(filePath: filePath, fontSize: fontSize)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8847,7 +8847,7 @@ final class Workspace: Identifiable, ObservableObject {
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
 
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = makeMarkdownPanel(filePath: filePath)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8965,7 +8965,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool,
         filePath: String
     ) -> MarkdownPanel? {
-        let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
+        let markdownPanel = makeMarkdownPanel(filePath: filePath)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
 
@@ -8997,6 +8997,15 @@ final class Workspace: Identifiable, ObservableObject {
         focusPanel(markdownPanel.id)
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    private func makeMarkdownPanel(filePath: String, fontSize: Double? = nil) -> MarkdownPanel {
+        MarkdownPanel(
+            workspaceId: id,
+            filePath: filePath,
+            fontSize: fontSize,
+            workspaceRootPath: currentDirectory
+        )
     }
 
     @discardableResult
@@ -9818,6 +9827,11 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let markdownPanel = detached.panel as? MarkdownPanel {
+            markdownPanel.reattachToWorkspace(
+                id,
+                workspaceRootPath: currentDirectory
+            )
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
@@ -11448,7 +11462,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool,
         filePath: String
     ) -> (any Panel)? {
-        if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
+        if MarkdownLinkPath(filePath).isMarkdownFile {
             return splitPaneWithMarkdown(
                 targetPane: paneId,
                 orientation: orientation,

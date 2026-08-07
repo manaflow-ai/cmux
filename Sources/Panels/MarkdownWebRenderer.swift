@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import SwiftUI
 import WebKit
 
@@ -138,6 +139,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
+        private var fileLinkResolver: MarkdownPanelFileLinkResolver
         var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
@@ -177,6 +179,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
 
+        init(fileLinkResolver: MarkdownPanelFileLinkResolver) {
+            self.fileLinkResolver = fileLinkResolver
+            super.init()
+        }
+
 #if DEBUG
         var isShellLoadingForTesting: Bool {
             isShellLoading
@@ -191,6 +198,21 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             self.panelId = panelId
             self.workspaceId = workspaceId
             self.filePath = filePath
+        }
+
+        func updateFileLinkContext(
+            workspaceId: UUID,
+            fileLinkResolver: MarkdownPanelFileLinkResolver
+        ) {
+            self.workspaceId = workspaceId
+            self.fileLinkResolver = fileLinkResolver
+            webView?.evaluateJavaScript(
+                """
+                window.__cmuxMarkdownFileContextDidChange &&
+                  window.__cmuxMarkdownFileContextDidChange();
+                """,
+                completionHandler: nil
+            )
         }
 
         /// Records the desired body font size and applies it as `pageZoom`.
@@ -618,11 +640,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.evaluateJavaScript("window.__cmuxMarkdownFileResolved && window.__cmuxMarkdownFileResolved(\(json));", completionHandler: nil)
         }
 
-        private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
+        func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            guard MarkdownPanelFileLinkResolver.isMarkdownPathLike(trimmed) else { return nil }
-            return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
+            return fileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
         }
 
         private func openMarkdownFile(_ path: String) {
@@ -838,11 +859,16 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.handleExternalLink url=\(url.absoluteString)")
 #endif
-            // First preference: links that resolve to local markdown files
-            // open as markdown tabs in cmux, not in the browser.
-            let fileCandidate = url.scheme == "file" ? url.path : url.absoluteString
-            if let markdownPath = resolvedMarkdownFilePath(fileCandidate) {
-                openMarkdownFile(markdownPath)
+            if url.isFileURL,
+               let localPath = fileLinkResolver.resolveLocalFile(
+                   rawPath: url.path,
+                   relativeToMarkdownFile: filePath
+               ) {
+                if MarkdownLinkPath(localPath).isMarkdownFile {
+                    openMarkdownFile(localPath)
+                } else {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: localPath))
+                }
                 return
             }
 

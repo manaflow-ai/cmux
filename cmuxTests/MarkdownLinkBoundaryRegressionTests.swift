@@ -60,18 +60,197 @@ final class MarkdownLinkBoundaryRegressionTests {
         }
     }
 
+    @Test
+    func renderedExplicitlyRelativeColonFilenameRemainsALocalMarkdownCandidate() async throws {
+        try await withLoadedMarkdownShell { webView in
+            let snapshot = try await renderLinkBoundarySnapshot(
+                "[Chapter](./chapter:one.md)",
+                in: webView
+            )
+
+            #expect(snapshot.href == "./chapter:one.md")
+            #expect(snapshot.fileCandidate == "./chapter:one.md")
+        }
+    }
+
+    @Test
+    func clickedRelativeLinkKeepsAuthoredPathWhileExplicitDotlessHTTPSStaysExternal() async throws {
+        try await withLoadedMarkdownShellAndRoutes { webView, bridge, navigationDelegate in
+            let relativePath = "raw/plans/agent-ticket-v2/w5-runner-design.md"
+            _ = try await renderLinkBoundarySnapshot(
+                "[Runner design](\(relativePath))",
+                in: webView
+            )
+            bridge.reset()
+            navigationDelegate.resetActivatedURLs()
+
+            let relativeResult = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var anchor = document.querySelector('a');
+                  var authored = anchor && anchor.getAttribute('data-cmux-file-candidate');
+                  anchor.setAttribute('href', 'https://raw/plans/agent-ticket-v2/w5-runner-design.md');
+                  var clickEvent = new MouseEvent('click', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                  });
+                  anchor.dispatchEvent(clickEvent);
+                  return {
+                    authored: authored,
+                    href: anchor.getAttribute('href'),
+                    defaultPrevented: clickEvent.defaultPrevented
+                  };
+                })();
+                """
+            )
+            let relativeSnapshot = try #require(relativeResult as? [String: Any])
+            let openMessage = await bridge.nextBody(action: "openMarkdownFile")
+
+            #expect(relativeSnapshot["authored"] as? String == relativePath)
+            #expect(
+                relativeSnapshot["href"] as? String
+                    == "https://raw/plans/agent-ticket-v2/w5-runner-design.md"
+            )
+            #expect(relativeSnapshot["defaultPrevented"] as? Bool == true)
+            #expect(openMessage["path"] as? String == relativePath)
+            #expect(navigationDelegate.activatedURLs.isEmpty)
+
+            _ = try await renderLinkBoundarySnapshot(
+                "[Remote](https://raw/plans/agent-ticket-v2/w5-runner-design.md)",
+                in: webView
+            )
+            bridge.reset()
+            navigationDelegate.resetActivatedURLs()
+            _ = try await webView.evaluateJavaScript(
+                """
+                document.querySelector('a').click();
+                true;
+                """
+            )
+            let activatedURL = await navigationDelegate.nextActivatedURL()
+
+            #expect(bridge.lastBody(action: "openMarkdownFile") == nil)
+            #expect(
+                activatedURL.absoluteString
+                    == "https://raw/plans/agent-ticket-v2/w5-runner-design.md"
+            )
+        }
+    }
+
+    @Test
+    func markdownFileContextChangeRejectsStaleResolverReplies() async throws {
+        try await withLoadedMarkdownShellAndRoutes { webView, bridge, _ in
+            let relativePath = "raw/plans/agent-ticket-v2/w5-runner-design.md"
+            _ = try await renderLinkBoundarySnapshot(
+                "[Runner design](\(relativePath))",
+                in: webView
+            )
+            let initialRequest = await bridge.nextBody(action: "resolveMarkdownFile")
+            let initialRequestId = try #require(initialRequest["requestId"] as? String)
+            bridge.reset()
+
+            let refreshResult = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  var anchor = document.querySelector('a');
+                  var existedBefore = anchor && anchor.hasAttribute('data-cmux-file-exists');
+                  if (typeof window.__cmuxMarkdownFileContextDidChange !== 'function') {
+                    return { didRefresh: false, existedBefore: existedBefore };
+                  }
+                  window.__cmuxMarkdownFileContextDidChange();
+                  return {
+                    didRefresh: true,
+                    existedBefore: existedBefore,
+                    existsAfter: anchor && anchor.hasAttribute('data-cmux-file-exists')
+                  };
+                })();
+                """
+            )
+            let refreshSnapshot = try #require(refreshResult as? [String: Any])
+            try #require(refreshSnapshot["didRefresh"] as? Bool == true)
+            #expect(refreshSnapshot["existedBefore"] as? Bool == false)
+            #expect(refreshSnapshot["existsAfter"] as? Bool == false)
+
+            let refreshedRequest = await bridge.nextBody(action: "resolveMarkdownFile")
+            let refreshedRequestId = try #require(refreshedRequest["requestId"] as? String)
+            #expect(refreshedRequest["path"] as? String == relativePath)
+            #expect(refreshedRequestId != initialRequestId)
+
+            let staleResponseData = try JSONSerialization.data(withJSONObject: [
+                "requestId": initialRequestId,
+                "exists": true,
+                "path": "/old-workspace/\(relativePath)"
+            ])
+            let staleResponseLiteral = try #require(String(data: staleResponseData, encoding: .utf8))
+            let staleResponseResult = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  window.__cmuxMarkdownFileResolved(\(staleResponseLiteral));
+                  var anchor = document.querySelector('a');
+                  return {
+                    checked: anchor && anchor.hasAttribute('data-cmux-file-checked'),
+                    exists: anchor && anchor.hasAttribute('data-cmux-file-exists')
+                  };
+                })();
+                """
+            )
+            let staleResponseSnapshot = try #require(staleResponseResult as? [String: Any])
+            #expect(staleResponseSnapshot["checked"] as? Bool == false)
+            #expect(staleResponseSnapshot["exists"] as? Bool == false)
+
+            let refreshedResponseData = try JSONSerialization.data(withJSONObject: [
+                "requestId": refreshedRequestId,
+                "exists": true,
+                "path": "/new-workspace/\(relativePath)"
+            ])
+            let refreshedResponseLiteral = try #require(String(data: refreshedResponseData, encoding: .utf8))
+            let refreshedResponseResult = try await webView.evaluateJavaScript(
+                """
+                (function() {
+                  window.__cmuxMarkdownFileResolved(\(refreshedResponseLiteral));
+                  var anchor = document.querySelector('a');
+                  return {
+                    checked: anchor && anchor.hasAttribute('data-cmux-file-checked'),
+                    exists: anchor && anchor.hasAttribute('data-cmux-file-exists')
+                  };
+                })();
+                """
+            )
+            let refreshedResponseSnapshot = try #require(refreshedResponseResult as? [String: Any])
+            #expect(refreshedResponseSnapshot["checked"] as? Bool == true)
+            #expect(refreshedResponseSnapshot["exists"] as? Bool == true)
+        }
+    }
+
     private func withLoadedMarkdownShell<T>(
         _ body: (WKWebView) async throws -> T
+    ) async throws -> T {
+        try await withLoadedMarkdownShellAndRoutes { webView, _, _ in
+            try await body(webView)
+        }
+    }
+
+    private func withLoadedMarkdownShellAndRoutes<T>(
+        _ body: (
+            WKWebView,
+            MarkdownLinkBoundaryBridgeRecorder,
+            MarkdownLinkBoundaryShellLoadDelegate
+        ) async throws -> T
     ) async throws -> T {
         let markdownURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-markdown-link-boundary-\(UUID().uuidString).md")
         let frame = NSRect(x: 0, y: 0, width: 1_000, height: 600)
-        let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        let configuration = WKWebViewConfiguration()
+        let bridge = MarkdownLinkBoundaryBridgeRecorder()
+        configuration.userContentController.add(bridge, name: "cmuxLib")
+        let webView = WKWebView(frame: frame, configuration: configuration)
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = webView
         window.orderFrontRegardless()
         defer {
             webView.navigationDelegate = nil
+            configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
             window.close()
         }
 
@@ -82,7 +261,7 @@ final class MarkdownLinkBoundaryRegressionTests {
             in: webView,
             baseURL: markdownURL
         )
-        return try await body(webView)
+        return try await body(webView, bridge, loadDelegate)
     }
 
     private func renderLinkBoundarySnapshot(
@@ -113,6 +292,7 @@ final class MarkdownLinkBoundaryRegressionTests {
                 innerHTML: anchor && anchor.innerHTML,
                 imageAlt: image && image.getAttribute('alt'),
                 imageTitle: image && image.getAttribute('title'),
+                fileCandidate: anchor && anchor.getAttribute('data-cmux-file-candidate'),
                 trailingText: trailing && trailing.textContent,
                 periodHitHref: periodHit && periodHit.getAttribute && periodHit.getAttribute('href')
               };
@@ -127,6 +307,7 @@ final class MarkdownLinkBoundaryRegressionTests {
             innerHTML: raw["innerHTML"] as? String,
             imageAlt: raw["imageAlt"] as? String,
             imageTitle: raw["imageTitle"] as? String,
+            fileCandidate: raw["fileCandidate"] as? String,
             trailingText: raw["trailingText"] as? String ?? "",
             periodHitHref: raw["periodHitHref"] as? String
         )
@@ -140,12 +321,28 @@ private struct LinkBoundarySnapshot {
     let innerHTML: String?
     let imageAlt: String?
     let imageTitle: String?
+    let fileCandidate: String?
     let trailingText: String
     let periodHitHref: String?
 }
 
 private final class MarkdownLinkBoundaryShellLoadDelegate: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
+    private(set) var activatedURLs: [URL] = []
+    private var activatedURLContinuation: CheckedContinuation<URL, Never>?
+
+    func resetActivatedURLs() {
+        activatedURLs.removeAll()
+    }
+
+    func nextActivatedURL() async -> URL {
+        if let url = activatedURLs.last {
+            return url
+        }
+        return await withCheckedContinuation { continuation in
+            activatedURLContinuation = continuation
+        }
+    }
 
     func load(_ html: String, in webView: WKWebView, baseURL: URL) async throws {
         try await withCheckedThrowingContinuation { continuation in
@@ -175,5 +372,56 @@ private final class MarkdownLinkBoundaryShellLoadDelegate: NSObject, WKNavigatio
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         finish(.failure(error))
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if navigationAction.navigationType == .linkActivated,
+           let url = navigationAction.request.url {
+            activatedURLs.append(url)
+            activatedURLContinuation?.resume(returning: url)
+            activatedURLContinuation = nil
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+}
+
+@MainActor
+private final class MarkdownLinkBoundaryBridgeRecorder: NSObject, WKScriptMessageHandler {
+    private var bodies: [[String: Any]] = []
+    private var bodyContinuations: [String: CheckedContinuation<[String: Any], Never>] = [:]
+
+    func reset() {
+        bodies.removeAll()
+    }
+
+    func lastBody(action: String) -> [String: Any]? {
+        bodies.last { $0["action"] as? String == action }
+    }
+
+    func nextBody(action: String) async -> [String: Any] {
+        if let body = lastBody(action: action) {
+            return body
+        }
+        return await withCheckedContinuation { continuation in
+            bodyContinuations[action] = continuation
+        }
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == "cmuxLib",
+              let body = message.body as? [String: Any] else { return }
+        bodies.append(body)
+        guard let action = body["action"] as? String,
+              let continuation = bodyContinuations.removeValue(forKey: action) else { return }
+        continuation.resume(returning: body)
     }
 }

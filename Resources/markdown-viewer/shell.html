@@ -361,10 +361,9 @@ html { scroll-behavior: smooth; }
   function isMarkdownPathLike(path) {
     var s = stripQueryFragment(path).trim();
     if (!s) { return false; }
-    var colon = s.indexOf(':');
-    if (colon > 0) {
-      var scheme = s.slice(0, colon).toLowerCase();
-      if (scheme !== 'file') { return false; }
+    var schemeMatch = s.match(/^([A-Za-z][A-Za-z0-9+.-]*):/);
+    if (schemeMatch && schemeMatch[1].toLowerCase() !== 'file') {
+      return false;
     }
     var slash = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
     var leaf = slash >= 0 ? s.slice(slash + 1) : s;
@@ -868,7 +867,6 @@ html { scroll-behavior: smooth; }
     if (compact.indexOf('data:') === 0) {
       return name === 'src' && isSafeDataImageURL(raw);
     }
-
     try {
       var parsed = new URL(raw, document.baseURI || window.location.href);
       var protocol = (parsed.protocol || '').toLowerCase();
@@ -1671,6 +1669,8 @@ html { scroll-behavior: smooth; }
       return unescapeDataAttribute(el.getAttribute('data-cmux-file'));
     }
     if (el.matches && el.matches('a[href]')) {
+      var authoredCandidate = el.getAttribute('data-cmux-file-candidate');
+      if (authoredCandidate != null) { return authoredCandidate; }
       var href = el.getAttribute('href') || '';
       if (isMarkdownPathLike(href)) { return href; }
     }
@@ -1719,6 +1719,16 @@ html { scroll-behavior: smooth; }
     if (pending.openAfterResolve && result.exists) {
       openMarkdownCandidate(pending.rawPath);
     }
+  };
+
+  window.__cmuxMarkdownFileContextDidChange = function() {
+    mdFileResolveCache = {};
+    mdFileResolvePending = {};
+    contentEl.querySelectorAll('[data-cmux-file-checked], [data-cmux-file-exists]').forEach(function(el) {
+      el.removeAttribute('data-cmux-file-checked');
+      el.removeAttribute('data-cmux-file-exists');
+    });
+    markMarkdownFileLinks();
   };
 
   function openMarkdownCandidate(rawPath) {

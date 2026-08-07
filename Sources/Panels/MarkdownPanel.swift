@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxPanes
 import Combine
 import Foundation
 
@@ -71,7 +72,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     /// Stable markdown renderer state. Keep this panel-owned so split/tab
     /// layout churn does not recreate the WKWebView and flash existing content.
-    let rendererSession = MarkdownRendererSession()
+    let rendererSession: MarkdownRendererSession
 
     // MARK: - File watching
 
@@ -96,10 +97,20 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     // MARK: - Init
 
-    /// - Parameter fontSize: Initial body font size in points. When `nil`, the
-    ///   panel uses the persistent `markdown.fontSize` default. The value is
-    ///   clamped to the supported range.
-    init(workspaceId: UUID, filePath: String, fontSize: Double? = nil) {
+    /// - Parameters:
+    ///   - fontSize: Initial body font size in points. When `nil`, the panel
+    ///     uses the persistent `markdown.fontSize` default. The value is
+    ///     clamped to the supported range.
+    ///   - workspaceRootPath: The owning workspace directory used as a
+    ///     secondary root for relative links. When `nil`, links resolve only
+    ///     beside the containing Markdown file.
+    init(
+        workspaceId: UUID,
+        filePath: String,
+        fontSize: Double? = nil,
+        workspaceRootPath: String? = nil
+    ) {
+        let fileManager = FileManager.default
         let defaultSize = MarkdownFontSizeSettings.resolvedDefault()
         let defaultFamily = MarkdownFontFamily.resolvedDefault()
         let defaultMaxWidth = MarkdownMaxWidthSettings.resolvedDefault()
@@ -113,10 +124,29 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.followedFontFamily = defaultFamily
         self.followedMaxContentWidth = defaultMaxWidth
         self.displayTitle = (filePath as NSString).lastPathComponent
+        self.rendererSession = MarkdownRendererSession(
+            fileLinkResolver: MarkdownPanelFileLinkResolver(
+                fileManager: fileManager,
+                fallbackDirectoryPath: workspaceRootPath
+            )
+        )
 
         loadFileContent()
         startWatching()
         observeTypographyDefaults()
+    }
+
+    /// Retargets workspace-owned behavior when this live panel moves without
+    /// recreating its renderer session.
+    func reattachToWorkspace(_ workspaceId: UUID, workspaceRootPath: String?) {
+        self.workspaceId = workspaceId
+        rendererSession.updateFileLinkContext(
+            workspaceId: workspaceId,
+            fileLinkResolver: MarkdownPanelFileLinkResolver(
+                fileManager: .default,
+                fallbackDirectoryPath: workspaceRootPath
+            )
+        )
     }
 
     /// Adopt a changed typography default (from another viewer's "Set as Default"
