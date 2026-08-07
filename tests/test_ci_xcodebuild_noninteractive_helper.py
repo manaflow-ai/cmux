@@ -119,6 +119,10 @@ def main() -> int:
         **os.environ,
         "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS": "0.2",
     }
+    expected_mixed_framework_env = {
+        **post_test_env,
+        "CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING": "1",
+    }
     passing_post_test_child = textwrap.dedent(
         """
         import time
@@ -182,6 +186,35 @@ def main() -> int:
         print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
         return 1
 
+    delayed_swift_testing_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        time.sleep(0.4)
+        print("◇ Test run started.", flush=True)
+        print("✔ Test run with 1 test passed after 0.001 seconds.", flush=True)
+        """
+    )
+    delayed_swift_testing_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", delayed_swift_testing_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=expected_mixed_framework_env,
+    )
+    if delayed_swift_testing_result.returncode != 124:
+        print(delayed_swift_testing_result.stdout, end="")
+        print(delayed_swift_testing_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected a missing or delayed Swift Testing phase to fail closed, "
+            f"got {delayed_swift_testing_result.returncode}"
+        )
+        return 1
+
     mixed_framework_child = textwrap.dedent(
         """
         import time
@@ -201,7 +234,7 @@ def main() -> int:
         capture_output=True,
         check=False,
         timeout=5,
-        env=post_test_env,
+        env=expected_mixed_framework_env,
     )
     if mixed_framework_result.returncode != 0:
         print(mixed_framework_result.stdout, end="")
@@ -236,7 +269,7 @@ def main() -> int:
         capture_output=True,
         check=False,
         timeout=5,
-        env=post_test_env,
+        env=expected_mixed_framework_env,
     )
     if failing_mixed_framework_result.returncode != 125:
         print(failing_mixed_framework_result.stdout, end="")
