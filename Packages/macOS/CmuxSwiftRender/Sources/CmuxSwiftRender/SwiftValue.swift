@@ -11,6 +11,10 @@ public enum SwiftValue: Codable, Sendable, Equatable {
     case double(Double)
     case string(String)
     case bool(Bool)
+    /// The result of the `nil` literal and of comparing an absent optional
+    /// field against `nil`. Distinct from a host `SwiftValue?` of `nil`, which
+    /// means "expression could not be evaluated / no value".
+    case null
     case range(lower: Int, upper: Int, inclusive: Bool)
     indirect case array([SwiftValue])
     indirect case object([String: SwiftValue])
@@ -22,6 +26,7 @@ public enum SwiftValue: Codable, Sendable, Equatable {
         case let .double(value): return String(value)
         case let .string(value): return value
         case let .bool(value): return String(value)
+        case .null: return "nil"
         case let .range(lower, upper, inclusive): return "\(lower)\(inclusive ? "..." : "..<")\(upper)"
         case let .array(values): return "[" + values.map(\.displayString).joined(separator: ", ") + "]"
         case let .object(fields): return "{" + fields.keys.sorted().map { "\($0): \(fields[$0]!.displayString)" }.joined(separator: ", ") + "}"
