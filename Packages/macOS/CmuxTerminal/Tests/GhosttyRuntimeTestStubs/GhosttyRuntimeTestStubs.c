@@ -324,6 +324,9 @@ void ghostty_surface_free(void *surface) {
         cmux_test_font_callback_userdata = NULL;
     }
 }
+void ghostty_surface_request_process_termination(void *surface) {
+    (void)surface;
+}
 void ghostty_surface_free_text(void) {}
 float ghostty_surface_font_size(void *surface) {
     return surface == cmux_test_font_surface

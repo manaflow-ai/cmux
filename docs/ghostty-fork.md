@@ -12,12 +12,14 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `11aa609d7`, which exposes whether the
-VT parser is at a ground-state stream boundary. cmux uses that contract to
-retain incomplete escape-sequence bytes across distributed snapshot handoff.
-It builds on `19d03fa4d`, which suppresses empty opener stderr diagnostics on
-top of `f0f8273b7`, the iOS startup locale/crash-reporting order fix. That
-commit follows `88357634c`, the fork-main
+The submodule pinned by this branch is `5b20c6229`, which adds bounded,
+two-phase embedded-surface process teardown. It includes `9513174f2`, the
+current-fork reapplication of the VT stream-boundary API previously pinned at
+`11aa609d7`. cmux uses that VT contract to retain incomplete escape-sequence
+bytes across distributed snapshot handoff. The current pin builds on
+`19d03fa4d`, which suppresses empty opener stderr diagnostics on top of
+`f0f8273b7`, the iOS startup locale/crash-reporting order fix. That commit
+follows `88357634c`, the fork-main
 merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
 the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
 semantic-prompt row lifecycle enforcement through `2d6e944e3` from
@@ -33,7 +35,9 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
 
 ### VT stream-boundary visibility
 
-- Commit: `11aa609d7` (Expose safe VT stream snapshot boundary)
+- Commits:
+  - Original pin: `11aa609d7` (Expose safe VT stream snapshot boundary)
+  - Reapplied on current fork main: `9513174f2`
 - Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
   `src/lib_vt.zig`
 - Summary:
@@ -45,6 +49,36 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
   - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-11aa609d75dec882ef2f83171e2cbe887aeddbc5-crashsubdir-cmux-crash-sentry-off-v1
   - SHA-256 `1a4acbcc9e0e5b20c0b4dad6660d0c08546a5d36192053834df960144fa8fdb9`
     is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Bounded embedded-surface process teardown
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/184
+- Commits:
+  - `9be0c8b93` (test: cover subprocesses that ignore SIGHUP)
+  - `5b20c6229` (fix: bound embedded surface process teardown)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/termio/Exec.zig`
+- Summary:
+  - Exposes `ghostty_surface_request_process_termination`, a non-blocking,
+    idempotent pre-free request that retires an embedded surface from Ghostty
+    app routing and wakes its IO owner without joining or freeing the surface.
+  - Lets the child process group handle SIGHUP for 12 seconds, preserving
+    cmux's 10-second Claude `SessionEnd` hook budget, then escalates to SIGKILL.
+  - Bounds the post-SIGKILL reap wait to three seconds, so a pathological child
+    cannot hold a native-surface teardown worker indefinitely.
+  - Keeps `ghostty_surface_free` as the final synchronization and ownership
+    boundary for renderer, IO, callback userdata, and native allocation release.
+- Conflict note:
+  - Preserve the two-phase contract during future embedded-surface or termio
+    merges: the pre-free request must prevent new app-action retains, remain
+    idempotent, and start IO-owned process teardown without freeing native state.
+    Final free must still wait for existing action leases and release the surface
+    exactly once. POSIX process teardown must retain the 12-second SIGHUP grace,
+    SIGKILL escalation, and bounded three-second final reap window.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged

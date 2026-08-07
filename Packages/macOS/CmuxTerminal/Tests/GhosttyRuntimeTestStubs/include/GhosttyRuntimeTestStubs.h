@@ -50,6 +50,7 @@ bool ghostty_surface_set_font_size_action_callback(
     void *userdata);
 void ghostty_surface_config_new(void);
 void ghostty_surface_free(void *surface);
+void ghostty_surface_request_process_termination(void *surface);
 void ghostty_surface_free_text(void);
 float ghostty_surface_font_size(void *surface);
 bool ghostty_surface_font_size_adjusted(void *surface);

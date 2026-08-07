@@ -8,11 +8,15 @@ internal import CMUXDebugLog
 
 /// Coordinates native `ghostty_surface_free` calls off the close/deinit paths.
 ///
-/// Close/deinit frees run on a bounded set of utility slots so one stuck native
-/// join cannot strand later closes. Each admitted hibernation owns a separate,
-/// independently startable utility slot. Deadline observers report, but never
-/// block on, stuck frees. The app constructs exactly one instance and injects it
-/// through
+/// Every request first starts Ghostty-owned child-process teardown before it
+/// can wait for a bounded native-free slot. This keeps process lifetime
+/// independent from resource-destruction admission.
+///
+/// Close/deinit frees run on a bounded set of utility slots so stuck native
+/// joins cannot create unbounded worker threads. Each admitted hibernation owns
+/// a separate, independently startable utility slot. Deadline observers report,
+/// but never block on, stuck frees. The app constructs exactly one instance and
+/// injects it through
 /// ``TerminalSurfaceRuntimeDependencies``.
 public actor TerminalSurfaceRuntimeTeardownCoordinator {
     /// Maximum number of close/deinit native frees that can run concurrently.
@@ -34,11 +38,21 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private var availableCloseExecutionSlots: Set<Int>
     private let closeTeardownQueues: [DispatchQueue]
     private let isolatedHibernationQueues: [DispatchQueue]
+    private nonisolated let beginSurfaceTeardown:
+        @Sendable (ghostty_surface_t) -> Void
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
 
     /// Creates the process's teardown coordinator.
-    public init() {
+    ///
+    /// - Parameter beginSurfaceTeardown: A non-blocking native request that
+    ///   retires the surface from process routing and starts child shutdown.
+    public init(
+        beginSurfaceTeardown: @escaping @Sendable (ghostty_surface_t) -> Void = {
+            ghostty_surface_request_process_termination($0)
+        }
+    ) {
+        self.beginSurfaceTeardown = beginSurfaceTeardown
         availableCloseExecutionSlots = Set(
             0..<Self.maximumConcurrentCloseTeardownCount
         )
@@ -162,6 +176,11 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             ghostty_surface_free(surface)
         }
     ) -> TerminalSurfaceRuntimeTeardownTicket {
+        // This call is intentionally synchronous and precedes the Task hop:
+        // even when every native-free lane is occupied, the surface's own IO
+        // thread can terminate and reap its process tree independently.
+        beginSurfaceTeardown(surface)
+
         let completion = TerminalSurfaceRuntimeTeardownCompletion()
         let ticket = TerminalSurfaceRuntimeTeardownTicket(completion: completion)
         let request = TerminalSurfaceRuntimeTeardownRequest(
