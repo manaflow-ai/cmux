@@ -16,6 +16,8 @@ private let mobileIrohReleaseGateLog = Logger(
 @MainActor
 final class MobileIrohReleaseGateRunner {
     private static let relayRolloverSoakDurationSeconds = 330
+    private static let requiredReadyObservations = 2
+    private static let readinessSettlingDuration: Duration = .milliseconds(500)
     private static let standardTimeout: Duration = .seconds(90)
     private static let extendedTimeout: Duration = .seconds(420)
 
@@ -283,13 +285,27 @@ final class MobileIrohReleaseGateRunner {
     }
 
     private func execute(store: CMUXMobileShellStore) async -> Report {
-        let readiness = dependencies.readinessUpdates?(store)
-            ?? readinessUpdates(for: store)
-        var observedReady = false
-        for await state in readiness {
-            mobileIrohReleaseGateLog.info(
-                "readiness signedIn=\(state.isSignedIn, privacy: .public) connected=\(state.isConnected, privacy: .public) iroh=\(state.usesIroh, privacy: .public) workspace=\(state.hasWorkspaceMutation, privacy: .public) terminal=\(state.hasTerminal, privacy: .public)"
-            )
+        var readyObservations = 0
+        while readyObservations < Self.requiredReadyObservations {
+            let readiness = dependencies.readinessUpdates?(store)
+                ?? readinessUpdates(for: store)
+            var observedReady = false
+            for await state in readiness {
+                mobileIrohReleaseGateLog.info(
+                    "readiness signedIn=\(state.isSignedIn, privacy: .public) connected=\(state.isConnected, privacy: .public) iroh=\(state.usesIroh, privacy: .public) workspace=\(state.hasWorkspaceMutation, privacy: .public) terminal=\(state.hasTerminal, privacy: .public)"
+                )
+                guard !Task.isCancelled else {
+                    return Self.failureReport(
+                        mode: configuration.mode,
+                        scenario: configuration.scenario,
+                        failure: .timeout
+                    )
+                }
+                if state.isReady {
+                    observedReady = true
+                    break
+                }
+            }
             guard !Task.isCancelled else {
                 return Self.failureReport(
                     mode: configuration.mode,
@@ -297,9 +313,25 @@ final class MobileIrohReleaseGateRunner {
                     failure: .timeout
                 )
             }
-            if state.isReady {
-                observedReady = true
-                break
+            guard observedReady else {
+                return Self.failureReport(
+                    mode: configuration.mode,
+                    scenario: configuration.scenario,
+                    failure: .readinessUnavailable
+                )
+            }
+            readyObservations += 1
+            if readyObservations < Self.requiredReadyObservations,
+               dependencies.readinessUpdates == nil {
+                do {
+                    try await Task.sleep(for: Self.readinessSettlingDuration)
+                } catch {
+                    return Self.failureReport(
+                        mode: configuration.mode,
+                        scenario: configuration.scenario,
+                        failure: .timeout
+                    )
+                }
             }
         }
         guard !Task.isCancelled else {
@@ -309,14 +341,6 @@ final class MobileIrohReleaseGateRunner {
                 failure: .timeout
             )
         }
-        guard observedReady else {
-            return Self.failureReport(
-                mode: configuration.mode,
-                scenario: configuration.scenario,
-                failure: .readinessUnavailable
-            )
-        }
-
         var pathBeforeProbe: String?
         if configuration.scenario != .standard {
             for await snapshot in dependencies.settingsUpdates() {
@@ -443,7 +467,7 @@ final class MobileIrohReleaseGateRunner {
         let state = withObservationTracking {
             Readiness(
                 isSignedIn: store.isSignedIn,
-                isConnected: store.connectionState == .connected,
+                isConnected: store.hasActiveMacConnection,
                 usesIroh: store.activeRoute?.kind == .iroh,
                 hasWorkspaceMutation: store.selectedWorkspace?
                     .actionCapabilities.supportsWorkspaceActions == true

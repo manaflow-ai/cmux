@@ -9,6 +9,29 @@ internal import CMUXDebugLog
 // MARK: - Socket/API input: send paths, pending queues, parsing
 
 extension TerminalSurface {
+    /// Returns the transport-owned name for a physical manual-I/O key, if any.
+    @MainActor
+    public func manualInputKeyName(for event: ghostty_input_key_s) -> String? {
+        guard ioMode.usesManualIO, manualInputHandler != nil else { return nil }
+        return manualInputKeyNameResolver?(event)
+    }
+
+    /// Queues a name from ``manualInputKeyName(for:)`` behind earlier Ghostty input.
+    @MainActor
+    public func enqueueManualInputNamedKey(_ name: String) -> Bool {
+        guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
+        let frame = TerminalManualInput.namedKey(name).manualIOData
+        return frame.withUnsafeBytes { bytes in
+            guard let baseAddress = bytes.baseAddress else { return false }
+            ghostty_surface_text_input(
+                surface,
+                baseAddress.assumingMemoryBound(to: CChar.self),
+                UInt(bytes.count)
+            )
+            return true
+        }
+    }
+
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
     public func didReceiveExplicitInput() {

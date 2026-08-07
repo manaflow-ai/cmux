@@ -6,7 +6,7 @@ import UIKit
 
 /// UIKit-owned workspace list with exact, non-estimated row heights.
 @MainActor
-struct WorkspaceListTable: UIViewRepresentable {
+struct WorkspaceListTable: UIViewControllerRepresentable {
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
@@ -26,8 +26,6 @@ struct WorkspaceListTable: UIViewRepresentable {
     let openWorkspaceChanges: (@MainActor (MobileWorkspacePreview) -> Void)?
 
     let connectionRequiresReauth: Bool
-    let connectionRecoveryFailed: Bool
-    let isRecoveringConnection: Bool
     let connectionError: String?
     let host: String
     let isInitialConnectionLoading: Bool
@@ -35,9 +33,10 @@ struct WorkspaceListTable: UIViewRepresentable {
     let initialConnectionDescription: String?
     let enablesReorder: Bool
     let moveRows: ((IndexSet, Int) -> Void)?
+    let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
+    let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
-    let requestWorkspaceClose: ((MobileWorkspacePreview.ID) -> Void)?
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let setPinned: ((MobileWorkspacePreview.ID, Bool) -> Void)?
@@ -45,12 +44,14 @@ struct WorkspaceListTable: UIViewRepresentable {
     var customizeRequest: ((MobileWorkspacePreview.ID) -> Void)? = nil
     let createWorkspaceInGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
     let renameWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID, String) -> Void)?
+    var renameWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let setGroupPinned: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     let ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
+    var ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)?
+    var deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
     let toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
     let showAll: () -> Void
-    let retryConnectionRecovery: (() -> Void)?
     let signOut: (() -> Void)?
     let retryInitialConnection: (() -> Void)?
     let showAddDevice: (() -> Void)?
@@ -61,8 +62,9 @@ struct WorkspaceListTable: UIViewRepresentable {
         WorkspaceListTableCoordinator(configuration: self)
     }
 
-    func makeUIView(context: Context) -> WorkspaceListUITableView {
-        let tableView = WorkspaceListUITableView(frame: .zero, style: .plain)
+    func makeUIViewController(context: Context) -> WorkspaceListTableViewController {
+        let viewController = WorkspaceListTableViewController()
+        let tableView = viewController.tableView
         tableView.separatorStyle = .none
         tableView.backgroundColor = .clear
         tableView.keyboardDismissMode = .interactive
@@ -73,12 +75,29 @@ struct WorkspaceListTable: UIViewRepresentable {
         tableView.sectionFooterHeight = 0
         tableView.rowHeight = UITableView.automaticDimension
         tableView.accessibilityIdentifier = "MobileWorkspaceList"
-        context.coordinator.attach(to: tableView)
-        return tableView
+        context.coordinator.attach(
+            to: tableView,
+            viewController: viewController
+        )
+        return viewController
     }
 
-    func updateUIView(_ uiView: WorkspaceListUITableView, context: Context) {
-        context.coordinator.update(configuration: self, in: uiView)
+    func updateUIViewController(
+        _ uiViewController: WorkspaceListTableViewController,
+        context: Context
+    ) {
+        context.coordinator.update(
+            configuration: self,
+            in: uiViewController.tableView
+        )
+    }
+
+    static func dismantleUIViewController(
+        _ uiViewController: WorkspaceListTableViewController,
+        coordinator: WorkspaceListTableCoordinator
+    ) {
+        coordinator.detach()
+        uiViewController.detach()
     }
 }
 #endif

@@ -82,9 +82,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let autoResumePanelId = try XCTUnwrap(restoredWithAutoResume.focusedPanelId)
         let autoResumePanel = try XCTUnwrap(restoredWithAutoResume.terminalPanel(for: autoResumePanelId))
         let autoResumeInput = autoResumePanel.surface.debugInitialInputMetadata()
-        XCTAssertFalse(autoResumeInput.hasInitialInput)
-        XCTAssertEqual(autoResumeInput.byteCount, 0)
-        try assertAgentAutoResumeUsesStartupCommand(
+        XCTAssertTrue(autoResumeInput.hasInitialInput)
+        XCTAssertGreaterThan(autoResumeInput.byteCount, 0)
+        try assertAgentAutoResumeUsesStartupInput(
             autoResumePanel,
             scriptContains: ["'resume'", "codex-auto-resume-disabled-session"]
         )
@@ -185,9 +185,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertFalse(restoredInput.hasInitialInput)
-            XCTAssertEqual(restoredInput.byteCount, 0)
-            try assertAgentAutoResumeUsesStartupCommand(
+            XCTAssertTrue(restoredInput.hasInitialInput)
+            XCTAssertGreaterThan(restoredInput.byteCount, 0)
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: ["'resume'", "codex-running-at-snapshot-session"]
             )
@@ -226,6 +226,11 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 autoConnect: false
             )
             let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let remoteWorkingDirectory = "/home/dev/cmux-remote-running"
+            source.updatePanelDirectory(
+                panelId: sourcePanelId,
+                directory: remoteWorkingDirectory
+            )
             let sourceIndex = try makeRestorableAgentIndex(
                 workspaceId: source.id,
                 panelId: sourcePanelId,
@@ -249,7 +254,20 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             XCTAssertTrue(input.contains("'resume'"), input)
             XCTAssertTrue(input.contains("codex-remote-running-session"), input)
             XCTAssertFalse(input.contains("cmux-agent-resume"), input)
-            XCTAssertNil(restoredPanel.requestedWorkingDirectory)
+            let remoteCwdPrefix = try XCTUnwrap(
+                TerminalStartupWorkingDirectoryPrefix.optionalChangeDirectoryPrefix(
+                    for: remoteWorkingDirectory
+                )
+            )
+            XCTAssertTrue(
+                input.contains(remoteCwdPrefix),
+                input
+            )
+            XCTAssertFalse(input.contains("/tmp/repo"), input)
+            XCTAssertEqual(
+                restoredPanel.requestedWorkingDirectory,
+                remoteWorkingDirectory
+            )
             XCTAssertEqual(
                 restored.restoredAgentResumeStatesByPanelId[restoredPanelId],
                 .awaitingAutoResumeCommand
@@ -298,7 +316,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredInput = try XCTUnwrap(restoredPanel.surface.initialInput)
 
             XCTAssertEqual(restoredPanel.surface.debugInitialCommand(), restored.remoteConfiguration?.terminalStartupCommand)
-            XCTAssertGreaterThan(restoredInput.utf8.count, SessionRestorableAgentSnapshot.maxInlineStartupInputBytes)
+            XCTAssertGreaterThan(restoredInput.utf8.count, 900)
             XCTAssertTrue(restoredInput.contains("'resume'"), restoredInput)
             XCTAssertTrue(restoredInput.contains("codex-remote-long-running-session"), restoredInput)
             XCTAssertTrue(restoredInput.contains(longPath), restoredInput)
@@ -335,9 +353,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
             let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
             let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
 
-            XCTAssertFalse(restoredInput.hasInitialInput)
-            XCTAssertEqual(restoredInput.byteCount, 0)
-            try assertAgentAutoResumeUsesStartupCommand(
+            XCTAssertTrue(restoredInput.hasInitialInput)
+            XCTAssertGreaterThan(restoredInput.byteCount, 0)
+            try assertAgentAutoResumeUsesStartupInput(
                 restoredPanel,
                 scriptContains: ["'resume'", "codex-unknown-shell-state-session"]
             )
@@ -457,7 +475,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
         let userCommandSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(userCommandSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-disabled-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor
@@ -511,7 +531,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    func testAgentHookResumeBindingClearsAfterStartupCommandCompletes() throws {
+    func testAgentHookResumeBindingBecomesManualAfterStartupCommandCompletes() throws {
         let defaults = UserDefaults.standard
         let key = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
         let previous = defaults.object(forKey: key)
@@ -555,9 +575,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
         let input = restoredPanel.surface.debugInitialInputMetadata()
-        XCTAssertFalse(input.hasInitialInput)
-        XCTAssertEqual(input.byteCount, 0)
-        try assertAgentAutoResumeUsesStartupCommand(
+        XCTAssertTrue(input.hasInitialInput)
+        XCTAssertGreaterThan(input.byteCount, 0)
+        try assertAgentAutoResumeUsesStartupInput(
             restoredPanel,
             scriptContains: ["codex resume codex-binding-auto-resume-session"]
         )
@@ -569,7 +589,9 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .promptIdle)
         let completedSnapshot = restored.sessionSnapshot(includeScrollback: false)
         XCTAssertNil(completedSnapshot.panels.first?.terminal?.agent)
-        XCTAssertNil(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        let retainedBinding = try XCTUnwrap(completedSnapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertEqual(retainedBinding.checkpointId, "codex-binding-auto-resume-session")
+        XCTAssertFalse(retainedBinding.allowsAutomaticResume)
     }
 
     @MainActor
@@ -661,38 +683,6 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
         )
     }
 
-    // After a resumed agent is killed, the surface must return to the session's launch directory,
-    // not the surface default. The resume command's own `cd` runs inside the `-lic` child shell, so
-    // the outer login shell needs an explicit `cd` to the working directory before `exec -l`.
-    func testResumeLauncherReturnsToLaunchCwdAfterAgentExits() {
-        let dir = "/tmp/repo-resume"
-        let lines = TerminalStartupReturnShellScript.commandThenReturnLines(
-            command: "cd -- '\(dir)' 2>/dev/null || [ ! -d '\(dir)' ] && 'claude' '--resume' 'abc'",
-            workingDirectory: dir
-        )
-        let script = lines.joined(separator: "\n")
-
-        let outerCd = "{ cd -- '\(dir)' 2>/dev/null || true; }"
-        let exec = "exec -l \"$_cmux_resume_shell\""
-        let outerCdRange = script.range(of: outerCd)
-        let execRange = script.range(of: exec)
-        XCTAssertNotNil(outerCdRange, "launcher must cd the outer shell back to the launch dir; script:\n\(script)")
-        XCTAssertNotNil(execRange, script)
-        if let outerCdRange, let execRange {
-            XCTAssertTrue(
-                outerCdRange.lowerBound < execRange.lowerBound,
-                "the return-to-launch-dir cd must run before exec -l; script:\n\(script)"
-            )
-        }
-
-        // Back-compat: with no working directory, no extra outer cd is emitted.
-        let bare = TerminalStartupReturnShellScript
-            .commandThenReturnLines(command: "echo hi")
-            .joined(separator: "\n")
-        XCTAssertFalse(bare.contains("|| true; }"), bare)
-        XCTAssertTrue(bare.contains(exec), bare)
-    }
-
     private func withRestoredDefaults<T>(
         key: String,
         defaults: UserDefaults = .standard,
@@ -710,25 +700,32 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
-    private func assertAgentAutoResumeUsesStartupCommand(
+    private func assertAgentAutoResumeUsesStartupInput(
         _ panel: TerminalPanel,
         scriptContains needles: [String],
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        let command = try XCTUnwrap(panel.surface.debugInitialCommand(), file: file, line: line)
-        XCTAssertTrue(command.hasPrefix("/bin/zsh '"), command, file: file, line: line)
-        let scriptPath = String(command.dropFirst("/bin/zsh '".count).dropLast())
+        XCTAssertNil(panel.surface.debugInitialCommand(), file: file, line: line)
+        let input = try XCTUnwrap(panel.surface.debugInitialInputForTesting(), file: file, line: line)
+        let launcherPrefix = "/bin/zsh '"
+        let launcherRange = try XCTUnwrap(
+            input.range(of: launcherPrefix, options: .backwards),
+            input,
+            file: file,
+            line: line
+        )
+        let launcherSuffix = input[launcherRange.upperBound...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(launcherSuffix.hasSuffix("'"), input, file: file, line: line)
+        let scriptPath = String(launcherSuffix.dropLast())
         defer { try? FileManager.default.removeItem(atPath: scriptPath) }
         let script = try String(contentsOfFile: scriptPath, encoding: .utf8)
         for needle in needles {
             XCTAssertTrue(script.contains(needle), script, file: file, line: line)
         }
-        XCTAssertTrue(script.contains("CMUX_SHELL_INTEGRATION_DIR"), script, file: file, line: line)
-        XCTAssertTrue(script.contains("CMUX_ZSH_ZDOTDIR"), script, file: file, line: line)
-        XCTAssertTrue(script.contains("\"$_cmux_resume_shell\" -lic"), script, file: file, line: line)
-        XCTAssertTrue(script.contains("csh|tcsh) \"$_cmux_resume_shell\" -c"), script, file: file, line: line)
-        XCTAssertTrue(script.contains("exec -l \"$_cmux_resume_shell\""), script, file: file, line: line)
+        XCTAssertTrue(script.contains("rm -f -- \"$0\""), script, file: file, line: line)
+        XCTAssertFalse(script.contains("exec -l"), script, file: file, line: line)
     }
 
     private func makeRestorableAgentIndex(

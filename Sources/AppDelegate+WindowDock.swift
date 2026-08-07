@@ -8,6 +8,7 @@ extension AppDelegate.MainWindowContext {
         if let existing = windowDock { return existing }
         let store = tabManager.makeWindowDockStore(windowId: windowId)
         windowDock = store
+        workspaceTerminalFontSizeCoordinator.attachWindowDock(store)
         return store
     }
 
@@ -19,6 +20,10 @@ extension AppDelegate.MainWindowContext {
         _ snapshot: SessionWindowSnapshot?,
         excludingStableIdentities: Set<UUID> = []
     ) {
+        let promptBatch = SurfaceResumeRunPromptBatch.shared
+        promptBatch.beginRestorePass()
+        defer { promptBatch.endRestorePass() }
+
         guard let dockSnapshot = snapshot?.dock, let tabManagerSnapshot = snapshot?.tabManager else { return }
         windowDockStore().restoreSessionSnapshot(
             dockSnapshot,
@@ -47,6 +52,7 @@ extension AppDelegate.MainWindowContext {
     /// Tears down this context's Dock, closing any live terminals/browsers and
     /// their portals, so no Dock panel outlives its window.
     func teardownWindowDock() {
+        workspaceTerminalFontSizeCoordinator.cancelWindowOwnedWork()
         guard let dock = windowDock else { return }
         windowDock = nil
         dock.closeAllPanels()
@@ -169,7 +175,11 @@ extension AppDelegate {
     @discardableResult
     func closeWindowDockRuntimeSurface(surfaceId: UUID, force: Bool) -> Bool {
         guard let dock = windowDockContainingPanel(surfaceId) else { return false }
-        if dock.closePanel(surfaceId, force: force) {
+        if dock.closePanel(
+            surfaceId,
+            force: force,
+            recordsHistory: false
+        ) {
             notificationStore?.clearNotifications(forTabId: dock.workspaceId, surfaceId: surfaceId)
         }
         return true
@@ -201,10 +211,11 @@ extension AppDelegate {
 }
 
 extension SessionWindowSnapshot {
+    @MainActor
     func omitsRemoteMirrorOnlyWindow(liveWorkspaces: [Workspace]) -> Bool {
         tabManager.workspaces.isEmpty &&
             dock == nil &&
             !liveWorkspaces.isEmpty &&
-            liveWorkspaces.allSatisfy(\.isRemoteTmuxMirror)
+            liveWorkspaces.allSatisfy { $0.isRemoteTmuxMirror }
     }
 }

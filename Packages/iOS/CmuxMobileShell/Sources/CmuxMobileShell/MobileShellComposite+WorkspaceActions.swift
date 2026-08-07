@@ -1,4 +1,5 @@
 import CMUXMobileCore
+internal import CmuxMobileDiagnostics
 internal import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import Foundation
@@ -208,7 +209,11 @@ extension MobileShellComposite {
         before beforeWorkspaceID: MobileWorkspacePreview.ID?,
         movesGroup: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
+        MobileDebugLog.anchormux(
+            "move.request id=\(id.rawValue.suffix(6)) group=\(groupID?.rawValue.suffix(6) ?? "root") before=\(beforeWorkspaceID?.rawValue.suffix(6) ?? "end") movesGroup=\(movesGroup)"
+        )
         guard workspaceActionCapabilities(for: id).supportsMoveActions else {
+            MobileDebugLog.anchormux("move.blocked gate=supportsMoveActions id=\(id.rawValue.suffix(6))")
             return .failure(.unsupported(hostDisplayName: workspaceHostDisplayName(for: id)))
         }
         let target = workspaceMutationTarget(for: id)
@@ -217,11 +222,12 @@ extension MobileShellComposite {
             fallback: workspaceHostDisplayName(for: id)
         )
         guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            MobileDebugLog.anchormux("move.blocked gate=macScopedMutationAuthorization id=\(id.rawValue.suffix(6))")
             return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
         }
         var params = workspaceMutationParams(id: id)
         if let groupID {
-            params["group_id"] = groupID.rawValue
+            params["group_id"] = remoteWorkspaceGroupID(for: groupID).rawValue
         }
         if let beforeWorkspaceID {
             params["before_workspace_id"] = remoteWorkspaceID(for: beforeWorkspaceID).rawValue
@@ -229,14 +235,24 @@ extension MobileShellComposite {
         if movesGroup {
             params["move_group"] = true
         }
-        return await sendWorkspaceMutation(
+        let result = await sendWorkspaceMutation(
             method: "workspace.move",
             params: params,
             target: target,
             hostDisplayName: hostDisplayName,
             logID: id.rawValue,
-            actionName: "move"
+            actionName: "move",
+            isMacScoped: true
         )
+        switch result {
+        case .success:
+            MobileDebugLog.anchormux("move.sent ok id=\(id.rawValue.suffix(6))")
+        case .failure:
+            // Failure payloads include the user-visible Mac name. The event and
+            // scoped workspace suffix are sufficient for move diagnostics.
+            MobileDebugLog.anchormux("move.sent FAILED id=\(id.rawValue.suffix(6))")
+        }
+        return result
     }
 
     /// Pin or unpin a workspace group on the Mac.
@@ -332,7 +348,8 @@ extension MobileShellComposite {
             target: target,
             hostDisplayName: hostDisplayName,
             logID: "foreground",
-            actionName: "create_group"
+            actionName: "create_group",
+            isMacScoped: true
         )
     }
 
@@ -353,12 +370,25 @@ extension MobileShellComposite {
         let policy = MobileShellWorkspaceMutationTicketPolicy(now: now)
         if target.isForeground {
             return policy.allowsMacScopedWorkspaceMutations(
-                activeTicket ?? client.attachTicket
+                activeTicket ?? client.attachTicket,
+                hostAuthorizesByAccount: hostAuthorizesAccountScopedMutations
             )
         }
-        let ticket = target.macDeviceID.flatMap { secondaryMacSubscriptions[$0]?.ticket }
-            ?? client.attachTicket
-        return policy.allowsMacScopedWorkspaceMutations(ticket)
+        let subscription = target.ownerKey.flatMap { secondaryMacSubscriptions[$0] }
+        let ticket = subscription?.ticket ?? client.attachTicket
+        return policy.allowsMacScopedWorkspaceMutations(
+            ticket,
+            hostAuthorizesByAccount: subscription?.supportedHostCapabilities
+                .contains(Self.workspaceMutationAccountAuthCapability) ?? false
+        )
+    }
+
+    private func hostAuthorizesAccountScopedMutations(target: WorkspaceMutationTarget) -> Bool {
+        if target.isForeground {
+            return hostAuthorizesAccountScopedMutations
+        }
+        return target.ownerKey.flatMap { secondaryMacSubscriptions[$0] }?
+            .supportedHostCapabilities.contains(Self.workspaceMutationAccountAuthCapability) ?? false
     }
 
     private func sendWorkspaceMutation(
@@ -392,12 +422,17 @@ extension MobileShellComposite {
         let target = workspaceGroupMutationTarget(for: id)
         let hostDisplayName = workspaceGroupHostDisplayName(for: id, target: target)
         guard workspaceGroupActionCapabilities(for: id).supportsGroupActions else {
+            MobileDebugLog.anchormux("workspace.mutation blocked action=\(actionName) id=\(id.rawValue) reason=capability")
             return .failure(.unsupported(hostDisplayName: hostDisplayName))
         }
         guard macScopedWorkspaceMutationIsAuthorized(target: target) else {
+            MobileDebugLog.anchormux("workspace.mutation blocked action=\(actionName) id=\(id.rawValue) reason=scope")
             return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
         }
-        var params: [String: Any] = ["group_id": id.rawValue, "action": action]
+        var params: [String: Any] = [
+            "group_id": remoteWorkspaceGroupID(for: id).rawValue,
+            "action": action,
+        ]
         if let title {
             params["title"] = title
         }
@@ -407,7 +442,8 @@ extension MobileShellComposite {
             target: target,
             hostDisplayName: hostDisplayName,
             logID: id.rawValue,
-            actionName: actionName
+            actionName: actionName,
+            isMacScoped: true
         )
     }
 
@@ -418,7 +454,8 @@ extension MobileShellComposite {
         hostDisplayName: String?,
         logID: String,
         actionName: String,
-        refreshAfterMutation: Bool = true
+        refreshAfterMutation: Bool = true,
+        isMacScoped: Bool = false
     ) async -> Result<Void, MobileWorkspaceMutationFailure> {
         // Route the mutation to the Mac that actually OWNS this workspace. The
         // aggregated list can include rows from secondary Macs, whose connection is
@@ -427,6 +464,7 @@ extension MobileShellComposite {
         // mutate a foreground workspace). The foreground path is unchanged for
         // foreground-owned (or single-Mac / anonymous) rows.
         guard let client = target.client else {
+            MobileDebugLog.anchormux("workspace.mutation blocked action=\(actionName) id=\(logID) reason=no_route")
             // Owner is a known non-foreground Mac with no live connection: can't
             // deliver. Snap the row back to the authoritative state instead of
             // misrouting to the foreground Mac.
@@ -436,10 +474,27 @@ extension MobileShellComposite {
             return .failure(.notConnected(hostDisplayName: hostDisplayName))
         }
         let generation = connectionGeneration
+        MobileDebugLog.anchormux("workspace.mutation sending action=\(actionName) id=\(logID) foreground=\(target.isForeground)")
         do {
             let request = try MobileCoreRPCClient.requestData(method: method, params: params)
-            _ = try await client.sendRequest(request)
+            let attachTicketPolicy: MobileCoreRPCAttachTicketPolicy =
+                isMacScoped && hostAuthorizesAccountScopedMutations(target: target)
+                    ? .omit
+                    : .whenCovered
+            _ = try await client.sendRequest(
+                request,
+                attachTicketPolicy: attachTicketPolicy
+            )
         } catch {
+            // Diagnostics carry only the bounded failure vocabulary plus the
+            // short RPC code: an rpcError message is an arbitrary host string
+            // and must never be retained in exported diagnostics.
+            let failureKind = DiagnosticFailureKind.classify(error)
+            var rpcCode = "none"
+            if case let MobileShellConnectionError.rpcError(code, _) = error {
+                rpcCode = code ?? "unknown"
+            }
+            MobileDebugLog.anchormux("workspace.mutation failed action=\(actionName) id=\(logID) kind=\(failureKind) code=\(rpcCode)")
             if disconnectForAuthorizationFailureIfNeeded(error) {
                 return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
             }
@@ -453,7 +508,7 @@ extension MobileShellComposite {
                     expectedGeneration: generation
                 )
             }
-            mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(logID, privacy: .public) kind=\(String(describing: failureKind), privacy: .public) error=\(String(describing: error), privacy: .private)")
             if refreshAfterMutation {
                 await refreshAfterWorkspaceMutation(target)
             }
@@ -463,6 +518,7 @@ extension MobileShellComposite {
         if refreshAfterMutation {
             await refreshAfterWorkspaceMutation(target)
         }
+        MobileDebugLog.anchormux("workspace.mutation accepted action=\(actionName) id=\(logID)")
         return .success(())
     }
 
@@ -496,9 +552,10 @@ extension MobileShellComposite {
             return .rejected(hostDisplayName: hostDisplayName)
         }
         switch connectionError {
-        case .connectionClosed, .transportWriteTimedOut:
+        case .connectionClosed, .transportWriteTimedOut,
+             .routeCleanupBlocked:
             return .notConnected(hostDisplayName: hostDisplayName)
-        case .requestTimedOut:
+        case .requestTimedOut, .connectAttemptGated:
             return .requestTimedOut(hostDisplayName: hostDisplayName)
         case .attachTicketExpired, .authorizationFailed, .accountMismatch, .insecureManualRoute:
             return .authorizationFailed(hostDisplayName: hostDisplayName)
@@ -524,8 +581,10 @@ extension MobileShellComposite {
         target: WorkspaceMutationTarget,
         fallback: String?
     ) -> String? {
-        if let macDeviceID = target.macDeviceID,
-           let displayName = workspacesByMac[macDeviceID]?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let ownerKey = target.ownerKey ?? target.macDeviceID.map({
+               MacPairingKey(macDeviceID: $0, instanceTag: nil)
+           }),
+           let displayName = workspacesByMac[ownerKey]?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
            !displayName.isEmpty {
             return displayName
         }
@@ -570,9 +629,11 @@ extension MobileShellComposite {
     ///   - id: The group to collapse or expand.
     ///   - collapsed: `true` to collapse (hide members), `false` to expand.
     public func setWorkspaceGroupCollapsed(id: MobileWorkspaceGroupPreview.ID, _ collapsed: Bool) async {
-        groupCollapseStore.set(id.rawValue, collapsed: collapsed)
-        if let index = workspaceGroups.firstIndex(where: { $0.id == id }) {
-            workspaceGroups[index].isCollapsed = collapsed
-        }
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == id }) else { return }
+        groupCollapseStore.set(
+            workspaceGroups[index].collapseStateID,
+            collapsed: collapsed
+        )
+        workspaceGroups[index].isCollapsed = collapsed
     }
 }

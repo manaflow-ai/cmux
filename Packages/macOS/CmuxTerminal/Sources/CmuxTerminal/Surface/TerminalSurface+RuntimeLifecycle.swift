@@ -111,7 +111,7 @@ extension TerminalSurface {
            let s = liveSurfaceForGhosttyAccess(reason: "reconcileAttachedWindow") {
             ghostty_surface_set_display_id(s, displayID)
         }
-        rendererPresentationAttachmentDidBecomeReady()
+        rendererPresentationReadinessDidChange()
     }
 
     /// Whether the surface model is attached to `view` with a live runtime
@@ -299,8 +299,18 @@ extension TerminalSurface {
 
     /// Frees the runtime surface while keeping the model alive for an
     /// agent-hibernation resume.
+    ///
+    /// - Returns: `false` without changing the surface when the bounded
+    ///   hibernation teardown lane has no capacity.
+    @discardableResult
     @MainActor
-    public func suspendRuntimeSurfaceForAgentHibernation(reason: String) {
+    public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
+        guard let teardownReservation =
+                agentHibernationRuntimeTeardownReservation ??
+                runtimeTeardown.reserveIsolatedHibernationTeardown() else {
+            return false
+        }
+        agentHibernationRuntimeTeardownReservation = nil
         _ = fontSizeLineageSnapshot()
         mobileViewportFontFitState = nil
         runtimeSurfaceSuspendedForAgentHibernation = true
@@ -330,10 +340,13 @@ extension TerminalSurface {
         desiredFocusState = false
 
         guard let surfaceToFree else {
+            runtimeTeardown.cancelIsolatedHibernationTeardown(
+                teardownReservation
+            )
             callbackContext?.release()
             manualIOContext?.release()
             teeLease?.release()
-            return
+            return true
         }
 
 #if DEBUG
@@ -348,7 +361,7 @@ extension TerminalSurface {
             // Transport manualIOContext and teeLease through the request too:
             // the coordinator releases all callback userdata only after the
             // native free, which is what joins ghostty's IO threads.
-            runtimeTeardown.enqueueRuntimeTeardown(
+            agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
                 workspaceId: tabId,
                 reason: reason,
@@ -356,26 +369,76 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                executionLane: .isolatedHibernation,
+                isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
             )
-            return
+            return true
         }
 #endif
 
-        Task { @MainActor in
-            ghostty_surface_free(surfaceToFree)
-            callbackContext?.release()
-            manualIOContext?.release()
-            teeLease?.release()
+        agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
+            id: id,
+            workspaceId: tabId,
+            reason: reason,
+            surface: surfaceToFree,
+            callbackContext: callbackContext,
+            manualIOContext: manualIOContext,
+            byteTeeLease: teeLease,
+            executionLane: .isolatedHibernation,
+            isolatedHibernationReservation: teardownReservation
+        )
+        return true
+    }
+
+    /// Reserves the bounded native-free lane at the final pre-signal gate.
+    @MainActor
+    public func reserveAgentHibernationRuntimeTeardown() -> Bool {
+        guard agentHibernationRuntimeTeardownTicket == nil else { return false }
+        if agentHibernationRuntimeTeardownReservation != nil { return true }
+        guard let reservation =
+                runtimeTeardown.reserveIsolatedHibernationTeardown() else {
+            return false
         }
+        agentHibernationRuntimeTeardownReservation = reservation
+        return true
+    }
+
+    /// Releases an unused reservation when the signal batch fails before commit.
+    @MainActor
+    public func cancelAgentHibernationRuntimeTeardownReservation() {
+        guard let reservation = agentHibernationRuntimeTeardownReservation else {
+            return
+        }
+        agentHibernationRuntimeTeardownReservation = nil
+        runtimeTeardown.cancelIsolatedHibernationTeardown(reservation)
+    }
+
+    /// Waits for the old hibernated runtime generation to finish native teardown.
+    ///
+    /// - Parameter timeout: Maximum wait, or `nil` for event-driven recovery.
+    /// - Returns: `true` only after the old native surface and callback contexts are gone.
+    @MainActor
+    public func waitForAgentHibernationRuntimeTeardown(timeout: Duration?) async -> Bool {
+        guard let ticket = agentHibernationRuntimeTeardownTicket else { return true }
+        let completed = await ticket.wait(timeout: timeout)
+        if completed, agentHibernationRuntimeTeardownTicket?.id == ticket.id {
+            agentHibernationRuntimeTeardownTicket = nil
+        }
+        return completed
     }
 
     /// Marks the resume side of agent hibernation and primes the next runtime
     /// spawn's initial input.
+    ///
+    /// - Returns: `true` when the old runtime is fully gone and resume was armed.
+    @discardableResult
     @MainActor
-    public func prepareAgentHibernationResume(initialInput: String?) {
+    public func prepareAgentHibernationResume(initialInput: String?) -> Bool {
+        guard agentHibernationRuntimeTeardownTicket == nil else { return false }
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
+        return true
     }
 
     /// Primes the initial input for the next runtime spawn only.
@@ -413,7 +476,7 @@ extension TerminalSurface {
                let s = surface {
                 ghostty_surface_set_display_id(s, displayID)
             }
-            rendererPresentationAttachmentDidBecomeReady()
+            rendererPresentationReadinessDidChange()
             return
         }
 
@@ -472,12 +535,69 @@ extension TerminalSurface {
             logDebugEvent("surface.attach.displayId surface=\(id.uuidString.prefix(5)) display=\(displayID)")
 #endif
         }
-        rendererPresentationAttachmentDidBecomeReady()
+        rendererPresentationReadinessDidChange()
     }
 
     @MainActor
     func createSurface(for view: any TerminalSurfaceNativeViewing) {
         createSurface(for: view, source: .normal)
+    }
+
+    @MainActor
+    private func deferRuntimeSurfaceCreationForConfigurationReload(
+        view: any TerminalSurfaceNativeViewing,
+        source: RuntimeSurfaceCreationSource
+    ) -> Bool {
+        if configurationReloadDeferredRuntimeSurfaceCreation {
+            configurationReloadDeferredRuntimeSurfaceCreationSource =
+                (
+                    configurationReloadDeferredRuntimeSurfaceCreationSource
+                    ?? source
+                ).promoted(with: source)
+            configurationReloadDeferredRuntimeSurfaceView = view
+            return true
+        }
+
+        configurationReloadDeferredRuntimeSurfaceCreation = true
+        configurationReloadDeferredRuntimeSurfaceCreationSource =
+            source
+        configurationReloadDeferredRuntimeSurfaceView = view
+        let accepted =
+            engine
+                .deferRuntimeSurfaceCreationForConfigurationReload {
+                    [weak self] in
+                    self?
+                        .resumeRuntimeSurfaceCreationAfterConfigurationReload()
+                }
+        guard accepted else {
+            configurationReloadDeferredRuntimeSurfaceCreation = false
+            configurationReloadDeferredRuntimeSurfaceCreationSource =
+                nil
+            configurationReloadDeferredRuntimeSurfaceView = nil
+            return false
+        }
+        return true
+    }
+
+    @MainActor
+    private func resumeRuntimeSurfaceCreationAfterConfigurationReload() {
+        let source =
+            configurationReloadDeferredRuntimeSurfaceCreationSource
+            ?? .normal
+        let view =
+            configurationReloadDeferredRuntimeSurfaceView
+            ?? attachedView
+            ?? surfaceView
+        configurationReloadDeferredRuntimeSurfaceCreation = false
+        configurationReloadDeferredRuntimeSurfaceCreationSource = nil
+        configurationReloadDeferredRuntimeSurfaceView = nil
+
+        guard allowsRuntimeSurfaceCreation(),
+              surface == nil else {
+            return
+        }
+        prepareFontSizeForDeferredConfigurationRuntimeCreation()
+        createSurface(for: view, source: source)
     }
 
     @MainActor
@@ -492,6 +612,12 @@ extension TerminalSurface {
                 "createSurface SKIPPED surface=\(id.uuidString) tab=\(tabId.uuidString) lifecycle=\(portalLifecycleState.rawValue)"
             )
 #endif
+            return
+        }
+        if deferRuntimeSurfaceCreationForConfigurationReload(
+            view: view,
+            source: source
+        ) {
             return
         }
         let claudeShimState = claudeCommandShimStateForSurface(view: view, source: source)
@@ -558,10 +684,20 @@ extension TerminalSurface {
             return
         }
         guard let createdSurface = surface else { return }
+        guard let surfaceCallbackContext else {
+            preconditionFailure(
+                "A native terminal surface requires callback userdata"
+            )
+        }
+        installFontSizeActionObservation(
+            on: createdSurface,
+            callbackContext: surfaceCallbackContext
+        )
         if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
+        cacheControllingTTYIdentity(for: createdSurface)
         recordRuntimeSurfaceCreation()
         // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.
@@ -597,7 +733,12 @@ extension TerminalSurface {
         let wpx = pixelDimension(from: backingSize.width)
         let hpx = pixelDimension(from: backingSize.height)
         if wpx > 0, hpx > 0 {
-            ghostty_surface_set_size(createdSurface, wpx, hpx)
+            applySurfaceSize(
+                createdSurface,
+                width: wpx,
+                height: hpx,
+                caller: "runtime.create.initial"
+            )
             lastPixelWidth = wpx
             lastPixelHeight = hpx
             lastUncappedPixelWidth = wpx
@@ -621,7 +762,10 @@ extension TerminalSurface {
            inheritedFontSizeLineage.basePoints > 0 {
             let inheritedBaseFontPoints = inheritedFontSizeLineage.basePoints
             let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
-            let action = String(format: "set_font_size:%.3f", inheritedRuntimeFontPoints)
+            let action =
+                ghosttySetFontSizeBindingAction(
+                    inheritedRuntimeFontPoints
+                )
             _ = performInternalBindingAction(action)
         }
 
@@ -631,6 +775,7 @@ extension TerminalSurface {
         ghostty_surface_set_focus(createdSurface, desiredFocusState)
 
         flushPendingSocketInputIfNeeded()
+        view.runtimeSurfaceDidBecomeReady()
 
         // Kick an initial draw after creation/size setup. On some startup paths Ghostty can
         // miss the first vsync callback and sit on a blank frame until another focus/visibility
