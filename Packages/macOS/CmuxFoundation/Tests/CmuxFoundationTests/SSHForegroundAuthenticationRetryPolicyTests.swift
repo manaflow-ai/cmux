@@ -1615,6 +1615,129 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func orphanedReaperCannotAdoptReplacementOwner(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-reaper-generation-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let firstLauncherScript = root.appendingPathComponent("first-launcher.sh")
+        let firstReaperPIDFile = root.appendingPathComponent("first-reaper.pid")
+        let firstPublisherReady = root.appendingPathComponent("first-publisher-ready")
+        let firstReaperRan = root.appendingPathComponent("first-reaper-ran")
+        let replacementReady = root.appendingPathComponent("replacement-ready")
+        let replacementRelease = root.appendingPathComponent("replacement-release")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let policyFunctions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+        let firstLauncher = """
+        \(policyFunctions)
+        cmux_ssh_auth_stable_identity() {
+          cmux_test_stable_identity=$(/usr/bin/env LC_ALL=C LANG=C \\
+            /bin/ps -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \\
+            /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ {
+              cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
+              print $1 "|" cmux_started
+            }')
+          if [ "$1" != "$$" ] && \\
+            /bin/mkdir "$CMUX_TEST_FIRST_IDENTITY_GATE" 2>/dev/null; then
+            printf '%s\n' "$1" > "$CMUX_TEST_FIRST_REAPER_PID" || exit 99
+            : > "$CMUX_TEST_FIRST_PUBLISHER_READY"
+            while :; do /bin/sleep 1; done
+          fi
+          printf '%s\n' "$cmux_test_stable_identity"
+        }
+        cmux_ssh_terminate_owned_auth_group() {
+          : > "$CMUX_TEST_FIRST_REAPER_RAN"
+          return 1
+        }
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+        wait "$!"
+        """
+        try firstLauncher.write(to: firstLauncherScript, atomically: true, encoding: .utf8)
+        defer {
+            if let firstReaperPID = try? Int32(
+                String(contentsOf: firstReaperPIDFile, encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            ) {
+                Darwin.kill(firstReaperPID, SIGKILL)
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        let command = """
+        \(policyFunctions)
+        "$CMUX_TEST_SHELL" "$CMUX_TEST_FIRST_LAUNCHER" &
+        cmux_test_first_launcher=$!
+        cmux_test_ready_attempt=0
+        while [ ! -s "$CMUX_TEST_FIRST_REAPER_PID" ] && \\
+          [ "$cmux_test_ready_attempt" -lt 500 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -s "$CMUX_TEST_FIRST_REAPER_PID" || exit 99
+        /bin/kill -KILL "$cmux_test_first_launcher" 2>/dev/null || exit 98
+        wait "$cmux_test_first_launcher" 2>/dev/null || true
+        cmux_ssh_auth_reclaim_stale_reaper_lock \\
+          "$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock" || exit 97
+        cmux_ssh_terminate_owned_auth_group() {
+          : > "$CMUX_TEST_REPLACEMENT_READY"
+          cmux_test_release_attempt=0
+          while [ ! -e "$CMUX_TEST_REPLACEMENT_RELEASE" ] && \\
+            [ "$cmux_test_release_attempt" -lt 500 ]; do
+            /bin/sleep 0.01
+            cmux_test_release_attempt=$((cmux_test_release_attempt + 1))
+          done
+          test -e "$CMUX_TEST_REPLACEMENT_RELEASE" || return 1
+          /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        }
+        cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+        test "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" = 1 || exit 96
+        cmux_test_replacement_reaper=$!
+        cmux_test_replacement_attempt=0
+        while [ ! -e "$CMUX_TEST_REPLACEMENT_READY" ] && \\
+          [ "$cmux_test_replacement_attempt" -lt 500 ]; do
+          /bin/sleep 0.01
+          cmux_test_replacement_attempt=$((cmux_test_replacement_attempt + 1))
+        done
+        test -e "$CMUX_TEST_REPLACEMENT_READY" || exit 95
+        cmux_test_orphan_attempt=0
+        while [ ! -e "$CMUX_TEST_FIRST_REAPER_RAN" ] && \\
+          [ "$cmux_test_orphan_attempt" -lt 100 ]; do
+          /bin/sleep 0.01
+          cmux_test_orphan_attempt=$((cmux_test_orphan_attempt + 1))
+        done
+        : > "$CMUX_TEST_REPLACEMENT_RELEASE"
+        wait "$cmux_test_replacement_reaper" || exit 94
+        test ! -e "$CMUX_TEST_FIRST_REAPER_RAN" || exit 93
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FIRST_IDENTITY_GATE": root.appendingPathComponent("identity-gate").path,
+                "CMUX_TEST_FIRST_LAUNCHER": firstLauncherScript.path,
+                "CMUX_TEST_FIRST_PUBLISHER_READY": firstPublisherReady.path,
+                "CMUX_TEST_FIRST_REAPER_PID": firstReaperPIDFile.path,
+                "CMUX_TEST_FIRST_REAPER_RAN": firstReaperRan.path,
+                "CMUX_TEST_REPLACEMENT_READY": replacementReady.path,
+                "CMUX_TEST_REPLACEMENT_RELEASE": replacementRelease.path,
+                "CMUX_TEST_SHELL": shellPath,
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func authenticationGroupFactoryRegistersBeforeReturningDirectory() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
