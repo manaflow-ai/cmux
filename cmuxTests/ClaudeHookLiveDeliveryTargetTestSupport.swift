@@ -165,6 +165,59 @@ enum ClaudeHookLiveDeliveryHarness {
         }
     }
 
+    /// Mock server for the task-sync hook's routing, Feed, and checklist calls.
+    static func startTaskSyncServer(
+        context: Context,
+        workspaceId: String,
+        surfaceId: String
+    ) -> DispatchSemaphore {
+        let mutationSeen = DispatchSemaphore(value: 0)
+        _ = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = jsonObject(line),
+                  let method = payload["method"] as? String else {
+                return "OK"
+            }
+            if method == "feed.push" {
+                mutationSeen.signal()
+                return "OK"
+            }
+            guard let id = payload["id"] as? String else {
+                return "OK"
+            }
+            switch method {
+            case "agent.resolve_delivery_target":
+                return v2Response(id: id, ok: true, result: [
+                    "workspace_id": workspaceId,
+                    "surface_id": surfaceId,
+                    "source": "surface",
+                ])
+            case "surface.list":
+                return v2Response(id: id, ok: true, result: [
+                    "surfaces": [["id": surfaceId, "ref": "surface:1", "focused": true]],
+                ])
+            case "workspace.todo.reconcile":
+                mutationSeen.signal()
+                let params = payload["params"] as? [String: Any]
+                let items = params?["items"] as? [[String: Any]] ?? []
+                if items.count > 50 {
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "invalid_params", "message": "checklist cap exceeded"]
+                    )
+                }
+                return v2Response(id: id, ok: true, result: [:])
+            default:
+                return v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+        return mutationSeen
+    }
+
     static func resumeBindingParams(in context: Context) -> [[String: Any]] {
         context.state.snapshot().compactMap { command -> [String: Any]? in
             guard let payload = jsonObject(command),
@@ -181,7 +234,8 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        markActive: Bool = false
     ) throws {
         let now = Date().timeIntervalSince1970
         var record: [String: Any] = [
@@ -194,10 +248,18 @@ enum ClaudeHookLiveDeliveryHarness {
             "updatedAt": now,
         ]
         if let pid { record["pid"] = pid }
-        let store: [String: Any] = [
+        var store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],
         ]
+        if markActive {
+            let active: [String: Any] = [
+                "sessionId": sessionId,
+                "updatedAt": now,
+            ]
+            store["activeSessionsByWorkspace"] = [workspaceId: active]
+            store["activeSessionsBySurface"] = [surfaceId: active]
+        }
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: storeURL)
     }

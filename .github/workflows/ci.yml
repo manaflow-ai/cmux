@@ -692,8 +692,10 @@ jobs:
             -only-testing:cmuxTests/ClaudeHookLifecycleCleanupTests \
             -only-testing:cmuxTests/ClaudeHookLiveDeliveryTargetTests \
             -only-testing:cmuxTests/ClaudeHookPIDAuthenticationTests \
+            -only-testing:cmuxTests/ClaudeTaskSyncHookTests \
             -only-testing:cmuxTests/HostSettingsShortcutNotificationTests \
             -only-testing:cmuxTests/PhonePushPresenceGateTests \
+            -only-testing:cmuxTests/WorkspaceTodoSnapshotTests \
             test
 
       - name: Run Pi Feed ownership regressions
@@ -1324,6 +1326,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxWorkspaces
             CMUXAgentLaunch
           )
           # SwiftPM emits an error-severity diagnostic while planning the

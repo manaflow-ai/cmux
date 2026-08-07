@@ -9,15 +9,28 @@ import Foundation
 /// `Workspace+Todos` entry points, so socket callers get the same caps,
 /// normalization, and override anti-rot as the CLI and the sidebar UI.
 extension TerminalController: ControlWorkspaceTodoContext {
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings {
+        ControlWorkspaceTodoStrings(
+            missingOwnerID: String(
+                localized: "socket.workspace.todo.reconcile.missingOwnerID",
+                defaultValue: "Missing or invalid owner_id"
+            ),
+            invalidOwnerIDLength: String(
+                localized: "socket.workspace.todo.reconcile.invalidOwnerIDLength",
+                defaultValue: "owner_id must be 1...500 characters"
+            )
+        )
+    }
+
     // MARK: - Workspace resolution
 
-    private enum TodoWorkspaceResolution {
+    enum TodoWorkspaceResolution {
         case tabManagerUnavailable
         case notFound
         case found(tabManager: TabManager, workspace: Workspace)
     }
 
-    private func resolveTodoWorkspace(
+    func resolveTodoWorkspace(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
     ) -> TodoWorkspaceResolution {
@@ -71,7 +84,7 @@ extension TerminalController: ControlWorkspaceTodoContext {
         )
     }
 
-    private func todoChecklistSnapshot(for workspace: Workspace) -> ControlWorkspaceTodoChecklistSnapshot {
+    func todoChecklistSnapshot(for workspace: Workspace) -> ControlWorkspaceTodoChecklistSnapshot {
         let progress = workspace.checklistProgressSummary
         return ControlWorkspaceTodoChecklistSnapshot(
             workspaceID: workspace.id,
@@ -382,60 +395,6 @@ extension TerminalController: ControlWorkspaceTodoContext {
                 removedCount: removedCount,
                 checklist: todoChecklistSnapshot(for: workspace)
             )
-        }
-    }
-
-    func controlWorkspaceTodoSet(
-        routing: ControlRoutingSelectors,
-        workspaceID: UUID?,
-        items: [ControlWorkspaceTodoSetItemParam]
-    ) -> ControlWorkspaceTodoSetResolution {
-        switch resolveTodoWorkspace(routing: routing, workspaceID: workspaceID) {
-        case .tabManagerUnavailable:
-            return .tabManagerUnavailable
-        case .notFound:
-            return .notFound
-        case .found(let tabManager, let workspace):
-            // Validate every raw state/origin up front so the replace stays
-            // atomic (nothing mutated on any invalid element).
-            var replacements: [WorkspaceChecklistReplacementItem] = []
-            replacements.reserveCapacity(items.count)
-            for item in items {
-                var state: WorkspaceChecklistItem.State?
-                if let stateRaw = item.stateRaw {
-                    guard let parsed = WorkspaceChecklistItem.State(rawValue: stateRaw) else {
-                        return .invalidState(stateRaw)
-                    }
-                    state = parsed
-                }
-                var origin: WorkspaceChecklistItem.Origin?
-                if let originRaw = item.originRaw {
-                    guard let parsed = WorkspaceChecklistItem.Origin(rawValue: originRaw) else {
-                        return .invalidOrigin(originRaw)
-                    }
-                    origin = parsed
-                }
-                replacements.append(WorkspaceChecklistReplacementItem(
-                    id: item.id,
-                    text: item.text,
-                    state: state,
-                    origin: origin
-                ))
-            }
-            switch workspace.replaceChecklist(with: replacements) {
-            case .failure(.emptyText(let index)):
-                return .emptyText(index: index)
-            case .failure(.duplicateId(let index)):
-                return .duplicateId(index: index)
-            case .failure(.tooManyItems(let count)):
-                return .tooManyItems(count: count)
-            case .success:
-                WorkspaceTodoFeature.markUsed()
-                return .resolved(
-                    windowID: AppDelegate.shared?.windowId(for: tabManager),
-                    checklist: todoChecklistSnapshot(for: workspace)
-                )
-            }
         }
     }
 

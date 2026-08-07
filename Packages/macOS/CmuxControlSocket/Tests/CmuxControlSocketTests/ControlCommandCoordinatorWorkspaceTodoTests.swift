@@ -6,6 +6,10 @@ import Testing
 /// coordinator domain without the app target.
 @MainActor
 final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
+    var todoStrings = ControlWorkspaceTodoStrings(
+        missingOwnerID: "Missing owner marker",
+        invalidOwnerIDLength: "Invalid owner length marker"
+    )
     var statusResolution: ControlWorkspaceTodoStatusResolution = .tabManagerUnavailable
     var checklistResolution: ControlWorkspaceTodoChecklistResolution = .tabManagerUnavailable
     var mutationResolution: ControlWorkspaceTodoMutationResolution = .tabManagerUnavailable
@@ -17,8 +21,13 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var lastSetState: (itemID: UUID?, itemIndex: Int?, stateRaw: String)?
     var lastRemove: (itemID: UUID?, itemIndex: Int?)?
     var lastSetItems: [ControlWorkspaceTodoSetItemParam]?
+    var lastReconcile: (ownerID: String, items: [ControlWorkspaceTodoSetItemParam])?
     var lastOpenRequestedFocus: Bool?
     var lastWorkspaceID: UUID??
+
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings {
+        todoStrings
+    }
 
     func controlWorkspaceTaskStatus(
         routing: ControlRoutingSelectors,
@@ -93,6 +102,17 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     ) -> ControlWorkspaceTodoSetResolution {
         lastWorkspaceID = workspaceID
         lastSetItems = items
+        return setResolution
+    }
+
+    func controlWorkspaceTodoReconcile(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution {
+        lastWorkspaceID = workspaceID
+        lastReconcile = (ownerID, items)
         return setResolution
     }
 

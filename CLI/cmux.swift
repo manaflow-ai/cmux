@@ -176,6 +176,8 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
+    /// Direct child name under Claude's task-store root proven for this session.
+    var claudeTaskDirectoryName: String?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -233,6 +235,42 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return nil }
         return try withLockedState { state in
             state.sessions[normalized]
+        }
+    }
+
+    /// Persists a task-directory binding proven by a deterministic path or an
+    /// exact task id-and-subject match.
+    ///
+    /// Claude launches asynchronous hooks in separate CLI processes, so the
+    /// binding is updated inside the existing cross-process session-store
+    /// transaction rather than process-local mutable state.
+    func bindClaudeTaskDirectory(
+        sessionId: String,
+        directoryName: String,
+        workspaceId: String,
+        surfaceId: String
+    ) throws {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty,
+              !normalizedDirectoryName.isEmpty,
+              normalizedDirectoryName != ".",
+              normalizedDirectoryName != "..",
+              !normalizedDirectoryName.contains("/"),
+              !normalizedDirectoryName.contains("\0") else { return }
+        try withLockedState { state in
+            let now = Date.now.timeIntervalSince1970
+            var record = state.sessions[normalizedSessionId] ?? ClaudeHookSessionRecord(
+                sessionId: normalizedSessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                startedAt: now,
+                updatedAt: now
+            )
+            guard record.claudeTaskDirectoryName != normalizedDirectoryName else { return }
+            record.claudeTaskDirectoryName = normalizedDirectoryName
+            record.updatedAt = now
+            state.sessions[normalizedSessionId] = record
         }
     }
 
@@ -25262,6 +25300,15 @@ struct CMUXCLI {
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             printClaudeHookAck()
         case "push-notification": try runClaudePushNotificationHook(client: client, telemetry: telemetry, parsedInput: parsedInput, sessionStore: sessionStore, routing: hookRouting, markFeedTelemetryHandled: { didSendFeedTelemetry = true }, sendFeedTelemetry: sendClaudeFeedTelemetry)
+        case "task-sync": runClaudeTaskSyncHook(
+            client: client,
+            telemetry: telemetry,
+            parsedInput: parsedInput,
+            sessionStore: sessionStore,
+            routing: hookRouting,
+            socketPassword: socketPassword,
+            markFeedTelemetryHandled: { didSendFeedTelemetry = true }
+        )
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
             // A fork launch that exits before its first prompt fires SessionEnd
@@ -32690,16 +32737,18 @@ export default CMUXSessionRestore;
         }
     }
 
-    private func sendFeedTelemetry(
+    func sendFeedTelemetry(
         client: SocketClient,
         source: String,
         subcommand: String,
         parsedInput: ClaudeHookParsedInput,
         workspaceId: String? = nil,
         surfaceId: String? = nil,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        toolNameOverride: String? = nil,
+        toolInputOverride: Any? = nil
     ) {
-        let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
+        let hookEventName = feedEventName(forClaudeSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
@@ -32727,11 +32776,13 @@ export default CMUXSessionRestore;
             event["transcript_path"] = transcriptPath
         }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
-        let toolName = parsedInput.object?["tool_name"] as? String
+        let toolName = toolNameOverride ?? parsedInput.object?["tool_name"] as? String
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
-        if let toolInput = parsedInput.object?["tool_input"] {
+        if let toolInputOverride {
+            event["tool_input"] = toolInputOverride
+        } else if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -33232,12 +33283,13 @@ export default CMUXSessionRestore;
         }
     }
 
-    private static func feedEventName(forClaudeSubcommand sub: String) -> String {
-        switch sub {
+    private func feedEventName(forClaudeSubcommand subcommand: String) -> String {
+        switch subcommand {
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
         case "pre-tool-use", "cron-create-guard": return "PreToolUse"
         case "post-tool-use", "push-notification": return "PostToolUse"
+        case "task-sync": return "TodoWrite"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"

@@ -25,6 +25,12 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
     public var state: State
     /// Who created the item.
     public var origin: Origin
+    /// Stable ownership key for an authoritative external checklist source.
+    ///
+    /// `nil` means the item is not owned by a reconciler. The value is
+    /// intentionally opaque to the UI and lets one source replace only its
+    /// own items without deleting user items or another source's items.
+    public var ownerID: String?
     /// User-owned image files attached to the item.
     public var attachments: [WorkspaceChecklistAttachment]
 
@@ -34,17 +40,27 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
     }
 
     /// Creates an item.
+    ///
+    /// - Parameters:
+    ///   - id: The stable item identity.
+    ///   - text: The normalized task text.
+    ///   - state: The initial completion state.
+    ///   - origin: Who created the item.
+    ///   - ownerID: The authoritative external owner's key, if any.
+    ///   - attachments: User-owned image references attached to the item.
     public init(
         id: UUID = UUID(),
         text: String,
         state: State = .pending,
         origin: Origin = .user,
+        ownerID: String? = nil,
         attachments: [WorkspaceChecklistAttachment] = []
     ) {
         self.id = id
         self.text = text
         self.state = state
         self.origin = origin
+        self.ownerID = ownerID
         self.attachments = attachments
     }
 
@@ -58,6 +74,7 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         case text
         case state
         case origin
+        case ownerID = "owner_id"
         case attachments
     }
 
@@ -67,6 +84,7 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         self.text = try container.decode(String.self, forKey: .text)
         self.state = try container.decode(State.self, forKey: .state)
         self.origin = try container.decode(Origin.self, forKey: .origin)
+        self.ownerID = try container.decodeIfPresent(String.self, forKey: .ownerID)
         self.attachments = (try? container.decode(LossyWorkspaceChecklistAttachments.self, forKey: .attachments))?.attachments ?? []
     }
 
@@ -76,6 +94,7 @@ public struct WorkspaceChecklistItem: Codable, Sendable, Identifiable, Hashable 
         try container.encode(text, forKey: .text)
         try container.encode(state, forKey: .state)
         try container.encode(origin, forKey: .origin)
+        try container.encodeIfPresent(ownerID, forKey: .ownerID)
         if !attachments.isEmpty {
             try container.encode(attachments, forKey: .attachments)
         }

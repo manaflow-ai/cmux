@@ -8,6 +8,10 @@ import Foundation
 // budget).
 
 extension ControlWorkspaceTodoContext {
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings {
+        ControlWorkspaceTodoStrings(missingOwnerID: "", invalidOwnerIDLength: "")
+    }
+
     func controlWorkspaceTaskStatus(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
@@ -76,6 +80,13 @@ extension ControlWorkspaceTodoContext {
     func controlWorkspaceTodoSet(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?,
+        items: [ControlWorkspaceTodoSetItemParam]
+    ) -> ControlWorkspaceTodoSetResolution { .tabManagerUnavailable }
+
+    func controlWorkspaceTodoReconcile(
+        routing: ControlRoutingSelectors,
+        workspaceID: UUID?,
+        ownerID: String,
         items: [ControlWorkspaceTodoSetItemParam]
     ) -> ControlWorkspaceTodoSetResolution { .tabManagerUnavailable }
 
