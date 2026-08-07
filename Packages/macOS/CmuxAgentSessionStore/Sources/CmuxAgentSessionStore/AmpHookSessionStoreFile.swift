@@ -1,8 +1,17 @@
-import Foundation
+internal import CMUXAgentLaunch
+internal import Foundation
 
-/// The cmux-owned Amp hook store, decoded lossily at the record boundary.
-struct AmpVaultHookSessionStoreFile: Decodable {
-    let sessions: [String: AmpVaultHookSessionRecord]
+struct AmpHookSessionRecord: Decodable {
+    let sessionId: String?
+    let cwd: String?
+    let startedAt: TimeInterval?
+    let updatedAt: TimeInterval?
+    let title: String?
+    let launchCommand: AgentLaunchCommand?
+}
+
+struct AmpHookSessionStoreFile: Decodable {
+    let sessions: [String: AmpHookSessionRecord]
 
     private enum CodingKeys: String, CodingKey {
         case version
@@ -18,7 +27,7 @@ struct AmpVaultHookSessionStoreFile: Decodable {
         }
 
         init?(intValue: Int) {
-            return nil
+            nil
         }
     }
 
@@ -26,10 +35,10 @@ struct AmpVaultHookSessionStoreFile: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         _ = try container.decodeIfPresent(Int.self, forKey: .version)
         let records = try container.nestedContainer(keyedBy: SessionKey.self, forKey: .sessions)
-        var decoded: [String: AmpVaultHookSessionRecord] = [:]
+        var decoded: [String: AmpHookSessionRecord] = [:]
         decoded.reserveCapacity(records.allKeys.count)
         for key in records.allKeys {
-            guard let record = try? records.decode(AmpVaultHookSessionRecord.self, forKey: key) else {
+            guard let record = try? records.decode(AmpHookSessionRecord.self, forKey: key) else {
                 continue
             }
             decoded[key.stringValue] = record

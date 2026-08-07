@@ -23,6 +23,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private let schemaVersion: Int
     private let bundleIdentifier: String?
     private let appSupportDirectory: URL?
+    private let decoderUserInfo: [CodingUserInfoKey: Bool]
     // Justification: FileManager is documented thread-safe ("the methods of
     // the shared FileManager object can be called from multiple threads
     // safely") but Foundation does not mark it Sendable.
@@ -40,22 +41,28 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     ///   - appSupportDirectory: Overrides the discovered user Application
     ///     Support directory (tests pass a temporary directory).
     ///   - fileManager: File system access, injected for testability.
+    ///   - decoderUserInfo: Trust or migration flags applied only while decoding snapshots.
     public init(
         schemaVersion: Int,
         bundleIdentifier: String?,
         appSupportDirectory: URL? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        decoderUserInfo: [CodingUserInfoKey: Bool] = [:]
     ) {
         self.schemaVersion = schemaVersion
         self.bundleIdentifier = bundleIdentifier
         self.appSupportDirectory = appSupportDirectory
         self.fileManager = fileManager
+        self.decoderUserInfo = decoderUserInfo
     }
 
     public func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<SnapshotValue> {
         guard fileManager.fileExists(atPath: fileURL.path) else { return .missing }
         guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
         let decoder = JSONDecoder()
+        for (key, value) in decoderUserInfo {
+            decoder.userInfo[key] = value
+        }
         guard let snapshot = try? decoder.decode(SnapshotValue.self, from: data) else { return .unusable }
         guard snapshot.version == schemaVersion else { return .unusable }
         guard snapshot.hasWindows else { return .unusable }
