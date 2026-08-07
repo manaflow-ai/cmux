@@ -282,10 +282,10 @@ def main() -> int:
             log_file.write(f"{message}\n".encode())
             log_file.close()
         terminate_child(pid)
-        if "failed" in (selected_tests_result, swift_testing_result):
-            return POST_TEST_FAILED_EXIT_CODE
         if swift_testing_expected and swift_testing_result is None:
             return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+        if "failed" in (selected_tests_result, swift_testing_result):
+            return POST_TEST_FAILED_EXIT_CODE
         if saw_passing_terminal_summary:
             return 0
         if "passed" in (selected_tests_result, swift_testing_result):
@@ -296,8 +296,6 @@ def main() -> int:
     if log_file is not None:
         log_file.close()
     exit_code = child_exit_code(status)
-    if "failed" in (selected_tests_result, swift_testing_result):
-        return POST_TEST_FAILED_EXIT_CODE
     if (
         swift_testing_expected
         and swift_testing_result is None
@@ -308,6 +306,8 @@ def main() -> int:
         )
     ):
         return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    if "failed" in (selected_tests_result, swift_testing_result):
+        return POST_TEST_FAILED_EXIT_CODE
     return exit_code
 
 
