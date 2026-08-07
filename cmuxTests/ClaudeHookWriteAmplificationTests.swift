@@ -193,11 +193,12 @@ struct ClaudeHookWriteAmplificationTests {
         _ = runHook(subcommand: "pre-tool-use", eventName: "PreToolUse", toolUseId: "tool-b")
         _ = runHook(subcommand: "pre-tool-use", eventName: "PreToolUse", toolUseId: "tool-a")
 
-        let pendingRecord = try #require(
-            Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let pendingRecord = try Harness.sessionRecord(
+            in: context.storeURL,
+            sessionId: sessionId
         )
-        #expect(pendingRecord["agentLifecycle"] as? String == "needsInput")
-        #expect(pendingRecord["pendingBlockingToolUseIds"] as? [String] == ["tool-a", "tool-b"])
+        #expect(pendingRecord?["agentLifecycle"] as? String == "needsInput")
+        #expect(pendingRecord?["pendingBlockingToolUseIds"] as? [String] == ["tool-a", "tool-b"])
 
         let beforeFirstCompletion = context.state.snapshot().count
         _ = runHook(subcommand: "input-resolved", eventName: "PostToolUse", toolUseId: "tool-a")
@@ -212,11 +213,12 @@ struct ClaudeHookWriteAmplificationTests {
         )
         #expect(!firstCompletionCommands.contains { $0.hasPrefix("set_status claude_code ") })
 
-        let stillPendingRecord = try #require(
-            Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let stillPendingRecord = try Harness.sessionRecord(
+            in: context.storeURL,
+            sessionId: sessionId
         )
-        #expect(stillPendingRecord["agentLifecycle"] as? String == "needsInput")
-        #expect(stillPendingRecord["pendingBlockingToolUseIds"] as? [String] == ["tool-b"])
+        #expect(stillPendingRecord?["agentLifecycle"] as? String == "needsInput")
+        #expect(stillPendingRecord?["pendingBlockingToolUseIds"] as? [String] == ["tool-b"])
 
         let storeBeforeDuplicateCompletion = try Data(contentsOf: context.storeURL)
         let beforeDuplicateCompletion = context.state.snapshot().count
@@ -251,10 +253,11 @@ struct ClaudeHookWriteAmplificationTests {
         )
         #expect(finalCompletionCommands.contains { $0.hasPrefix("set_status claude_code ") })
 
-        let resolvedRecord = try #require(
-            Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let resolvedRecord = try Harness.sessionRecord(
+            in: context.storeURL,
+            sessionId: sessionId
         )
-        #expect(resolvedRecord["agentLifecycle"] as? String == "running")
-        #expect(resolvedRecord["pendingBlockingToolUseIds"] == nil)
+        #expect(resolvedRecord?["agentLifecycle"] as? String == "running")
+        #expect(resolvedRecord?["pendingBlockingToolUseIds"] == nil)
     }
 }
