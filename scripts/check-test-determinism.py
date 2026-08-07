@@ -379,21 +379,32 @@ def _parenthesis_delta_outside_quoted_strings(line: str) -> int:
     return delta
 
 
-def _assertion_statement_line_indexes(lines: list[str]) -> set[int]:
-    """Lines belonging to a possibly multiline assertion expression."""
-    indexes: set[int] = set()
+def _assertion_statement_contexts(lines: list[str]) -> dict[int, str]:
+    """Map each assertion line to its complete, possibly multiline expression."""
+    contexts: dict[int, str] = {}
     assertion_depth: Optional[int] = None
+    assertion_indexes: list[int] = []
+    assertion_lines: list[str] = []
     for index, line in enumerate(lines):
         if assertion_depth is None:
             if not _is_assertion_line(line):
                 continue
             assertion_depth = 0
 
-        indexes.add(index)
+        assertion_indexes.append(index)
+        assertion_lines.append(line)
         assertion_depth += _parenthesis_delta_outside_quoted_strings(line)
         if assertion_depth <= 0:
+            statement = "\n".join(assertion_lines)
+            contexts.update((statement_index, statement) for statement_index in assertion_indexes)
             assertion_depth = None
-    return indexes
+            assertion_indexes = []
+            assertion_lines = []
+
+    if assertion_indexes:
+        statement = "\n".join(assertion_lines)
+        contexts.update((statement_index, statement) for statement_index in assertion_indexes)
+    return contexts
 
 
 _QUOTED_COMMAND_EXECUTOR = re.compile(
@@ -409,7 +420,7 @@ _QUOTED_COMMAND_EXECUTOR = re.compile(
 )
 
 
-def detect_live_network_host(line: str, *, assertion_context: bool = False) -> bool:
+def detect_live_network_host(line: str, *, assertion_context: Optional[str] = None) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
     # requests/urlopen/...). A URL used as a string fixture (markdown builder,
@@ -429,10 +440,10 @@ def detect_live_network_host(line: str, *, assertion_context: bool = False) -> b
         for match in verb_matches
     )
     if (
-        assertion_context
+        assertion_context is not None
         and all_verbs_quoted
-        and not _QUOTED_COMMAND_EXECUTOR.search(line)
-        and "${" not in line
+        and not _QUOTED_COMMAND_EXECUTOR.search(assertion_context)
+        and "${" not in assertion_context
     ):
         return False
     for match in _URL.finditer(line):
@@ -580,7 +591,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(l, suffix) for l in raw_lines]
-    assertion_lines = _assertion_statement_line_indexes(code_lines)
+    assertion_contexts = _assertion_statement_contexts(code_lines)
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -591,7 +602,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
         if detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code, assertion_context=i in assertion_lines):
+        if detect_live_network_host(code, assertion_context=assertion_contexts.get(i)):
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
