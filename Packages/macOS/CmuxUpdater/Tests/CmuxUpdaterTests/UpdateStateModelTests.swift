@@ -180,12 +180,18 @@ import Testing
             userInfo: [NSUnderlyingErrorKey: underlying]
         )
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(!message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
         #expect(UpdateManualDownloadRecovery().url(for: err)?.absoluteString.hasSuffix("cmux-macos.dmg") == true)
     }
 
     @Test func agentInvalidationErrorIsTreatedAsAgentFailure() {
         let err = NSError(domain: "SUSparkleErrorDomain", code: 4010)
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(!message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
         #expect(UpdateManualDownloadRecovery().url(for: err) != nil)
     }
 
@@ -225,6 +231,20 @@ import Testing
             NSLocalizedFailureReasonErrorKey: "The remote port connection was invalidated from the updater.",
         ])
         #expect(UpdateStateModel.userFacingErrorTitle(for: err).contains("Start Updater"))
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(!message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("Applications"))
+    }
+
+    /// Some Sparkle traces carry the exact timeout only on the top-level installation error.
+    @Test func installFailureWithStartupTimeoutTextExplainsEndpointSecurityRecovery() {
+        let err = NSError(domain: "SUSparkleErrorDomain", code: 4005, userInfo: [
+            NSLocalizedDescriptionKey: "An error occurred while running the updater.",
+            NSLocalizedFailureReasonErrorKey: "Timeout: agent connection was never initiated",
+        ])
+        let message = UpdateStateModel.userFacingErrorMessage(for: err)
+        #expect(message.localizedCaseInsensitiveContains("security software"))
+        #expect(!message.localizedCaseInsensitiveContains("Applications"))
     }
 
     @Test func downloadErrorOffersManualDownload() {
