@@ -599,6 +599,45 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func persistentBindingOnlyRestoreTracksStartupCommandUntilPromptReturns() throws {
+        let fixture = try makeRelayedFixture()
+        let suiteName = "cmux-remote-resume-lifecycle-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let socketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(socketPath) }
+
+        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restoredWorkspace.teardownAllPanels() }
+        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(fixture.snapshot)
+        let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
+
+        #expect(
+            restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID]
+                == .autoResumeCommandRunning
+        )
+        let runningBinding = try #require(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
+        )
+        #expect(runningBinding.autoResume == true)
+
+        restoredWorkspace.updatePanelShellActivityState(
+            panelId: restoredSurfaceID,
+            state: .promptIdle
+        )
+
+        #expect(restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID] == nil)
+        let retiredBinding = try #require(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
+        )
+        #expect(retiredBinding.autoResume == false)
+    }
+
+    @Test
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
         let mismatchedSnapshot = try snapshotByReplacingRemoteContext(
@@ -759,7 +798,15 @@ struct RemoteResumeBindingTests {
 
         let workspace = try #require(manager.selectedWorkspace)
         let surfaceID = try #require(workspace.focusedPanelId)
-        workspace.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let configuration = remoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let remoteAuthority = try #require(
+            WorkspaceRemoteTerminalAuthority(configuration: configuration)
+        )
+        #expect(workspace.markRemoteTerminalSessionConnected(
+            surfaceId: surfaceID,
+            authority: remoteAuthority
+        ))
 
         let localResult = try v2Result(
             request: [
@@ -824,8 +871,76 @@ struct RemoteResumeBindingTests {
         let remoteResult = try v2Result(requestData: rewrittenData)
         let remoteBinding = try #require(remoteResult["resume_binding"] as? [String: Any])
 
+        // An authenticated binding and live persistent PTY are ownership, not
+        // liveness. The app must also observe the shell running and the exact
+        // session-scoped hook runtime key before persisting an automatic restart.
+        #expect(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == false
+        )
+        workspace.updatePanelShellActivityState(
+            panelId: surfaceID,
+            state: .commandRunning
+        )
+        #expect(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == false
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: surfaceID,
+            lifecycle: .running
+        )
+        #expect(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == false
+        )
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: surfaceID,
+            lifecycle: .unknown
+        )
+        workspace.recordAgentPID(
+            key: "codex.session-remote-7989",
+            pid: .max,
+            panelId: surfaceID,
+            refreshPorts: false
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        #expect(
+            snapshot.panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == true
+        )
+
+        // SessionEnd can consume its hook record while surface.resume.clear
+        // fails. Keep the binding armed to model that failure and prove the
+        // later prompt callback prevents a dead agent from being auto-resumed.
+        workspace.updatePanelShellActivityState(panelId: surfaceID, state: .promptIdle)
+        let promptSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let promptTerminal = try #require(
+            promptSnapshot.panels.first { $0.id == surfaceID }?.terminal
+        )
+        #expect(promptTerminal.resumeBinding?.autoResume == true)
+        #expect(promptTerminal.wasAgentRunning == false)
+
+        // A later unrelated command plus a kind-only lifecycle write (for
+        // example Feed attention) cannot revive the consumed session key.
+        workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: surfaceID,
+            lifecycle: .running
+        )
+        workspace.updatePanelShellActivityState(
+            panelId: surfaceID,
+            state: .commandRunning
+        )
+        #expect(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == false
+        )
+
         return (
-            workspace.sessionSnapshot(includeScrollback: false),
+            snapshot,
             workspace.id,
             surfaceID,
             remotePTYSessionID,

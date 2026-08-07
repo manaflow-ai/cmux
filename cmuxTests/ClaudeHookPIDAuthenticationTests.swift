@@ -121,6 +121,43 @@ struct ClaudeHookPIDAuthenticationTests {
         #expect((try? Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)) == nil)
     }
 
+    @Test("Authoritative SessionStart publishes exact-session PID ownership")
+    func authoritativeSessionStartPublishesExactSessionPID() throws {
+        let context = try Harness.makeContext(name: "session-start-scoped-pid")
+        defer { context.cleanup() }
+        let sessionId = "session-start-scoped-pid-session"
+        let pid = 43_303
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.liveWorkspaceId: [Self.liveSurfaceId]],
+            pidTarget: (workspaceId: Self.liveWorkspaceId, surfaceId: Self.liveSurfaceId)
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.liveWorkspaceId
+        environment["CMUX_SURFACE_ID"] = Self.liveSurfaceId
+        environment["CMUX_CLAUDE_PID"] = "\(pid)"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+        assertSuccessfulHook(result)
+        let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0 == "set_agent_pid claude_code.\(sessionId) \(pid) " +
+                    "--tab=\(Self.liveWorkspaceId) --panel=\(Self.liveSurfaceId)"
+            },
+            "SessionStart must bind Claude PID ownership to its exact conversation; commands=\(commands)"
+        )
+        #expect(!commands.contains { $0.hasPrefix("set_agent_pid claude_code \(pid) ") })
+    }
+
     @Test("SessionEnd does not mutate a record rejected by live identity")
     func sessionEndSuppressesVisibleCleanupAfterIdentityRejection() throws {
         let context = try Harness.makeContext(name: "session-end-identity-rejected")

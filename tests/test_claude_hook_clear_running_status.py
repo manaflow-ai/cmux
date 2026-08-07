@@ -283,6 +283,13 @@ def main() -> int:
             print("FAIL: expected clear SessionStart to set Claude Running on the current panel")
             print(f"clear_commands={clear_commands!r}")
             return 1
+        if not has_command(
+            clear_commands,
+            f"set_agent_pid claude_code.{new_session_id} 22222",
+        ):
+            print("FAIL: expected clear SessionStart to register exact-session Claude PID ownership")
+            print(f"clear_commands={clear_commands!r}")
+            return 1
 
         late_old_start = len(server.commands)
         run_claude_hook(
@@ -294,7 +301,7 @@ def main() -> int:
         )
         late_old_start_commands = server.commands[late_old_start:]
 
-        if has_command(late_old_start_commands, "set_agent_pid claude_code 11111"):
+        if has_command(late_old_start_commands, "set_agent_pid claude_code"):
             print("FAIL: stale pre-clear SessionStart must not overwrite active Claude PID")
             print(f"late_old_start_commands={late_old_start_commands!r}")
             return 1
@@ -331,7 +338,7 @@ def main() -> int:
 
         stale_session_end_forbidden_prefixes = [
             f"clear_status claude_code --tab={workspace_id}",
-            f"clear_agent_pid claude_code --tab={workspace_id}",
+            "clear_agent_pid claude_code",
             f"clear_notifications --tab={workspace_id}",
         ]
         for forbidden_prefix in stale_session_end_forbidden_prefixes:

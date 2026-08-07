@@ -73,6 +73,14 @@ struct ClaudeHookLifecycleCleanupTests {
         let commands = context.state.snapshot()
         #expect(
             commands.contains {
+                $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ")
+                    && $0.contains("--tab=\(Self.liveWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "SessionEnd must clear exact-session Claude PID ownership on the live pane; saw \(commands)"
+        )
+        #expect(
+            commands.contains {
                 $0.hasPrefix("clear_agent_pid claude_code ")
                     && $0.contains("--tab=\(Self.liveWorkspaceId)")
                     && $0.contains("--panel=\(Self.liveSurfaceId)")
@@ -137,6 +145,14 @@ struct ClaudeHookLifecycleCleanupTests {
         assertSuccessfulHook(result)
 
         let commands = context.state.snapshot()
+        #expect(
+            commands.contains {
+                $0.hasPrefix("clear_agent_pid claude_code.\(sessionId) ")
+                    && $0.contains("--tab=\(newWorkspaceId)")
+                    && $0.contains("--panel=\(Self.liveSurfaceId)")
+            },
+            "SessionEnd must clear exact-session Claude PID ownership after the pane moves; saw \(commands)"
+        )
         #expect(
             commands.contains {
                 $0.hasPrefix("clear_agent_pid claude_code ")

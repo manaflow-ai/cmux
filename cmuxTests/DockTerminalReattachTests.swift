@@ -44,6 +44,7 @@ extension DockSocketLifecycleTests {
     private func detachedTerminalTransfer(
         panel: any Panel,
         sourceWorkspaceId: UUID,
+        sessionRestoreSourceWorkspaceId: UUID? = nil,
         directory: String? = nil,
         cachedTitle: String? = nil,
         customTitle: String? = nil,
@@ -57,11 +58,14 @@ extension DockSocketLifecycleTests {
         resumeBinding: SurfaceResumeBindingSnapshot? = nil,
         managedAgentResumeBinding: SurfaceResumeBindingSnapshot? = nil,
         agentRuntime: Workspace.DetachedAgentRuntimeState? = nil,
-        isRemoteTerminal: Bool = false
+        isRemoteTerminal: Bool = false,
+        remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil,
+        remoteTerminalAuthority: WorkspaceRemoteTerminalAuthority? = nil,
+        remotePTYSessionID: String? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         Workspace.DetachedSurfaceTransfer(
             sourceWorkspaceId: sourceWorkspaceId,
-            sessionRestoreSourceWorkspaceId: nil,
+            sessionRestoreSourceWorkspaceId: sessionRestoreSourceWorkspaceId,
             panelId: panel.id,
             panel: panel,
             title: panel.displayTitle,
@@ -88,8 +92,10 @@ extension DockSocketLifecycleTests {
             managedAgentResumeBinding: managedAgentResumeBinding,
             agentRuntime: agentRuntime,
             isRemoteTerminal: isRemoteTerminal,
+            remoteTerminalSessionPhase: remoteTerminalSessionPhase,
+            remoteTerminalAuthority: remoteTerminalAuthority,
             remoteRelayPort: nil,
-            remotePTYSessionID: nil,
+            remotePTYSessionID: remotePTYSessionID,
             remoteCleanupConfiguration: nil
         )
     }
@@ -117,6 +123,126 @@ extension DockSocketLifecycleTests {
         #expect(panel.workspaceId == store.workspaceId)
         #expect(panel.surface.focusPlacement == .rightSidebarDock)
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+    }
+
+    @Test("Only a live persistent SSH agent hook survives a Dock snapshot")
+    @MainActor
+    func persistentSSHAgentHookOwnershipSurvivesDockSnapshot() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
+        let remotePTYSessionID = "cmux-remote-pty-\(UUID().uuidString)"
+        let runtimeKey = "codex.remote-session"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume remote-session",
+            cwd: "/srv/project",
+            checkpointId: "remote-session",
+            source: "agent-hook",
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: sourceWorkspaceId,
+                surfaceID: panel.id,
+                persistentPTYSessionID: remotePTYSessionID
+            ))
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let detached = detachedTerminalTransfer(
+            panel: panel,
+            sourceWorkspaceId: sourceWorkspaceId,
+            resumeBinding: binding,
+            managedAgentResumeBinding: binding,
+            agentRuntime: Workspace.DetachedAgentRuntimeState(
+                panelId: panel.id,
+                statusEntries: [:],
+                agentPIDs: [runtimeKey: .max],
+                agentPIDProcessIdentities: [:],
+                agentPIDKeys: [runtimeKey],
+                agentLifecycleStates: ["codex": .unknown]
+            ),
+            isRemoteTerminal: true,
+            remoteTerminalSessionPhase: .connected,
+            remoteTerminalAuthority: .persistentTransport("test-persistent-ssh"),
+            remotePTYSessionID: remotePTYSessionID
+        )
+
+        #expect(
+            store.attachDetachedSurface(
+                detached,
+                inPane: rootPane,
+                focus: false
+            ) == panel.id
+        )
+        store.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+
+        let runningSnapshot = store.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        let runningTerminal = try #require(
+            runningSnapshot.panels.first { $0.id == panel.id }?.terminal
+        )
+        #expect(runningTerminal.wasAgentRunning == true)
+
+        // Model a failed SessionEnd binding clear: the exact auto-resume
+        // binding and lifecycle record remain, but the shell's prompt callback
+        // is authoritative evidence that the agent command ended.
+        store.updatePanelShellActivityState(panelId: panel.id, state: .promptIdle)
+        let promptSnapshot = store.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        let promptTerminal = try #require(
+            promptSnapshot.panels.first { $0.id == panel.id }?.terminal
+        )
+        #expect(promptTerminal.resumeBinding?.autoResume == true)
+        #expect(promptTerminal.wasAgentRunning == false)
+
+        // A later unrelated command plus a kind-only lifecycle write cannot
+        // revive the consumed session-scoped runtime key.
+        store.setAgentLifecycle(
+            key: "codex",
+            panelId: panel.id,
+            lifecycle: .running
+        )
+        store.updatePanelShellActivityState(panelId: panel.id, state: .commandRunning)
+        #expect(
+            store.sessionSnapshot(
+                includeScrollback: false,
+                restorableAgentIndex: .empty,
+                surfaceResumeBindingIndex: .empty
+            ).panels.first { $0.id == panel.id }?.terminal?.wasAgentRunning == false
+        )
+
+        // A reconnect attempt is not a connected remote session, even if the
+        // prior command/lifecycle evidence has not yet been reconciled.
+        store.recordAgentPID(key: runtimeKey, pid: .max, panelId: panel.id)
+        store.setAgentLifecycle(
+            key: "codex",
+            panelId: panel.id,
+            lifecycle: .running
+        )
+        #expect(store.markRemoteTerminalSessionLaunching(
+            panelId: panel.id,
+            terminalLifecycleID: panel.surface.terminalLifecycleId,
+            attemptID: UUID()
+        ))
+        let launchingSnapshot = store.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        #expect(
+            launchingSnapshot.panels.first { $0.id == panel.id }?
+                .terminal?.wasAgentRunning == false
+        )
     }
 
     @Test("Focused live terminal attach into visible Dock requests one view reattach")
