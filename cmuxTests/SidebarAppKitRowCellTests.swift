@@ -890,11 +890,12 @@ struct SidebarAppKitRowCellTests {
         let pooledTextView = try #require(
             Self.descriptionTextView(in: cell, showing: "second")
         )
-        let pooledLink = try #require(
+        var pooledLink: SidebarRowTextAccessibilityLink? = try #require(
             Self.accessibilityLinks(in: pooledTextView).first {
                 $0.accessibilityURL() == secondURL
             }
         )
+        weak var releasedPooledLink = pooledLink
 
         let shrunkModel = Self.makeModel(
             workspaceId: workspaceID,
@@ -902,19 +903,24 @@ struct SidebarAppKitRowCellTests {
             metadataBlocks: [firstBlock],
             isMarkdownExpanded: true
         )
-        cell.configure(
-            model: shrunkModel,
-            actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
-            isPointerHovering: false,
-            contextMenuDidOpen: {},
-            contextMenuDidClose: {}
-        )
+        autoreleasepool {
+            cell.configure(
+                model: shrunkModel,
+                actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
+                isPointerHovering: false,
+                contextMenuDidOpen: {},
+                contextMenuDidClose: {}
+            )
 
-        #expect(pooledTextView.isHidden)
-        #expect(Self.accessibilityLinks(in: pooledTextView).isEmpty)
-        #expect(!pooledLink.accessibilityPerformPress())
-        #expect(pooledLink.accessibilityFrameInParentSpace().isEmpty)
-        #expect(openedURL == nil)
+            #expect(pooledTextView.isHidden)
+            #expect(Self.accessibilityLinks(in: pooledTextView).isEmpty)
+            #expect(pooledTextView.attributedStringValue.length == 0)
+            #expect(pooledLink?.accessibilityPerformPress() == false)
+            #expect(pooledLink?.accessibilityFrameInParentSpace().isEmpty == true)
+            #expect(openedURL == nil)
+            pooledLink = nil
+        }
+        #expect(releasedPooledLink == nil)
         _ = window
     }
 
