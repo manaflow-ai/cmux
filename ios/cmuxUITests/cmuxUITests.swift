@@ -3167,6 +3167,70 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// P0 regression for the real-shell pane-layout crash
+    /// (https://github.com/manaflow-ai/cmux/pull/8188): a workspace that syncs
+    /// a pane layout mounted a second typed `NavigationStack` inside the
+    /// compact shell stack's pushed destination. Both stacks join the window's
+    /// shared NavigationAuthority, whose queue then reconciles one stack's
+    /// bound path against the other stack's column and dies in
+    /// `NavigationColumnState.boundPathChange` with
+    /// `SwiftUI.AnyNavigationPath.Error.comparisonTypeMismatch`. The panes
+    /// fixture (`CMUX_UITEST_PANES_PREVIEW`) hosts the pane-zoom pair
+    /// standalone, so only a mock-host launch of the production shell
+    /// reproduces this. The drive-through covers every on-device trigger:
+    /// the initial workspace push, pane-map round-trips, popping back to the
+    /// list, and pushing a layout-free workspace afterwards (which crashed
+    /// against the stale pane column even after the pane workspace was
+    /// popped).
+    @MainActor
+    func testWorkspacePaneLayoutNavigationSurvivesInRealShell() async throws {
+        let server = try MobileSyncMockHostServer(mainWorkspacePaneLayout: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, assertStatusRows: false)
+        // The on-device crash landed within seconds of the push with no
+        // further interaction; give the authority's queued updates a window.
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertEqual(
+            app.state,
+            .runningForeground,
+            "Opening a pane-layout workspace must not crash the shell"
+        )
+
+        let overlay = app.otherElements["MobilePaneMapOverlay"]
+        for cycle in 1...2 {
+            tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
+            XCTAssertTrue(
+                waitForPaneMap(overlay, in: app, toBeActive: true),
+                "Pane map must open from the surface deck (cycle \(cycle))"
+            )
+            XCTAssertEqual(app.state, .runningForeground)
+            tap(app.buttons["MobilePaneMapTile-terminal-build"], in: app)
+            XCTAssertTrue(
+                waitForPaneMap(overlay, in: app, toBeActive: false),
+                "Tapping a tile must return to the terminal (cycle \(cycle))"
+            )
+            XCTAssertEqual(app.state, .runningForeground)
+        }
+
+        // Pop to the list and push a workspace WITHOUT a layout: before the
+        // fix, this push was compared against the popped pane stack's stale
+        // column and crashed even though the nested stack was already gone.
+        tap(app.buttons["MobileWorkspaceBackButton"], in: app)
+        let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 8))
+        docsRow.tap()
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        try await Task.sleep(for: .seconds(3))
+        XCTAssertEqual(
+            app.state,
+            .runningForeground,
+            "Pushing a plain workspace after a pane-layout workspace must not crash the shell"
+        )
+        app.terminate()
+    }
+
     @MainActor
     func testBottomScrollStaysPinnedAcrossComposerViewportShrink() throws {
         let app = launchApp(mockData: false, environment: [
@@ -7498,6 +7562,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
     private let macInstanceTag: String
+    /// When set, `workspace-main` syncs a two-pane split layout so the
+    /// production shell mounts the pane-zoom presentation for it.
+    private let mainWorkspacePaneLayout: Bool
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
     private var selectedWorkspaceID = "workspace-main"
@@ -7561,13 +7628,15 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
-        macInstanceTag: String = mockHostInstanceTag()
+        macInstanceTag: String = mockHostInstanceTag(),
+        mainWorkspacePaneLayout: Bool = false
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
         self.macInstanceTag = macInstanceTag
+        self.mainWorkspacePaneLayout = mainWorkspacePaneLayout
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
         // color-band render test so the bands stream on attach without a flaky
@@ -8080,7 +8149,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func workspaceListResult() -> [String: Any] {
         [
             "workspaces": workspaces.map { workspace in
-                [
+                var entry: [String: Any] = [
                     "id": workspace.id,
                     "title": workspace.title,
                     "current_directory": workspace.currentDirectory,
@@ -8093,8 +8162,52 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                             "is_focused": terminal.id == selectedTerminalID,
                         ] as [String: Any]
                     },
-                ] as [String: Any]
+                ]
+                if mainWorkspacePaneLayout, workspace.id == "workspace-main" {
+                    entry["layout"] = Self.mainWorkspacePaneLayoutPayload()
+                }
+                return entry
             },
+        ]
+    }
+
+    /// The `layout` wire payload for `workspace-main`: a horizontal split of
+    /// two single-surface panes matching the fixture terminals, in the same
+    /// `kind`-discriminated snake_case shape the Mac emits.
+    private static func mainWorkspacePaneLayoutPayload() -> [String: Any] {
+        [
+            "version": 1,
+            "focused_pane_id": "pane-main-left",
+            "root": [
+                "kind": "split",
+                "id": "split-main-root",
+                "orientation": "horizontal",
+                "ratio": 0.5,
+                "first": [
+                    "kind": "pane",
+                    "id": "pane-main-left",
+                    "selected_surface_id": "terminal-build",
+                    "surfaces": [
+                        [
+                            "id": "terminal-build",
+                            "type": "terminal",
+                            "title": "Build",
+                        ] as [String: Any],
+                    ],
+                ] as [String: Any],
+                "second": [
+                    "kind": "pane",
+                    "id": "pane-main-right",
+                    "selected_surface_id": "terminal-tui",
+                    "surfaces": [
+                        [
+                            "id": "terminal-tui",
+                            "type": "terminal",
+                            "title": "TUI",
+                        ] as [String: Any],
+                    ],
+                ] as [String: Any],
+            ] as [String: Any],
         ]
     }
 
