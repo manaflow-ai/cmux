@@ -564,6 +564,109 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSSHRawRemoteCommandKeepsLeadingTTYFlagOnSSHInvocation() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-ssh-raw-command-tty-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let remoteHome = root.appendingPathComponent("remote-home", isDirectory: true)
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let fakeSSH = root.appendingPathComponent("ssh")
+        let fakeDocker = root.appendingPathComponent("docker")
+        let sshArgumentsLog = root.appendingPathComponent("ssh-arguments.log")
+        let dockerArgumentsLog = root.appendingPathComponent("docker-arguments.log")
+
+        try fileManager.createDirectory(at: remoteHome, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try writeShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "exit 0",
+        ])
+        try writeShellFile(at: fakeSSH, lines: [
+            "#!/bin/sh",
+            "cmux_test_remote_command=",
+            "for cmux_test_arg in \"$@\"; do",
+            "  if [ \"$cmux_test_arg\" = '-G' ]; then",
+            "    printf '%s\\n' 'controlpath none'",
+            "    exit 0",
+            "  fi",
+            "  printf '%s\\n' \"$cmux_test_arg\" >> \"${CMUX_TEST_SSH_ARGUMENTS_LOG}\"",
+            "  cmux_test_remote_command=\"$cmux_test_arg\"",
+            "done",
+            "HOME=\"${CMUX_TEST_REMOTE_HOME}\" PATH=\"${CMUX_TEST_REMOTE_PATH}\" /bin/sh -c \"$cmux_test_remote_command\"",
+        ])
+        try writeShellFile(at: fakeDocker, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$@\" > \"${CMUX_TEST_DOCKER_ARGUMENTS_LOG}\"",
+        ])
+        for executable in [fakeCLI, fakeSSH, fakeDocker] {
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: executable.path
+            )
+        }
+
+        let initialStartupCommand = try generatedSSHStartupCommand(
+            remoteCommandArguments: [
+                "-t",
+                "docker", "exec", "-it",
+                "-w", "/workspaces/demo",
+                "vsc-demo", "/bin/bash",
+            ],
+            returnsInitialCommand: true
+        )
+        let startupURL = URL(
+            fileURLWithPath: initialStartupCommand.trimmingCharacters(
+                in: CharacterSet(charactersIn: "'")
+            )
+        )
+        defer { try? fileManager.removeItem(at: startupURL) }
+        let startupScript = try String(contentsOf: startupURL, encoding: .utf8)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeSSH.path)
+        try startupScript.write(to: startupURL, atomically: true, encoding: .utf8)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-debug-test.sock"
+        environment["CMUX_WORKSPACE_ID"] = "11111111-1111-1111-1111-111111111111"
+        environment["CMUX_SURFACE_ID"] = "22222222-2222-2222-2222-222222222222"
+        environment["CMUX_TERMINAL_LIFECYCLE_ID"] =
+            "33333333-3333-3333-3333-333333333333"
+        environment["CMUX_TEST_REMOTE_HOME"] = remoteHome.path
+        environment["CMUX_TEST_REMOTE_PATH"] = "\(root.path):/usr/bin:/bin"
+        environment["CMUX_TEST_SSH_ARGUMENTS_LOG"] = sshArgumentsLog.path
+        environment["CMUX_TEST_DOCKER_ARGUMENTS_LOG"] = dockerArgumentsLog.path
+        environment["CMUX_SSH_RECONNECT_LIMIT"] = "0"
+        environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+
+        let result = runProcess(
+            executablePath: "/bin/sh",
+            arguments: [startupURL.path],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let sshArguments = try String(contentsOf: sshArgumentsLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertTrue(
+            sshArguments.contains("-t"),
+            "The leading OpenSSH PTY flag must stay on the ssh invocation: \(sshArguments)"
+        )
+        let dockerArguments = try String(contentsOf: dockerArgumentsLog, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(
+            dockerArguments,
+            ["exec", "-it", "-w", "/workspaces/demo", "vsc-demo", "/bin/bash"]
+        )
+    }
+
     func testSSHRawRemoteCommandReportsReadinessWithoutGatingUserCommand() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1224,7 +1327,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "ControlPath /tmp/cmux-ssh-%C",
         ],
         additionalArguments: [String] = [],
-        remoteCommandArguments: [String] = []
+        remoteCommandArguments: [String] = [],
+        returnsInitialCommand: Bool = false
     ) throws -> String {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-pane-close")
@@ -1317,6 +1421,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let requests = try state.commands.map { line -> [String: Any] in
             let data = try XCTUnwrap(line.data(using: .utf8))
             return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+        }
+        if returnsInitialCommand {
+            let createRequest = try XCTUnwrap(
+                requests.first { ($0["method"] as? String) == "workspace.create" }
+            )
+            let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
+            return try XCTUnwrap(createParams["initial_command"] as? String)
         }
         let configureRequest = try XCTUnwrap(
             requests.first { ($0["method"] as? String) == "workspace.remote.configure" }
