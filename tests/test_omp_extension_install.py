@@ -195,12 +195,14 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         "anthropic/claude-sonnet-4-5",
         "initial prompt should not persist",
     ]
+    captured_path = "/nix/store/omp/bin:/usr/local/bin:/usr/bin:/bin"
     hook_env = base_env.copy()
     hook_env.pop("PI_CODING_AGENT_DIR", None)
     hook_env.pop("CMUX_SOCKET_CAPABILITY", None)
     hook_env.pop("CMUX_SOCKET_PASSWORD", None)
     hook_env.update(
         {
+            "PATH": captured_path,
             "PWD": str(workspace),
             "CMUX_SOCKET_PATH": str(socket_path),
             "CMUX_WORKSPACE_ID": workspace_id,
@@ -291,8 +293,12 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
     if launch_command.get("workingDirectory") != str(workspace):
         print(f"FAIL: omp hook persisted wrong working directory: {launch_command!r}")
         return False
-    if launch_command.get("environment") != {"PI_CONFIG_DIR": ".custom-omp"}:
-        print(f"FAIL: omp hook did not persist PI_CONFIG_DIR for resume: {launch_command!r}")
+    expected_environment = {
+        "PATH": captured_path,
+        "PI_CONFIG_DIR": ".custom-omp",
+    }
+    if launch_command.get("environment") != expected_environment:
+        print(f"FAIL: omp hook did not persist its restore environment: {launch_command!r}")
         return False
     if "secret-should-not-persist" in json.dumps(session, sort_keys=True):
         print(f"FAIL: omp hook persisted secret environment data: {session!r}")
