@@ -515,7 +515,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 b: terminalInputText.isEmpty ? 1 : 0
             ))
             #endif
-            if !terminalInputText.isEmpty,
+            if !isLoadingDraft,
+               !terminalInputText.isEmpty,
                terminalInputText != oldValue,
                let terminalID = selectedTerminalID?.rawValue {
                 clearSettledTerminalSendStatus(forTerminalID: terminalID)
