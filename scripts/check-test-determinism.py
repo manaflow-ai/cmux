@@ -733,6 +733,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/template_interpolation_fetch.ts",
+            'const result = `${await fetch("https://api.openai.com/v1/items")}`;\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -876,6 +881,12 @@ def _self_test() -> int:
         (
             "web/tests/n18d.ts",
             "expect(help).toContain('execSync(\\\"curl https://cmux.com/status\\\")')\n",
+        ),
+        # Plain template text is still fixture data; only `${...}` regions are
+        # executable JavaScript.
+        (
+            "web/tests/n18e.ts",
+            'const example = `fetch("https://api.openai.com/v1/items")`;\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
