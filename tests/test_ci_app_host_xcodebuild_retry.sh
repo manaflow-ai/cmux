@@ -33,6 +33,10 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     config-home-alias) config_home="$CMUX_MOCK_CONFIG_HOME_ALIAS" ;;
+    config-home-alias-traversal)
+      config_home="$CMUX_MOCK_CONFIG_HOME_ALIAS/.config/ghostty"
+      config_suffix='../../..'
+      ;;
     xdg-config-leak)
       config_category=config
       config_home=/Users/runner
@@ -57,10 +61,14 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   esac
   if [ "$emit_config_evidence" = "1" ]; then
     echo "cmux DEV [$config_category] $config_message path=$config_home/$config_suffix"
+    if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias-traversal" ]; then
+      echo "cmux DEV [default] reading configuration file path=${TEST_RUNNER_HOME}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+    fi
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias-traversal" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
@@ -326,6 +334,35 @@ if [ "$config_home_alias_status" -ne 0 ]; then
   exit 1
 fi
 
+mkdir -p "$RESOLVED_APP_HOST_HOME/.config/ghostty"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/config-home-alias-traversal-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/config-home-alias-traversal-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/config-home-alias-traversal-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/config-home-alias-traversal-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=config-home-alias-traversal \
+CMUX_MOCK_CONFIG_HOME_ALIAS="$CONFIG_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/config-home-alias-traversal-output.log" 2>&1
+config_home_alias_traversal_status=$?
+set -e
+
+if [ "$config_home_alias_traversal_status" -ne 1 ] || ! grep -Fq \
+  "FAIL: Ghostty accessed configuration outside the isolated app-host home" \
+  "$TMP_DIR/config-home-alias-traversal-output.log"; then
+  cat "$TMP_DIR/config-home-alias-traversal-output.log"
+  echo "FAIL: wrapper must reject canonical aliases followed by path traversal"
+  exit 1
+fi
+
 for evidence_regression in no-config-evidence unrelated-config-token; do
   set +e
   PATH="$TMP_DIR:$PATH" \
@@ -477,5 +514,43 @@ for regression in sibling-leak missing-log; do
     exit 1
   fi
 done
+
+EXPECTED_FAILURE_OUTPUT="$TMP_DIR/expected-failure-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 1 failure (0 unexpected) in 0.001 seconds' \
+  >"$EXPECTED_FAILURE_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  126 "$EXPECTED_FAILURE_OUTPUT" \
+  >"$TMP_DIR/missing-swift-classifier-output.log" 2>&1
+missing_swift_classifier_status=$?
+set -e
+if [ "$missing_swift_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/missing-swift-classifier-output.log"
+  echo "FAIL: a missing required Swift Testing phase must never be tolerated"
+  exit 1
+fi
+
+if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  65 "$EXPECTED_FAILURE_OUTPUT"; then
+  echo "FAIL: ordinary expected XCTest failures must retain their tolerant classification"
+  exit 1
+fi
+
+UNEXPECTED_FAILURE_OUTPUT="$TMP_DIR/unexpected-failure-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 1 failure (1 unexpected) in 0.001 seconds' \
+  >"$UNEXPECTED_FAILURE_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  65 "$UNEXPECTED_FAILURE_OUTPUT" \
+  >"$TMP_DIR/unexpected-classifier-output.log" 2>&1
+unexpected_classifier_status=$?
+set -e
+if [ "$unexpected_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/unexpected-classifier-output.log"
+  echo "FAIL: unexpected XCTest failures must remain blocking"
+  exit 1
+fi
 
 echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
