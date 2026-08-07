@@ -289,6 +289,44 @@ struct ArtifactRuntimeLifecycleTests {
         #expect(await store.importedPaths == [source.path])
     }
 
+    @Test("Referenced capture honors configured ephemeral roots within the project")
+    func referencedCaptureHonorsConfiguredEphemeralRoots() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let allowedDirectory = root.appendingPathComponent("allowed", isDirectory: true)
+        let excludedDirectory = root.appendingPathComponent("excluded", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: allowedDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: excludedDirectory,
+            withIntermediateDirectories: true
+        )
+        let allowed = allowedDirectory.appendingPathComponent("allowed.md")
+        let excluded = excludedDirectory.appendingPathComponent("excluded.md")
+        try "allowed".write(to: allowed, atomically: true, encoding: .utf8)
+        try "excluded".write(to: excluded, atomically: true, encoding: .utf8)
+        var configuration = ArtifactCaptureConfiguration.defaultValue
+        configuration.ephemeralPathPrefixes = [allowedDirectory.path]
+        let store = OutOfOrderCaptureStore(
+            suspendsFirstImport: false,
+            configuration: configuration
+        )
+
+        let outcomes = await ArtifactCaptureService(store: store).capture(
+            candidates: [
+                ArtifactCandidate(sourceURL: allowed, provenance: .referenced),
+                ArtifactCandidate(sourceURL: excluded, provenance: .referenced),
+            ],
+            context: ArtifactCaptureContext(projectRoot: root)
+        )
+
+        #expect(await store.importedPaths == [allowed.path])
+        #expect(outcomes.count == 2)
+        #expect(outcomes.last == .skipped(.provenanceNotEligible))
+    }
+
     @Test("Artifacts focus waits for its search endpoint instead of accepting the sidebar host")
     func artifactsFocusTargetsSearchEndpoint() {
         let defaults = UserDefaults.standard

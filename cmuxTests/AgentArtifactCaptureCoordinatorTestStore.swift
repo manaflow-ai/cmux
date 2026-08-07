@@ -13,11 +13,12 @@ actor OutOfOrderCaptureStore: ArtifactStoring {
     init(
         suspendsFirstImport: Bool = true,
         rejectsFirstImportAsBusy: Bool = false,
-        maximumFilesPerCapture: Int = ArtifactCaptureConfiguration.defaultValue.maximumFilesPerCapture
+        maximumFilesPerCapture: Int = ArtifactCaptureConfiguration.defaultValue.maximumFilesPerCapture,
+        configuration: ArtifactCaptureConfiguration = .defaultValue
     ) {
         self.suspendsFirstImport = suspendsFirstImport
         self.rejectsFirstImportAsBusy = rejectsFirstImportAsBusy
-        var configuration = ArtifactCaptureConfiguration.defaultValue
+        var configuration = configuration
         configuration.maximumFilesPerCapture = maximumFilesPerCapture
         captureConfiguration = configuration
     }
