@@ -60,5 +60,9 @@ struct GhosttyScrollViewTests {
             surfaceView.superview === hostedView,
             "the renderer must stay outside AppKit's blit-scrolled document subtree"
         )
+        #expect(
+            hostedView.hitTest(NSPoint(x: 40, y: 40)) === surfaceView,
+            "the transparent virtual scroll document must forward viewport hits to the renderer"
+        )
     }
 }
