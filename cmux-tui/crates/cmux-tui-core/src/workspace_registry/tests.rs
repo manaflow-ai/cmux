@@ -111,9 +111,9 @@ fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publicati
 }
 
 #[test]
-fn reset_removes_selected_session_guard_file() {
-    let root = temp_root("reset-removes-session-guard");
-    let session = "reset-removes-session-guard";
+fn reset_keeps_selected_session_guard_file() {
+    let root = temp_root("reset-keeps-session-guard");
+    let session = "reset-keeps-session-guard";
     drop(WorkspaceRegistry::open(&root, session).unwrap());
     let guard_path = session_guard_lock_path(&root.join(SESSION_GUARD_DIR), session);
     assert!(guard_path.exists(), "open did not create a session guard");
@@ -126,7 +126,7 @@ fn reset_removes_selected_session_guard_file() {
     let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
 
     assert!(reset.removed_session_state);
-    assert!(!guard_path.exists(), "reset left the selected session guard behind");
+    assert!(guard_path.exists(), "reset removed an unpreviewed session guard");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -143,7 +143,7 @@ fn reset_does_not_restrict_supplied_state_root() {
     let session_dir = resetter.session_dir(session);
     fs::create_dir_all(&session_dir).unwrap();
     fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
-    fs::write(session_dir.join("writer.lock"), b"").unwrap();
+    fs::write(session_dir.join(SESSION_WRITER_LOCK_FILE), b"").unwrap();
     let before_mode = fs::metadata(&root).unwrap().permissions().mode() & 0o777;
 
     let preview = resetter.preview(session).unwrap();
@@ -163,7 +163,7 @@ fn reset_accepts_restored_session_without_writer_lock() {
     let session_dir = resetter.session_dir(session);
     fs::create_dir_all(&session_dir).unwrap();
     fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
-    let writer_lock = session_dir.join("writer.lock");
+    let writer_lock = session_dir.join(SESSION_WRITER_LOCK_FILE);
     assert!(!writer_lock.exists());
 
     let preview = resetter.preview(session).unwrap();
@@ -171,6 +171,27 @@ fn reset_accepts_restored_session_without_writer_lock() {
 
     assert!(reset.removed_session_state);
     assert!(!session_dir.exists(), "reset left restored session state behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_refuses_restored_session_when_legacy_writer_lock_is_busy() {
+    let root = temp_root("reset-restored-writer-lock-busy");
+    let session = "reset-restored-writer-lock-busy";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let writer_lock = session_dir.join(SESSION_WRITER_LOCK_FILE);
+    assert!(!writer_lock.exists());
+    let preview = resetter.preview(session).unwrap();
+    let _legacy_owner = SessionLease::acquire(&writer_lock).unwrap();
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("already owned by another daemon"), "{error:#}");
+    assert!(session_dir.exists(), "reset deleted state owned by a legacy writer");
+    assert!(writer_lock.exists(), "reset removed the busy writer lock");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -315,6 +336,26 @@ fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
 
     assert!(error.to_string().contains("safe saved-state reset is not supported"), "{error:#}");
     assert_eq!(fs::read(&child).unwrap(), b"must-remain");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_unsupported_checked_deletion_fails_before_staging_session_dir() {
+    let root = temp_root("reset-unsupported-before-staging");
+    let session = "reset-unsupported-before-staging";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_UNSUPPORTED_CHECKED_DELETION_ROOT.lock().unwrap() = Some(root.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("safe saved-state reset is not supported"), "{error:#}");
+    assert!(session_dir.exists(), "reset moved the session dir before platform support failed");
+    assert!(session_dir.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert!(pending_session_reset_dirs(&root, session).unwrap().is_empty());
     fs::remove_dir_all(root).unwrap();
 }
 
