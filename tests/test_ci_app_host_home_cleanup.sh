@@ -31,7 +31,7 @@ case "${0##*/}" in
         if [ "$fd_filter" != "9" ]; then
           continue
         fi
-        printf 'p%s\nf9\nn%s\n' "$state_pid" "$path_filter"
+        printf 'p%s\nf9\naw\nn%s\n' "$state_pid" "$path_filter"
       else
         printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
           "$state_pid" "$state_executable"
