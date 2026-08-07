@@ -41,8 +41,8 @@ public struct CmxConnectivityDiscoveryScope: Codable, Equatable, Sendable {
 
     /// Creates the canonical scope echoed by connectivity v3.
     ///
-    /// Peer tags are deduplicated by rejection and sorted so request and
-    /// response equality is stable across implementations.
+    /// Peer tags are lowercased, deduplicated by rejection, and sorted so the
+    /// case-insensitive compatibility contract is stable across implementations.
     public init(
         deviceID: String,
         appInstanceID: String,
@@ -57,11 +57,14 @@ public struct CmxConnectivityDiscoveryScope: Codable, Equatable, Sendable {
               Self.isSafeTag(tag),
               platform != peerPlatform,
               peerTags.map({ (1 ... 8).contains($0.count) }) ?? true,
-              peerTags?.allSatisfy(Self.isSafeTag) ?? true,
-              peerTags.map({ Set($0).count == $0.count }) ?? true else {
+              peerTags?.allSatisfy(Self.isSafeTag) ?? true else {
             throw CmxConnectivityDiscoveryScopeError.invalidScope
         }
-        let sortedTags = peerTags?.sorted()
+        let canonicalPeerTags = peerTags?.map { $0.lowercased() }
+        guard canonicalPeerTags.map({ Set($0).count == $0.count }) ?? true else {
+            throw CmxConnectivityDiscoveryScopeError.invalidScope
+        }
+        let sortedTags = canonicalPeerTags?.sorted()
         localBinding = LocalBinding(
             deviceID: deviceID,
             appInstanceID: appInstanceID,

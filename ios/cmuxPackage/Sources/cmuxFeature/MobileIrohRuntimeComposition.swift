@@ -2204,7 +2204,7 @@ public final class MobileIrohRuntimeComposition:
         DiagnosticFailureKind.classify(error)
     }
 
-    nonisolated static func discoveryPeerTags(
+    nonisolated private static func discoveryPeerTags(
         for policy: MobileMacBuildCompatibilityPolicy?
     ) -> [String]? {
         switch policy {

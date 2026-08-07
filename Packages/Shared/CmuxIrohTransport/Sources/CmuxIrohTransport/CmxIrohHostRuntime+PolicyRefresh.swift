@@ -434,17 +434,17 @@ extension CmxIrohHostRuntime {
         let bindingFreshnessExpiry = CmxIrohISO8601Date
             .parse(binding.lastSeenAt)?
             .addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
-        let pathHintExpiry = binding.pathHints.compactMap(\.expiresAt).min()
-        // A stale authoritative timestamp cannot safely arm an immediate
-        // renewal: another stale success would otherwise spin registration.
-        let expiry = [bindingFreshnessExpiry, pathHintExpiry]
+        let expiries = ([bindingFreshnessExpiry] + binding.pathHints.map(\.expiresAt))
             .compactMap { $0 }
-            .filter { $0 > now }
-            .min()
-        guard let expiry else { return nil }
-        let remaining = expiry.timeIntervalSince(now)
-        let safetyWindow = min(15 * 60, max(30, remaining / 4))
-        return max(now, expiry.addingTimeInterval(-safetyWindow))
+        return expiries.compactMap { expiry -> Date? in
+            let remaining = expiry.timeIntervalSince(now)
+            guard remaining > 0 else { return nil }
+            let safetyWindow = min(15 * 60, max(30, remaining / 4))
+            let deadline = expiry.addingTimeInterval(-safetyWindow)
+            // A stale or near-expiry authority cannot safely arm an immediate
+            // renewal: another unchanged success would otherwise spin.
+            return deadline > now ? deadline : nil
+        }.min()
     }
 
     func refreshRegistration(revision: UInt64) async {

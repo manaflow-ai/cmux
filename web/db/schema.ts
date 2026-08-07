@@ -805,7 +805,7 @@ export const irohEndpointBindings = pgTable(
       .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_active_pairable_mac_scope_idx")
-      .on(table.userId, table.tag, table.id)
+      .on(table.userId, sql`lower(${table.tag})`, table.id)
       .where(sql`${table.revokedAt} is null and ${table.platform} = 'mac' and ${table.pairingEnabled} = true`),
     index("iroh_endpoint_bindings_active_ios_scope_idx")
       .on(table.userId, table.id)

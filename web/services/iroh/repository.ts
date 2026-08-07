@@ -597,7 +597,7 @@ function makeLiveRepository(): IrohRepositoryShape {
                   ),
                   input.scope.peerBindings.tags
                     ? inArray(
-                      irohEndpointBindings.tag,
+                      sql<string>`lower(${irohEndpointBindings.tag})`,
                       [...input.scope.peerBindings.tags],
                     )
                     : undefined,

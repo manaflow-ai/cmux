@@ -107,7 +107,10 @@ export function bindingMatchesDiscoveryScope(
   }
   const peers = scope.peerBindings;
   return binding.platform === peers.platform
-    && (peers.tags === undefined || peers.tags.includes(binding.tag))
+    && (
+      peers.tags === undefined
+      || peers.tags.includes(binding.tag.toLowerCase())
+    )
     && (
       peers.pairingEnabled === undefined
       || binding.pairingEnabled === peers.pairingEnabled
@@ -122,7 +125,7 @@ function peerTags(value: unknown): readonly string[] {
   ) {
     throw new IrohInvalidInputError({ code: "invalid_discovery_scope" });
   }
-  const tags = value.map(safeTag);
+  const tags = value.map(safeTag).map((tag) => tag.toLowerCase());
   if (new Set(tags).size !== tags.length) {
     throw new IrohInvalidInputError({ code: "invalid_discovery_scope" });
   }
