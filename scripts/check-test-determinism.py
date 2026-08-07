@@ -1811,6 +1811,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/quoted_curl_command.sh",
+            '"/usr/bin/curl" -fsSL https://api.openai.com/v1/items\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/quoted_shell_command.sh",
+            "'bash' -c 'curl -fsSL https://api.openai.com/v1/items'\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/subprocess_curl.py",
             'subprocess.run(["curl", "https://api.openai.com/v1/items"], check=True)\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1854,11 +1864,29 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/child_process_spawn_quoted_shell_key.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  "shell": "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/bun_spawn_options_curl.ts",
             (
                 "Bun.spawn({\n"
                 '  cmd: ["curl", "https://api.openai.com/v1/items"],\n'
                 '  stdout: "pipe",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_quoted_cmd_key.ts",
+            (
+                "Bun.spawn({\n"
+                '  "cmd": ["curl", "https://api.openai.com/v1/items"],\n'
                 "});\n"
             ),
             {RULE_LIVE_NETWORK_HOST},
