@@ -248,7 +248,7 @@ final class SidebarRowTextView: NSTextField {
     override var isHidden: Bool {
         didSet {
             if isHidden, !oldValue {
-                replaceAccessibilityLinks(with: [])
+                invalidateLinkAccessibility()
             }
         }
     }
@@ -305,6 +305,7 @@ final class SidebarRowTextView: NSTextField {
         mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
         let nextAccessibilityLinks = applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
         attributedStringValue = mutable
+        cachedLinkHitLayout = nil
         replaceAccessibilityLinks(with: nextAccessibilityLinks)
         needsLayout = true
     }
@@ -315,6 +316,7 @@ final class SidebarRowTextView: NSTextField {
         stringValue = text
         self.font = font
         textColor = color
+        cachedLinkHitLayout = nil
         replaceAccessibilityLinks(with: [])
         needsLayout = true
     }
@@ -479,9 +481,18 @@ final class SidebarRowTextView: NSTextField {
         }
     }
 
-    /// Severs link proxies before the owning row takes on a new semantic identity.
+    /// Releases link state before the owning row takes on a new semantic identity.
     func invalidateLinkAccessibility() {
+        guard pendingLinkURL != nil
+            || !accessibilityLinks.isEmpty
+            || attributedStringValue.length > 0
+            || cachedLinkHitLayout != nil
+        else { return }
+        pendingLinkURL = nil
         replaceAccessibilityLinks(with: [])
+        attributedStringValue = NSAttributedString(string: "")
+        cachedLinkHitLayout = nil
+        needsLayout = true
     }
 
     private func replaceAccessibilityLinks(
