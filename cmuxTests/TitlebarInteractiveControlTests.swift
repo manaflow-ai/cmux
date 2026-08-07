@@ -319,7 +319,9 @@ struct SidebarEmptyAreaWindowDragTests {
         #expect(replayed.type == .leftMouseUp)
         #expect(replayed.windowNumber == original.windowNumber)
         #expect(replayed.eventNumber == original.eventNumber)
-        #expect(replayed.timestamp == original.timestamp)
+        // AppKit can round the event timestamp while rebuilding the queued
+        // NSEvent, so compare at microsecond precision instead of bit-for-bit.
+        #expect(abs(replayed.timestamp - original.timestamp) < 0.000_001)
         #expect(replayed.locationInWindow == original.locationInWindow)
         #expect(replayed.clickCount == original.clickCount)
         #expect(replayed.modifierFlags == original.modifierFlags)
