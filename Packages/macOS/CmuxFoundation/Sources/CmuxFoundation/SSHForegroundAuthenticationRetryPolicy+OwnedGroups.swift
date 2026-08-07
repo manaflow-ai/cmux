@@ -242,8 +242,10 @@ extension SSHForegroundAuthenticationRetryPolicy {
           case "$cmux_ssh_auth_stop_record_pid:$cmux_ssh_auth_stop_record_parent:$cmux_ssh_auth_stop_record_group:$cmux_ssh_auth_stop_record_started" in
             *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
           esac
-          cmux_ssh_auth_stop_record_expected="$cmux_ssh_auth_stop_record_parent|$cmux_ssh_auth_stop_record_group|$cmux_ssh_auth_stop_record_started"
-          cmux_ssh_auth_stop_record_current=$(cmux_ssh_auth_identity \
+          # A crashed cleanup can outlive the recorded parent. PID, process
+          # group, and start time remain the durable identity across reparenting.
+          cmux_ssh_auth_stop_record_expected="$cmux_ssh_auth_stop_record_group|$cmux_ssh_auth_stop_record_started"
+          cmux_ssh_auth_stop_record_current=$(cmux_ssh_auth_stable_identity \
             "$cmux_ssh_auth_stop_record_pid")
           [ "$cmux_ssh_auth_stop_record_current" = \
             "$cmux_ssh_auth_stop_record_expected" ]
