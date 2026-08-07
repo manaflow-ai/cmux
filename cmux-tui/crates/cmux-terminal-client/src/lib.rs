@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{CStr, c_char, c_void};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -36,6 +36,8 @@ const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 const TERMINAL_RECONNECT_MAX_ATTEMPTS: u32 = 8;
 const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(250);
 const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
+const MAX_NATIVE_RENDER_EVENT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_NATIVE_RENDER_EVENTS: usize = 4096;
 
 pub struct CmuxTerminalClient {
     runtime: Runtime,
@@ -143,6 +145,81 @@ struct ActiveTerminal {
     resize_task: tokio::task::JoinHandle<()>,
 }
 
+fn decode_terminal_color_state_as_vt(payload: &[u8]) -> Result<Vec<u8>, String> {
+    const MAXIMUM_LENGTH: usize = 8 + 3 * 3 + 2 + 256 * 4;
+    if payload.len() < 8 || payload.len() > MAXIMUM_LENGTH {
+        return Err("terminal Colors payload length is out of range".into());
+    }
+    let version = u16::from_le_bytes(payload[0..2].try_into().unwrap());
+    let flags = u16::from_le_bytes(payload[2..4].try_into().unwrap());
+    let palette_count = u16::from_le_bytes(payload[4..6].try_into().unwrap()) as usize;
+    let reserved = u16::from_le_bytes(payload[6..8].try_into().unwrap());
+    let allowed_flags = match version {
+        1 => 0b111,
+        2 if flags & 0b1000 != 0 => 0b1111,
+        2 => return Err("terminal Colors v2 is missing cursor state".into()),
+        _ => return Err("terminal Colors version is unsupported".into()),
+    };
+    if flags & !allowed_flags != 0 || reserved != 0 || palette_count > 256 {
+        return Err("terminal Colors header is invalid".into());
+    }
+    let expected = 8 + (flags & 0b111).count_ones() as usize * 3
+        + usize::from(flags & 0b1000 != 0) * 2 + palette_count * 4;
+    if payload.len() != expected {
+        return Err("terminal Colors payload is malformed".into());
+    }
+    fn rgb(payload: &[u8], offset: &mut usize) -> [u8; 3] {
+        let value = [payload[*offset], payload[*offset + 1], payload[*offset + 2]];
+        *offset += 3;
+        value
+    }
+    fn osc(output: &mut Vec<u8>, code: u16, color: [u8; 3]) {
+        output.extend_from_slice(
+            format!("\x1b]{code};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color[0], color[1], color[2])
+                .as_bytes(),
+        );
+    }
+    let mut offset = 8;
+    let foreground = (flags & 1 != 0).then(|| rgb(payload, &mut offset));
+    let background = (flags & 2 != 0).then(|| rgb(payload, &mut offset));
+    let cursor = (flags & 4 != 0).then(|| rgb(payload, &mut offset));
+    let cursor_visual = if flags & 8 != 0 {
+        let style = payload[offset];
+        let blink = payload[offset + 1];
+        if !(1..=3).contains(&style) || blink > 1 {
+            return Err("terminal Colors cursor state is invalid".into());
+        }
+        offset += 2;
+        Some((style, blink != 0))
+    } else {
+        None
+    };
+    let mut palette = [None; 256];
+    for _ in 0..palette_count {
+        let index = payload[offset] as usize;
+        if palette[index].is_some() {
+            return Err("terminal Colors contains a duplicate palette index".into());
+        }
+        palette[index] = Some([payload[offset + 1], payload[offset + 2], payload[offset + 3]]);
+        offset += 4;
+    }
+    let mut output = if cursor_visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
+    if let Some(color) = foreground { osc(&mut output, 10, color); }
+    if let Some(color) = background { osc(&mut output, 11, color); }
+    if let Some(color) = cursor { osc(&mut output, 12, color); }
+    if let Some((style, blink)) = cursor_visual {
+        let value = match (style, blink) { (1, true) => 1, (1, false) => 2, (2, true) => 3,
+            (2, false) => 4, (3, true) => 5, (3, false) => 6, _ => unreachable!() };
+        output.extend_from_slice(format!("\x1b[{value} q").as_bytes());
+    }
+    for (index, color) in palette.into_iter().enumerate() {
+        if let Some(color) = color {
+            output.extend_from_slice(format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color[0], color[1], color[2]).as_bytes());
+        }
+    }
+    Ok(output)
+}
+
 impl ActiveTerminal {
     async fn close(self) {
         self.closed.store(true, Ordering::Release);
@@ -190,6 +267,26 @@ struct ClientState {
     cell_pixels: (u16, u16),
     resize_delivery: Option<Arc<ResizeDelivery>>,
     resize_acknowledgement: Option<ResizeAcknowledgement>,
+    native_render_events: Option<VecDeque<NativeRenderEvent>>,
+    native_render_event_bytes: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+enum NativeRenderEventKind {
+    Reset = 1,
+    Bytes = 2,
+    Resize = 3,
+    Ready = 4,
+    Exit = 5,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeRenderEvent {
+    kind: NativeRenderEventKind,
+    cols: u16,
+    rows: u16,
+    payload: Vec<u8>,
 }
 
 #[derive(Serialize)]
@@ -259,7 +356,65 @@ impl ClientState {
             cell_pixels: (8, 16),
             resize_delivery: None,
             resize_acknowledgement: None,
+            native_render_events: None,
+            native_render_event_bytes: 0,
         })
+    }
+
+    fn enable_native_render_events(&mut self) {
+        self.native_render_events = Some(VecDeque::new());
+        self.native_render_event_bytes = 0;
+    }
+
+    fn push_native_render_event(
+        &mut self,
+        kind: NativeRenderEventKind,
+        cols: u16,
+        rows: u16,
+        payload: Vec<u8>,
+    ) -> bool {
+        let Some(events) = self.native_render_events.as_mut() else { return true };
+        if kind == NativeRenderEventKind::Bytes && payload.is_empty() {
+            return true;
+        }
+        if events.len() >= MAX_NATIVE_RENDER_EVENTS
+            || self.native_render_event_bytes.saturating_add(payload.len())
+                > MAX_NATIVE_RENDER_EVENT_BYTES
+        {
+            events.clear();
+            self.native_render_event_bytes = 0;
+            return false;
+        }
+        if kind == NativeRenderEventKind::Bytes
+            && let Some(previous) = events.back_mut()
+            && previous.kind == NativeRenderEventKind::Bytes
+            && previous.payload.len().saturating_add(payload.len()) <= 1024 * 1024
+        {
+            self.native_render_event_bytes =
+                self.native_render_event_bytes.saturating_add(payload.len());
+            previous.payload.extend_from_slice(&payload);
+            return true;
+        }
+        self.native_render_event_bytes =
+            self.native_render_event_bytes.saturating_add(payload.len());
+        events.push_back(NativeRenderEvent { kind, cols, rows, payload });
+        true
+    }
+
+    fn continue_after_native_event(
+        &mut self,
+        kind: NativeRenderEventKind,
+        cols: u16,
+        rows: u16,
+        payload: Vec<u8>,
+    ) -> FrameEffect {
+        if self.push_native_render_event(kind, cols, rows, payload) {
+            FrameEffect::Continue
+        } else {
+            self.status = "renderer-backpressure".into();
+            self.resync_count = self.resync_count.saturating_add(1);
+            FrameEffect::Restart
+        }
     }
 
     fn prepare_handshake(&mut self, terminal_id: TerminalPublicId) -> Result<(), String> {
@@ -280,6 +435,10 @@ impl ClientState {
         self.rows = 0;
         self.cell_pixels = (8, 16);
         self.resize_acknowledgement = None;
+        if let Some(events) = self.native_render_events.as_mut() {
+            events.clear();
+        }
+        self.native_render_event_bytes = 0;
         Ok(())
     }
 
@@ -335,7 +494,12 @@ impl ClientState {
                 self.snapshot_applied = true;
                 self.status = "snapshot".into();
                 self.render_dirty = true;
-                FrameEffect::Continue
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Reset,
+                    snapshot.cols,
+                    snapshot.rows,
+                    snapshot.replay,
+                )
             }
             MessageKind::Colors
                 if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
@@ -350,7 +514,13 @@ impl ClientState {
                 );
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
                 self.render_dirty = true;
-                FrameEffect::Continue
+                let native_colors = decode_terminal_color_state_as_vt(&frame.payload)?;
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Bytes,
+                    self.cols,
+                    self.rows,
+                    native_colors,
+                )
             }
             MessageKind::Ready
                 if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
@@ -359,7 +529,12 @@ impl ClientState {
                 self.bootstrap_committed = true;
                 self.status = "live".into();
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
-                FrameEffect::Continue
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Ready,
+                    self.cols,
+                    self.rows,
+                    Vec::new(),
+                )
             }
             MessageKind::Output => {
                 self.require_sequence(frame.sequence)?;
@@ -372,7 +547,12 @@ impl ClientState {
                 self.raw_frames = self.raw_frames.saturating_add(1);
                 self.local_parser_cursor = frame.sequence;
                 self.render_dirty = true;
-                FrameEffect::Continue
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Bytes,
+                    self.cols,
+                    self.rows,
+                    frame.payload,
+                )
             }
             MessageKind::Resized if matches!(frame.payload.len(), 4 | 8) => {
                 self.require_sequence(frame.sequence)?;
@@ -396,7 +576,12 @@ impl ClientState {
                 self.cell_pixels = cell_pixels;
                 self.local_parser_cursor = frame.sequence;
                 self.render_dirty = true;
-                FrameEffect::Continue
+                self.continue_after_native_event(
+                    NativeRenderEventKind::Resize,
+                    cols,
+                    rows,
+                    Vec::new(),
+                )
             }
             MessageKind::Exit => {
                 self.require_sequence(frame.sequence)?;
@@ -404,7 +589,13 @@ impl ClientState {
                 self.ready = false;
                 self.exited = true;
                 self.status = "exited".into();
-                FrameEffect::Stop
+                let effect = self.continue_after_native_event(
+                    NativeRenderEventKind::Exit,
+                    self.cols,
+                    self.rows,
+                    Vec::new(),
+                );
+                if effect == FrameEffect::Continue { FrameEffect::Stop } else { effect }
             }
             MessageKind::ResyncRequired => {
                 self.source_cursor = frame.sequence;
@@ -1771,6 +1962,23 @@ mod tests {
 
     fn test_terminal_id() -> TerminalPublicId {
         TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap()
+    }
+
+    #[test]
+    fn native_color_events_are_vt_encoded() {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&2u16.to_le_bytes());
+        payload.extend_from_slice(&15u16.to_le_bytes());
+        payload.extend_from_slice(&1u16.to_le_bytes());
+        payload.extend_from_slice(&0u16.to_le_bytes());
+        payload.extend_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99]);
+        payload.extend_from_slice(&[3, 1]);
+        payload.extend_from_slice(&[5, 0xaa, 0xbb, 0xcc]);
+        let encoded = decode_terminal_color_state_as_vt(&payload).unwrap();
+        assert_eq!(
+            encoded,
+            b"\x1b[0 q\x1b]10;rgb:11/22/33\x1b\\\x1b]11;rgb:44/55/66\x1b\\\x1b]12;rgb:77/88/99\x1b\\\x1b[5 q\x1b]4;5;rgb:aa/bb/cc\x1b\\"
+        );
     }
 
     unsafe extern "C" fn count_update(context: *mut c_void) {
