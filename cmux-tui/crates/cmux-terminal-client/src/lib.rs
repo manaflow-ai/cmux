@@ -1980,6 +1980,81 @@ mod tests {
         );
     }
 
+    #[test]
+    fn native_render_queue_coalesces_and_resets() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"one".to_vec()
+        ));
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"two".to_vec()
+        ));
+        let events = state.native_render_events.as_ref().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload, b"onetwo");
+        assert_eq!(state.native_render_event_bytes, 6);
+        state.native_render_events.as_mut().unwrap().clear();
+        state.native_render_event_bytes = 0;
+        for _ in 0..(MAX_NATIVE_RENDER_EVENTS - 1) {
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                80,
+                24,
+                Vec::new()
+            ));
+        }
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"a".to_vec()
+        ));
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            b"b".to_vec()
+        ));
+        let events = state.native_render_events.as_ref().unwrap();
+        assert_eq!(events.len(), MAX_NATIVE_RENDER_EVENTS);
+        assert_eq!(events.back().unwrap().payload, b"ab");
+        state.prepare_handshake(test_terminal_id()).unwrap();
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        assert_eq!(state.native_render_event_bytes, 0);
+    }
+
+    #[test]
+    fn native_render_queue_rejects_byte_and_count_overflow() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        assert!(!state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            vec![0; MAX_NATIVE_RENDER_EVENT_BYTES + 1],
+        ));
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+        for _ in 0..MAX_NATIVE_RENDER_EVENTS {
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                80,
+                24,
+                Vec::new()
+            ));
+        }
+        assert!(!state.push_native_render_event(NativeRenderEventKind::Reset, 80, 24, Vec::new()));
+        assert!(state.native_render_events.as_ref().unwrap().is_empty());
+    }
+
     unsafe extern "C" fn count_update(context: *mut c_void) {
         // SAFETY: the test registers a live AtomicU64 for the callback lifetime.
         let count = unsafe { &*(context.cast::<AtomicU64>()) };
