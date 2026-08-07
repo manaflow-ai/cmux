@@ -1294,6 +1294,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F0C05000000000000000001 /* MainWindowFocusController.swift */; };
 		6512F0C06512F0C06512F002 /* MainWindowFocusRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */; };
 		B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000006 /* MainWindowFocusTypes.swift */; };
+		9666F0019666F0019666F001 /* MainWindowRouteAutosaveProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666F0029666F0029666F002 /* MainWindowRouteAutosaveProjection.swift */; };
 		9666A0019666A0019666A001 /* MainWindowRouteDockState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666A0029666A0029666A002 /* MainWindowRouteDockState.swift */; };
 		9666D0019666D0019666D001 /* MainWindowRouteSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9666D0029666D0029666D002 /* MainWindowRouteSnapshot.swift */; };
 		40ED33F6C1CEB26EAE7C9476 /* MainWindowSelfSizingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */; };
@@ -3948,6 +3949,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		6512F0C06512F0C06512F001 /* MainWindowFocusRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusRestoreTests.swift; sourceTree = "<group>"; };
 		B37A00000000000000000006 /* MainWindowFocusTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusTypes.swift; sourceTree = "<group>"; };
+		9666F0029666F0029666F002 /* MainWindowRouteAutosaveProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRouteAutosaveProjection.swift; sourceTree = "<group>"; };
 		9666A0029666A0029666A002 /* MainWindowRouteDockState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRouteDockState.swift; sourceTree = "<group>"; };
 		9666D0029666D0029666D002 /* MainWindowRouteSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowRouteSnapshot.swift; sourceTree = "<group>"; };
 		570ED364A7E41085FB2D31FE /* MainWindowSelfSizingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowSelfSizingTests.swift; sourceTree = "<group>"; };
@@ -6611,6 +6613,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				895500000000000000000006 /* AppDelegate+WindowFrameRestoration.swift */,
 				D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */,
 				2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */,
+				9666F0029666F0029666F002 /* MainWindowRouteAutosaveProjection.swift */,
 				9666A0029666A0029666A002 /* MainWindowRouteDockState.swift */,
 				9666D0029666D0029666D002 /* MainWindowRouteSnapshot.swift */,
 				9666B0029666B0029666B002 /* RecoverableMainWindowRoute.swift */,
@@ -9312,6 +9315,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				895500000000000000000003 /* MainWindowController.swift in Sources */,
 				2F0C05000000000000000002 /* MainWindowFocusController.swift in Sources */,
 				B37A00000000000000000005 /* MainWindowFocusTypes.swift in Sources */,
+				9666F0019666F0019666F001 /* MainWindowRouteAutosaveProjection.swift in Sources */,
 				9666A0019666A0019666A001 /* MainWindowRouteDockState.swift in Sources */,
 				9666D0019666D0019666D001 /* MainWindowRouteSnapshot.swift in Sources */,
 				A6D1F0300000000000000002 /* MainWindowVisibilityController+Lifecycle.swift in Sources */,

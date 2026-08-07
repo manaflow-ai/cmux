@@ -182,6 +182,65 @@ struct RecoverableMainWindowLifecycleTests {
         #expect(frozenSnapshot.panels.first?.terminal?.scrollback == "preserved output")
     }
 
+    @Test("Recovery freeze preserves a stored process-detected Dock binding")
+    func recoveryFreezePreservesStoredProcessDetectedDockBinding() throws {
+        let sourceWorkspaceId = UUID()
+        let panel = TerminalPanel(
+            workspaceId: sourceWorkspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { store.closeAllPanels() }
+        store.panels[panel.id] = panel
+
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t recovered",
+            cwd: "/tmp",
+            checkpointId: "recovered",
+            source: "process-detected",
+            autoResume: true,
+            updatedAt: 1_999_999_999
+        )
+        store.surfaceResumeBindingsByPanelId[panel.id] = binding
+
+        let snapshot = store.sessionSnapshot(
+            includeScrollback: false,
+            preserveStoredProcessDetectedResumeBindings: true,
+            currentAgentProcessIdentity: { _ in nil },
+            agentProcessPresence: { _ in .absent }
+        )
+        let terminal = try #require(
+            snapshot.panels.first(where: { $0.id == panel.id })?.terminal
+        )
+
+        #expect(terminal.resumeBinding == binding)
+        #expect(store.surfaceResumeBinding(panelId: panel.id) == binding)
+    }
+
+    @Test("Autosave projection bounds full route fingerprints")
+    func autosaveProjectionBoundsFullRouteFingerprints() {
+        let orderedWindowIds = (0..<15).map { _ in UUID() }
+        let projection = MainWindowRouteAutosaveProjection(
+            orderedWindowIds: orderedWindowIds,
+            previouslyPersistedWindowIds: [orderedWindowIds[2], orderedWindowIds[14]],
+            maximumFingerprintWindows: 3
+        )
+
+        #expect(projection.orderedWindowIds == orderedWindowIds)
+        #expect(
+            projection.fingerprintWindowIds == [
+                orderedWindowIds[2],
+                orderedWindowIds[14],
+                orderedWindowIds[0],
+            ]
+        )
+    }
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),

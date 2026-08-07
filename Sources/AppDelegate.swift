@@ -1076,6 +1076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var lastPersistedSessionWindowIds: [UUID] = []
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -4098,13 +4099,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         var hasher = Hasher()
         let routes = orderedSessionRouteSnapshots()
-        hasher.combine(routes.count)
+        let routeProjection = MainWindowRouteAutosaveProjection(
+            orderedWindowIds: routes.map(\.windowId),
+            previouslyPersistedWindowIds: lastPersistedSessionWindowIds,
+            maximumFingerprintWindows: SessionPersistencePolicy.maxWindowsPerSnapshot
+        )
+        hasher.combine(routeProjection.orderedWindowIds.count)
 
-        // Snapshot construction can skip remote-mirror-only or crash-diagnostic
-        // routes before reaching its cap. Hash every route so whichever windows
-        // fill the persisted set are covered by the autosave fingerprint.
+        // All routes contribute bounded selection metadata so topology,
+        // restorable-workspace, and crash-pruning-relevant changes trigger a
+        // save. Only the windows selected by the previous snapshot receive the
+        // expensive full manager fingerprint below.
         for route in routes {
-            hasher.combine(route.windowId)
+            route.combineAutosaveSelectionMetadata(into: &hasher)
+        }
+
+        let routesByWindowId = Dictionary(
+            uniqueKeysWithValues: routes.map { ($0.windowId, $0) }
+        )
+        hasher.combine(routeProjection.fingerprintWindowIds.count)
+        for windowId in routeProjection.fingerprintWindowIds {
+            guard let route = routesByWindowId[windowId] else { continue }
             hasher.combine(
                 route.tabManager.sessionAutosaveFingerprint(
                     restorableAgentIndex: restorableAgentIndex,
@@ -4189,6 +4204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackup
             )
             return false
+        }
+        if !includeScrollback {
+            lastPersistedSessionWindowIds = snapshot.windows.map(\.windowId)
         }
 
         let persistedGeometryData = snapshot.windows.first.flatMap { primaryWindow in

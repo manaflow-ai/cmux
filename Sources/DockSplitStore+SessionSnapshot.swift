@@ -8,6 +8,7 @@ extension DockSplitStore {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        preserveStoredProcessDetectedResumeBindings: Bool = false,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -57,6 +58,8 @@ extension DockSplitStore {
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
                     ),
+                    preserveStoredProcessDetectedResumeBindings:
+                        preserveStoredProcessDetectedResumeBindings,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
@@ -163,6 +166,7 @@ extension DockSplitStore {
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        preserveStoredProcessDetectedResumeBindings: Bool,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
@@ -183,7 +187,9 @@ extension DockSplitStore {
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
-                detected: detectedResumeBinding
+                detected: detectedResumeBinding,
+                preserveStoredProcessDetectedResumeBinding:
+                    preserveStoredProcessDetectedResumeBindings
             )
             let restorableAgent = effectiveSessionRestorableAgent(
                 panelId: panelId,
@@ -354,7 +360,8 @@ extension DockSplitStore {
 
     private func effectiveSessionResumeBinding(
         panelId: UUID,
-        detected: SurfaceResumeBindingSnapshot?
+        detected: SurfaceResumeBindingSnapshot?,
+        preserveStoredProcessDetectedResumeBinding: Bool
     ) -> SurfaceResumeBindingSnapshot? {
         let stored = surfaceResumeBindingsByPanelId[panelId]
         if let stored,
@@ -367,7 +374,8 @@ extension DockSplitStore {
             effective = stored.shouldYieldToDetectedSurfaceResumeBinding(detected) ? detected : stored
         } else if let detected {
             effective = detected
-        } else if stored?.isProcessDetected == true {
+        } else if stored?.isProcessDetected == true,
+                  !preserveStoredProcessDetectedResumeBinding {
             effective = nil
         } else {
             effective = stored

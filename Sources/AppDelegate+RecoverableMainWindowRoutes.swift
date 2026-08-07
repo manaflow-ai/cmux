@@ -216,7 +216,8 @@ extension AppDelegate {
             ? context.windowDockSessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
-                surfaceResumeBindingIndex: nil
+                surfaceResumeBindingIndex: nil,
+                preserveStoredProcessDetectedResumeBindings: true
             )
             : nil
         let route = RecoverableMainWindowRoute(
