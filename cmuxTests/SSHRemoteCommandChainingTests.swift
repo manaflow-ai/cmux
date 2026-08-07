@@ -294,3 +294,226 @@ struct SSHRemoteCommandChainingTests {
         )
     }
 }
+
+/// `cmux ssh --cwd` / `cmux mosh --cwd`: the generated remote bootstrap must
+/// leave the interactive login shell in the requested directory, both alone and
+/// combined with `--command`.
+@Suite(.serialized)
+struct SSHRemoteWorkingDirectoryTests {
+    private let processSupport = CLINotifyProcessIntegrationRegressionTests(invocation: nil)
+
+    private struct RemoteHost {
+        let root: URL
+        let home: URL
+        let helper: URL
+        let loginShell: URL
+        let pwdResult: URL
+    }
+
+    /// Builds a throwaway remote-like $HOME whose login shell records `$PWD`
+    /// instead of going interactive, so the test observes where the session
+    /// actually landed rather than inspecting the script text.
+    private func makeRemoteHost(named name: String) throws -> RemoteHost {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-cwd-\(name)-\(UUID().uuidString)", isDirectory: true)
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+
+        let helper = root.appendingPathComponent("persistent-pty-exec-helper")
+        try """
+        #!/bin/sh
+        [ "${1:-}" = "--internal-persistent-pty-exec" ] || exit 2
+        shift
+        executable="${1:-}"
+        [ -n "$executable" ] || exit 2
+        shift
+        [ "${1:-}" = "$executable" ] || exit 2
+        shift
+        exec "$executable" "$@"
+        """
+        .write(to: helper, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
+
+        let loginShell = root.appendingPathComponent("cmux-test-shell")
+        try """
+        #!/bin/sh
+        pwd > "$HOME/pwd-result"
+        exit 0
+        """
+        .write(to: loginShell, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: loginShell.path)
+
+        return RemoteHost(
+            root: root,
+            home: home,
+            helper: helper,
+            loginShell: loginShell,
+            pwdResult: home.appendingPathComponent("pwd-result")
+        )
+    }
+
+    private func runBootstrap(
+        _ script: String,
+        host: RemoteHost,
+        shell: String? = nil
+    ) -> (status: Int32, stderr: String, timedOut: Bool) {
+        let result = processSupport.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(host.home.path)",
+                "SHELL=\(shell ?? host.loginShell.path)",
+                "PATH=/usr/bin:/bin",
+                "USER=\(NSUserName())",
+                "CMUX_PERSISTENT_PTY_EXEC_HELPER=\(host.helper.path)",
+                "/bin/sh",
+                "-c",
+                // sshd runs the remote command from the account's home
+                // directory; reproduce that so "no --cwd" means "$HOME".
+                "cd \"$HOME\" || exit 1\n" + script,
+            ],
+            environment: ProcessInfo.processInfo.environment,
+            timeout: 10
+        )
+        return (result.status, result.stderr, result.timedOut)
+    }
+
+    /// Compares a recorded `pwd` against an expected directory after resolving
+    /// symlinks on both sides, since `/var` and `/tmp` are symlinked on macOS
+    /// and shells differ on logical vs physical reporting.
+    private func expectRecordedDirectory(_ file: URL, equals expected: URL) throws {
+        let recorded = try String(contentsOf: file, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #expect(
+            URL(fileURLWithPath: recorded).resolvingSymlinksInPath().path
+                == expected.resolvingSymlinksInPath().path,
+            Comment(rawValue: "recorded=\(recorded) expected=\(expected.path)")
+        )
+    }
+
+    /// `--cwd` alone lands the interactive login shell in the requested
+    /// directory, including one whose name contains spaces.
+    @Test
+    func interactiveShellStartsInRequestedWorkingDirectory() throws {
+        let host = try makeRemoteHost(named: "plain")
+        defer { try? FileManager.default.removeItem(at: host.root) }
+        let workingDirectory = host.home.appendingPathComponent("srv/app dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_201,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialWorkingDirectory: workingDirectory.path
+        )
+        let result = runBootstrap(script, host: host)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        try expectRecordedDirectory(host.pwdResult, equals: workingDirectory)
+    }
+
+    /// A `~`-relative `--cwd` expands against the remote `$HOME`, since the
+    /// local shell never saw the value to expand it.
+    @Test
+    func tildePathExpandsAgainstTheRemoteHome() throws {
+        let host = try makeRemoteHost(named: "tilde")
+        defer { try? FileManager.default.removeItem(at: host.root) }
+        let workingDirectory = host.home.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_202,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialWorkingDirectory: "~/work"
+        )
+        let result = runBootstrap(script, host: host)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        try expectRecordedDirectory(host.pwdResult, equals: workingDirectory)
+    }
+
+    /// `--cwd` composes with `--command`: cmux changes directory first, so the
+    /// command observes the requested directory rather than `$HOME`.
+    @Test
+    func initialCommandRunsInsideTheRequestedWorkingDirectory() throws {
+        let host = try makeRemoteHost(named: "combined")
+        defer { try? FileManager.default.removeItem(at: host.root) }
+        let workingDirectory = host.home.appendingPathComponent("srv/app dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let commandResult = host.home.appendingPathComponent("command-pwd-result")
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_203,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialCommand: #"pwd > "$HOME/command-pwd-result"; exit 0"#,
+            initialWorkingDirectory: workingDirectory.path
+        )
+        let result = runBootstrap(script, host: host, shell: "/bin/zsh")
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        try expectRecordedDirectory(commandResult, equals: workingDirectory)
+    }
+
+    /// Omitting `--cwd` emits no `cd` at all, preserving the prior behavior of
+    /// starting wherever the remote login shell starts.
+    @Test
+    func omittingWorkingDirectoryKeepsTheLoginShellDefault() throws {
+        let host = try makeRemoteHost(named: "default")
+        defer { try? FileManager.default.removeItem(at: host.root) }
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_204,
+            shellFeatures: "ssh-env,ssh-terminfo"
+        )
+        let result = runBootstrap(script, host: host)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        try expectRecordedDirectory(host.pwdResult, equals: host.home)
+    }
+
+    /// A `--cwd` that cannot be entered warns on stderr and leaves the user
+    /// with a working session instead of dropping the connection.
+    @Test
+    func unreachableWorkingDirectoryWarnsAndKeepsTheSessionAlive() throws {
+        let host = try makeRemoteHost(named: "missing")
+        defer { try? FileManager.default.removeItem(at: host.root) }
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_205,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialWorkingDirectory: host.home.appendingPathComponent("nope").path
+        )
+        let result = runBootstrap(script, host: host)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stderr.contains("cmux: --cwd: cannot change to"), Comment(rawValue: result.stderr))
+        try expectRecordedDirectory(host.pwdResult, equals: host.home)
+    }
+
+    /// The path is quoted, not evaluated: a directory name containing shell
+    /// syntax is entered literally and its embedded command never runs.
+    @Test
+    func pathsThatCouldInjectShellSyntaxAreQuotedNotEvaluated() throws {
+        let host = try makeRemoteHost(named: "injection")
+        defer { try? FileManager.default.removeItem(at: host.root) }
+        let hostile = host.home.appendingPathComponent("a; touch \"$HOME/pwned\"", isDirectory: true)
+        try FileManager.default.createDirectory(at: hostile, withIntermediateDirectories: true)
+
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_206,
+            shellFeatures: "ssh-env,ssh-terminfo",
+            initialWorkingDirectory: hostile.path
+        )
+        let result = runBootstrap(script, host: host)
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(!FileManager.default.fileExists(atPath: host.home.appendingPathComponent("pwned").path))
+        try expectRecordedDirectory(host.pwdResult, equals: hostile)
+    }
+}

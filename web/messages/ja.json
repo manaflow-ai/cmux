@@ -2573,6 +2573,7 @@
       "flagDesc": "説明",
       "flagNameVal": "ワークスペースのタイトルを設定する",
       "flagCommand": "シェル起動後、最初のリモートターミナルでコマンドテキストを一度だけ実行する",
+      "flagCwd": "ログイン既定のディレクトリではなく、このディレクトリでリモートシェルを開始する（--command と併用可）",
       "flagPort": "SSH ポート (デフォルトは 22)",
       "flagIdentity": "ID ファイルへのパス",
       "flagSshOption": "任意の SSH オプションを渡します (例: -o StrictHostKeyChecking=no)",

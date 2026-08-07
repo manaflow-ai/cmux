@@ -1529,6 +1529,7 @@
       "flagDesc": "Beskrivelse",
       "flagNameVal": "Angi arbeidsområdetittelen",
       "flagCommand": "Kjør kommandoteksten én gang i den første eksterne terminalen etter skalloppstart",
+      "flagCwd": "Starter fjernskallet i denne mappen i stedet for påloggingsstandarden; kan kombineres med --command",
       "flagPort": "SSH-port (standard 22)",
       "flagIdentity": "Sti til identitetsfil",
       "flagSshOption": "Send vilkårlige SSH-alternativer (f.eks. -o StrictHostKeyChecking=no)",

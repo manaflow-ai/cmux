@@ -1732,6 +1732,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		0F17C0DE0F17C0DE0F17C002 /* RemoteTmuxWindowRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F17C0DE0F17C0DE0F17C001 /* RemoteTmuxWindowRegistry.swift */; };
 		FA00C0DE0001BEEF0001CAFE /* RemoteTmuxWindowRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA00C0DE0002BEEF0002CAFE /* RemoteTmuxWindowRegistryTests.swift */; };
 		A7C9D1E3F5B7A9C1D3E5F702 /* RemoteTmuxWindowReorderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7C9D1E3F5B7A9C1D3E5F701 /* RemoteTmuxWindowReorderTests.swift */; };
+		A5001743 /* RemoteWorkingDirectoryScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001742 /* RemoteWorkingDirectoryScript.swift */; };
+		B9000028A1B2C3D4E5F60821 /* RemoteWorkingDirectoryScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001742 /* RemoteWorkingDirectoryScript.swift */; };
 		D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5037010000000000000002 /* RenderableSystemSymbol.swift */; };
 		C58410010000000000000001 /* RenderableSystemSymbolTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C58410010000000000000002 /* RenderableSystemSymbolTests.swift */; };
 		D36A00040000000000000001 /* RendererRealizationController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D36A00040000000000000002 /* RendererRealizationController.swift */; };
@@ -4376,6 +4378,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		0F17C0DE0F17C0DE0F17C001 /* RemoteTmuxWindowRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowRegistry.swift; sourceTree = "<group>"; };
 		FA00C0DE0002BEEF0002CAFE /* RemoteTmuxWindowRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowRegistryTests.swift; sourceTree = "<group>"; };
 		A7C9D1E3F5B7A9C1D3E5F701 /* RemoteTmuxWindowReorderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteTmuxWindowReorderTests.swift; sourceTree = "<group>"; };
+		A5001742 /* RemoteWorkingDirectoryScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteWorkingDirectoryScript.swift; sourceTree = "<group>"; };
 		D5037010000000000000002 /* RenderableSystemSymbol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderableSystemSymbol.swift; sourceTree = "<group>"; };
 		C58410010000000000000002 /* RenderableSystemSymbolTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderableSystemSymbolTests.swift; sourceTree = "<group>"; };
 		D36A00040000000000000002 /* RendererRealizationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RendererRealizationController.swift; sourceTree = "<group>"; };
@@ -7096,6 +7099,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
 				835000000000000000000003 /* RemoteInitialCommandBootstrap.swift */,
 				A5001642 /* RemoteInteractiveShellBootstrapBuilder.swift */,
+				A5001742 /* RemoteWorkingDirectoryScript.swift */,
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A5001651 /* CmuxConfig.swift */,
@@ -9597,6 +9601,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8845B95B4AA5B7B28540D01B /* RemoteTmuxWindowMirrorSizingSnapshot.swift in Sources */,
 				740600000000000000000008 /* RemoteTmuxWindowMirrorSplitView.swift in Sources */,
 				0F17C0DE0F17C0DE0F17C002 /* RemoteTmuxWindowRegistry.swift in Sources */,
+				A5001743 /* RemoteWorkingDirectoryScript.swift in Sources */,
 				D5037010000000000000003 /* RenderableSystemSymbol.swift in Sources */,
 				D36A00040000000000000001 /* RendererRealizationController.swift in Sources */,
 				7490C00E7490C00E7490C00E /* RendererRealizationMemoryPressureResponder.swift in Sources */,
@@ -10401,6 +10406,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				835000000000000000000002 /* RemoteInitialCommandBootstrap.swift in Sources */,
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
+				B9000028A1B2C3D4E5F60821 /* RemoteWorkingDirectoryScript.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
 				B816E948EC5E42AF967648AC /* SSHPTYAttachReconnectInputFilter.swift in Sources */,
 				E60610200000000000000002 /* SSHPTYAttachReconnectInputFilterControl.swift in Sources */,

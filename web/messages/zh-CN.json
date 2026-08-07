@@ -1530,6 +1530,7 @@
       "flagDesc": "描述",
       "flagNameVal": "设置工作区标题",
       "flagCommand": "在 shell 启动后于初始远程终端中运行一次命令文本",
+      "flagCwd": "在此目录中启动远程 shell，而不是登录默认目录；可与 --command 组合使用",
       "flagPort": "SSH 端口（默认 22）",
       "flagIdentity": "身份文件的路径",
       "flagSshOption": "传递任意 SSH 选项（例如 -o StrictHostKeyChecking=no）",
