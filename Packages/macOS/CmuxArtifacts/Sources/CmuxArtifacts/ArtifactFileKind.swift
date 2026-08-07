@@ -17,26 +17,25 @@ public enum ArtifactFileKind: String, Codable, CaseIterable, Sendable {
     /// A file outside the default automatic-capture allowlist.
     case other
 
-    /// Classifies a file from its filename extension.
+    /// Creates a classification from a file's filename extension.
     ///
-    /// - Parameter url: File URL to classify.
-    /// - Returns: Coarse artifact kind.
-    public static func classify(_ url: URL) -> ArtifactFileKind {
-        switch url.pathExtension.lowercased() {
+    /// - Parameter fileURL: File URL to classify.
+    public init(fileURL: URL) {
+        switch fileURL.pathExtension.lowercased() {
         case "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg":
-            return .image
+            self = .image
         case "mp4", "mov", "m4v", "webm":
-            return .video
+            self = .video
         case "md", "markdown", "mdown", "mkd":
-            return .markdown
+            self = .markdown
         case "html", "htm":
-            return .html
+            self = .html
         case "diff", "patch":
-            return .patch
+            self = .patch
         case "txt", "log", "json", "jsonl", "yaml", "yml", "toml", "csv", "tsv", "xml":
-            return .text
+            self = .text
         default:
-            return .other
+            self = .other
         }
     }
 

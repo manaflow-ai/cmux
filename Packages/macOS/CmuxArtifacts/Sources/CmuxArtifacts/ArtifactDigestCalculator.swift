@@ -5,6 +5,11 @@ import Foundation
 /// Computes bounded-file SHA-256 identities for deduplication.
 struct ArtifactDigestCalculator: Sendable {
     private let chunkSize = 64 * 1024
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager) {
+        self.fileManager = fileManager
+    }
 
     func digest(url: URL, expectedSize: Int64, allowedRoot: URL) throws -> String {
         try Task.checkCancellation()
@@ -25,7 +30,8 @@ struct ArtifactDigestCalculator: Sendable {
             throw ArtifactStoreError.sourceNotRegularFile(url.path)
         }
         guard let descriptorURL = descriptorURL(descriptor),
-              ArtifactPathResolver().relativePath(descriptorURL, root: allowedRoot) != nil else {
+              ArtifactPathResolver(fileManager: fileManager)
+                  .relativePath(descriptorURL, root: allowedRoot) != nil else {
             throw ArtifactStoreError.pathOutsideStore(url.path)
         }
 

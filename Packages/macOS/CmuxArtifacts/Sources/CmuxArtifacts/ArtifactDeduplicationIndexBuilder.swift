@@ -4,12 +4,13 @@ import Foundation
 struct ArtifactDeduplicationIndexBuilder {
     let recorder: ArtifactProvenanceRecorder
     let scanner: ArtifactDeduplicationScanner
+    let fileManager: FileManager
 
     func build(
         prepared: [PreparedArtifactImport],
         paths: ArtifactStorePaths
     ) throws -> [String: URL] {
-        let pathResolver = ArtifactPathResolver()
+        let pathResolver = ArtifactPathResolver(fileManager: fileManager)
         var existingByDigest: [String: URL] = [:]
         var unresolvedBySize: [Int64: Set<String>] = [:]
         for item in prepared {
@@ -34,7 +35,7 @@ struct ArtifactDeduplicationIndexBuilder {
         guard !unresolvedBySize.isEmpty else { return existingByDigest }
         try scanner.scanFiles(paths: paths, matchingSizes: Set(unresolvedBySize.keys)) { file, size in
             guard let unresolvedDigests = unresolvedBySize[size], !unresolvedDigests.isEmpty,
-                  let digest = try? ArtifactDigestCalculator().digest(
+                  let digest = try? ArtifactDigestCalculator(fileManager: fileManager).digest(
                     url: file,
                     expectedSize: size,
                     allowedRoot: paths.filesystemRoot
@@ -58,7 +59,7 @@ struct ArtifactDeduplicationIndexBuilder {
         size: Int64,
         paths: ArtifactStorePaths
     ) -> Bool {
-        guard let existingDigest = try? ArtifactDigestCalculator().digest(
+        guard let existingDigest = try? ArtifactDigestCalculator(fileManager: fileManager).digest(
             url: file,
             expectedSize: size,
             allowedRoot: paths.filesystemRoot

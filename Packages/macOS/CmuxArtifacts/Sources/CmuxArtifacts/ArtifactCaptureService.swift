@@ -3,12 +3,16 @@ public import Foundation
 /// Applies project capture policy before importing detected agent artifacts.
 public actor ArtifactCaptureService: ArtifactCapturing {
     private let store: any ArtifactStoring
+    private let fileManager: FileManager
 
     /// Creates a capture service backed by a shared artifact store.
     ///
-    /// - Parameter store: Filesystem store used by automatic and manual capture.
-    public init(store: any ArtifactStoring) {
+    /// - Parameters:
+    ///   - store: Filesystem store used by automatic and manual capture.
+    ///   - fileManager: Filesystem dependency used for canonical path policy.
+    public init(store: any ArtifactStoring, fileManager: FileManager = .default) {
         self.store = store
+        self.fileManager = fileManager
     }
 
     /// Returns the transcript budget when automatic capture is enabled.
@@ -145,7 +149,7 @@ public actor ArtifactCaptureService: ArtifactCapturing {
             return configuration.captureCreatedAndAttached
         case .referenced:
             return configuration.captureReferencedEphemeral
-                && ArtifactPathResolver().relativePath(
+                && ArtifactPathResolver(fileManager: fileManager).relativePath(
                     candidate.sourceURL,
                     root: context.projectRoot
                 ) != nil

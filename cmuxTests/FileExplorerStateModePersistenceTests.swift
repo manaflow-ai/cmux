@@ -10,7 +10,6 @@ import XCTest
 final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let modeKey = "rightSidebar.mode"
     private let customSidebarNameKey = "rightSidebar.customSidebarName"
-    private let artifactsEnabledKey = RightSidebarBetaFeatureSettings.artifactsEnabledKey
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
     private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
 
@@ -45,15 +44,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: feedEnabledKey)
             defaults.set(false, forKey: dockEnabledKey)
-            defaults.set(false, forKey: artifactsEnabledKey)
             let state = FileExplorerState()
-
-            state.mode = .artifacts
-            XCTAssertEqual(state.mode, .files)
-
-            defaults.set(true, forKey: artifactsEnabledKey)
-            state.mode = .artifacts
-            XCTAssertEqual(state.mode, .artifacts)
 
             state.mode = .feed
             XCTAssertEqual(state.mode, .files)
@@ -89,7 +80,6 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
-        XCTAssertEqual(RightSidebarMode.from(cliArgument: "artifacts"), .artifacts)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
@@ -102,13 +92,11 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: modeKey)
         let previousCustomSidebarName = defaults.object(forKey: customSidebarNameKey)
-        let previousArtifactsEnabled = defaults.object(forKey: artifactsEnabledKey)
         let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
         defer {
             restore(previousMode, forKey: modeKey)
             restore(previousCustomSidebarName, forKey: customSidebarNameKey)
-            restore(previousArtifactsEnabled, forKey: artifactsEnabledKey)
             restore(previousFeedEnabled, forKey: feedEnabledKey)
             restore(previousDockEnabled, forKey: dockEnabledKey)
         }

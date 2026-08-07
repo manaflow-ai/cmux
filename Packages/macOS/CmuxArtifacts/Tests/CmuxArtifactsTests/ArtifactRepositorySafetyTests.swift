@@ -293,7 +293,7 @@ struct ArtifactRepositorySafetyTests {
             under: project.appendingPathComponent(".cmux/session/artifacts")
         )
         let relativePath = try #require(
-            ArtifactPathResolver().relativePath(artifact, root: root)
+            ArtifactPathResolver(fileManager: .default).relativePath(artifact, root: root)
         )
 
         #expect(try runGit(["-C", root.path, "check-ignore", "--quiet", "--", relativePath]) == 0)
@@ -368,7 +368,10 @@ struct ArtifactRepositorySafetyTests {
         )
         let search = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            return try ArtifactSearchEngine(configuration: .defaultValue).results(
+            return try ArtifactSearchEngine(
+                configuration: .defaultValue,
+                fileManager: .default
+            ).results(
                 snapshot: snapshot,
                 query: "one"
             )
@@ -388,7 +391,7 @@ struct ArtifactRepositorySafetyTests {
             named: "plan.md",
             under: root.appendingPathComponent("outside")
         )
-        let digest = try ArtifactDigestCalculator().digest(
+        let digest = try ArtifactDigestCalculator(fileManager: .default).digest(
             url: source,
             expectedSize: 8,
             allowedRoot: root

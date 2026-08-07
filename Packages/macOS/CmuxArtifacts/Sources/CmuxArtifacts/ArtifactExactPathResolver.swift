@@ -3,6 +3,8 @@ import Foundation
 
 /// Resolves one exact ordinary file path without walking the artifact tree.
 struct ArtifactExactPathResolver {
+    let fileManager: FileManager
+
     func fileNode(relativePath: String, paths: ArtifactStorePaths) throws -> ArtifactNode? {
         guard !relativePath.isEmpty,
               !relativePath.contains("\0"),
@@ -20,7 +22,7 @@ struct ArtifactExactPathResolver {
             return nil
         }
 
-        let visibilityPolicy = ArtifactStoreVisibilityPolicy()
+        let visibilityPolicy = ArtifactStoreVisibilityPolicy(fileManager: fileManager)
         var current = paths.filesystemRoot
         for (index, component) in components.enumerated() {
             current.appendPathComponent(component, isDirectory: index < components.count - 1)
@@ -56,7 +58,7 @@ struct ArtifactExactPathResolver {
             relativePath: relativePath,
             absolutePath: current.path,
             isDirectory: false,
-            fileKind: ArtifactFileKind.classify(current),
+            fileKind: ArtifactFileKind(fileURL: current),
             size: values.fileSize.map(Int64.init),
             modifiedAt: values.contentModificationDate,
             children: []

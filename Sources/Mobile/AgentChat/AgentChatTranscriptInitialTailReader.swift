@@ -4,15 +4,7 @@ import Foundation
 struct AgentChatTranscriptInitialTailReader: Sendable {
     static let defaultMaximumBytes = 4 * 1024 * 1024
 
-    struct Snapshot: Sendable {
-        let data: Data
-        let fileSize: UInt64
-        let retainedStartOffset: UInt64
-        let headTruncated: Bool
-        let discardsUntilNextNewline: Bool
-    }
-
-    func read(path: String, maximumBytes: Int) -> Snapshot? {
+    func read(path: String, maximumBytes: Int) -> AgentChatTranscriptInitialTailSnapshot? {
         guard maximumBytes > 0,
               let handle = FileHandle(forReadingAtPath: path) else {
             return nil
@@ -28,7 +20,7 @@ struct AgentChatTranscriptInitialTailReader: Sendable {
             return nil
         }
         guard desiredStart > 0 else {
-            return Snapshot(
+            return AgentChatTranscriptInitialTailSnapshot(
                 data: bytes,
                 fileSize: fileSize,
                 retainedStartOffset: 0,
@@ -37,7 +29,7 @@ struct AgentChatTranscriptInitialTailReader: Sendable {
             )
         }
         guard let guardByte = bytes.first else {
-            return Snapshot(
+            return AgentChatTranscriptInitialTailSnapshot(
                 data: Data(),
                 fileSize: fileSize,
                 retainedStartOffset: fileSize,
@@ -46,7 +38,7 @@ struct AgentChatTranscriptInitialTailReader: Sendable {
             )
         }
         if guardByte == 0x0A {
-            return Snapshot(
+            return AgentChatTranscriptInitialTailSnapshot(
                 data: Data(bytes.dropFirst()),
                 fileSize: fileSize,
                 retainedStartOffset: desiredStart,
@@ -55,7 +47,7 @@ struct AgentChatTranscriptInitialTailReader: Sendable {
             )
         }
         guard let boundary = bytes.dropFirst().firstIndex(of: 0x0A) else {
-            return Snapshot(
+            return AgentChatTranscriptInitialTailSnapshot(
                 data: Data(),
                 fileSize: fileSize,
                 retainedStartOffset: fileSize,
@@ -64,7 +56,7 @@ struct AgentChatTranscriptInitialTailReader: Sendable {
             )
         }
         let retainedStart = bytes.index(after: boundary)
-        return Snapshot(
+        return AgentChatTranscriptInitialTailSnapshot(
             data: Data(bytes[retainedStart...]),
             fileSize: fileSize,
             retainedStartOffset: readStart + UInt64(retainedStart),

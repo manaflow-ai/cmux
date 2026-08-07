@@ -12,7 +12,7 @@ final class RightSidebarKeyboardFocusView: NSView {
 #if DEBUG
         dlog(
             "rs.focus.host.attach win=\(window.windowNumber) canAccept=\(cmuxCanAcceptRightSidebarKeyboardFocus ? 1 : 0) " +
-            "fr=\(Self.debugResponder(window.firstResponder))"
+            "fr=\(Self.responderTypeDescription(window.firstResponder))"
         )
 #endif
     }
@@ -61,13 +61,13 @@ final class RightSidebarKeyboardFocusView: NSView {
 #if DEBUG
         dlog(
             "rs.focus.host.focus result=\(result ? 1 : 0) win=\(window.windowNumber) " +
-            "fr=\(Self.debugResponder(window.firstResponder))"
+            "fr=\(Self.responderTypeDescription(window.firstResponder))"
         )
 #endif
         return result
     }
 
-    private static func debugResponder(_ responder: NSResponder?) -> String {
+    private static func responderTypeDescription(_ responder: NSResponder?) -> String {
         guard let responder else { return "nil" }
         return String(describing: type(of: responder))
     }

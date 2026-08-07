@@ -1241,7 +1241,6 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
         XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
-        XCTAssertNil(RightSidebarMode.artifacts.shortcutAction)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
     }

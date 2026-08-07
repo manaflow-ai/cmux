@@ -267,7 +267,7 @@ struct CmuxSessionFilesystemTests {
             sessionID: "session:expected",
             agentName: "codex"
         )
-        let fallback = ArtifactPathResolver().contentDirectory(
+        let fallback = ArtifactPathResolver(fileManager: .default).contentDirectory(
             paths: paths,
             context: context,
             kind: .artifacts
@@ -317,7 +317,7 @@ struct CmuxSessionFilesystemTests {
             sessionID: "shared-session-id",
             agentName: "codex"
         )
-        let fallback = ArtifactPathResolver().contentDirectory(
+        let fallback = ArtifactPathResolver(fileManager: .default).contentDirectory(
             paths: paths,
             context: context,
             kind: .artifacts

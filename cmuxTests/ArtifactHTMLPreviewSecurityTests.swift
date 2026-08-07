@@ -62,7 +62,9 @@ struct ArtifactHTMLPreviewSecurityTests {
     @Test("Artifact previews use an ephemeral script-free WebKit configuration")
     @MainActor
     func configuresAnIsolatedWebView() {
-        let configuration = ArtifactHTMLPreviewWebViewPolicy.makeConfiguration()
+        let configuration = ArtifactHTMLPreviewWebViewFactory(
+            websiteDataStore: .nonPersistent()
+        ).makeConfiguration()
 
         #expect(!configuration.websiteDataStore.isPersistent)
         #expect(!configuration.defaultWebpagePreferences.allowsContentJavaScript)

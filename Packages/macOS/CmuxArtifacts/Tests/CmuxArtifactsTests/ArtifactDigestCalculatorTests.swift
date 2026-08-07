@@ -10,7 +10,7 @@ struct ArtifactDigestCalculatorTests {
         defer { ArtifactTestSupport.remove(root) }
         let source = try ArtifactTestSupport.write("abc", named: "digest.txt", under: root)
 
-        let digest = try ArtifactDigestCalculator().digest(
+        let digest = try ArtifactDigestCalculator(fileManager: .default).digest(
             url: source,
             expectedSize: 3,
             allowedRoot: root
@@ -28,7 +28,7 @@ struct ArtifactDigestCalculatorTests {
         try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
 
         #expect(throws: ArtifactStoreError.self) {
-            _ = try ArtifactDigestCalculator().digest(
+            _ = try ArtifactDigestCalculator(fileManager: .default).digest(
                 url: link,
                 expectedSize: 3,
                 allowedRoot: root

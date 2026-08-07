@@ -124,8 +124,8 @@ struct TranscriptBatchAssembler {
             updatedMessages: updatedMessages,
             artifactReferences: artifactReferences,
             state: ChatTranscriptParseState(
-                pendingToolUses: Self.bounded(pending),
-                pendingArtifactMutations: Self.bounded(pendingArtifactMutations),
+                pendingToolUses: bounded(pending),
+                pendingArtifactMutations: bounded(pendingArtifactMutations),
                 lastTimestamp: lastTimestamp
             )
         )
@@ -133,25 +133,25 @@ struct TranscriptBatchAssembler {
 
     /// Caps carried pending tool uses to the most-recent ``maxPendingToolUses``
     /// by their newest message seq, evicting the oldest unresolved calls.
-    private static func bounded(_ pending: [String: [ChatMessage]]) -> [String: [ChatMessage]] {
-        guard pending.count > maxPendingToolUses else { return pending }
+    private func bounded(_ pending: [String: [ChatMessage]]) -> [String: [ChatMessage]] {
+        guard pending.count > Self.maxPendingToolUses else { return pending }
         let newestFirst = pending.sorted { lhs, rhs in
             (lhs.value.map(\.seq).max() ?? 0) > (rhs.value.map(\.seq).max() ?? 0)
         }
         return Dictionary(
-            uniqueKeysWithValues: newestFirst.prefix(maxPendingToolUses).map { ($0.key, $0.value) }
+            uniqueKeysWithValues: newestFirst.prefix(Self.maxPendingToolUses).map { ($0.key, $0.value) }
         )
     }
 
-    private static func bounded(
+    private func bounded(
         _ pending: [String: [ChatArtifactTranscriptReference]]
     ) -> [String: [ChatArtifactTranscriptReference]] {
-        guard pending.count > maxPendingToolUses else { return pending }
+        guard pending.count > Self.maxPendingToolUses else { return pending }
         let newestFirst = pending.sorted { lhs, rhs in
             (lhs.value.map(\.seq).max() ?? 0) > (rhs.value.map(\.seq).max() ?? 0)
         }
         return Dictionary(
-            uniqueKeysWithValues: newestFirst.prefix(maxPendingToolUses).map { ($0.key, $0.value) }
+            uniqueKeysWithValues: newestFirst.prefix(Self.maxPendingToolUses).map { ($0.key, $0.value) }
         )
     }
 

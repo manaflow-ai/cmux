@@ -5,7 +5,9 @@ struct ArtifactTreeScanner {
     let fileManager: FileManager
     let maximumDepth: Int
     let nodeBudget: Int
-    private let visibilityPolicy = ArtifactStoreVisibilityPolicy()
+    private var visibilityPolicy: ArtifactStoreVisibilityPolicy {
+        ArtifactStoreVisibilityPolicy(fileManager: fileManager)
+    }
 
     func snapshot(paths: ArtifactStorePaths) throws -> ArtifactSnapshot {
         try Task.checkCancellation()
@@ -83,20 +85,20 @@ struct ArtifactTreeScanner {
                 relativePath: relativePath,
                 absolutePath: url.path,
                 isDirectory: isDirectory,
-                fileKind: isDirectory ? nil : ArtifactFileKind.classify(url),
+                fileKind: isDirectory ? nil : ArtifactFileKind(fileURL: url),
                 size: isDirectory ? nil : values.fileSize.map(Int64.init),
                 modifiedAt: values.contentModificationDate,
                 children: nested
             ))
         }
-        return nodes.sorted(by: Self.nodeOrdering)
+        return nodes.sorted(by: nodeOrdering)
     }
 
     private func relativePath(_ url: URL, root: URL) -> String? {
-        ArtifactPathResolver().relativePath(url, root: root)
+        ArtifactPathResolver(fileManager: fileManager).relativePath(url, root: root)
     }
 
-    private static func nodeOrdering(_ lhs: ArtifactNode, _ rhs: ArtifactNode) -> Bool {
+    private func nodeOrdering(_ lhs: ArtifactNode, _ rhs: ArtifactNode) -> Bool {
         if lhs.isDirectory != rhs.isDirectory { return lhs.isDirectory }
         return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
     }

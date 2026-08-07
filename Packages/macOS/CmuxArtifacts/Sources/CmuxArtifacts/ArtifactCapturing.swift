@@ -29,6 +29,7 @@ public protocol ArtifactCapturing: Sendable {
     ) async -> [ArtifactImportAttempt]
 }
 
+/// Convenience operations derived from the batch-oriented capture contract.
 public extension ArtifactCapturing {
     /// Explicitly adds one regular file through the validated capture path.
     ///

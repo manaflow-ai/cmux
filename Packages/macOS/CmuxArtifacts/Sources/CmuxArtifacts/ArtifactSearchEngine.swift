@@ -3,6 +3,7 @@ import Foundation
 /// Searches immutable tree values and bounded UTF-8 file contents.
 struct ArtifactSearchEngine {
     let configuration: ArtifactCaptureConfiguration
+    let fileManager: FileManager
 
     func results(snapshot: ArtifactSnapshot, query rawQuery: String) throws -> [ArtifactSearchResult] {
         try Task.checkCancellation()
@@ -49,7 +50,7 @@ struct ArtifactSearchEngine {
             return nil
         }
         let maximumBytes = min(configuration.contentSearchMaximumBytes, remainingBytes)
-        guard let data = try ArtifactBoundedFileReader().data(
+        guard let data = try ArtifactBoundedFileReader(fileManager: fileManager).data(
             url: URL(fileURLWithPath: node.absolutePath),
             allowedRoot: filesystemRoot,
             maximumBytes: maximumBytes

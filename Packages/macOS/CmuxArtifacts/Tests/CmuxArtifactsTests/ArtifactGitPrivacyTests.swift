@@ -71,7 +71,7 @@ struct ArtifactGitPrivacyTests {
             workspaceID: "workspace",
             sessionID: "session"
         )
-        let resolver = ArtifactPathResolver()
+        let resolver = ArtifactPathResolver(fileManager: .default)
         let artifactDirectory = resolver.contentDirectory(
             paths: ArtifactStorePaths(projectRoot: root),
             context: context,
@@ -135,7 +135,7 @@ struct ArtifactGitPrivacyTests {
             sessionID: "session:manual-privacy",
             agentName: "codex"
         )
-        let resolver = ArtifactPathResolver()
+        let resolver = ArtifactPathResolver(fileManager: .default)
         let artifactDirectory = resolver.contentDirectory(
             paths: ArtifactStorePaths(projectRoot: root),
             context: context,
@@ -198,7 +198,7 @@ struct ArtifactGitPrivacyTests {
             sessionID: "session:note-privacy",
             agentName: "codex"
         )
-        let resolver = ArtifactPathResolver()
+        let resolver = ArtifactPathResolver(fileManager: .default)
         let notesDirectory = resolver.contentDirectory(
             paths: ArtifactStorePaths(projectRoot: root),
             context: context,
@@ -255,7 +255,7 @@ struct ArtifactGitPrivacyTests {
             sessionID: "session:tracked-note",
             agentName: "codex"
         )
-        let notesDirectory = ArtifactPathResolver().contentDirectory(
+        let notesDirectory = ArtifactPathResolver(fileManager: .default).contentDirectory(
             paths: ArtifactStorePaths(projectRoot: root),
             context: context,
             kind: .notes
@@ -266,7 +266,7 @@ struct ArtifactGitPrivacyTests {
             under: notesDirectory
         )
         let relativePath = try #require(
-            ArtifactPathResolver().relativePath(trackedNote, root: root)
+            ArtifactPathResolver(fileManager: .default).relativePath(trackedNote, root: root)
         )
         #expect(try runGit([
             "-C", root.path, "add", "--force", relativePath,

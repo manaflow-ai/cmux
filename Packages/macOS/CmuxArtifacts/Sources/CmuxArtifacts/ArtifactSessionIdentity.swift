@@ -6,15 +6,9 @@ struct ArtifactSessionIdentity: Equatable, Sendable {
     let sessionID: String?
 
     init(provider: String?, sessionID: String?) {
-        self.provider = Self.normalized(provider, lowercased: true)
-        self.sessionID = Self.normalized(sessionID, lowercased: false)
-    }
-
-    private static func normalized(_ value: String?, lowercased: Bool) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return nil
-        }
-        return lowercased ? value.lowercased() : value
+        let trimmedProvider = provider?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.provider = trimmedProvider?.isEmpty == false ? trimmedProvider?.lowercased() : nil
+        let trimmedSessionID = sessionID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.sessionID = trimmedSessionID?.isEmpty == false ? trimmedSessionID : nil
     }
 }

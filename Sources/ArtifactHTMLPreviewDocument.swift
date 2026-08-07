@@ -1,8 +1,7 @@
-import AppKit
 import Darwin
 import Foundation
-import WebKit
 
+/// A bounded, sandbox-wrapped HTML document safe to load as an artifact preview.
 struct ArtifactHTMLPreviewDocument: Sendable {
     private static let maximumSourceBytes = 8 * 1024 * 1024
 
@@ -40,16 +39,19 @@ struct ArtifactHTMLPreviewDocument: Sendable {
               status.st_size >= 0 else {
             throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: sourceURL.path])
         }
-        guard status.st_size <= maximumSourceBytes else {
+        guard status.st_size <= Self.maximumSourceBytes else {
             throw CocoaError(.fileReadTooLarge)
         }
 
         var data = Data()
-        data.reserveCapacity(min(Int(status.st_size), maximumSourceBytes))
-        var buffer = [UInt8](repeating: 0, count: min(64 * 1024, maximumSourceBytes + 1))
-        while data.count <= maximumSourceBytes {
+        data.reserveCapacity(min(Int(status.st_size), Self.maximumSourceBytes))
+        var buffer = [UInt8](
+            repeating: 0,
+            count: min(64 * 1024, Self.maximumSourceBytes + 1)
+        )
+        while data.count <= Self.maximumSourceBytes {
             try Task.checkCancellation()
-            let requested = min(buffer.count, maximumSourceBytes + 1 - data.count)
+            let requested = min(buffer.count, Self.maximumSourceBytes + 1 - data.count)
             guard requested > 0 else { break }
             let count = buffer.withUnsafeMutableBytes { bytes in
                 Darwin.read(descriptor, bytes.baseAddress, requested)
@@ -61,7 +63,7 @@ struct ArtifactHTMLPreviewDocument: Sendable {
             }
             data.append(contentsOf: buffer.prefix(count))
         }
-        guard data.count <= maximumSourceBytes else {
+        guard data.count <= Self.maximumSourceBytes else {
             throw CocoaError(.fileReadTooLarge)
         }
         return data
@@ -83,65 +85,5 @@ struct ArtifactHTMLPreviewDocument: Sendable {
         <body><iframe sandbox="" referrerpolicy="no-referrer" srcdoc="\(sourceDocument)"></iframe></body>
         </html>
         """
-    }
-}
-
-enum BrowserPanelContentMode {
-    case standard
-    case artifactHTMLPreview(documentURL: URL)
-
-    var artifactDocumentURL: URL? {
-        guard case .artifactHTMLPreview(let documentURL) = self else { return nil }
-        return documentURL
-    }
-
-    var allowsSessionPersistence: Bool {
-        artifactDocumentURL == nil
-    }
-}
-
-@MainActor
-enum ArtifactHTMLPreviewWebViewPolicy {
-    static func makeConfiguration() -> WKWebViewConfiguration {
-        makeConfiguration(websiteDataStore: .nonPersistent())
-    }
-
-    private static func makeConfiguration(
-        websiteDataStore: WKWebsiteDataStore
-    ) -> WKWebViewConfiguration {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = websiteDataStore
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
-        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
-        return configuration
-    }
-
-    static func makeWebView(websiteDataStore: WKWebsiteDataStore) -> CmuxWebView {
-        let webView = CmuxWebView(
-            frame: .zero,
-            configuration: makeConfiguration(websiteDataStore: websiteDataStore)
-        )
-        webView.allowsBackForwardNavigationGestures = false
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        if #available(macOS 13.3, *) {
-            webView.isInspectable = false
-        }
-        return webView
-    }
-}
-
-struct ArtifactHTMLPreviewNavigationPolicy {
-    let documentURL: URL
-
-    func allowsNavigation(to url: URL?, targetIsMainFrame: Bool?) -> Bool {
-        guard let url else { return false }
-        switch targetIsMainFrame {
-        case true:
-            return url == documentURL
-        case false:
-            return url.absoluteString == "about:srcdoc" || url.absoluteString == "about:blank"
-        case nil:
-            return false
-        }
     }
 }

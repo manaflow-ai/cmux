@@ -57,11 +57,16 @@ struct ArtifactGitIgnoreManager {
     ) -> ArtifactGitPrivacyValidator? {
         guard let repository = locateGitRepository(startingAt: projectRoot) else {
             guard gitMarker(startingAt: projectRoot) == nil else { return nil }
-            return ArtifactGitPrivacyValidator(worktreeRoot: nil, commandRunner: commandRunner)
+            return ArtifactGitPrivacyValidator(
+                worktreeRoot: nil,
+                commandRunner: commandRunner,
+                fileManager: fileManager
+            )
         }
         return ArtifactGitPrivacyValidator(
             worktreeRoot: repository.worktreeRoot,
-            commandRunner: commandRunner
+            commandRunner: commandRunner,
+            fileManager: fileManager
         )
     }
 
@@ -195,7 +200,8 @@ struct ArtifactGitIgnoreManager {
         let candidate = candidate.standardizedFileURL
         let root = root.standardizedFileURL
         guard isTrustedDirectory(root),
-              let relativePath = ArtifactPathResolver().relativePath(candidate, root: root) else {
+              let relativePath = ArtifactPathResolver(fileManager: fileManager)
+                  .relativePath(candidate, root: root) else {
             return false
         }
         var current = root
@@ -238,7 +244,7 @@ struct ArtifactGitIgnoreManager {
         allowedRoot: URL,
         maximumBytes: Int64 = Self.maximumGitMetadataBytes
     ) -> String? {
-        guard let data = try? ArtifactBoundedFileReader().data(
+        guard let data = try? ArtifactBoundedFileReader(fileManager: fileManager).data(
             url: url,
             allowedRoot: allowedRoot,
             maximumBytes: maximumBytes
@@ -286,7 +292,7 @@ struct ArtifactGitIgnoreManager {
             return String(cString: baseAddress.assumingMemoryBound(to: CChar.self))
         }
         guard pathResult > 0,
-              ArtifactPathResolver().relativePath(
+              ArtifactPathResolver(fileManager: fileManager).relativePath(
                 URL(fileURLWithPath: descriptorPath),
                 root: allowedRoot
               ) != nil else {
@@ -319,7 +325,7 @@ struct ArtifactGitIgnoreManager {
     }
 
     private func relativeIgnoreEntries(projectRoot: URL, worktreeRoot: URL) -> [String] {
-        guard let relativePath = ArtifactPathResolver().relativePath(
+        guard let relativePath = ArtifactPathResolver(fileManager: fileManager).relativePath(
             projectRoot,
             root: worktreeRoot
         ) else {

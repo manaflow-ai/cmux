@@ -4,6 +4,11 @@ import Foundation
 struct ArtifactPathResolver: Sendable {
     static let workspaceMarkerName = "_workspace.json"
     static let sessionMarkerName = "_session.json"
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager) {
+        self.fileManager = fileManager
+    }
 
     func isEphemeral(_ url: URL, prefixes: [String], temporaryDirectory: URL) -> Bool {
         let path = canonicalPath(url)
@@ -150,7 +155,7 @@ struct ArtifactPathResolver: Sendable {
     private func canonicalPath(_ url: URL) -> String {
         let standardized = url.standardizedFileURL
         for ancestor in ArtifactAncestorDirectories(startingAt: standardized) {
-            guard FileManager.default.fileExists(atPath: ancestor.path) else { continue }
+            guard fileManager.fileExists(atPath: ancestor.path) else { continue }
             let resolvedAncestor = ancestor.resolvingSymlinksInPath().standardizedFileURL
             let unresolvedComponents = standardized.pathComponents.dropFirst(ancestor.pathComponents.count)
             return unresolvedComponents.reduce(resolvedAncestor) { partialURL, component in

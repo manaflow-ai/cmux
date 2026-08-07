@@ -14,7 +14,7 @@ extension LocalArtifactRepository {
         let source = prepared.candidate.sourceURL
         let size = prepared.snapshot.size
         let digest = prepared.digest
-        let pathResolver = ArtifactPathResolver()
+        let pathResolver = ArtifactPathResolver(fileManager: fileManager)
 
         if pathResolver.isInsideStore(source, paths: paths),
            let relativePath = pathResolver.relativePath(source, root: paths.filesystemRoot) {

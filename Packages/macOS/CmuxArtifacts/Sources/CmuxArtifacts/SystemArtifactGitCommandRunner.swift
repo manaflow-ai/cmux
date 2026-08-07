@@ -6,15 +6,20 @@ struct SystemArtifactGitCommandRunner: ArtifactGitCommandRunning {
     private let executableURL: URL
     private let environment: [String: String]
     private let timeout: TimeInterval
+    private let timeoutDelay: @Sendable (TimeInterval) async throws -> Void
 
     init(
         executableURL: URL = URL(fileURLWithPath: "/usr/bin/git"),
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        timeout: TimeInterval = 5
+        timeout: TimeInterval = 5,
+        timeoutDelay: @escaping @Sendable (TimeInterval) async throws -> Void = { timeout in
+            try await ContinuousClock().sleep(for: .seconds(timeout))
+        }
     ) {
         self.executableURL = executableURL
         self.environment = environment.filter { !$0.key.hasPrefix("GIT_") }
         self.timeout = max(0.01, timeout)
+        self.timeoutDelay = timeoutDelay
     }
 
     func terminationStatus(arguments: [String]) async throws -> Int32 {
@@ -63,8 +68,7 @@ struct SystemArtifactGitCommandRunner: ArtifactGitCommandRunning {
                 try await waitForTermination(process)
             }
             group.addTask {
-                // This bounded deadline is the intended subprocess timeout.
-                try await Task.sleep(for: .seconds(timeout))
+                try await timeoutDelay(timeout)
                 throw ArtifactGitCommandError.timedOut
             }
             defer { group.cancelAll() }
@@ -83,14 +87,13 @@ struct SystemArtifactGitCommandRunner: ArtifactGitCommandRunning {
                 process.terminationHandler = { finished in
                     continuation.resume(returning: finished.terminationStatus)
                 }
-                guard cancellation.beginLaunch() else {
-                    process.terminationHandler = nil
-                    continuation.resume(throwing: CancellationError())
-                    return
-                }
                 do {
                     try process.run()
-                    cancellation.didLaunch()
+                    // Cancellation can arrive after the handler's initial liveness
+                    // check but before launch; this post-launch check closes that race.
+                    if Task.isCancelled {
+                        cancellation.cancel()
+                    }
                 } catch {
                     process.terminationHandler = nil
                     continuation.resume(throwing: error)

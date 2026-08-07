@@ -47,7 +47,7 @@ struct ArtifactWritePlanner {
         paths: ArtifactStorePaths,
         allowsIncompleteDiscoveryFallback: Bool
     ) throws -> ArtifactWritePlan {
-        let resolver = ArtifactPathResolver()
+        let resolver = ArtifactPathResolver(fileManager: fileManager)
         let recorder = ArtifactProvenanceRecorder(
             fileManager: fileManager,
             encoder: encoder,

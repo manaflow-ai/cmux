@@ -11,7 +11,7 @@ struct ArtifactSourceSnapshotTests {
         defer { ArtifactTestSupport.remove(root) }
         let source = try ArtifactTestSupport.write("initial", named: "result.txt", under: root)
         let paths = ArtifactStorePaths(projectRoot: root)
-        let lease = try ArtifactImportStagingLease.acquire(
+        let lease = try ArtifactImportStagingLease(
             root: paths.importStagingRoot,
             fileManager: .default
         )
@@ -40,7 +40,7 @@ struct ArtifactSourceSnapshotTests {
             under: root
         )
         let paths = ArtifactStorePaths(projectRoot: root)
-        let lease = try ArtifactImportStagingLease.acquire(
+        let lease = try ArtifactImportStagingLease(
             root: paths.importStagingRoot,
             fileManager: .default
         )
@@ -78,7 +78,7 @@ struct ArtifactSourceSnapshotTests {
             throw POSIXError(.EIO)
         }
         let paths = ArtifactStorePaths(projectRoot: root)
-        let lease = try ArtifactImportStagingLease.acquire(
+        let lease = try ArtifactImportStagingLease(
             root: paths.importStagingRoot,
             fileManager: .default
         )

@@ -74,7 +74,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     public func configuration(projectRoot: URL) -> ArtifactCaptureConfiguration {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         let url = paths.configurationFile
-        let reader = ArtifactBoundedFileReader()
+        let reader = ArtifactBoundedFileReader(fileManager: fileManager)
         var failureConfiguration = ArtifactCaptureConfiguration.defaultValue
         failureConfiguration.automaticCaptureEnabled = false
         do {
@@ -106,7 +106,10 @@ public actor LocalArtifactRepository: ArtifactStoring {
         let snapshot = try snapshot(projectRoot: projectRoot)
         try Task.checkCancellation()
         let configuration = configuration(projectRoot: projectRoot)
-        return try ArtifactSearchEngine(configuration: configuration).results(
+        return try ArtifactSearchEngine(
+            configuration: configuration,
+            fileManager: fileManager
+        ).results(
             snapshot: snapshot,
             query: query
         )
@@ -146,7 +149,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
             : trimmedName
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         try validateStoreForReading(paths: paths)
-        if let exact = try ArtifactExactPathResolver().fileNode(
+        if let exact = try ArtifactExactPathResolver(fileManager: fileManager).fileNode(
             relativePath: name,
             paths: paths
         ) {
@@ -311,7 +314,8 @@ public actor LocalArtifactRepository: ArtifactStoring {
         do {
             try encoder.encode(value).write(to: url, options: .withoutOverwriting)
         } catch {
-            guard try ArtifactBoundedFileReader().pathEntryExists(url: url) else { throw error }
+            guard try ArtifactBoundedFileReader(fileManager: fileManager)
+                .pathEntryExists(url: url) else { throw error }
         }
     }
 
@@ -320,7 +324,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
         to url: URL,
         paths: ArtifactStorePaths
     ) throws {
-        let reader = ArtifactBoundedFileReader()
+        let reader = ArtifactBoundedFileReader(fileManager: fileManager)
         do {
             try encoder.encode(value).write(to: url, options: .withoutOverwriting)
             return
@@ -338,7 +342,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     }
 
     func rejectSymbolicLinks(from root: URL, through descendant: URL) throws {
-        let pathResolver = ArtifactPathResolver()
+        let pathResolver = ArtifactPathResolver(fileManager: fileManager)
         try rejectSymbolicLink(at: root)
         guard !pathResolver.refersToSameLocation(descendant, root) else { return }
         guard let relativePath = pathResolver.relativePath(descendant, root: root) else {
