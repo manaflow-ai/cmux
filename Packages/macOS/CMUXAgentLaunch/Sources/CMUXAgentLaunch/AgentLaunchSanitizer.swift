@@ -261,6 +261,7 @@ public enum AgentLaunchSanitizer {
         }
         let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
         let optionPrefixes = valueOptions.map { "\($0)=" }
+        let attachedShortValueOptions: Set<String> = ["-C", "-w"]
         var result: [String] = []
         var index = 0
         while index < args.count {
@@ -277,6 +278,15 @@ public enum AgentLaunchSanitizer {
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
                 let value = String(arg.dropFirst(prefix.count))
+                if shouldRemoveValue(value) {
+                    index += 1
+                    continue
+                }
+            }
+            if let option = attachedShortValueOptions.first(where: {
+                arg.count > $0.count && arg.hasPrefix($0)
+            }) {
+                let value = String(arg.dropFirst(option.count))
                 if shouldRemoveValue(value) {
                     index += 1
                     continue
