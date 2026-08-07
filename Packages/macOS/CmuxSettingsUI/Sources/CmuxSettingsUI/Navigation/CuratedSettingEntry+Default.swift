@@ -200,6 +200,20 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"
             ),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
+            .init(
+                section: .sidebarAppearance,
+                id: "tool-position",
+                title: String(localized: "settings.sidebar.toolPosition", defaultValue: "Tool Sidebar Position"),
+                detailText: String(
+                    localized: "settings.sidebar.toolPosition.subtitle",
+                    defaultValue: "Place Files, Find, Vault, Feed, and Dock on the left or right of the workspace."
+                ),
+                paths: ["sidebar.toolPosition"],
+                synonyms: String(
+                    localized: "settings.search.alias.setting.sidebarAppearance.tool-position",
+                    defaultValue: "sidebar.toolPosition native tool file files find vault feed dock left right position"
+                )
+            ),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile

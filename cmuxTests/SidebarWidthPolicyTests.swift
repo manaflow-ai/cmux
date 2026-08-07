@@ -1,6 +1,7 @@
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
 import SwiftUI
 import Testing
 import XCTest
@@ -191,6 +192,63 @@ final class SidebarWidthPolicyTests: XCTestCase {
             RightSidebarWidthSettings().configuredMaximumWidth(from: defaults.double(forKey: managedKey))
         )
         XCTAssertEqual(configuredMaximumWidth, 900, accuracy: 0.001)
+    }
+
+    /// Verifies settings-file parsing accepts supported tool-sidebar positions only.
+    func testSettingsFileStoreValidatesToolSidebarPosition() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = SidebarCatalogSection().toolPosition.userDefaultsKey
+        let trackedKeys = [
+            managedKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        let previousValues = trackedKeys.reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in trackedKeys {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "tool-sidebar-position-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+
+        /// Loads a single tool-position JSON value and returns the effective setting.
+        func load(_ jsonValue: String) throws -> String? {
+            defaults.set(ToolSidebarPosition.right.rawValue, forKey: managedKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+            try """
+            {
+              "sidebar": {
+                "toolPosition": \(jsonValue)
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            return defaults.string(forKey: managedKey)
+        }
+
+        XCTAssertEqual(try load(#""left""#), ToolSidebarPosition.left.rawValue)
+        XCTAssertEqual(try load(#""center""#), ToolSidebarPosition.right.rawValue)
+        XCTAssertEqual(try load("true"), ToolSidebarPosition.right.rawValue)
     }
 
     func testSettingsFileStoreClampsRightSidebarMaxWidthSetting() throws {

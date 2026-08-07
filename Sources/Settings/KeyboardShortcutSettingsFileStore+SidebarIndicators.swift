@@ -1,6 +1,7 @@
 import CmuxSettings
 
 extension CmuxSettingsFileStore {
+    /// Parses sidebar indicator and native tool-sidebar placement settings.
     func parseSidebarIndicatorPositionSettings(
         _ section: [String: Any],
         sourcePath: String,
@@ -22,6 +23,16 @@ extension CmuxSettingsFileStore {
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
+
+        if let raw = jsonString(section["toolPosition"]) {
+            if let value = ToolSidebarPosition.decodeFromJSON(raw) {
+                snapshot.managedUserDefaults[SidebarCatalogSection().toolPosition.userDefaultsKey] = .string(value.rawValue)
+            } else {
+                logInvalid("sidebar.toolPosition", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("toolPosition") {
+            logInvalid("sidebar.toolPosition", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarIndicatorPositionSetting(

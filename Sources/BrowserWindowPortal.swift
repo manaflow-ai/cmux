@@ -2,6 +2,8 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxSettings
+import CmuxWindowing
 import ObjectiveC
 import SwiftUI
 import WebKit
@@ -232,6 +234,16 @@ final class WindowBrowserHostView: NSView {
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private let dividerCursorOcclusion = PortalDividerCursorOcclusion()
+    private let toolSidebarDividerRouting = ToolSidebarDividerRouting(
+        minimumVisibleContentWidth: minimumVisibleLeadingContentWidth
+    )
+    /// The window-local placement injected by ``ContentView`` for pointer routing.
+    var toolSidebarPosition: ToolSidebarPosition = .right {
+        didSet {
+            guard toolSidebarPosition != oldValue else { return }
+            window?.invalidateCursorRects(for: self)
+        }
+    }
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
@@ -653,6 +665,7 @@ final class WindowBrowserHostView: NSView {
         )
     }
 
+    /// Returns whether a browser-host pointer event should reach the SwiftUI sidebar resizer.
     private func shouldPassThroughToSidebarResizer(
         at point: NSPoint,
         dividerHit: DividerHit?,
@@ -674,8 +687,20 @@ final class WindowBrowserHostView: NSView {
         let visibleSlots = subviews.compactMap { $0 as? WindowBrowserSlotView }
             .filter { !$0.isHidden && $0.window != nil && $0.frame.width > 1 && $0.frame.height > 1 }
 
-        if shouldPassThroughToTrailingSidebarResizer(at: point, visibleSlots: visibleSlots) {
-            return true
+        switch toolSidebarPosition {
+        case .left:
+            if let dividerX = toolSidebarDividerRouting.leftDividerX(
+                in: visibleSlots,
+                bounds: bounds,
+                frame: \.frame,
+                isDock: \.isRightSidebarDockSlot
+            ), SidebarResizeInteraction.Edge.leading.hitRange(dividerX: dividerX).contains(point.x) {
+                return true
+            }
+        case .right:
+            if shouldPassThroughToTrailingSidebarResizer(at: point, visibleSlots: visibleSlots) {
+                return true
+            }
         }
 
         // If content is flush to the leading edge, sidebar is effectively hidden.
@@ -1802,7 +1827,7 @@ final class WindowBrowserPortal: NSObject {
     }
 
     private weak var window: NSWindow?
-    private let hostView = WindowBrowserHostView(frame: .zero)
+    private let hostView: WindowBrowserHostView
     private let chromeComposition = AppWindowChromeComposition()
     private weak var installedContainerView: NSView?
     private weak var installedReferenceView: NSView?
@@ -1852,8 +1877,11 @@ final class WindowBrowserPortal: NSObject {
     }
 #endif
 
-    init(window: NSWindow) {
+    /// Creates a browser portal using the window's injected tool-sidebar placement.
+    init(window: NSWindow, toolSidebarPosition: ToolSidebarPosition = .right) {
         self.window = window
+        hostView = WindowBrowserHostView(frame: .zero)
+        hostView.toolSidebarPosition = toolSidebarPosition
         super.init()
         hostView.wantsLayer = true
         hostView.layer?.masksToBounds = true
@@ -1861,6 +1889,11 @@ final class WindowBrowserPortal: NSObject {
         hostView.autoresizingMask = []
         installGeometryObservers(for: window)
         _ = ensureInstalled()
+    }
+
+    /// Updates the placement used by browser portal pointer routing.
+    func setToolSidebarPosition(_ position: ToolSidebarPosition) {
+        hostView.toolSidebarPosition = position
     }
 
     static func shouldTreatSplitResizeAsExternalGeometry(
@@ -3825,6 +3858,8 @@ final class WindowBrowserPortal: NSObject {
 
 @MainActor
 enum BrowserWindowPortalRegistry {
+    // Objective-C association keys require a stable address; this byte is an immutable identity token.
+    private static var toolSidebarPositionAssociationKey: UInt8 = 0
     struct DebugSnapshot {
         let visibleInUI: Bool
         let containerHidden: Bool
@@ -3886,6 +3921,7 @@ enum BrowserWindowPortalRegistry {
         }
     }
 
+    /// Returns the browser portal associated with a window, creating it when needed.
     private static func portal(for window: NSWindow) -> WindowBrowserPortal {
         if let existing = objc_getAssociatedObject(window, &cmuxWindowBrowserPortalKey) as? WindowBrowserPortal {
             portalsByWindowId[ObjectIdentifier(window)] = existing
@@ -3893,11 +3929,26 @@ enum BrowserWindowPortalRegistry {
             return existing
         }
 
-        let portal = WindowBrowserPortal(window: window)
+        let storedPosition = (objc_getAssociatedObject(
+            window,
+            &toolSidebarPositionAssociationKey
+        ) as? String).flatMap(ToolSidebarPosition.init(rawValue:)) ?? .right
+        let portal = WindowBrowserPortal(window: window, toolSidebarPosition: storedPosition)
         objc_setAssociatedObject(window, &cmuxWindowBrowserPortalKey, portal, .OBJC_ASSOCIATION_RETAIN)
         portalsByWindowId[ObjectIdentifier(window)] = portal
         installWindowCloseObserverIfNeeded(for: window)
         return portal
+    }
+
+    /// Stores placement for future portal creation and updates an existing browser portal.
+    static func setToolSidebarPosition(_ position: ToolSidebarPosition, for window: NSWindow) {
+        objc_setAssociatedObject(
+            window,
+            &toolSidebarPositionAssociationKey,
+            position.rawValue,
+            .OBJC_ASSOCIATION_COPY_NONATOMIC
+        )
+        portalsByWindowId[ObjectIdentifier(window)]?.setToolSidebarPosition(position)
     }
 
     static func bind(webView: WKWebView, to anchorView: NSView, visibleInUI: Bool, zPriority: Int = 0) {
