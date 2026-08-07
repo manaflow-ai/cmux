@@ -335,7 +335,7 @@ struct FilePreviewPDFSharingTests {
         defer { window.close() }
 
         let shareButton = try #require(
-            shareButton(in: container),
+            findShareButton(in: container),
             "The mounted PDF chrome must expose its real Share control"
         )
         #expect(
@@ -402,7 +402,7 @@ struct FilePreviewPDFSharingTests {
         container.layoutSubtreeIfNeeded()
         defer { window.close() }
 
-        let firstButton = try #require(shareButton(in: container))
+        let firstButton = try #require(findShareButton(in: container))
         #expect(firstButton.sendAction(firstButton.action, to: firstButton.target))
         let firstPicker = try #require(pickers.first)
         #expect((firstPicker.sharedItems as? [URL]) == [firstURL])
@@ -414,7 +414,7 @@ struct FilePreviewPDFSharingTests {
         #expect(firstPicker.closeCount == 1)
         container.layoutSubtreeIfNeeded()
 
-        let secondButton = try #require(shareButton(in: container))
+        let secondButton = try #require(findShareButton(in: container))
         #expect(secondButton.sendAction(secondButton.action, to: secondButton.target))
         let secondPicker = try #require(pickers.last)
         #expect((secondPicker.sharedItems as? [URL]) == [secondURL])
@@ -466,7 +466,7 @@ struct FilePreviewPDFSharingTests {
         container.layoutSubtreeIfNeeded()
         defer { window.close() }
 
-        let shareButton = try #require(shareButton(in: container))
+        let shareButton = try #require(findShareButton(in: container))
         #expect(shareButton.accessibilityPerformPress())
 
         let picker = try #require(pickers.first)
@@ -478,7 +478,7 @@ struct FilePreviewPDFSharingTests {
         #expect(picker.presentedView == nil)
     }
 
-    private func shareButton(in view: NSView) -> NSButton? {
+    private func findShareButton(in view: NSView) -> NSButton? {
         descendants(of: view)
             .compactMap { $0 as? NSButton }
             .first { $0.identifier?.rawValue == "FilePreviewPDFShareButton" }
