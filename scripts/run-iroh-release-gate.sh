@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
+Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path|cold-start> --tag <tag>
        [--staging-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
@@ -83,6 +83,11 @@ case "$MODE" in
   relay-expiry) RAW_MODE="relayOnly"; GATE_SCENARIO="relay_expiry"; GATE_PLAN="app-rpc" ;;
   direct-only) RAW_MODE="directOnly"; GATE_SCENARIO="standard"; GATE_PLAN="simulator-direct-transport" ;;
   private-path) RAW_MODE=""; GATE_SCENARIO="standard"; GATE_PLAN="host-private-path-transport" ;;
+  # Launch-dial regression gate (issue 9724): the tagged Mac is relaunched
+  # fresh above, and the phone must reach a usable RPC session against that
+  # still-warming Mac inside a pinned deadline. A half-ready registration or
+  # an unbounded dial blows the deadline and fails the gate.
+  cold-start) RAW_MODE="automatic"; GATE_SCENARIO="cold_start_dial"; GATE_PLAN="app-rpc" ;;
   *) echo "error: invalid mode '$MODE'" >&2; exit 2 ;;
 esac
 
@@ -546,6 +551,13 @@ MOBILE_LAUNCH_ARGS=(
 )
 if [[ "$PRODUCTION" -eq 1 ]]; then
   MOBILE_LAUNCH_ARGS+=(--credentials-file "$PROD_CREDENTIALS_FILE")
+fi
+# cold_start_dial pins the launch-to-usable deadline explicitly so the
+# assertion cannot drift with the helper's ambient default: launch, sign-in,
+# broker registration, discovery, dial, and admission against the freshly
+# relaunched Mac must all complete inside it.
+if [[ "$GATE_SCENARIO" == "cold_start_dial" ]]; then
+  export CMUX_ATTACH_READY_TIMEOUT_SECONDS=20
 fi
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
