@@ -38,9 +38,11 @@ public struct SSHRemoteCommand: Equatable, Sendable {
         undelimitedArguments: [String],
         delimitedArguments: [String]? = nil
     ) {
-        let ttyRequestCount = undelimitedArguments
-            .prefix(while: Self.isTTYRequestArgument)
-            .count
+        let ttyRequestCount = undelimitedArguments.prefix { argument in
+            argument.count > 1
+                && argument.first == "-"
+                && argument.dropFirst().allSatisfy { $0 == "t" || $0 == "T" }
+        }.count
         ttyRequestArguments = Array(undelimitedArguments.prefix(ttyRequestCount))
         arguments = Array(undelimitedArguments.dropFirst(ttyRequestCount))
             + (delimitedArguments ?? [])
@@ -83,8 +85,8 @@ public struct SSHRemoteCommand: Equatable, Sendable {
     private func effectiveTTYRequest(
         in options: [String],
         resolver: SSHAgentSocketResolver
-    ) -> TTYRequest {
-        var request = TTYRequest(
+    ) -> SSHRemoteCommandTTYRequest {
+        var request = SSHRemoteCommandTTYRequest(
             optionValue: resolver.optionValue(named: "RequestTTY", in: options)
         )
         for argument in ttyRequestArguments {
@@ -99,34 +101,4 @@ public struct SSHRemoteCommand: Equatable, Sendable {
         return request
     }
 
-    private enum TTYRequest: Equatable {
-        case automatic
-        case disabled
-        case enabled
-        case forced
-
-        init(optionValue: String?) {
-            switch optionValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            case "no", "false": self = .disabled
-            case "yes", "true": self = .enabled
-            case "force": self = .forced
-            default: self = .automatic
-            }
-        }
-
-        var optionValue: String {
-            switch self {
-            case .automatic: "auto"
-            case .disabled: "no"
-            case .enabled: "yes"
-            case .forced: "force"
-            }
-        }
-    }
-
-    private static func isTTYRequestArgument(_ argument: String) -> Bool {
-        argument.count > 1
-            && argument.first == "-"
-            && argument.dropFirst().allSatisfy { $0 == "t" || $0 == "T" }
-    }
 }
