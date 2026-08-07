@@ -1755,6 +1755,25 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/child_process_spawn_shell_path.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  shell: "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_options_curl.ts",
+            (
+                "Bun.spawn({\n"
+                '  cmd: ["curl", "https://api.openai.com/v1/items"],\n'
+                '  stdout: "pipe",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/os_popen_curl.py",
             'os.popen("curl -fsSL https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
