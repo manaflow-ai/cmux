@@ -13044,7 +13044,16 @@ extension Workspace: BonsplitDelegate {
             }
             normalizePinnedTabs(in: originalPane)
             normalizePinnedTabs(in: newPane)
+            // Moving a tab into a new split does not emit didMoveTab or didSelectTab.
+            // Commit Bonsplit's selected destination through the same focus owner as
+            // ordinary tab moves so terminal activation follows the focused pane.
+            if let movedTab = controller.selectedTab(inPane: newPane) {
+                applyTabSelection(tabId: movedTab.id, inPane: newPane)
+            }
             scheduleTerminalGeometryReconcile()
+            if !isDetachingCloseTransaction {
+                scheduleFocusReconcile()
+            }
             return
         }
 
