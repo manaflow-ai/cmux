@@ -1512,9 +1512,13 @@ final class ClaudeHookSessionStore {
         defer { _ = flock(fd, LOCK_UN) }
 
         var state = loadUnlocked()
+        let originalData = try encoder.encode(state)
         pruneExpired(&state)
         let result = try body(&state)
-        try saveUnlocked(state)
+        let updatedData = try encoder.encode(state)
+        if updatedData != originalData {
+            try saveUnlocked(updatedData)
+        }
         return result
     }
 
@@ -1546,7 +1550,7 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    private func saveUnlocked(_ state: ClaudeHookSessionStoreFile) throws {
+    private func saveUnlocked(_ data: Data) throws {
         let stateURL = URL(fileURLWithPath: statePath)
         let parentURL = stateURL.deletingLastPathComponent()
         try fileManager.createDirectory(
@@ -1555,7 +1559,6 @@ final class ClaudeHookSessionStore {
             attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
         )
         try? fileManager.setAttributes([.posixPermissions: NSNumber(value: Int16(0o700))], ofItemAtPath: parentURL.path)
-        let data = try encoder.encode(state)
         let tempURL = parentURL.appendingPathComponent(".\(stateURL.lastPathComponent).\(UUID().uuidString).tmp")
         guard fileManager.createFile(atPath: tempURL.path, contents: data, attributes: [
             .posixPermissions: NSNumber(value: Int16(0o600))
@@ -25421,9 +25424,22 @@ struct CMUXCLI {
 
         case "pre-tool-use":
             telemetry.breadcrumb("claude-hook.pre-tool-use")
-            // Clears "Needs input" status and notification when Claude resumes work
-            // (e.g. after permission grant). Runs async so it doesn't block tool execution.
+            // Older wrappers installed this command for every tool call. Keep that
+            // compatibility path transition-driven: an ordinary tool observed while
+            // the session is already running has no durable work to do. Current
+            // wrappers invoke this command only for the two blocking tools below.
+            didSendFeedTelemetry = true
+            let toolName = parsedInput.object?["tool_name"] as? String
+            let isBlockingNeedsInputTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
+            let usesVerboseToolStatus = UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus")
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
+            if !isBlockingNeedsInputTool,
+               !usesVerboseToolStatus,
+               mappedSession?.agentLifecycle == .running {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.unchanged")
+                printClaudeHookAck()
+                return
+            }
             // Skip only the pid/tty scan per tool call; the cheap
             // `{surface_id}` re-home probe stays enabled so a mid-turn pane
             // move cannot make this hook mutate (and re-record) the old
@@ -25443,7 +25459,6 @@ struct CMUXCLI {
             let workspaceId = resolvedTarget.workspaceId
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
-            sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
             let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
             let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
                 currentAgentPID: claudePid,
@@ -25470,14 +25485,15 @@ struct CMUXCLI {
             // Claude renders an interactive menu / plan-approval prompt and waits for
             // the user. With --dangerously-skip-permissions (permission_mode
             // "bypassPermissions") Claude fires NEITHER PermissionRequest NOR
-            // Notification for them, so this async PreToolUse is the only needs-input
+            // Notification for them, so this targeted PreToolUse is the only needs-input
             // signal — flag Needs input here and return early instead of falling
             // through to the generic ".running" tail (which would leave a tab blocked
             // on a question / plan approval looking busy and silent).
             // https://github.com/manaflow-ai/cmux/issues/6606
-            if let toolName = parsedInput.object?["tool_name"] as? String,
-               toolName == "AskUserQuestion" || toolName == "ExitPlanMode",
+            if isBlockingNeedsInputTool,
+               let toolName,
                let sessionId = parsedInput.sessionId {
+                sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
                 // Save the question / plan summary in the session so the Notification
                 // handler (when it does fire) reuses it instead of the generic
                 // "Claude Code needs your attention". The question / plan text is
@@ -25589,7 +25605,7 @@ struct CMUXCLI {
             )
 
             let statusValue: String
-            if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
+            if usesVerboseToolStatus,
                let toolStatus = describeToolUse(parsedInput.object) {
                 statusValue = toolStatus
             } else {
@@ -25606,11 +25622,21 @@ struct CMUXCLI {
             )
             printClaudeHookAck()
 
+        case "input-resolved":
+            try runClaudeInputResolvedHook(
+                client: client,
+                telemetry: telemetry,
+                parsedInput: parsedInput,
+                sessionStore: sessionStore,
+                routing: hookRouting,
+                markFeedTelemetryHandled: { didSendFeedTelemetry = true }
+            )
+
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|session-end|notification|push-notification|prompt-submit|pre-tool-use|input-resolved> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -25654,7 +25680,7 @@ struct CMUXCLI {
         return false
     }
 
-    private func setClaudeStatus(
+    func setClaudeStatus(
         client: SocketClient,
         workspaceId: String,
         surfaceId: String? = nil,
@@ -25670,7 +25696,7 @@ struct CMUXCLI {
         _ = try client.send(command: cmd)
     }
 
-    private func setAgentLifecycle(
+    func setAgentLifecycle(
         client: SocketClient,
         key: String,
         lifecycle: AgentHibernationLifecycleState,

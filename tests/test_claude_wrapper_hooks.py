@@ -581,9 +581,28 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             failures,
         )
 
+    for tool_name in ("AskUserQuestion", "ExitPlanMode"):
+        matching_groups = [group for group in post_tool_use_groups if group.get("matcher") == tool_name]
+        expect(
+            matching_groups,
+            f"PostToolUse should clear {tool_name} needs-input state, got {post_tool_use_groups}",
+            failures,
+        )
+        if matching_groups:
+            matching_hooks = matching_groups[0].get("hooks", [])
+            expect(
+                any(
+                    hook.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude input-resolved'
+                    and hook.get("async") is not True
+                    for hook in matching_hooks
+                ),
+                f"{tool_name} completion should call the ordered input-resolved bridge, got {matching_hooks}",
+                failures,
+            )
+
     # Regression for #9693: ordinary tool calls must not spawn a cmux hook
     # process. Only the two blocking tools that need the bypassPermissions
-    # fallback retain the async PreToolUse bridge.
+    # fallback retain an ordered PreToolUse bridge.
     ordinary_tool_groups = [group for group in pre_tool_use_groups if group.get("matcher") == ""]
     expect(
         not ordinary_tool_groups,
@@ -602,10 +621,10 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             expect(
                 any(
                     hook.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude pre-tool-use'
-                    and hook.get("async") is True
+                    and hook.get("async") is not True
                     for hook in matching_hooks
                 ),
-                f"{tool_name} should call the async needs-input bridge, got {matching_hooks}",
+                f"{tool_name} should call the ordered needs-input bridge, got {matching_hooks}",
                 failures,
             )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
