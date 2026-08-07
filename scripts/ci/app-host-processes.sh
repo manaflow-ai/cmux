@@ -285,9 +285,9 @@ cmux_app_host_receipt_descriptor_is_open() {
   local receipt_file="$3"
   cmux_select_app_host_lsof || return 1
 
-  local output status line reported_pid reported_fd reported_path
+  local output status line reported_pid reported_fd reported_access reported_path
   if output="$(cmux_run_app_host_lsof \
-    -a -p "$pid" -d "$receipt_fd" -Ffn -- "$receipt_file")"; then
+    -a -p "$pid" -d "$receipt_fd" -Fafn -- "$receipt_file")"; then
     status=0
   else
     status=$?
@@ -302,6 +302,7 @@ cmux_app_host_receipt_descriptor_is_open() {
 
   reported_pid=""
   reported_fd=""
+  reported_access=""
   reported_path=""
   while IFS= read -r line; do
     case "$line" in
@@ -321,8 +322,21 @@ cmux_app_host_receipt_descriptor_is_open() {
         fi
         reported_fd="${line#f}"
         ;;
+      a*)
+        # lsof's machine protocol reports descriptor and access separately as
+        # `f9` and `aw`; only the human-readable table combines them as `9w`.
+        if [ -z "$reported_pid" ] \
+          || [ -n "$reported_access" ] \
+          || [ "${line#a}" != "w" ]; then
+          echo "FAIL: lsof returned an unexpected receipt access mode" >&2
+          return 1
+        fi
+        reported_access="${line#a}"
+        ;;
       n*)
-        if [ -z "$reported_fd" ] || [ -n "$reported_path" ]; then
+        if [ -z "$reported_fd" ] \
+          || [ -z "$reported_access" ] \
+          || [ -n "$reported_path" ]; then
           echo "FAIL: lsof returned an unexpected receipt path" >&2
           return 1
         fi
@@ -337,6 +351,7 @@ cmux_app_host_receipt_descriptor_is_open() {
   done < <(printf '%s\n' "$output")
   if [ "$reported_pid" != "$pid" ] \
     || [ "$reported_fd" != "$receipt_fd" ] \
+    || [ "$reported_access" != "w" ] \
     || [ "$reported_path" != "$receipt_file" ]; then
     echo "FAIL: live app-host PID $pid does not hold its exact process receipt" >&2
     return 1
