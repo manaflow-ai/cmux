@@ -14,6 +14,14 @@ private enum FeedEventAcceptance: Sendable {
     case unavailable
 }
 
+/// Process evidence whose namespace is resolved with the attention owner.
+private enum FeedAgentProcessEvidence: Sendable {
+    /// A complete generation tuple carried by the owning runtime or relay.
+    case exact(AgentPIDProcessIdentity)
+    /// A numeric PID that is meaningful only in this Mac's process namespace.
+    case localPID(Int)
+}
+
 /// App-level coordinator that owns the shared `WorkstreamStore` and
 /// mediates between the socket thread (which processes `feed.*` V2
 /// commands) and the main-actor store.
@@ -637,13 +645,10 @@ extension FeedCoordinator {
             return nil
         }
 
-        let processGeneration = event.ppid.flatMap {
-            Self.localProcessGeneration(pid: $0)
-        }
         guard let surfaced = surfaceAgentAttention(
             source: event.source,
             resolved: resolved,
-            processGeneration: processGeneration
+            processEvidence: event.ppid.map(FeedAgentProcessEvidence.localPID)
         ) else {
             return nil
         }
@@ -709,7 +714,7 @@ extension FeedCoordinator {
         guard let surfaced = surfaceAgentAttention(
             source: source,
             resolved: (workspaceId, surfaceId),
-            processGeneration: processGeneration
+            processEvidence: .exact(processGeneration)
         ) else {
             return false
         }
@@ -934,7 +939,7 @@ extension FeedCoordinator {
     private func surfaceAgentAttention(
         source: String,
         resolved: (workspaceId: UUID, surfaceId: UUID?),
-        processGeneration: AgentPIDProcessIdentity? = nil
+        processEvidence: FeedAgentProcessEvidence? = nil
     ) -> FeedSurfacedAttention? {
         guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
               let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
@@ -963,6 +968,16 @@ extension FeedCoordinator {
         let statusKey = Self.lifecycleStatusKey(forSource: source)
         let usesRemoteProcessNamespace =
             owner.usesRemoteAgentProcessNamespace(panelId: panelId)
+        let processGeneration: AgentPIDProcessIdentity? = switch processEvidence {
+        case .exact(let generation):
+            generation
+        case .localPID(let pid):
+            usesRemoteProcessNamespace
+                ? nil
+                : Self.localProcessGeneration(pid: pid)
+        case nil:
+            nil
+        }
         // Relay generations cannot be probed in the local process table, but
         // they remain authoritative ordering evidence for reconciliation.
         if !usesRemoteProcessNamespace, let processGeneration {

@@ -28,4 +28,22 @@ public nonisolated struct AgentLifecycleStatusKey: RawRepresentable, Codable, Ha
     public var isAllowed: Bool {
         Self.allowedStatusKeys.contains(rawValue)
     }
+
+    /// The built-in status key at the root of this key's session namespace.
+    ///
+    /// Session-scoped PID keys use `<status-key>.<session-id>` while lifecycle
+    /// state remains rooted at `<status-key>`.
+    public var builtInStatusKey: String? {
+        let candidate = rawValue.split(
+            separator: ".",
+            maxSplits: 1,
+            omittingEmptySubsequences: false
+        ).first.map(String.init) ?? rawValue
+        return Self.allowedStatusKeys.contains(candidate) ? candidate : nil
+    }
+
+    /// Whether this key is a built-in status key or one of its session keys.
+    public var isBuiltInNamespace: Bool {
+        builtInStatusKey != nil
+    }
 }

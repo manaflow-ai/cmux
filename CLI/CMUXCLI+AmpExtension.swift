@@ -574,6 +574,8 @@ export default function (amp: PluginAPI) {
     nativeAttentionConfirmedEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionInFlight: boolean;
     nativeAttentionRetryCount: number;
+    nativeAttentionIdentityRetryTimer: ReturnType<typeof setTimeout> | null;
+    nativeAttentionIdentityRetryCount: number;
   };
 
   // Amp plugin processes are long-lived and may serve multiple threads
@@ -614,10 +616,14 @@ export default function (amp: PluginAPI) {
       nativeAttentionConfirmedEpisode: null,
       nativeAttentionInFlight: false,
       nativeAttentionRetryCount: 0,
+      nativeAttentionIdentityRetryTimer: null,
+      nativeAttentionIdentityRetryCount: 0,
     };
   };
 
   const maximumImmediateNativeAttentionRetries = 1;
+  const maximumNativeAttentionIdentityRetries = 2;
+  const nativeAttentionIdentityRetryDelayMilliseconds = 250;
   const nativeStateSnapshotDeadlineMilliseconds = 1_000;
   const activeNativeStateObservationLeaseMilliseconds = 30 * 60 * 1_000;
   const pendingNativeStateObservationLeaseMilliseconds = 30 * 1_000;
@@ -637,8 +643,39 @@ export default function (amp: PluginAPI) {
     void loadNativeAttentionProcessGeneration().then((processGeneration) => {
       if (!processGeneration) {
         state.nativeAttentionInFlight = false;
+        const transitionIsStillNeeded = attemptedVisibility
+          ? state.nativeAttentionConfirmedEpisode === null
+            && state.nativeAttentionDesiredEpisode === attemptedEpisode
+          : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
+        if (
+          transitionIsStillNeeded
+          && !state.nativeAttentionIdentityRetryTimer
+          && state.nativeAttentionIdentityRetryCount
+            < maximumNativeAttentionIdentityRetries
+        ) {
+          state.nativeAttentionIdentityRetryCount += 1;
+          state.nativeAttentionIdentityRetryTimer = setTimeout(() => {
+            state.nativeAttentionIdentityRetryTimer = null;
+            if (turnStates.get(state.sessionId) !== state) return;
+            const retryIsStillNeeded = attemptedVisibility
+              ? state.nativeAttentionConfirmedEpisode === null
+                && state.nativeAttentionDesiredEpisode === attemptedEpisode
+              : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
+            if (retryIsStillNeeded) synchronizeNativeAttention(state);
+          }, nativeAttentionIdentityRetryDelayMilliseconds);
+          state.nativeAttentionIdentityRetryTimer.unref?.();
+        }
+        if (!transitionIsStillNeeded) {
+          state.nativeAttentionIdentityRetryCount = 0;
+          synchronizeNativeAttention(state);
+        }
         return;
       }
+      if (state.nativeAttentionIdentityRetryTimer) {
+        clearTimeout(state.nativeAttentionIdentityRetryTimer);
+        state.nativeAttentionIdentityRetryTimer = null;
+      }
+      state.nativeAttentionIdentityRetryCount = 0;
       const transitionIsStillNeeded = attemptedVisibility
         ? state.nativeAttentionConfirmedEpisode === null
           && state.nativeAttentionDesiredEpisode === attemptedEpisode
@@ -708,12 +745,22 @@ export default function (amp: PluginAPI) {
 
   const beginNativeAttention = (state: AmpTurnState): void => {
     if (!state.nativeAttentionDesiredEpisode) {
+      if (state.nativeAttentionIdentityRetryTimer) {
+        clearTimeout(state.nativeAttentionIdentityRetryTimer);
+        state.nativeAttentionIdentityRetryTimer = null;
+      }
+      state.nativeAttentionIdentityRetryCount = 0;
       state.nativeAttentionDesiredEpisode = makeNativeAttentionEpisode();
     }
     synchronizeNativeAttention(state);
   };
 
   const endNativeAttention = (state: AmpTurnState): void => {
+    if (state.nativeAttentionIdentityRetryTimer) {
+      clearTimeout(state.nativeAttentionIdentityRetryTimer);
+      state.nativeAttentionIdentityRetryTimer = null;
+    }
+    state.nativeAttentionIdentityRetryCount = 0;
     state.nativeAttentionDesiredEpisode = null;
     synchronizeNativeAttention(state);
   };
@@ -724,6 +771,11 @@ export default function (amp: PluginAPI) {
       clearTimeout(state.nativeStateObservationLease);
       state.nativeStateObservationLease = null;
     }
+    if (state.nativeAttentionIdentityRetryTimer) {
+      clearTimeout(state.nativeAttentionIdentityRetryTimer);
+      state.nativeAttentionIdentityRetryTimer = null;
+    }
+    state.nativeAttentionIdentityRetryCount = 0;
     state.nativeStateSubscription?.unsubscribe();
     state.nativeStateSubscription = null;
     state.nativeStateObservable = null;
@@ -812,7 +864,7 @@ export default function (amp: PluginAPI) {
     sendHook("stop", pendingEnd.sessionId, pendingEnd.cwd, {
       turn_id: state.turnId,
       cmux_turn_boundary: "settled",
-      cmux_active_background_work_count: activeSiblingTurnCount,
+      cmux_active_background_work_count: 0,
     });
   };
 

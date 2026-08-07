@@ -418,6 +418,32 @@ final class ClaudeHookSessionStore {
                     deferredSettlement: nil
                 )
             }
+            if activeWorkIds.isEmpty {
+                activeWorkIdsByTurn.removeValue(forKey: turnKey)
+            } else {
+                activeWorkIdsByTurn[turnKey] = activeWorkIds.sorted()
+            }
+            if eventName == "SubagentStop",
+               turnIsTerminal,
+               activeWorkIds.isEmpty {
+                // Once a terminal turn has drained every retained id, its
+                // final completion is the recovery boundary for a bounded-id
+                // overflow. This keeps overflow fail-closed while work may
+                // still be active without latching the session forever.
+                overflowTurnKeys.remove(turnKey)
+            }
+            if eventName == "SubagentStop",
+               turnIsTerminal,
+               activeWorkIdsByTurn.isEmpty,
+               overflowTurnKeys.isEmpty,
+               deferredSettlementsByTurn.keys.allSatisfy({ $0 == turnKey }) {
+                // The session-wide marker represents unretained turns after
+                // the turn-key bound was crossed. A terminal drain with no
+                // other retained work or settlement is the only safe local
+                // recovery boundary; process replacement/exit remains the
+                // fallback when that boundary never arrives.
+                record.hasBackgroundWorkTurnOverflow = nil
+            }
             let deferredSettlement: AgentDeferredTurnSettlement?
             let activeWorkCount = activeWorkIds.count
                 + (overflowTurnKeys.contains(turnKey) ? 1 : 0)
@@ -431,11 +457,6 @@ final class ClaudeHookSessionStore {
                     deferredSettlementsByTurn.removeValue(forKey: turnKey)
             } else {
                 deferredSettlement = nil
-            }
-            if activeWorkIds.isEmpty {
-                activeWorkIdsByTurn.removeValue(forKey: turnKey)
-            } else {
-                activeWorkIdsByTurn[turnKey] = activeWorkIds.sorted()
             }
             record.activeBackgroundWorkIdsByTurn =
                 activeWorkIdsByTurn.isEmpty ? nil : activeWorkIdsByTurn
@@ -35519,10 +35540,25 @@ export default CMUXSessionRestore;
         case "pi": Self.piFeedHookMaxStdinBytes
         default: Self.feedHookMaxStdinBytes
         }
-        guard let stdinData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
+        let stdinRead = Self.readBoundedFeedHookStdin(
+            maxBytes: feedHookStdinLimit
+        )
+        guard stdinRead.isComplete else {
+            if source == BuiltInAgentIntegration.cursor.feedSourceName,
+               let commandEvent,
+               ["postToolUse", "postToolUseFailure"].contains(commandEvent) {
+                let env = ProcessInfo.processInfo.environment
+                concludeCursorNativeApprovalObservation(
+                    boundedJSONPrefix: stdinRead.data,
+                    agentPID: agentPidForFeedSource(source, env: env),
+                    socketPath: client?.socketPath ?? socketPath,
+                    socketPassword: socketPassword
+                )
+            }
             print("{}")
             return
         }
+        let stdinData = stdinRead.data
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
         else {
@@ -35926,23 +35962,36 @@ export default CMUXSessionRestore;
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
     private static let piFeedHookMaxStdinBytes = 128 * 1024
 
+    private struct BoundedFeedHookStdinRead {
+        let data: Data
+        let isComplete: Bool
+    }
+
     private static func readBoundedFeedHookStdin(
         maxBytes: Int,
         handle: FileHandle = .standardInput
-    ) -> Data? {
+    ) -> BoundedFeedHookStdinRead {
         var data = Data()
         while data.count <= maxBytes {
             let remainingBytes = maxBytes + 1 - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
-            guard !chunk.isEmpty else { return data }
+            guard !chunk.isEmpty else {
+                return BoundedFeedHookStdinRead(
+                    data: data,
+                    isComplete: true
+                )
+            }
             data.append(chunk)
         }
         guard data.count <= maxBytes else {
             while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
-            return nil
+            return BoundedFeedHookStdinRead(
+                data: data,
+                isComplete: false
+            )
         }
-        return data
+        return BoundedFeedHookStdinRead(data: data, isComplete: true)
     }
 
     private static let feedPostToolUseScalarStringLimitBytes = 512

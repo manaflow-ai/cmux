@@ -80,6 +80,35 @@ extension ControlCommandCoordinator {
             return nil
         }()
 
+        let processGeneration: ControlSidebarAgentProcessGeneration?
+        if parsed.options["pid-start-seconds"] != nil
+            || parsed.options["pid-start-microseconds"] != nil {
+            let strings =
+                context?.controlSidebarAgentStrings() ?? .englishFallback
+            let generationResolution = sidebarParseAgentProcessGeneration(
+                options: parsed.options,
+                usage: strings.setAgentPIDUsage,
+                strings: strings
+            )
+            if let error = generationResolution.error {
+                return error
+            }
+            processGeneration = generationResolution.generation
+        } else {
+            processGeneration = nil
+        }
+        if pidValue != nil,
+           processGeneration == nil,
+           context?.controlSidebarRequiresAgentProcessGeneration(
+               key,
+               target: target,
+               panelID: panelResolution.panelId
+           ) == true {
+            let strings =
+                context?.controlSidebarAgentStrings() ?? .englishFallback
+            return strings.processGenerationRequired(key: key)
+        }
+
         context?.controlSidebarScheduleStatusUpsert(
             target: target,
             key: key,
@@ -90,7 +119,8 @@ extension ControlCommandCoordinator {
             priority: priority,
             format: format,
             panelID: panelResolution.panelId,
-            pid: pidValue
+            pid: pidValue,
+            processGeneration: processGeneration
         )
         return "OK"
     }

@@ -40,7 +40,6 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
         if let processGeneration,
            entry.liveProcessGeneration == nil,
            let currentGeneration = entry.hook?.processGeneration,
-           processGeneration != currentGeneration,
            processGeneration < currentGeneration {
             return false
         }

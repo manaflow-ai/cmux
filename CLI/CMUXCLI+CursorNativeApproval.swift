@@ -181,6 +181,66 @@ extension CMUXCLI {
         )
     }
 
+    /// Concludes Cursor attention from the bounded lifecycle projection at
+    /// the front of an oversized post-tool payload. The unbounded result body
+    /// remains excluded from JSON decoding and Feed transport.
+    func concludeCursorNativeApprovalObservation(
+        boundedJSONPrefix: Data,
+        agentPID: Int,
+        socketPath: String?,
+        socketPassword: String?
+    ) {
+        guard let sessionId = Self.firstBoundedTopLevelJSONString(
+            in: boundedJSONPrefix,
+            keys: [
+                "session_id",
+                "sessionId",
+                "conversation_id",
+                "conversationId",
+            ]
+        ),
+            let toolCallId = Self.firstBoundedTopLevelJSONString(
+                in: boundedJSONPrefix,
+                keys: [
+                    "tool_call_id",
+                    "toolCallId",
+                    "tool_use_id",
+                    "toolUseId",
+                    "toolUseID",
+                ]
+            ) else {
+            return
+        }
+        var rawObject: [String: Any] = [
+            "session_id": sessionId,
+            "tool_use_id": toolCallId,
+        ]
+        if let generationId = Self.firstBoundedTopLevelJSONString(
+            in: boundedJSONPrefix,
+            keys: [
+                "generation_id",
+                "generationId",
+                "turn_id",
+                "turnId",
+            ]
+        ) {
+            rawObject["generation_id"] = generationId
+        }
+        if let command = Self.firstBoundedTopLevelJSONString(
+            in: boundedJSONPrefix,
+            keys: ["command", "shell_command", "shellCommand"]
+        ) {
+            rawObject["command"] = command
+        }
+        concludeCursorNativeApprovalObservation(
+            rawObject: rawObject,
+            agentPID: agentPID,
+            sessionId: sessionId,
+            socketPath: socketPath,
+            socketPassword: socketPassword
+        )
+    }
+
     /// Hidden detached-child entrypoint. It deliberately opens no cmux socket
     /// until Cursor confirms a native prompt, so auto-approved commands create
     /// neither a long-lived socket connection nor any UI mutation.
@@ -338,6 +398,121 @@ extension CMUXCLI {
             }
         }
         return nil
+    }
+
+    /// Reads one small root-object string without decoding an oversized JSON
+    /// document. Input and returned scalar sizes are independently bounded.
+    private static func firstBoundedTopLevelJSONString(
+        in data: Data,
+        keys: [String]
+    ) -> String? {
+        let bytes = [UInt8](data)
+        let desiredKeys = Set(keys)
+        var valuesByKey: [String: String] = [:]
+        var index = 0
+        var objectDepth = 0
+        while index < bytes.count {
+            switch bytes[index] {
+            case 0x7B: // {
+                objectDepth += 1
+                index += 1
+            case 0x7D: // }
+                objectDepth = max(0, objectDepth - 1)
+                index += 1
+            case 0x22: // "
+                guard let end = boundedJSONStringEnd(
+                    in: bytes,
+                    startingAt: index
+                ) else {
+                    return keys.lazy.compactMap { valuesByKey[$0] }.first
+                }
+                guard objectDepth == 1 else {
+                    index = end + 1
+                    continue
+                }
+                var cursor = end + 1
+                skipJSONWhitespace(in: bytes, index: &cursor)
+                guard cursor < bytes.count, bytes[cursor] == 0x3A else {
+                    index = end + 1
+                    continue
+                }
+                guard end - index <= 128,
+                      let key = decodeBoundedJSONString(
+                          in: bytes,
+                          range: index ... end
+                      ),
+                      desiredKeys.contains(key) else {
+                    index = end + 1
+                    continue
+                }
+                cursor += 1
+                skipJSONWhitespace(in: bytes, index: &cursor)
+                guard cursor < bytes.count, bytes[cursor] == 0x22 else {
+                    index = end + 1
+                    continue
+                }
+                guard let valueEnd = boundedJSONStringEnd(
+                    in: bytes,
+                    startingAt: cursor
+                ) else {
+                    return keys.lazy.compactMap { valuesByKey[$0] }.first
+                }
+                if valueEnd - cursor <= 4_096,
+                   let value = decodeBoundedJSONString(
+                       in: bytes,
+                       range: cursor ... valueEnd
+                   )?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !value.isEmpty {
+                    valuesByKey[key] = value
+                }
+                index = valueEnd + 1
+            default:
+                index += 1
+            }
+        }
+        return keys.lazy.compactMap { valuesByKey[$0] }.first
+    }
+
+    private static func boundedJSONStringEnd(
+        in bytes: [UInt8],
+        startingAt start: Int
+    ) -> Int? {
+        guard start < bytes.count, bytes[start] == 0x22 else { return nil }
+        var index = start + 1
+        var escaped = false
+        while index < bytes.count {
+            let byte = bytes[index]
+            if escaped {
+                escaped = false
+            } else if byte == 0x5C { // \
+                escaped = true
+            } else if byte == 0x22 { // "
+                return index
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private static func skipJSONWhitespace(
+        in bytes: [UInt8],
+        index: inout Int
+    ) {
+        while index < bytes.count,
+              [0x20, 0x09, 0x0A, 0x0D].contains(bytes[index]) {
+            index += 1
+        }
+    }
+
+    private static func decodeBoundedJSONString(
+        in bytes: [UInt8],
+        range: ClosedRange<Int>
+    ) -> String? {
+        var wrapped = Data([0x5B]) // [
+        wrapped.append(contentsOf: bytes[range])
+        wrapped.append(0x5D) // ]
+        return (try? JSONSerialization.jsonObject(with: wrapped))
+            .flatMap { $0 as? [Any] }?.first as? String
     }
 
     private static func digestPrefix(_ value: String) -> String {
