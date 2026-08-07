@@ -127,6 +127,40 @@ fn reset_removes_selected_session_guard_file() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn session_guard_rejects_symlinked_lock_directory() {
+    use std::os::unix::fs::symlink;
+
+    let root = temp_root("session-guard-symlink");
+    let outside = temp_root("session-guard-symlink-outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    symlink(&outside, root.join(SESSION_GUARD_DIR)).unwrap();
+
+    let error = WorkspaceRegistry::open(&root, "symlinked-lock-dir").unwrap_err();
+
+    assert!(error.to_string().contains("session lock directory is not a directory"));
+    assert!(fs::read_dir(&outside).unwrap().next().is_none());
+    fs::remove_dir_all(root).unwrap();
+    fs::remove_dir_all(outside).unwrap();
+}
+
+#[test]
+fn session_guard_coordinator_busy_fails_without_waiting_forever() {
+    let root = temp_root("session-guard-coordinator-busy");
+    fs::create_dir_all(&root).unwrap();
+    let lock_dir = prepare_session_guard_dir(&root).unwrap();
+    let _held = SessionLease::acquire(&session_guard_coordinator_path(&lock_dir)).unwrap();
+    let started = std::time::Instant::now();
+
+    let error = WorkspaceRegistry::open(&root, "blocked-by-coordinator").unwrap_err();
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    assert!(format!("{error:#}").contains("workspace session coordinator is busy"));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn workspace_commit_publishes_one_normalized_resource_event() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();

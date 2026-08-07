@@ -3105,15 +3105,38 @@ fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<Sess
 
 fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     platform::restrict_directory(root)?;
-    let lock_dir = root.join(SESSION_GUARD_DIR);
-    fs::create_dir_all(&lock_dir)
-        .with_context(|| format!("create session lock directory {}", lock_dir.display()))?;
-    platform::restrict_directory(&lock_dir)?;
+    let lock_dir = prepare_session_guard_dir(root)?;
     let _coordinator =
-        SessionLease::acquire_blocking(&session_guard_coordinator_path(&lock_dir))
+        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
             .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
     let lock_path = session_guard_lock_path(&lock_dir, session_name);
     SessionLease::acquire(&lock_path)
+}
+
+fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    match fs::symlink_metadata(&lock_dir) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => anyhow::bail!("session lock directory is not a directory: {}", lock_dir.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match fs::create_dir(&lock_dir) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    let metadata = fs::symlink_metadata(&lock_dir)?;
+                    if !metadata.file_type().is_dir() {
+                        anyhow::bail!(
+                            "session lock directory is not a directory: {}",
+                            lock_dir.display()
+                        );
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    platform::restrict_directory(&lock_dir)?;
+    Ok(lock_dir)
 }
 
 fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
@@ -3135,7 +3158,7 @@ fn cleanup_session_guard_after_reset(
         return;
     }
     let Ok(_coordinator) =
-        SessionLease::acquire_blocking(&session_guard_coordinator_path(&lock_dir))
+        SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
     else {
         return;
     };
@@ -3483,23 +3506,69 @@ struct SessionLease {
 
 impl SessionLease {
     fn acquire(path: &Path) -> anyhow::Result<Self> {
-        let file =
-            OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
-        platform::restrict_file(path)?;
+        let file = open_session_lock_file(path)?;
+        restrict_session_lock_file(path, &file)?;
+        validate_session_lock_file(path, &file)?;
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
         })?;
         Ok(Self { file, path: path.to_path_buf() })
     }
 
-    fn acquire_blocking(path: &Path) -> anyhow::Result<Self> {
-        let file =
-            OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
-        platform::restrict_file(path)?;
-        FileExt::lock(&file)
-            .with_context(|| format!("lock workspace session coordinator: {}", path.display()))?;
+    fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
+        let file = open_session_lock_file(path)?;
+        restrict_session_lock_file(path, &file)?;
+        validate_session_lock_file(path, &file)?;
+        FileExt::try_lock(&file).with_context(|| {
+            format!("workspace session coordinator is busy: {}", path.display())
+        })?;
         Ok(Self { file, path: path.to_path_buf() })
     }
+}
+
+fn open_session_lock_file(path: &Path) -> anyhow::Result<File> {
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(false).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let file = options.open(path)?;
+    validate_session_lock_file(path, &file)?;
+    Ok(file)
+}
+
+fn validate_session_lock_file(path: &Path, file: &File) -> anyhow::Result<()> {
+    let path_metadata = fs::symlink_metadata(path)?;
+    if !path_metadata.file_type().is_file() {
+        anyhow::bail!("session lock path is not a file: {}", path.display());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let file_metadata = file.metadata()?;
+        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
+        {
+            anyhow::bail!("session lock path changed while opening: {}", path.display());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_session_lock_file(_path: &Path, file: &File) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_session_lock_file(path: &Path, _file: &File) -> anyhow::Result<()> {
+    platform::restrict_file(path)?;
+    Ok(())
 }
 
 impl Drop for SessionLease {
