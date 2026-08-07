@@ -34,6 +34,12 @@ struct SidebarRowPalette {
         model.isActive ? selectedForeground(opacity) : semanticSecondaryText
     }
 
+    /// Applies SwiftUI-style opacity without replacing the semantic color's
+    /// resolved alpha (including its accessibility-contrast adjustment).
+    func semanticSecondary(multiplyingOpacity opacity: CGFloat) -> NSColor {
+        semanticSecondaryText.withAlphaComponent(semanticSecondaryText.alphaComponent * opacity)
+    }
+
     static func attributed(_ source: AttributedString, font: NSFont, color: NSColor) -> NSAttributedString {
         let mutable = NSMutableAttributedString(attributedString: NSAttributedString(source))
         let fullRange = NSRange(location: 0, length: mutable.length)

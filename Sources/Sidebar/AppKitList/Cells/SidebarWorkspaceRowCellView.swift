@@ -503,14 +503,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     font: .systemFont(ofSize: model.scaled(10.5)),
                     color: model.isActive
                         ? palette.secondary(0.84)
-                        : palette.semanticSecondaryText.withAlphaComponent(0.95)
+                        : palette.semanticSecondary(multiplyingOpacity: 0.95)
                 )
             } else {
                 descriptionView.stringValue = display
                 descriptionView.font = .systemFont(ofSize: model.scaled(10.5))
                 descriptionView.textColor = model.isActive
                     ? palette.secondary(0.84)
-                    : palette.semanticSecondaryText.withAlphaComponent(0.95)
+                    : palette.semanticSecondary(multiplyingOpacity: 0.95)
             }
         }
 
@@ -758,7 +758,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
             ? palette.secondary(0.9)
-            : palette.semanticSecondaryText.withAlphaComponent(0.9)
+            : palette.semanticSecondary(multiplyingOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
@@ -815,7 +815,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 barHeight: max(3, 3 * model.fontScale),
                 trackColor: model.isActive
                     ? palette.selectedForeground(0.15)
-                    : palette.semanticSecondaryText.withAlphaComponent(0.2),
+                    : palette.semanticSecondary(multiplyingOpacity: 0.2),
                 fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(),
                 labelText: progress.label,
                 labelFont: labelFont,
