@@ -645,6 +645,10 @@ struct WorkspaceShellView: View {
             isInitialConnectionLoading: isInitialConnectionLoading,
             initialConnectionTimedOut: initialConnectionTimedOut,
             retryInitialConnection: retryInitialConnection,
+            workspaceSortMode: store.workspaceSortMode,
+            setWorkspaceSortMode: { store.setWorkspaceSortMode($0) },
+            workspaceComputerPriority: store.workspaceComputerPriority,
+            setWorkspaceComputerPriority: { store.setWorkspaceComputerPriority($0) },
             filterState: workspaceListFilterState,
             searchText: searchText
         )

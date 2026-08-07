@@ -5,7 +5,21 @@ extension WorkspaceListView {
         WorkspaceListFilterMenuActions(
             setReadState: { filter.readState = $0 },
             clearMachines: { filter.machines.removeAll() },
-            toggleMachine: { filter.toggleMachine($0) }
+            toggleMachine: { filter.toggleMachine($0) },
+            setSortMode: setWorkspaceSortMode == nil ? nil : { mode in
+                setWorkspaceSortMode?(mode)
+                // First-time pick of Computer Order has no stored order yet, so
+                // the mode alone changes nothing; open the editor rather than
+                // leaving a silently inert choice.
+                if mode == .computerPriority,
+                   workspaceComputerPriority.isEmpty,
+                   setWorkspaceComputerPriority != nil {
+                    showingComputerOrderSheet = true
+                }
+            },
+            editComputerOrder: setWorkspaceComputerPriority == nil
+                ? nil
+                : { showingComputerOrderSheet = true }
         )
     }
 
@@ -44,6 +58,7 @@ extension WorkspaceListView {
                             WorkspaceListFilterMenu(
                                 filter: filter,
                                 machines: filterMachines,
+                                sortMode: workspaceSortMenuMode,
                                 actions: workspaceListFilterMenuActions
                             )
                             .equatable()

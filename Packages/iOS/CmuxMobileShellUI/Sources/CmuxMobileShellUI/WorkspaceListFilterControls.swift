@@ -13,10 +13,14 @@ struct WorkspaceListFilterMenu: View, Equatable {
     /// Machines available to filter by. When fewer than two, the machine section
     /// is hidden (nothing to disambiguate).
     let machines: [WorkspaceFilterMachine]
+    /// The All Computers sort mode, or `nil` to hide the sort section (single
+    /// machine scope, previews). Like the machine section, sorting is only
+    /// offered while more than one machine is present.
+    var sortMode: MobileWorkspaceSortMode? = nil
     let actions: WorkspaceListFilterMenuActions
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.filter == rhs.filter && lhs.machines == rhs.machines
+        lhs.filter == rhs.filter && lhs.machines == rhs.machines && lhs.sortMode == rhs.sortMode
     }
 
     private var showsMachineSection: Bool { machines.count > 1 }
@@ -29,6 +33,32 @@ struct WorkspaceListFilterMenu: View, Equatable {
             ) {
                 ForEach(MobileWorkspaceReadStateFilter.allCases, id: \.self) { state in
                     Text(state.displayName).tag(state)
+                }
+            }
+
+            if let sortMode, let setSortMode = actions.setSortMode, showsMachineSection {
+                Picker(
+                    L10n.string("mobile.workspaces.sort", defaultValue: "Sort By"),
+                    selection: Binding(get: { sortMode }, set: { setSortMode($0) })
+                ) {
+                    ForEach(MobileWorkspaceSortMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .accessibilityIdentifier("MobileWorkspaceSortPicker")
+                if sortMode == .computerPriority, let editComputerOrder = actions.editComputerOrder {
+                    Button {
+                        editComputerOrder()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.workspaces.sort.editOrder",
+                                defaultValue: "Edit Computer Order…"
+                            ),
+                            systemImage: "arrow.up.arrow.down"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceSortEditOrder")
                 }
             }
 
@@ -74,6 +104,20 @@ extension MobileWorkspaceReadStateFilter {
             return L10n.string("mobile.workspaces.filter.all", defaultValue: "All Workspaces")
         case .unread:
             return L10n.string("mobile.workspaces.filter.unread", defaultValue: "Unread")
+        }
+    }
+}
+
+extension MobileWorkspaceSortMode {
+    /// The localized menu title for this All Computers sort mode.
+    var displayName: String {
+        switch self {
+        case .automatic:
+            return L10n.string("mobile.workspaces.sort.automatic", defaultValue: "Automatic")
+        case .computerPriority:
+            return L10n.string("mobile.workspaces.sort.computerOrder", defaultValue: "Computer Order")
+        case .recentActivity:
+            return L10n.string("mobile.workspaces.sort.recentActivity", defaultValue: "Recent Activity")
         }
     }
 }

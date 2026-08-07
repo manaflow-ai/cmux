@@ -100,6 +100,10 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var selectedPrimaryTab: MobilePrimaryTab = .workspaces
     @State private var primarySearchCoordinator = MobilePrimarySearchCoordinator()
     @State private var filterState = WorkspaceListFilterState()
+    /// Store-free stand-ins for the device-local sort preference, so the
+    /// fixture's sort menu and computer-order editor are fully interactive.
+    @State private var fixtureSortMode: MobileWorkspaceSortMode = .automatic
+    @State private var fixtureComputerPriority: [String] = []
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
@@ -383,9 +387,32 @@ public struct WorkspaceListLayoutPreviewView: View {
         refreshGeneration += 1
     }
 
+    /// The fixture's stand-in for the composite's priority-ordered aggregation:
+    /// a stable partition of the seeded rows by the chosen computer order.
+    /// Group headers follow their members' row positions, so reordering rows
+    /// alone reorders the visible sections exactly like the real derivation.
+    private var fixtureSortedWorkspaces: [MobileWorkspacePreview] {
+        guard fixtureSortMode == .computerPriority, !fixtureComputerPriority.isEmpty else {
+            return model.workspaces
+        }
+        var rank: [String: Int] = [:]
+        for (index, deviceID) in fixtureComputerPriority.enumerated()
+            where rank[deviceID] == nil {
+            rank[deviceID] = index
+        }
+        return model.workspaces.enumerated()
+            .sorted { lhs, rhs in
+                let lhsRank = rank[lhs.element.macDeviceID ?? ""] ?? Int.max
+                let rhsRank = rank[rhs.element.macDeviceID ?? ""] ?? Int.max
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
     private func workspaceListFixture(searchText: String) -> some View {
         WorkspaceListView(
-            workspaces: model.workspaces,
+            workspaces: fixtureSortedWorkspaces,
             groups: model.groups,
             selectedWorkspaceID: selectedWorkspaceID,
             host: "Visual Mock Mac",
@@ -474,6 +501,10 @@ public struct WorkspaceListLayoutPreviewView: View {
                 }
                 model.groups[index].isCollapsed = isCollapsed
             } : nil,
+            workspaceSortMode: fixtureSortMode,
+            setWorkspaceSortMode: { fixtureSortMode = $0 },
+            workspaceComputerPriority: fixtureComputerPriority,
+            setWorkspaceComputerPriority: { fixtureComputerPriority = $0 },
             filterState: filterState,
             searchText: searchText
         )
