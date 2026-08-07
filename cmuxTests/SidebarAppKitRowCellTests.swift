@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSidebar
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -284,6 +285,19 @@ struct SidebarAppKitRowCellTests {
             resolvedColor = field.textColor?.usingColorSpace(.sRGB)
         }
         return try #require(resolvedColor)
+    }
+
+    private static func appKitColor(from resolved: Color.Resolved) throws -> NSColor {
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let components = [
+            CGFloat(resolved.linearRed),
+            CGFloat(resolved.linearGreen),
+            CGFloat(resolved.linearBlue),
+            CGFloat(resolved.opacity),
+        ]
+        let cgColor = try #require(CGColor(colorSpace: colorSpace, components: components))
+        let color = try #require(NSColor(cgColor: cgColor))
+        return try #require(color.usingColorSpace(.sRGB))
     }
 
     private static func textView(in cell: SidebarWorkspaceRowTableCellView, linkedTo url: URL) -> SidebarRowTextView? {
@@ -1077,6 +1091,33 @@ struct SidebarAppKitRowCellTests {
         #expect(optimisticActiveHeaderColor == workspaceTitleColor)
         #expect(activeHeaderColor == workspaceTitleColor)
         #expect(optimisticInactiveHeaderColor == workspaceTitleColor)
+    }
+
+    @Test
+    func tablePaletteMatchesIncreasedContrastSwiftUISemantics() throws {
+        var swiftUIEnvironment = EnvironmentValues()
+        swiftUIEnvironment.colorScheme = .dark
+        // `colorSchemeContrast` is intentionally read-only. Its writable mirror
+        // lets this test simulate the system accessibility setting without
+        // changing the user's Mac configuration.
+        swiftUIEnvironment._colorSchemeContrast = .increased
+
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            colorScheme: swiftUIEnvironment.colorScheme,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let expectedPrimary = try Self.appKitColor(
+            from: Color.primary.resolve(in: swiftUIEnvironment)
+        )
+        let expectedSecondary = try Self.appKitColor(
+            from: Color.secondary.resolve(in: swiftUIEnvironment)
+        )
+        let actualPrimary = try #require(tableEnvironment.primaryTextColor.usingColorSpace(.sRGB))
+        let actualSecondary = try #require(tableEnvironment.secondaryTextColor.usingColorSpace(.sRGB))
+
+        #expect(actualPrimary == expectedPrimary)
+        #expect(actualSecondary == expectedSecondary)
     }
 
     @Test
