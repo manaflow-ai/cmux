@@ -196,6 +196,13 @@ def main() -> int:
         raise SystemExit(
             "FAIL: identity and cleanup target must be published before mutation"
         )
+    confirmation_claim = prepare_app_host.index(
+        'ln -- "$confirmation_tmp" "$app_host_confirmation_file"'
+    )
+    if confirmation_claim > first_home_mutation:
+        raise SystemExit(
+            "FAIL: cleanup authority must be durable before mutable scope setup"
+        )
     for destructive_preparation in (
         'rm -rf -- "$app_host_home"',
         'rm -rf -- "$app_host_receipt_dir"',
@@ -372,6 +379,11 @@ def main() -> int:
         "missing structured Ghostty evidence failure",
     )
     require(
+        APP_HOST_WRAPPER,
+        '${app_host_lock_root%/}/cmux-app-host-test.lock',
+        "canonical machine-wide app-host lock",
+    )
+    require(
         APP_HOST_POLICY_TESTS,
         "#if CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
         "compiled app-host isolation assertion",
@@ -477,6 +489,11 @@ def main() -> int:
         APP_HOST_PROCESSES,
         "cmux_remove_terminated_stale_app_host_scopes",
         "terminated stale-scope reclamation",
+    )
+    require(
+        APP_HOST_PROCESSES,
+        "cmux_reclaim_abandoned_app_host_scopes",
+        "age-bounded process-free scope reclamation",
     )
 
     for forbidden_process_authority in (

@@ -449,24 +449,71 @@ printf '%s|%s\n%s|%s\n%s|%s\n' \
   "$old_pid_two" "$old_executable" \
   "$current_pid" "$current_executable" \
   > "$CMUX_FAKE_LSOF_STATE"
-cmux_terminate_stale_receipted_app_hosts \
-  "$stale_runner_root" "$system_temp_root" "$current_key" \
-  || fail "verified stale receipts were not recovered"
-for terminated_pid in "$old_pid_one" "$old_pid_two" "$current_pid"; do
+if cmux_recover_owned_app_host_attempt \
+  "$current_receipt_dir" "$current_key" \
+  "${current_executable%%/Build/Products/*}" \
+  "$stale_runner_root" "$system_temp_root" \
+  > "$TMP_DIR/foreign-owner.out" 2> "$TMP_DIR/foreign-owner.err"; then
+  fail "current retry recovery accepted a live foreign app-host owner"
+fi
+grep -Fq "foreign app-host" "$TMP_DIR/foreign-owner.err" \
+  || fail "current retry recovery did not identify the foreign owner"
+for preserved_pid in "$old_pid_one" "$old_pid_two" "$current_pid"; do
+  /bin/kill -0 "$preserved_pid" 2>/dev/null \
+    || fail "ownership preflight signaled a process before rejecting recovery"
+done
+
+# The foreign owner is responsible for its own processes. Once they are gone,
+# the current retry may terminate only its own authenticated app host.
+for foreign_pid in "$old_pid_one" "$old_pid_two"; do
+  /bin/kill -TERM "$foreign_pid"
+  wait "$foreign_pid" 2>/dev/null || true
+  untrack_pid "$foreign_pid"
+done
+cmux_recover_owned_app_host_attempt \
+  "$current_receipt_dir" "$current_key" \
+  "${current_executable%%/Build/Products/*}" \
+  "$stale_runner_root" "$system_temp_root" \
+  || fail "current retry did not terminate its owned app host"
+for terminated_pid in "$current_pid"; do
   wait "$terminated_pid" 2>/dev/null || true
   untrack_pid "$terminated_pid"
 done
-if [ -e "$old_home" ] \
-  || [ -e "$old_receipt_dir" ] \
-  || [ -e "$old_confirmation_file" ]; then
-  fail "terminated stale app-host authority scope was not removed"
-fi
+for preserved_path in \
+  "$old_home" "$old_receipt_dir" "$old_confirmation_file" \
+  "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
+  "$waiting_home" "$waiting_receipt_dir" "$waiting_confirmation_file"
+do
+  [ -e "$preserved_path" ] \
+    || fail "owned retry recovery removed another job or waiting scope"
+done
+
+# A later process-free pass reclaims an authenticated old scope, but keeps the
+# current key and every scope newer than the minimum age.
+make_durable_scope abandoned "930006$$" 2 1 \
+  "$stale_runner_root/abandoned/derived-data"
+abandoned_home="$DURABLE_SCOPE_HOME"
+abandoned_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
+abandoned_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
+touch -t 200001010000 "$abandoned_confirmation_file"
+: > "$CMUX_FAKE_LSOF_STATE"
+cmux_recover_owned_app_host_attempt \
+  "$current_receipt_dir" "$current_key" \
+  "${current_executable%%/Build/Products/*}" \
+  "$stale_runner_root" "$system_temp_root" 2000000000 86400 \
+  || fail "process-free abandoned scope reclamation failed"
+for removed_path in \
+  "$abandoned_home" "$abandoned_receipt_dir" "$abandoned_confirmation_file"
+do
+  [ ! -e "$removed_path" ] \
+    || fail "authenticated old process-free scope was not reclaimed"
+done
 for preserved_path in \
   "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
   "$waiting_home" "$waiting_receipt_dir" "$waiting_confirmation_file"
 do
   [ -e "$preserved_path" ] \
-    || fail "stale recovery removed a current or waiting app-host scope"
+    || fail "age-bounded reclamation removed a current or young scope"
 done
 
 # Validate every candidate before deleting the first one.

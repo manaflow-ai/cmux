@@ -223,6 +223,18 @@ grep -Fq "Confirmed app-host cleanup target:" "$TMP_DIR/success.log" || {
 run_cleanup > "$TMP_DIR/already-absent.log"
 grep -Fq "already absent" "$TMP_DIR/already-absent.log"
 
+# Model interruption immediately after cleanup authority becomes durable but
+# before either mutable scope root is claimed. Teardown must remove the exact
+# confirmation instead of leaving a run key that preparation can never reuse.
+prepare_scope
+rm -rf -- "$CMUX_APP_HOST_HOME" "$CMUX_APP_HOST_RECEIPT_DIR"
+run_cleanup > "$TMP_DIR/confirmation-only-partial.log"
+if [ -e "$CMUX_APP_HOST_CONFIRMATION_FILE" ]; then
+  cat "$TMP_DIR/confirmation-only-partial.log"
+  echo "FAIL: cleanup left a confirmation-only partial scope behind"
+  exit 1
+fi
+
 prepare_scope
 rm -f -- "$CMUX_APP_HOST_CONFIRMATION_FILE"
 : > "$TMP_DIR/unauthenticated-mutations.log"
