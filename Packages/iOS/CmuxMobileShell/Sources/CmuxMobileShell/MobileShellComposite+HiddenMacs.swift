@@ -582,12 +582,13 @@ extension MobileShellComposite {
 
     func cancelComputerVisibilityMutations() {
         let tasks = Array(computerVisibilityMutationTasksByID.values)
-        computerVisibilityMutationTasksByID = [:]
-        computerVisibilityMutationOperationIDsByID = [:]
         computerVisibilityMutationIDs = []
         for task in tasks {
             task.cancel()
         }
+        // Keep each cancelled task as the serial tail until its rollback ends.
+        // A request in the next account/team scope must await that cleanup before
+        // writing a newer durable visibility preference for the same computer.
     }
 
     private func finishComputerVisibilityMutation(
