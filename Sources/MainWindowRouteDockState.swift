@@ -11,7 +11,7 @@ enum MainWindowRouteDockState {
     ) -> SessionSplitContainerSnapshot {
         switch self {
         case .live(let dock):
-            dock.sessionSnapshot(
+            return dock.sessionSnapshot(
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: surfaceResumeBindingIndex
