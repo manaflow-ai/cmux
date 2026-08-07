@@ -22,10 +22,65 @@ extension TerminalSurface {
         hermesProfileAliasDirectoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) -> TerminalSurfaceAgentCommandShimSet? {
-        guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else {
-            return nil
-        }
+        guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else { return nil }
+        let aliases = hermesProfileAliasDirectoryURL.map { aliasDirectoryURL in
+            HermesProfileAliasResolver(
+                wrapperDirectoryURL: aliasDirectoryURL,
+                fileManager: fileManager
+            ).resolve(excluding: reservedAgentCommandShimNames)
+        } ?? []
+        return installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectoryURL,
+            surfaceId: surfaceId,
+            temporaryDirectory: temporaryDirectory,
+            hermesProfileAliases: aliases,
+            fileManager: fileManager
+        )
+    }
 
+    /// Writes bundled agent shims using a process-owned Hermes alias catalog.
+    ///
+    /// The catalog serializes concurrent restore requests and scans the shared
+    /// Hermes wrapper directory only once per directory generation.
+    ///
+    /// - Parameters:
+    ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
+    ///   - surfaceId: The terminal surface that owns the generated shim directory.
+    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - hermesProfileAliasCatalog: The process-owned Hermes alias discovery cache.
+    ///   - fileManager: The filesystem implementation used for shim installation.
+    /// - Returns: The installed shim set, or `nil` when no bundled wrapper can be installed.
+    public static func installAgentCommandShimsIfPossible(
+        wrapperDirectoryURL: URL?,
+        surfaceId: UUID,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        hermesProfileAliasCatalog: HermesProfileAliasCatalog,
+        fileManager: FileManager = .default
+    ) async -> TerminalSurfaceAgentCommandShimSet? {
+        guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else { return nil }
+        let aliases = await hermesProfileAliasCatalog.aliases(
+            excluding: reservedAgentCommandShimNames
+        )
+        return installAgentCommandShimsIfPossible(
+            wrapperDirectoryURL: wrapperDirectoryURL,
+            surfaceId: surfaceId,
+            temporaryDirectory: temporaryDirectory,
+            hermesProfileAliases: aliases,
+            fileManager: fileManager
+        )
+    }
+
+    private static var reservedAgentCommandShimNames: Set<String> {
+        Set(TerminalSurfaceAgentCommandShimDefinition.bundled.map(\.commandName))
+    }
+
+    private static func installAgentCommandShimsIfPossible(
+        wrapperDirectoryURL: URL,
+        surfaceId: UUID,
+        temporaryDirectory: URL,
+        hermesProfileAliases: [HermesProfileAliasResolver.Alias],
+        fileManager: FileManager
+    ) -> TerminalSurfaceAgentCommandShimSet? {
         var availableDefinitions: [(
             definition: TerminalSurfaceAgentCommandShimDefinition,
             wrapperURL: URL
@@ -55,18 +110,10 @@ extension TerminalSurface {
         }
 
         var shims: [TerminalSurfaceAgentCommandShim] = []
-        if let aliasDirectoryURL = hermesProfileAliasDirectoryURL,
-           let hermesDefinition = availableDefinitions.first(where: {
-               $0.definition.commandName == "hermes"
-           }) {
-            let reservedCommandNames = Set(
-                TerminalSurfaceAgentCommandShimDefinition.bundled.map(\.commandName)
-            )
-            let aliases = HermesProfileAliasResolver(
-                wrapperDirectoryURL: aliasDirectoryURL,
-                fileManager: fileManager
-            ).resolve(excluding: reservedCommandNames)
-            for alias in aliases {
+        if let hermesDefinition = availableDefinitions.first(where: {
+            $0.definition.commandName == "hermes"
+        }) {
+            for alias in hermesProfileAliases {
                 guard let shim = installAgentCommandShim(
                     definition: hermesDefinition.definition,
                     commandName: alias.commandName,

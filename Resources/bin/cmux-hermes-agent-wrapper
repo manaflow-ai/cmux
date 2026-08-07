@@ -129,21 +129,6 @@ run_hermes_hook_installer() {
         ' "$timeout_seconds" "$@"
 }
 
-hermes_known_subcommand() {
-    case "$1" in
-        chat|model|moa|fallback|secrets|migrate|gateway|proxy|lsp|setup|postinstall|\
-        whatsapp|whatsapp-cloud|slack|send|login|logout|auth|status|cron|webhook|\
-        portal|kanban|project|hooks|doctor|security|dump|debug|backup|checkpoints|\
-        import|config|console|pairing|skills|bundles|plugins|curator|pets|journey|\
-        learning|memory-graph|memory|tools|computer-use|mcp|sessions|insights|claw|\
-        version|update|uninstall|acp|profile|completion|dashboard|serve|desktop|gui|\
-        logs|prompt-size)
-            return 0
-            ;;
-    esac
-    return 1
-}
-
 hermes_option_consumes_value() {
     case "$1" in
         --usage-file|-m|--model|--provider|--reasoning|-t|--toolsets|--skills|-s|-p|--profile)
@@ -279,8 +264,9 @@ effective_hermes_home() {
     printf '%s' "$candidate"
 }
 
-# Returns success for entrypoints that create or resume an agent session. A
-# known administrative subcommand passes through without touching config.
+# Returns success for entrypoints that create or resume an agent session. Any
+# other positional command passes through without touching config; Hermes owns
+# validation of current and future administrative subcommands.
 should_activate_hermes_hooks() {
     (( $# == 0 )) && return 0
 
@@ -291,6 +277,9 @@ should_activate_hermes_hooks() {
         shift
         if [[ "$command" == "chat" ]]; then
             case "$argument" in
+                -h|--help|-V|--version)
+                    return 1
+                    ;;
                 -q|--query|-q?*|--query=*)
                     return 1
                     ;;
@@ -337,10 +326,7 @@ should_activate_hermes_hooks() {
                 continue
                 ;;
             *)
-                if hermes_known_subcommand "$argument"; then
-                    return 1
-                fi
-                return 0
+                return 1
                 ;;
         esac
     done

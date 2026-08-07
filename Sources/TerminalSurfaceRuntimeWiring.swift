@@ -141,16 +141,19 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 
 extension TerminalSurfaceRuntimeFilesystem {
     static func live() -> TerminalSurfaceRuntimeFilesystem {
-        TerminalSurfaceRuntimeFilesystem(
+        let hermesProfileAliasCatalog = HermesProfileAliasCatalog(
+            wrapperDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/bin", isDirectory: true)
+        )
+        return TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
             installAgentCommandShims: {
                 let fileManager = FileManager.default
-                return TerminalSurface.installAgentCommandShimsIfPossible(
+                return await TerminalSurface.installAgentCommandShimsIfPossible(
                     wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
-                    hermesProfileAliasDirectoryURL: fileManager.homeDirectoryForCurrentUser
-                        .appendingPathComponent(".local/bin", isDirectory: true),
+                    hermesProfileAliasCatalog: hermesProfileAliasCatalog,
                     fileManager: fileManager
                 )
             },

@@ -23,7 +23,10 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             }
             guard let explicitSessionID = CmuxVaultAgentPersistedSessionStore.hermesStateDB
                 .explicitSessionID(arguments: process.arguments) else {
-                return true
+                // A bare Hermes process can switch conversations without changing
+                // its PID or argv, so executable identity alone cannot retain a
+                // cached session binding.
+                return false
             }
             return ManagedAgentSessionIdentity.sessionIDsMatch(
                 kind: snapshot.kind.rawValue,
