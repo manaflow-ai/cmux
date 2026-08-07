@@ -2806,6 +2806,64 @@ func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYCountsIdleSessionUntilTeardownCompletes(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	sessionKey := persistentPTYSessionKey("teardown-in-flight")
+	session := &wsPTYSession{
+		id:          "teardown-in-flight",
+		key:         sessionKey,
+		attachments: map[string]*wsPTYAttachment{},
+		done:        make(chan struct{}),
+	}
+	hub.mu.Lock()
+	hub.sessions[sessionKey] = session
+	hub.mu.Unlock()
+
+	// Hold the PTY-file mutex so the idle reaper can remove the session from
+	// the map but cannot finish terminateProcesses or closePTYFiles.
+	session.ptyFileMu.Lock()
+	ptyFileLocked := true
+	teardownDone := make(chan struct{})
+	go func() {
+		hub.reapIdleSession(session)
+		close(teardownDone)
+	}()
+	defer func() {
+		if ptyFileLocked {
+			session.ptyFileMu.Unlock()
+			<-teardownDone
+		}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		hub.mu.Lock()
+		_, retained := hub.sessions[sessionKey]
+		hub.mu.Unlock()
+		if !retained {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("idle reaper did not begin session teardown")
+		}
+		runtime.Gosched()
+	}
+
+	if got := hub.activeSessionCount(); got != 1 {
+		t.Fatalf("hub activity during session teardown = %d, want 1", got)
+	}
+	session.ptyFileMu.Unlock()
+	ptyFileLocked = false
+	select {
+	case <-teardownDone:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("idle session teardown did not finish")
+	}
+	if got := hub.activeSessionCount(); got != 0 {
+		t.Fatalf("hub activity after session teardown = %d, want 0", got)
+	}
+}
+
 func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
