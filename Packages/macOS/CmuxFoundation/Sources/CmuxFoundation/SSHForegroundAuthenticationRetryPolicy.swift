@@ -43,6 +43,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "publisher.new",
     ]
 
+    static let cleanupLockStateFileNames = [
+        "owner",
+        "owner.new",
+    ]
+
     /// Maximum consecutive transport failures before foreground auth surfaces the outage.
     public let maximumConsecutiveTransientFailures = 20
 
@@ -103,10 +108,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     ///
     /// - Returns: A shell command that removes every file owned by the group-state protocol.
     public func processGroupStateRemovalShellCommand() -> String {
+        let cleanupLockStateArguments = Self.cleanupLockStateFileNames
+            .map { "\"$CMUX_SSH_AUTH_GROUP_DIR/cleanup.lock/\($0)\"" }
+            .joined(separator: " ")
         let reaperLockStateArguments = Self.reaperLockStateFileNames
             .map { "\"$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock/\($0)\"" }
             .joined(separator: " ")
         return [
+            "/bin/rm -f -- \(cleanupLockStateArguments) 2>/dev/null || true",
+            "/bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR/cleanup.lock\" 2>/dev/null || true",
             "/bin/rm -f -- \(reaperLockStateArguments) 2>/dev/null || true",
             "/bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock\" 2>/dev/null || true",
             groupStateFileRemovalShellCommand(includingCancellationMarker: true),
@@ -223,11 +233,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         cmux_ssh_auth_group_cleanup_is_abandoned() {
           cmux_ssh_auth_cleanup_group_dir="$1"
-          cmux_ssh_auth_cleanup_record_file="$cmux_ssh_auth_cleanup_group_dir/cleanup.owner"
-          if [ ! -e "$cmux_ssh_auth_cleanup_group_dir/cancel" ] || \
-            [ ! -s "$cmux_ssh_auth_cleanup_record_file" ]; then return 1; fi
-          cmux_ssh_auth_parse_recorded_process \
-            "$cmux_ssh_auth_cleanup_record_file" || return 1
+          if [ ! -e "$cmux_ssh_auth_cleanup_group_dir/cancel" ]; then return 1; fi
+          for cmux_ssh_auth_cleanup_record_file in \
+            "$cmux_ssh_auth_cleanup_group_dir/cleanup.lock/owner" \
+            "$cmux_ssh_auth_cleanup_group_dir/cleanup.lock/owner.new" \
+            "$cmux_ssh_auth_cleanup_group_dir/cleanup.owner" \
+            "$cmux_ssh_auth_cleanup_group_dir/cleanup.owner.new"; do
+            if [ -s "$cmux_ssh_auth_cleanup_record_file" ]; then break; fi
+          done
+          if [ ! -s "$cmux_ssh_auth_cleanup_record_file" ]; then return 1; fi
+          cmux_ssh_auth_parse_recorded_process "$cmux_ssh_auth_cleanup_record_file" || return 1
           [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" != \
             "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
         }
@@ -235,7 +250,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         cmux_ssh_auth_group_publisher_is_live() {
           cmux_ssh_auth_publisher_group_dir="$1"
           if cmux_ssh_auth_recorded_process_is_live \
-            "$cmux_ssh_auth_publisher_group_dir/cleanup.owner" || \
+            "$cmux_ssh_auth_publisher_group_dir/cleanup.lock/owner" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_publisher_group_dir/cleanup.lock/owner.new" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_publisher_group_dir/cleanup.owner" || \
             cmux_ssh_auth_recorded_process_is_live \
               "$cmux_ssh_auth_publisher_group_dir/cleanup.owner.new" || \
             cmux_ssh_auth_recorded_process_is_live \
@@ -531,6 +550,127 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         cmux_ssh_auth_recovery_unlock() {
           exec 9>&-
+        }
+
+        cmux_ssh_auth_reclaim_stale_cleanup_lock() {
+          cmux_ssh_auth_stale_cleanup_lock="$1"
+          if [ -L "$cmux_ssh_auth_stale_cleanup_lock" ]; then return 1; fi
+          if [ ! -d "$cmux_ssh_auth_stale_cleanup_lock" ]; then return 0; fi
+          cmux_ssh_auth_stale_cleanup_expected="$(/usr/bin/id -u):700"
+          cmux_ssh_auth_stale_cleanup_observed=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_stale_cleanup_lock" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_stale_cleanup_observed" != \
+            "$cmux_ssh_auth_stale_cleanup_expected" ]; then return 1; fi
+          if cmux_ssh_auth_recorded_process_is_live \
+            "$cmux_ssh_auth_stale_cleanup_lock/owner" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_stale_cleanup_lock/owner.new"; then
+            return 1
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_stale_cleanup_lock/owner" \
+            "$cmux_ssh_auth_stale_cleanup_lock/owner.new" 2>/dev/null || true
+          /bin/rmdir "$cmux_ssh_auth_stale_cleanup_lock" 2>/dev/null
+        }
+
+        cmux_ssh_auth_cleanup_claim_abort_locked() {
+          /bin/rm -f -- "$cmux_ssh_auth_cleanup_owner_publish_file" \
+            "$cmux_ssh_auth_cleanup_owner_file" \
+            "$cmux_ssh_auth_cleanup_lock_owner_publish_file" \
+            "$cmux_ssh_auth_cleanup_lock_owner_file" 2>/dev/null || true
+          /bin/rmdir "$cmux_ssh_auth_cleanup_lock" 2>/dev/null || true
+          cmux_ssh_auth_recovery_unlock
+          CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD=
+        }
+
+        cmux_ssh_auth_cleanup_claim() {
+          CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD=
+          cmux_ssh_auth_recovery_lock || return 1
+          if cmux_ssh_auth_recorded_process_is_live \
+            "$cmux_ssh_auth_cleanup_owner_file" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_cleanup_owner_publish_file"; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_cleanup_owner_file" \
+            "$cmux_ssh_auth_cleanup_owner_publish_file" 2>/dev/null || true
+          if ! (umask 077; /bin/mkdir "$cmux_ssh_auth_cleanup_lock") 2>/dev/null; then
+            cmux_ssh_auth_reclaim_stale_cleanup_lock \
+              "$cmux_ssh_auth_cleanup_lock" || {
+                cmux_ssh_auth_recovery_unlock
+                return 1
+              }
+            (umask 077; /bin/mkdir "$cmux_ssh_auth_cleanup_lock") 2>/dev/null || {
+              cmux_ssh_auth_recovery_unlock
+              return 1
+            }
+          fi
+          # Publish the actual function-subshell worker. POSIX shells retain
+          # the parent shell's `$$`, while this direct child reports it as PPID.
+          if ! /bin/sh -c '
+            cmux_owner_pid=$PPID
+            cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
+              /bin/ps -o pgid= -o state= -o lstart= \
+                -p "$cmux_owner_pid" 2>/dev/null | \
+              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
+                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
+                print $1 "|" cmux_started
+              }'\'')
+            if [ -z "$cmux_owner_identity" ]; then exit 1; fi
+            umask 077
+            printf "%s|%s\n" "$cmux_owner_pid" "$cmux_owner_identity" > "$1"
+          ' cmux-cleanup-owner "$cmux_ssh_auth_cleanup_owner_publish_file" \
+            2>/dev/null; then
+            cmux_ssh_auth_cleanup_claim_abort_locked
+            return 1
+          fi
+          cmux_ssh_auth_cleanup_claim_record=$(/bin/cat -- \
+            "$cmux_ssh_auth_cleanup_owner_publish_file" 2>/dev/null || true)
+          if [ -z "$cmux_ssh_auth_cleanup_claim_record" ] || ! \
+            printf '%s\n' "$cmux_ssh_auth_cleanup_claim_record" \
+              > "$cmux_ssh_auth_cleanup_lock_owner_publish_file" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_cleanup_lock_owner_publish_file" \
+              "$cmux_ssh_auth_cleanup_lock_owner_file" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_cleanup_owner_publish_file" \
+              "$cmux_ssh_auth_cleanup_owner_file" 2>/dev/null; then
+            cmux_ssh_auth_cleanup_claim_abort_locked
+            return 1
+          fi
+          CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD="$cmux_ssh_auth_cleanup_claim_record"
+          cmux_ssh_auth_recovery_unlock
+          cmux_ssh_auth_cleanup_claim_is_current
+        }
+
+        cmux_ssh_auth_cleanup_claim_is_current() {
+          if [ -z "${CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD:-}" ]; then return 1; fi
+          cmux_ssh_auth_cleanup_observed_lock=$(/bin/cat -- \
+            "$cmux_ssh_auth_cleanup_lock_owner_file" 2>/dev/null || true)
+          cmux_ssh_auth_cleanup_observed_owner=$(/bin/cat -- \
+            "$cmux_ssh_auth_cleanup_owner_file" 2>/dev/null || true)
+          [ "$cmux_ssh_auth_cleanup_observed_lock" = \
+            "$CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD" ] && \
+            [ "$cmux_ssh_auth_cleanup_observed_owner" = \
+              "$CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD" ]
+        }
+
+        cmux_ssh_auth_cleanup_claim_release() {
+          if [ -z "${CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD:-}" ]; then return 0; fi
+          cmux_ssh_auth_cleanup_observed_lock=$(/bin/cat -- \
+            "$cmux_ssh_auth_cleanup_lock_owner_file" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_cleanup_observed_lock" = \
+            "$CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD" ]; then
+            cmux_ssh_auth_cleanup_observed_owner=$(/bin/cat -- \
+              "$cmux_ssh_auth_cleanup_owner_file" 2>/dev/null || true)
+            if [ "$cmux_ssh_auth_cleanup_observed_owner" = \
+              "$CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD" ]; then
+              /bin/rm -f -- "$cmux_ssh_auth_cleanup_owner_file" \
+                "$cmux_ssh_auth_cleanup_owner_publish_file" 2>/dev/null || true
+            fi
+            /bin/rm -f -- "$cmux_ssh_auth_cleanup_lock_owner_file" \
+              "$cmux_ssh_auth_cleanup_lock_owner_publish_file" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_cleanup_lock" 2>/dev/null || true
+          fi
+          CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD=
         }
 
         cmux_ssh_auth_recovery_read_index() {
@@ -876,6 +1016,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_group_cancel_file="$cmux_ssh_auth_group_dir/cancel"
           cmux_ssh_auth_cleanup_owner_file="$cmux_ssh_auth_group_dir/cleanup.owner"
           cmux_ssh_auth_cleanup_owner_publish_file="$cmux_ssh_auth_group_dir/cleanup.owner.new"
+          cmux_ssh_auth_cleanup_lock="$cmux_ssh_auth_group_dir/cleanup.lock"
+          cmux_ssh_auth_cleanup_lock_owner_file="$cmux_ssh_auth_cleanup_lock/owner"
+          cmux_ssh_auth_cleanup_lock_owner_publish_file="$cmux_ssh_auth_cleanup_lock/owner.new"
           cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_group_dir/processes"
           cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_group_dir/processes.stopped"
           cmux_ssh_auth_owned_processes="$cmux_ssh_auth_group_dir/owned"
@@ -891,7 +1034,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_remove_cancel=0
           cmux_ssh_auth_cleanup_started=0
           cmux_ssh_auth_cleanup_complete=0
-          cmux_ssh_auth_preserve_group_state=0
+          cmux_ssh_auth_preserve_group_state=1
+          CMUX_SSH_AUTH_CLEANUP_CLAIM_RECORD=
           cmux_ssh_auth_group_state_cleanup() {
             if [ "$cmux_ssh_auth_cleanup_started" = 1 ] && \
               [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
@@ -906,10 +1050,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ "$cmux_ssh_auth_cleanup_complete" = 1 ]; then
               cmux_ssh_auth_preserve_group_state=0
             fi
-            /bin/rm -f -- "$cmux_ssh_auth_cleanup_owner_file" \
-              "$cmux_ssh_auth_cleanup_owner_publish_file" 2>/dev/null || true
-            if [ "$cmux_ssh_auth_preserve_group_state" = 1 ]; then return; fi
+            if [ "$cmux_ssh_auth_preserve_group_state" = 1 ]; then
+              cmux_ssh_auth_cleanup_claim_release
+              return
+            fi
             \#(groupStateFileRemovalShellCommand(includingCancellationMarker: false))
+            # Keep the claim through every shared journal deletion. Release it
+            # while cancel still prevents no-owner state reclamation.
+            cmux_ssh_auth_cleanup_claim_release
             if [ "$cmux_ssh_auth_remove_cancel" = 1 ]; then
               /bin/rm -f -- "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || true
             fi
@@ -954,23 +1102,23 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exit 0
           fi
 
-          if ! /bin/sh -c '
-            cmux_owner_pid=$PPID
-            cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
-              /bin/ps -o pgid= -o state= -o lstart= \
-                -p "$cmux_owner_pid" 2>/dev/null | \
-              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
-                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
-                print $1 "|" cmux_started
-              }'\'')
-            if [ -z "$cmux_owner_identity" ]; then exit 1; fi
-            umask 077
-            printf "%s|%s\n" "$cmux_owner_pid" "$cmux_owner_identity" > "$1"
-          ' cmux-cleanup-owner "$cmux_ssh_auth_cleanup_owner_publish_file" \
-            2>/dev/null || ! \
-            /bin/mv -f -- "$cmux_ssh_auth_cleanup_owner_publish_file" \
-              "$cmux_ssh_auth_cleanup_owner_file" 2>/dev/null; then
-            /bin/rm -f -- "$cmux_ssh_auth_cleanup_owner_publish_file" 2>/dev/null || true
+          cmux_ssh_auth_cleanup_claim || exit 0
+          cmux_ssh_auth_cleanup_claim_is_current || exit 0
+          cmux_ssh_auth_claimed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_group_dir" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_claimed_dir_identity" != \
+            "$cmux_ssh_auth_expected_dir_identity" ]; then exit 0; fi
+          cmux_ssh_auth_claimed_group_identity=$(/bin/cat -- \
+            "$cmux_ssh_auth_group_file" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_claimed_group_identity" != \
+            "$cmux_ssh_auth_group_identity" ]; then exit 0; fi
+          cmux_ssh_auth_claimed_anchor_identity=$(cmux_ssh_auth_identity \
+            "$cmux_ssh_auth_group_anchor")
+          cmux_ssh_auth_claimed_anchor_remainder=${cmux_ssh_auth_claimed_anchor_identity#*|}
+          cmux_ssh_auth_claimed_group=${cmux_ssh_auth_claimed_anchor_remainder%%|*}
+          cmux_ssh_auth_claimed_started=${cmux_ssh_auth_claimed_anchor_remainder#*|}
+          if [ "$cmux_ssh_auth_claimed_group" != "$cmux_ssh_auth_owned_group" ] || \
+            [ "$cmux_ssh_auth_claimed_started" != "$cmux_ssh_auth_anchor_started" ]; then
             exit 0
           fi
           cmux_ssh_auth_remove_cancel=1
