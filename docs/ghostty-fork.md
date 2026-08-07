@@ -12,10 +12,19 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `11aa609d7`, which exposes whether the
-VT parser is at a ground-state stream boundary. cmux uses that contract to
-retain incomplete escape-sequence bytes across distributed snapshot handoff.
-It builds on `19d03fa4d`, which suppresses empty opener stderr diagnostics on
+The submodule pinned by this branch is `3fbdd078d`, which resolves fonts for
+decomposed (NFD) Hangul grapheme clusters through their canonically composed
+syllable so NFC and NFD Korean text select the same face. It landed on fork
+main in merge `d462c1d97`
+(https://github.com/manaflow-ai/ghostty/pull/185) together with its
+regression-test commit `0316a8de8`. It builds on fork main `7350263b4`, the
+merge of https://github.com/manaflow-ai/ghostty/pull/184 (bounded embedded
+surface process teardown), on top of `9513174f2`, which reapplied the VT
+stream-boundary visibility change (originally the branch gitlink
+`11aa609d7`) on fork main. The VT query exposes whether the VT parser is at
+a ground-state stream boundary; cmux uses that contract to retain incomplete
+escape-sequence bytes across distributed snapshot handoff.
+That line builds on `19d03fa4d`, which suppresses empty opener stderr diagnostics on
 top of `f0f8273b7`, the iOS startup locale/crash-reporting order fix. That
 commit follows `88357634c`, the fork-main
 merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
@@ -31,9 +40,52 @@ contract. PR 172 then recorded the original font branch as ancestry without
 changing the integrated tree, so the final pin descends from both former
 gitlinks (`cd1f8e012` and `80d7fb35a`).
 
+### Hangul NFC/NFD canonical font resolution
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/185
+- Commits:
+  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
+  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
+- Files:
+  - `src/font/hangul.zig` (new)
+  - `src/font/main.zig`
+  - `src/font/shaper/run.zig`
+  - `src/font/shaper/coretext.zig` (test)
+- Summary:
+  - Font selection keyed on the raw stored codepoints of a grapheme cluster,
+    so a decomposed Hangul cluster queried the resolver with its leading jamo
+    while the equivalent precomposed syllable queried with the syllable
+    codepoint, selecting different fallback faces (and bypassing
+    `font-codepoint-map` entries for U+AC00-U+D7A3) for canonically
+    equivalent text.
+  - `src/font/hangul.zig` implements the algorithmic Hangul canonical
+    composition from The Unicode Standard ch. 3.12 (L+V, L+V+T, and LV+T
+    clusters over the modern jamo ranges). `RunIterator.indexForCell`
+    resolves the face through the composed codepoint first, so both
+    encodings produce the identical resolver query.
+  - Terminal cell contents and shaper input are unchanged: copy/paste of NFD
+    text still returns the original NFD codepoints, and CoreText/HarfBuzz
+    compose the cluster during shaping when the face carries the precomposed
+    glyph.
+- Conflict note:
+  - Upstream tracks the same defect in
+    https://github.com/ghostty-org/ghostty/discussions/4163. If upstream
+    lands its own cluster-level or normalization-based resolution, prefer
+    the upstream mechanism and drop `src/font/hangul.zig` plus the
+    `indexForCell` hook, keeping the `coretext.zig` regression test to prove
+    the behavior survives the merge.
+- Fixes:
+  - https://github.com/manaflow-ai/cmux/issues/9583
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3fbdd078dfc499134710d3cf9ce2c5e06fa101aa-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `e8ce9217b32486f8070600b673d9a25e7270dcca9f5565781684f92ffb2f7eb5`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### VT stream-boundary visibility
 
-- Commit: `11aa609d7` (Expose safe VT stream snapshot boundary)
+- Commit: `11aa609d7` (Expose safe VT stream snapshot boundary), reapplied
+  on fork main as `9513174f2`
 - Files: `include/ghostty/vt/terminal.h`, `src/terminal/c/terminal.zig`,
   `src/lib_vt.zig`
 - Summary:
