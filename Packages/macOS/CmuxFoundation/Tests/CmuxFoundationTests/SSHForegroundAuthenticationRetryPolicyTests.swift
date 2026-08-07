@@ -2136,6 +2136,110 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(pids.allSatisfy { Darwin.kill($0, 0) != 0 })
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func authenticationGroupCleanupRetainsUnresolvedCancellation(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-cancel-handoff-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "pending\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let cleanupBody = SSHForegroundAuthenticationRetryPolicy()
+            .authenticationGroupDirectoryCleanupShellBody(terminatesPublishedGroup: true)
+        let command = """
+        cmux_test_group_dir="$CMUX_SSH_AUTH_GROUP_DIR"
+        cmux_ssh_terminate_owned_auth_group() {
+          : > "$CMUX_SSH_AUTH_GROUP_DIR/cancel"
+          : > "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        }
+        cmux_ssh_resume_failed_auth_group_reapers() { :; }
+        \(cleanupBody)
+        test -d "$cmux_test_group_dir" || exit 99
+        test -e "$cmux_test_group_dir/cancel" || exit 98
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: ["CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func replacementCleanupRecoversStopJournalBeforeTruncating(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-stop-journal-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let recoveredMarker = root.appendingPathComponent("recovered")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let started = "Thu_Jan_1_00:00:00_1970"
+        try "101|888|\(started)\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "101 1 888 \(started) T\n".write(
+            to: groupDirectory.appendingPathComponent("frozen"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "888\n".write(
+            to: groupDirectory.appendingPathComponent("signaled.groups"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "101 1 888 \(started)\n".write(
+            to: groupDirectory.appendingPathComponent("signaled.pids"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() { printf '1|888|Thu_Jan_1_00:00:00_1970\n'; }
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_run_cleanup_transactions() { return 0; }
+        cmux_ssh_auth_resume_signaled_processes() {
+          /usr/bin/grep -Fqx '101 1 888 Thu_Jan_1_00:00:00_1970 T' \
+            "$cmux_ssh_auth_frozen_processes" || return 1
+          /usr/bin/grep -Fqx '888' "$cmux_ssh_auth_signaled_groups" || return 1
+          /usr/bin/grep -Fqx '101 1 888 Thu_Jan_1_00:00:00_1970' \
+            "$cmux_ssh_auth_signaled_processes" || return 1
+          : > "$CMUX_TEST_RECOVERED"
+        }
+        cmux_ssh_terminate_owned_auth_group 999
+        test -e "$CMUX_TEST_RECOVERED" || exit 99
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_RECOVERED": recoveredMarker.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
