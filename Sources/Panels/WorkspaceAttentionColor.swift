@@ -15,7 +15,9 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
     }
 
     var nsColor: NSColor {
-        guard let rgb else { return .systemBlue }
+        guard let rgb else {
+            return WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor
+        }
         return NSColor(
             red: CGFloat((rgb >> 16) & 0xFF) / 255,
             green: CGFloat((rgb >> 8) & 0xFF) / 255,
@@ -43,13 +45,6 @@ struct WorkspaceAttentionColor: Equatable, Sendable {
     }
 }
 
-private struct WorkspaceAttentionColorEnvironmentKey: EnvironmentKey {
-    static let defaultValue = WorkspaceAttentionColor(configuredHex: nil)
-}
-
 extension EnvironmentValues {
-    var workspaceAttentionColor: WorkspaceAttentionColor {
-        get { self[WorkspaceAttentionColorEnvironmentKey.self] }
-        set { self[WorkspaceAttentionColorEnvironmentKey.self] = newValue }
-    }
+    @Entry var workspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
 }

@@ -151,35 +151,17 @@ struct WorkspaceCanvasHostView: View {
             portalPriority: portalPriority,
             appearance: appearance,
             windowAppearance: windowAppearance,
+            settingsRuntime: settingsRuntime,
             customSidebarTabManager: workspace?.owningTabManager,
             onRequestPanelFocus: { [weak workspace] in
                 workspace?.focusPanel(panel.id)
             }
         )
-        let hosted = NSHostingView(rootView: AnyView(CanvasHostedPanelRootView(
-            content: content,
-            presentation: presentation,
-            settingsRuntime: settingsRuntime
-        )))
+        let hosted = NSHostingView(rootView: AnyView(content))
         // The pane's content container dictates the size; never let the
         // hosting view shrink to SwiftUI's ideal size.
         hosted.sizingOptions = []
         return .hosted(panel, hosted, presentation)
-    }
-}
-
-/// Re-establishes app-owned environment values across the canvas's nested
-/// `NSHostingView` boundary. Presentation is observable, so mounted panes
-/// receive color changes without rebuilding their hosted content.
-private struct CanvasHostedPanelRootView: View {
-    let content: CanvasHostedPanelContentView
-    @Bindable var presentation: CanvasHostedPanelPresentation
-    let settingsRuntime: SettingsRuntime?
-
-    var body: some View {
-        content
-            .environment(\.settingsRuntime, settingsRuntime)
-            .environment(\.workspaceAttentionColor, presentation.workspaceAttentionColor)
     }
 }
 

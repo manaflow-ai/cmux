@@ -3915,7 +3915,7 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         XCTAssertEqual(model.flashReason, .unreadIndicatorDismiss)
     }
 
-    func testAllFlashReasonsUseSharedFlashRingStyle() {
+    func testAllFlashReasonsUseNotificationRingAccent() {
         let reasons: [WorkspaceAttentionFlashReason] = [
             .navigation,
             .notificationArrival,
@@ -3926,10 +3926,17 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
 
         for reason in reasons {
             XCTAssertEqual(
-                WorkspaceAttentionCoordinator.flashStyle(for: reason),
-                WorkspaceAttentionCoordinator.flashRingStyle
+                WorkspaceAttentionCoordinator.flashStyle(for: reason).accent,
+                WorkspaceAttentionCoordinator.notificationRingStyle.accent
             )
         }
+    }
+
+    func testFocusFlashUsesNotificationRingColor() {
+        XCTAssertEqual(
+            WorkspaceAttentionCoordinator.flashStyle(for: .navigation).accent.strokeColor.hexString(),
+            WorkspaceAttentionCoordinator.notificationRingStyle.accent.strokeColor.hexString()
+        )
     }
 
     func testTmuxWorkspacePaneExactRectReturnsContentRelativeFrameForDescendantView() {

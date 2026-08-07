@@ -114,7 +114,20 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
+enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
+    case notificationBlue
+
+    var strokeColor: NSColor {
+        switch self {
+        case .notificationBlue:
+            return .systemBlue
+        }
+    }
+}
+
 struct WorkspaceAttentionFlashPresentation: Equatable, Sendable {
+    let accent: WorkspaceAttentionFlashAccent
     let glowOpacity: Double
     let glowRadius: CGFloat
 }
@@ -145,11 +158,13 @@ struct WorkspaceAttentionFlashDecision: Equatable, Sendable {
 
 enum WorkspaceAttentionCoordinator {
     static let notificationRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
         glowOpacity: 0.35,
         glowRadius: 3
     )
 
     static let flashRingStyle = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
         glowOpacity: 0.6,
         glowRadius: 6
     )
