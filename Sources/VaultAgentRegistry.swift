@@ -294,8 +294,10 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
     case grokSessionDirectory
     case persistedStore(CmuxVaultAgentPersistedSessionStore)
 
+    case cmuxHookStore(CmuxVaultHookSessionStore)
+
     private enum CodingKeys: String, CodingKey {
-        case type, argvOption, persistedStore
+        case type, argvOption, persistedStore, store
     }
 
     init(from decoder: Decoder) throws {
@@ -309,6 +311,13 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 self = .grokSessionDirectory
             case "stateDB", "state-db", "hermesStateDB", "hermes-state-db":
                 self = .persistedStore(.hermesStateDB)
+            case "cmuxHookStore", "cmux-hook-store":
+                throw DecodingError.dataCorrupted(
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription: "cmuxHookStore is reserved for built-in Vault agents"
+                    )
+                )
             default:
                 guard !trimmed.isEmpty else {
                     throw DecodingError.dataCorrupted(
@@ -377,6 +386,12 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 )
             }
             self = .argvOption(option)
+        case "cmuxHookStore", "cmux-hook-store":
+            throw DecodingError.dataCorruptedError(
+                forKey: .type,
+                in: container,
+                debugDescription: "cmuxHookStore is reserved for built-in Vault agents"
+            )
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type,
@@ -399,6 +414,9 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
         case .persistedStore(let store):
             try container.encode("persistedStore", forKey: .type)
             try container.encode(store.rawValue, forKey: .persistedStore)
+        case .cmuxHookStore(let store):
+            try container.encode("cmuxHookStore", forKey: .type)
+            try container.encode(store, forKey: .store)
         }
     }
 }
@@ -474,6 +492,7 @@ struct CmuxVaultAgentRegistry: Sendable {
             CmuxVaultAgentRegistration.builtInPi,
             CmuxVaultAgentRegistration.builtInOmp,
             CmuxVaultAgentRegistration.builtInCampfire,
+            CmuxVaultAgentRegistration.builtInAmp,
             CmuxVaultAgentRegistration.builtInAntigravity,
             CmuxVaultAgentRegistration.builtInGrok,
             CmuxVaultAgentRegistration.builtInKimi,

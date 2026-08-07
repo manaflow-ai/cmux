@@ -152,7 +152,6 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #expect(process.terminationStatus == 0)
         #expect(String(data: data, encoding: .utf8) == "literal-path\n")
     }
-
     @Test("Official Hermes profile aliases route through the Hermes wrapper")
     func officialHermesProfileAliasesRouteThroughWrapper() throws {
         let fileManager = FileManager.default

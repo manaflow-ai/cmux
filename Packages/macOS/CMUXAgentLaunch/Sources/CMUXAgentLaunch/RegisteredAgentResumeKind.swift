@@ -10,6 +10,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
     case omp
     /// Campfire.
     case campfire
+    /// Sourcegraph Amp.
+    case amp
     /// Antigravity.
     case antigravity
     /// Grok CLI.
@@ -22,6 +24,8 @@ public enum RegisteredAgentResumeKind: String, Sendable {
         switch self {
         case .pi, .omp, .campfire:
             "{{executable}} --session {{sessionId}}"
+        case .amp:
+            "amp threads continue {{sessionId}}"
         case .antigravity:
             "{{executable}} --conversation {{sessionId}}"
         case .grok:
