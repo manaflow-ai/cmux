@@ -166,7 +166,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
         let postUpdateActions = detachLoadedCells()
-        actions?.endWorkspaceDrag()
+        actions?.clearWorkspaceDrag()
         workspaceDragSessionDidEnd()
         actions = nil
         unreadObservation?.cancel()
@@ -280,7 +280,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         rows = rows
             .filter { liveIds.contains($0.workspaceId) }
             .map { $0.presentationSnapshot() }
-        actions?.endWorkspaceDrag()
+        actions?.clearWorkspaceDrag()
         workspaceDragSessionDidEnd()
         actions = nil
         workspaceIds = liveWorkspaceIds
@@ -826,7 +826,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        actions?.endWorkspaceDrag()
+        actions?.clearWorkspaceDrag()
         workspaceDragSessionDidEnd()
     }
 

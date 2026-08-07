@@ -30,7 +30,9 @@ struct SidebarWorkspaceTableActions {
     let createEmptyWorkspaceGroup: () -> Void
     let beginWorkspaceDrag: (UUID) -> Void
     let movingWorkspaceCount: ((UUID) -> Int)?
-    let endWorkspaceDrag: () -> Void
+    /// Clears the drag presentation owned by this table. Source teardown also
+    /// ends its coordinator session, while mirror teardown stays local.
+    let clearWorkspaceDrag: () -> Void
     let isValidWorkspaceDrag: () -> Bool
     /// The trailing UUID is the drag pasteboard's workspace id, used to
     /// re-arm drag state that was cleared while the native session stayed

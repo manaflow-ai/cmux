@@ -11659,8 +11659,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                 ).count
             },
-            endWorkspaceDrag: {
-                dragState.finishDrag()
+            clearWorkspaceDrag: {
+                dragState.clearDrag()
                 dragAutoScrollController.stop()
             },
             isValidWorkspaceDrag: {
