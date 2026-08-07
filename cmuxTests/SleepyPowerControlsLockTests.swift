@@ -81,7 +81,7 @@ struct SleepyPowerControlsLockTests {
     /// button silently doing nothing again. Resolving the symbol does not
     /// invoke it, so this cannot lock the host.
     @Test func loginFrameworkLockResolvesOnThisMacOS() {
-        #expect(LoginFrameworkScreenLock.isAvailable)
+        #expect(SystemCommandRunner.isLockScreenAvailable)
     }
 }
 

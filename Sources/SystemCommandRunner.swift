@@ -25,6 +25,27 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
         return unsafeBitCast(symbol, to: AuthExecFn.self)
     }()
 
+    private typealias LockScreenFn = @convention(c) () -> Int32
+
+    /// `SACLockScreenImmediate` from `login.framework` — the call behind the
+    /// Apple menu's "Lock Screen" (⌃⌘Q), predating the macOS 14 deployment
+    /// floor. It replaces shelling out to the `CGSession` binary, which macOS
+    /// 26 removed together with `User.menu`
+    /// (https://github.com/manaflow-ai/cmux/issues/9730). Resolved via `dlsym`
+    /// like `authExec` above, so no private symbol is linked and a macOS that
+    /// drops it degrades to a reported failure, not a crash.
+    private static let lockScreenImmediate: LockScreenFn? = {
+        guard let handle = dlopen("/System/Library/PrivateFrameworks/login.framework/login", RTLD_LAZY),
+              let symbol = dlsym(handle, "SACLockScreenImmediate") else { return nil }
+        return unsafeBitCast(symbol, to: LockScreenFn.self)
+    }()
+
+    /// Whether the in-process lock call resolved. Internal so the CI canary
+    /// test can assert the symbol still resolves on each supported macOS —
+    /// a future macOS removing it turns CI red instead of the Lock Mac button
+    /// silently breaking again.
+    static var isLockScreenAvailable: Bool { lockScreenImmediate != nil }
+
     private let privilegedQueue = DispatchQueue(label: "com.cmux.sleepyMode.privileged")
     private var authorization: AuthorizationRef?  // accessed only on privilegedQueue
 
@@ -62,10 +83,17 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     @discardableResult
     func lockScreen() async -> Bool {
         // The SAC call IPCs to loginwindow; keep it off the caller's actor
-        // like every other system effect here.
+        // like every other system effect here. The call's return code is not a
+        // documented contract, so a resolved symbol that was invoked counts as
+        // engaged; false means the mechanism itself is unavailable.
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: LoginFrameworkScreenLock.lockNow())
+                guard let lockScreenImmediate = Self.lockScreenImmediate else {
+                    continuation.resume(returning: false)
+                    return
+                }
+                _ = lockScreenImmediate()
+                continuation.resume(returning: true)
             }
         }
     }

@@ -231547,6 +231547,23 @@
         }
       }
     },
+    "sleepyMode.lockFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't lock the Mac — use ⌃⌘Q or the Apple menu's Lock Screen"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac をロックできませんでした — ⌃⌘Q または Apple メニューの「画面をロック」を使ってください"
+          }
+        }
+      }
+    },
     "sleepyMode.mascot.cat": {
       "extractionState": "manual",
       "localizations": {
