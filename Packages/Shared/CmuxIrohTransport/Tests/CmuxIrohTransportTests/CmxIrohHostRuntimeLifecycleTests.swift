@@ -568,10 +568,10 @@ extension CmxIrohHostRuntimeTests {
         try await runtime.start()
         let initialDiscoveryCount = await broker.observedDiscoveryCount()
 
-        await endpoint.emit(.networkChanged)
-        await endpoint.emit(.networkChanged)
-        #expect(await refreshes.waitForCount(2, timeout: .seconds(1)))
-        for _ in 0..<1_000 { await Task.yield() }
+        for _ in 0..<100 {
+            await endpoint.emit(.networkChanged)
+        }
+        #expect(await refreshes.waitForCount(100, timeout: .seconds(1)))
 
         #expect(await broker.observedRegistrationCount() == 1)
         #expect(await broker.observedDiscoveryCount() == initialDiscoveryCount)

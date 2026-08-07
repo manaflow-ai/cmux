@@ -226,12 +226,15 @@ extension CmxIrohClientRuntimeTests {
         )
         try await runtime.start()
 
-        await endpoint.emit(.networkChanged)
-        await endpoint.emit(.networkChanged)
-        for _ in 0..<1_000 { await Task.yield() }
+        for _ in 0..<100 {
+            await endpoint.emit(.networkChanged)
+        }
+        // A requested live discovery is the processing barrier and accounts
+        // for the only discovery after startup.
+        #expect(try await runtime.refreshLiveDiscoveryThrowing())
 
         #expect(await broker.observedRegistrations().count == 1)
-        #expect(await broker.observedDiscoveryCount() == 1)
+        #expect(await broker.observedDiscoveryCount() == 2)
         await runtime.stop()
     }
 
