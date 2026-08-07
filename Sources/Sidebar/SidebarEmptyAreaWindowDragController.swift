@@ -11,28 +11,8 @@ import AppKit
 /// stops recognizing for the rest of the window's life.
 @MainActor
 struct SidebarEmptyAreaWindowDragController {
-    /// Result of tracking one empty-area mouse-down sequence.
-    enum Outcome: Equatable {
-        /// The caller should continue its normal `mouseDown` handling.
-        case passThrough
-        /// AppKit took ownership of the sequence to move the window.
-        case dragged
-        /// AppKit ended the sequence without a mouse-up to replay.
-        case cancelled
-    }
-
-    /// Event-source values consumed by the synchronous tracking loop.
-    enum TrackingEvent {
-        /// Pointer movement that may cross the drag threshold.
-        case dragged(location: NSPoint)
-        /// The terminating event that normal click handling still needs.
-        case mouseUp(NSEvent)
-        /// A system cancellation that terminates the sequence without mouse-up.
-        case cancelled
-    }
-
     private let dragThreshold: CGFloat
-    private let nextEvent: @MainActor (NSWindow) -> TrackingEvent?
+    private let nextEvent: @MainActor (NSWindow) -> SidebarEmptyAreaWindowDragTrackingEvent?
 
     /// Creates a controller with its pointer threshold and event source.
     ///
@@ -40,7 +20,7 @@ struct SidebarEmptyAreaWindowDragController {
     /// resolves into either movement or a mouse-up.
     init(
         dragThreshold: CGFloat = 4,
-        nextEvent: @escaping @MainActor (NSWindow) -> TrackingEvent? = { window in
+        nextEvent: @escaping @MainActor (NSWindow) -> SidebarEmptyAreaWindowDragTrackingEvent? = { window in
             var eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
             if #available(macOS 26.0, *) {
                 eventMask.insert(.mouseCancelled)
@@ -76,7 +56,7 @@ struct SidebarEmptyAreaWindowDragController {
     func perform(
         with event: NSEvent,
         in view: NSView
-    ) -> Outcome {
+    ) -> SidebarEmptyAreaWindowDragOutcome {
         guard let window = view.window else { return .passThrough }
         guard !isWindowDragSuppressed(window: window) else { return .passThrough }
 
