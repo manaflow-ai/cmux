@@ -246,6 +246,41 @@ def main() -> int:
         )
         return 1
 
+    missing_swift_testing_nonzero_child = textwrap.dedent(
+        """
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        raise SystemExit(65)
+        """
+    )
+    missing_swift_testing_nonzero_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            missing_swift_testing_nonzero_child,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=expected_mixed_framework_env,
+    )
+    if (
+        missing_swift_testing_nonzero_result.returncode
+        != EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    ):
+        print(missing_swift_testing_nonzero_result.stdout, end="")
+        print(missing_swift_testing_nonzero_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected a nonzero child exit after XCTest but before Swift Testing "
+            "to fail as an incomplete mixed-framework run, "
+            f"got {missing_swift_testing_nonzero_result.returncode}"
+        )
+        return 1
+
     mixed_framework_child = textwrap.dedent(
         """
         import time
@@ -279,6 +314,32 @@ def main() -> int:
         print(mixed_framework_result.stdout, end="")
         print(mixed_framework_result.stderr, end="", file=sys.stderr)
         print("FAIL: helper terminated active Swift Testing after the XCTest summary")
+        return 1
+
+    suite_count_swift_testing_child = textwrap.dedent(
+        """
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("◇ Test run started.", flush=True)
+        print("✔ Test run with 2 tests in 2 suites passed after 0.001 seconds.", flush=True)
+        """
+    )
+    suite_count_swift_testing_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", suite_count_swift_testing_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=expected_mixed_framework_env,
+    )
+    if suite_count_swift_testing_result.returncode != 0:
+        print(suite_count_swift_testing_result.stdout, end="")
+        print(suite_count_swift_testing_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected a Swift Testing suite-count summary to be terminal, "
+            f"got {suite_count_swift_testing_result.returncode}"
+        )
         return 1
 
     failing_mixed_framework_child = textwrap.dedent(

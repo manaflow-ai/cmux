@@ -560,4 +560,59 @@ for regression in \
   fi
 done
 
+EXPECTED_FAILURE_OUTPUT="$TMP_DIR/expected-failure-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 1 failure (0 unexpected) in 0.001 seconds' \
+  >"$EXPECTED_FAILURE_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  126 "$EXPECTED_FAILURE_OUTPUT" \
+  >"$TMP_DIR/missing-swift-classifier-output.log" 2>&1
+missing_swift_classifier_status=$?
+set -e
+if [ "$missing_swift_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/missing-swift-classifier-output.log"
+  echo "FAIL: a missing required Swift Testing phase must never be tolerated"
+  exit 1
+fi
+
+FAILED_SWIFT_TESTING_OUTPUT="$TMP_DIR/failed-swift-testing-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds' \
+  'Test run with 1 test in 1 suite failed after 0.001 seconds with 1 issue.' \
+  >"$FAILED_SWIFT_TESTING_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  125 "$FAILED_SWIFT_TESTING_OUTPUT" \
+  >"$TMP_DIR/failed-swift-classifier-output.log" 2>&1
+failed_swift_classifier_status=$?
+set -e
+if [ "$failed_swift_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/failed-swift-classifier-output.log"
+  echo "FAIL: a failed Swift Testing phase must not inherit a clean XCTest result"
+  exit 1
+fi
+
+if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  65 "$EXPECTED_FAILURE_OUTPUT"; then
+  echo "FAIL: ordinary expected XCTest failures must retain their tolerant classification"
+  exit 1
+fi
+
+UNEXPECTED_FAILURE_OUTPUT="$TMP_DIR/unexpected-failure-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 1 failure (1 unexpected) in 0.001 seconds' \
+  >"$UNEXPECTED_FAILURE_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  65 "$UNEXPECTED_FAILURE_OUTPUT" \
+  >"$TMP_DIR/unexpected-classifier-output.log" 2>&1
+unexpected_classifier_status=$?
+set -e
+if [ "$unexpected_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/unexpected-classifier-output.log"
+  echo "FAIL: unexpected XCTest failures must remain blocking"
+  exit 1
+fi
+
 echo "PASS: app-host xcodebuild wrapper retries idle timeouts"
