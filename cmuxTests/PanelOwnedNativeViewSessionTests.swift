@@ -297,3 +297,66 @@ struct PanelOwnedNativeViewSessionTests {
         #expect(updatedPreviewItem.previewItemURL == secondURL)
     }
 }
+
+@MainActor
+@Suite("PDF preview sharing")
+struct FilePreviewPDFSharingTests {
+    @Test
+    func mountedPDFChromeRoutesShareOnMouseDown() throws {
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-9128-pdf-share-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data("%PDF-1.4".utf8).write(to: fileURL)
+
+        #expect(FilePreviewKindResolver.mode(for: fileURL) == .pdf)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        #expect(panel.previewMode == .pdf)
+
+        let container = panel.nativeViewSessions.pdf.view(
+            panel: panel,
+            revision: panel.previewRevision,
+            isVisibleInUI: true,
+            backgroundColor: .clear,
+            drawsBackground: false
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        container.layoutSubtreeIfNeeded()
+        defer { window.close() }
+
+        let shareButton = try #require(
+            descendants(of: container)
+                .compactMap { $0 as? NSButton }
+                .first { $0.identifier?.rawValue == "FilePreviewPDFShareButton" },
+            "The mounted PDF chrome must expose its real Share control"
+        )
+        #expect(
+            shareButton.accessibilityLabel()
+                == String(localized: "filePreview.share", defaultValue: "Share")
+        )
+        #expect(
+            shareButton.action == NSSelectorFromString("share:"),
+            "The PDF Share control must synchronously route the standard share action"
+        )
+
+        let previousEventMask = shareButton.sendAction(on: [])
+        let actionEventMask = NSEvent.EventTypeMask(rawValue: UInt64(previousEventMask))
+        _ = shareButton.sendAction(on: actionEventMask)
+        #expect(
+            actionEventMask.contains(.leftMouseDown),
+            "NSSharingServicePicker presentation must originate during mouse-down"
+        )
+    }
+
+    private func descendants(of view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+}
