@@ -64,6 +64,28 @@ def require(text: str, needle: str, context: str) -> None:
         raise SystemExit(f"FAIL: {context} is missing {needle!r}")
 
 
+def require_atomic_receipt_publication(
+    source: str, context: str, retained_descriptor: str
+) -> None:
+    if "O_TRUNC" in source:
+        raise SystemExit(
+            f"FAIL: {context} must not truncate the published receipt in place"
+        )
+    for needle, detail in (
+        ("O_EXCL", "exclusive temporary receipt creation"),
+        (".receipt.tmp", "non-published temporary receipt suffix"),
+        ("fsync(", "persisted temporary receipt contents"),
+        ("rename(", "atomic final receipt publication"),
+        ("unlink(", "failed temporary receipt cleanup"),
+        (retained_descriptor, "retained process-incarnation descriptor"),
+    ):
+        require(source, needle, f"{context} {detail}")
+    if source.index("rename(") > source.index(retained_descriptor):
+        raise SystemExit(
+            f"FAIL: {context} must publish the receipt before retaining its descriptor"
+        )
+
+
 def scheme_environment_override_keys(scheme: str) -> set[str]:
     try:
         root = ET.fromstring(scheme)
@@ -416,6 +438,11 @@ def main() -> int:
         "receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_CONSTRUCTOR, needle, context)
+    require_atomic_receipt_publication(
+        APP_HOST_RECEIPT_CONSTRUCTOR,
+        "test-bundle process receipt",
+        "CmuxAppHostReceiptFD = descriptor",
+    )
 
     for context, needle in {
         "early receipt isolation marker": "CMUX_APP_HOST_ISOLATION_REQUIRED",
@@ -426,6 +453,11 @@ def main() -> int:
         "early receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_WRITER, needle, context)
+    require_atomic_receipt_publication(
+        APP_HOST_RECEIPT_WRITER,
+        "early app process receipt",
+        "return descriptor",
+    )
     require(
         APP_ENTRYPOINT,
         "AppHostProcessReceipt.writeIfRequired()",
