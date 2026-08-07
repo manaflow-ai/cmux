@@ -569,6 +569,8 @@ enum TerminalSSHSessionDetector {
             return parseSSHCommandLine(arguments)
         case .eternalTerminal:
             return RemoteShellSessionParsing.parseEternalTerminalCommandLine(arguments)
+        case .mosh, .moshClient:
+            return RemoteShellSessionParsing.parseMoshCommandLine(arguments, transport: transport)
         }
     }
 
