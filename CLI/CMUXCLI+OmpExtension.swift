@@ -322,7 +322,23 @@ function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<strin
 // session id; without an ownership check, every subagent's agent_end reports
 // the whole pane idle while the main agent is still mid-turn, and Agent
 // Hibernation then SIGHUPs the live pane (issue #9591).
-let ownerSessionId: string | null = null;
+//
+// Ownership must live on globalThis, not in module scope: OMP loads a fresh
+// copy of this module for every session in the process (each extension import
+// uses a unique ?mtime= cache-busting URL), so module state is per-session
+// while the pane is per-process.
+interface CmuxOmpPaneOwnership {
+  sessionId: string | null;
+}
+
+const cmuxOmpGlobals = globalThis as typeof globalThis & {
+  __cmuxOmpPaneOwnership?: CmuxOmpPaneOwnership;
+};
+
+function paneOwnership(): CmuxOmpPaneOwnership {
+  cmuxOmpGlobals.__cmuxOmpPaneOwnership ??= { sessionId: null };
+  return cmuxOmpGlobals.__cmuxOmpPaneOwnership;
+}
 
 function contextSessionId(ctx: ExtensionContext): string | null {
   return firstString(ctx.sessionManager.getSessionId());
@@ -330,7 +346,7 @@ function contextSessionId(ctx: ExtensionContext): string | null {
 
 function isOwnerContext(ctx: ExtensionContext): boolean {
   const sessionId = contextSessionId(ctx);
-  return sessionId !== null && sessionId === ownerSessionId;
+  return sessionId !== null && sessionId === paneOwnership().sessionId;
 }
 
 export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
@@ -338,7 +354,8 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
     // The top-level session bootstraps before any subagent can exist in this
     // process, so the first session_start pins ownership. Later session_start
     // events with a different session id are subagent bootstraps.
-    if (ownerSessionId === null) ownerSessionId = contextSessionId(ctx);
+    const ownership = paneOwnership();
+    if (ownership.sessionId === null) ownership.sessionId = contextSessionId(ctx);
     if (!isOwnerContext(ctx)) return;
     await sendHook("session-start", ctx);
   });
@@ -349,7 +366,7 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   const adoptSwitchedSession = async (_event: unknown, ctx: ExtensionContext) => {
     const sessionId = contextSessionId(ctx);
     if (!sessionId) return;
-    ownerSessionId = sessionId;
+    paneOwnership().sessionId = sessionId;
     await sendHook("session-start", ctx);
   };
   api.on("session_switch", adoptSwitchedSession);
