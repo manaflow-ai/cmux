@@ -49,6 +49,7 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable, Optional
 
 # ---------------------------------------------------------------------------
@@ -120,6 +121,26 @@ class Finding:
             "rule": self.rule,
             "snippet": self.snippet,
         }
+
+
+@dataclass(frozen=True)
+class _CallArgument:
+    value_bounds: tuple[int, int]
+    label: Optional[str]
+
+
+@dataclass(frozen=True)
+class _NetworkTargetSpec:
+    verb_pattern: re.Pattern[str]
+    positional_index: int
+    labels: frozenset[str]
+
+
+@dataclass(frozen=True)
+class _InterpreterSourceSpec:
+    executable_pattern: re.Pattern[str]
+    source_flag_pattern: re.Pattern[str]
+    options_with_values: frozenset[str]
 
 
 # ---------------------------------------------------------------------------
@@ -220,13 +241,41 @@ _LOOP_HEADER = re.compile(r"^\s*(while|for|until)\b|\bwhile\s+\[|\bfor\s+\w+\s+i
 # loopback / private. data: and file: are excluded by requiring http(s).
 _URL = re.compile(r"https?://([A-Za-z0-9._-]+)(?::\d+)?")
 
+_AXIOS_METHOD_NAMES = (
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patchForm",
+    "patch",
+    "postForm",
+    "post",
+    "putForm",
+    "put",
+    "request",
+)
+_HTTPX_METHOD_NAMES = (
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patch",
+    "post",
+    "put",
+    "request",
+    "stream",
+)
+_AXIOS_METHOD_PATTERN = "(?:" + "|".join(_AXIOS_METHOD_NAMES) + ")"
+_HTTPX_METHOD_PATTERN = "(?:" + "|".join(_HTTPX_METHOD_NAMES) + ")"
+
 # A network-driving verb. We only flag a public URL when the SAME line also
 # invokes one of these, so URLs used as string fixtures (markdown builders,
 # canonical-URL assertions, toContain/toStartWith) are not false positives.
 _NETWORK_VERB = re.compile(
-    r"""(?x)
+    rf"""(?x)
     \bfetch\s*\(
-  | \baxios(?:\.\w+)?\s*\(
+  | \baxios\.create\s*\(
+  | \baxios(?:\.{_AXIOS_METHOD_PATTERN})?\s*\(
   | \b(?:request|got|superagent|undici)\s*\(
   | \bhttp[sx]?\.(?:get|post|request)\s*\(
   | \bXMLHttpRequest\b
@@ -234,11 +283,119 @@ _NETWORK_VERB = re.compile(
   | \brequests\.(?:get|post|put|delete|head|request)\s*\(
   | \burllib\b
   | \burlopen\s*\(
-  | \bhttpx\.\w+\s*\(
+  | \bhttpx\.(?:Client|AsyncClient)\s*\(
+  | \bhttpx\.{_HTTPX_METHOD_PATTERN}\s*\(
   | \bsession\.(?:get|post|request)\s*\(
   | \bcurl\b
   | \bWebSocket\s*\(
     """
+)
+
+_NETWORK_TARGET_LABELS = frozenset({"uri", "url"})
+_NETWORK_BASE_TARGET_LABELS = frozenset({"base_url", "baseurl"})
+_NETWORK_TARGET_SPECS = (
+    _NetworkTargetSpec(
+        verb_pattern=re.compile(
+            r"\.open\s*\(|(?:httpx|requests|session).*\.request\s*\("
+        ),
+        positional_index=1,
+        labels=_NETWORK_TARGET_LABELS,
+    ),
+    _NetworkTargetSpec(
+        verb_pattern=re.compile(r".*", re.DOTALL),
+        positional_index=0,
+        labels=_NETWORK_TARGET_LABELS,
+    ),
+)
+_FLUENT_TERMINAL_CALLS = {
+    "axios": re.compile(rf"\s*\.\s*{_AXIOS_METHOD_PATTERN}\s*\("),
+    "httpx": re.compile(rf"\s*\.\s*{_HTTPX_METHOD_PATTERN}\s*\("),
+}
+
+# Shell-string launchers evaluate their first argument as source.
+_SHELL_CALL_LAUNCHER = re.compile(
+    r"""(?x)
+    \bos\.(?:system|popen)\s*\(
+  | \bsubprocess\.get(?:status)?output\s*\(
+  | (?<![A-Za-z0-9_.])(?:eval|exec|execSync|execaCommand|execaCommandSync)\s*\(
+  | \b(?:childProcess|child_process)\.(?:exec|execSync)\s*\(
+    """
+)
+
+# Argv launchers execute only their command position. Later quoted arguments
+# may be fixtures or rendered text and must not be promoted to shell source.
+_ARGV_CALL_LAUNCHER = re.compile(
+    r"""(?x)
+    \bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\(
+  | (?<![A-Za-z0-9_.])(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(
+  | \b(?:childProcess|child_process)\.(?:execFile|execFileSync|spawn|spawnSync)\s*\(
+  | (?P<bun>\bBun\.spawn(?:Sync)?\s*\()
+    """
+)
+
+_ARGV_COMMAND_LABELS = frozenset({"args"})
+_BUN_OBJECT_COMMAND_LABELS = frozenset({"cmd"})
+_SHELL_MODE_LABELS = frozenset({"shell"})
+_NO_ARGUMENT_LABELS: frozenset[str] = frozenset()
+_JAVASCRIPT_SUFFIXES = frozenset(
+    {".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"}
+)
+
+_SHELL_COMMAND_FLAG = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|--command)$")
+_SHELL_OPTIONS_WITH_VALUES = frozenset(
+    {"+O", "+o", "-O", "-o", "--init-file", "--profile", "--rcfile"}
+)
+_SHELL_SOURCE_SPEC = _InterpreterSourceSpec(
+    executable_pattern=re.compile(r"^(?:bash|dash|fish|ksh|sh|zsh)$"),
+    source_flag_pattern=_SHELL_COMMAND_FLAG,
+    options_with_values=_SHELL_OPTIONS_WITH_VALUES,
+)
+_PYTHON_SOURCE_SPEC = _InterpreterSourceSpec(
+    executable_pattern=re.compile(
+        r"^(?:python(?:\d+(?:\.\d+)*t?)?|pypy(?:\d+(?:\.\d+)*)?)$"
+    ),
+    source_flag_pattern=re.compile(r"^-c$"),
+    options_with_values=frozenset({"-W", "-X", "--check-hash-based-pycs"}),
+)
+_NODE_SOURCE_SPEC = _InterpreterSourceSpec(
+    executable_pattern=re.compile(r"^(?:bun|node|nodejs)$"),
+    source_flag_pattern=re.compile(r"^(?:-e|--eval|-p|--print)$"),
+    options_with_values=frozenset(
+        {
+            "-C",
+            "-r",
+            "--conditions",
+            "--env-file",
+            "--env-file-if-exists",
+            "--icu-data-dir",
+            "--import",
+            "--input-type",
+            "--loader",
+            "--openssl-config",
+            "--require",
+            "--title",
+        }
+    ),
+)
+_INTERPRETER_SOURCE_SPECS = (
+    _SHELL_SOURCE_SPEC,
+    _PYTHON_SOURCE_SPEC,
+    _NODE_SOURCE_SPEC,
+)
+
+# Locate a shell program; `_shell_command_source_bounds` owns option parsing and
+# identifies the exact word consumed by -c/-lc/--command.
+_SHELL_COMMAND_LAUNCHER = re.compile(
+    r"""(?x)
+    (?<![A-Za-z0-9_.-])
+    (?:/(?:usr/)?bin/)?
+    (?:bash|dash|fish|ksh|sh|zsh)
+    \b
+    """
+)
+
+_SHELL_EVAL_LAUNCHER = re.compile(
+    r"(?x)(?<![A-Za-z0-9_.-])eval\s+(?:--\s+)?"
 )
 
 # Private / loopback hostnames and IPs that are NOT live network.
@@ -294,11 +451,7 @@ _HOST_PORT_TUPLE = re.compile(
 
 
 def _strip_comment(line: str, path_suffix: str) -> str:
-    """Best-effort removal of trailing line comments so we don't flag comments.
-
-    Conservative: only strips when the comment marker is clearly not inside a
-    string by a cheap heuristic (even count of quotes before it).
-    """
+    """Best-effort removal of trailing comments for non-network detectors."""
     markers = ["#"] if path_suffix in (".py", ".sh") else ["//"]
     out = line
     for marker in markers:
@@ -314,6 +467,1259 @@ def _strip_comment(line: str, path_suffix: str) -> str:
 
 def _is_assertion_line(line: str) -> bool:
     return bool(_ASSERT_TOKEN.search(line) or _RAISE_IF.search(line))
+
+
+def _python_f_string_starts_at(line: str, quote_index: int) -> bool:
+    # A string prefix is at most two characters. Inspect only that local token:
+    # searching the entire preceding source for every quote makes a whole-file
+    # lexical pass quadratic on large test fixtures.
+    for prefix_length, valid_prefixes in ((2, ("fr", "rf")), (1, ("f",))):
+        prefix_start = quote_index - prefix_length
+        if prefix_start < 0:
+            continue
+        if line[prefix_start:quote_index].lower() not in valid_prefixes:
+            continue
+        if prefix_start > 0:
+            previous = line[prefix_start - 1]
+            if previous.isascii() and (previous.isalnum() or previous == "_"):
+                continue
+        return True
+    return False
+
+
+def _quote_delimiter_at(line: str, quote_index: int) -> str:
+    quote = line[quote_index]
+    triple = quote * 3
+    return triple if line.startswith(triple, quote_index) else quote
+
+
+# Whole-file network candidates are one-shot inputs whose source keys dominate
+# cache memory. Cache only small repeated launcher/chunk inputs.
+_LEXER_CACHE_SOURCE_LIMIT = 16 * 1024
+_C_STYLE_BLOCK_COMMENT_SUFFIXES = frozenset(
+    {".swift", ".ts", ".tsx", ".js", ".mjs"}
+)
+
+
+def _line_comment_marker_length(
+    source: str,
+    index: int,
+    path_suffix: str,
+) -> int:
+    if path_suffix in (".py", ".sh"):
+        if source[index] != "#":
+            return 0
+        if path_suffix == ".sh" and index > 0:
+            previous = source[index - 1]
+            if not (previous.isspace() or previous in ";|&()<>\n"):
+                return 0
+        return 1
+    return 2 if source.startswith("//", index) else 0
+
+
+def _lexical_positions(
+    line: str,
+    path_suffix: str = "",
+) -> tuple[bytes, bytes]:
+    """Return compact executable-code and line-comment masks for source text.
+
+    The network detector intentionally accepts URLs in string arguments to real
+    clients (for example, ``fetch("https://...")``), so stripping every string
+    would hide the URL it needs to inspect.  The *client verb*, however, must be
+    executable code.  Ignoring verbs quoted as fixture/output text keeps a line
+    such as ``expect(html).toContain("curl https://...")`` from looking like a
+    network call while preserving the real ``fetch(...)`` case.
+
+    Interpolated strings need one extra distinction: JavaScript backtick and
+    Python f-string text is inert, while ``${...}`` and ``{...}`` replacement
+    fields are executable code. Shell double quotes also preserve executable
+    ``$(...)`` and backtick substitutions. This remains a conservative lexer,
+    not a full language parser.
+    """
+    executable = bytearray(len(line))
+    comments = bytearray(len(line))
+    # Contexts are (kind, brace_depth, closing_delimiter). Only interpolation
+    # contexts use brace depth; nested quote/template contexts sit above them.
+    contexts: list[tuple[str, int, str]] = [("code", 0, "")]
+    is_shell = path_suffix == ".sh"
+    index = 0
+    while index < len(line):
+        kind, brace_depth, delimiter = contexts[-1]
+        character = line[index]
+
+        if kind == "block-comment":
+            if path_suffix == ".swift" and line.startswith("/*", index):
+                comments[index : index + 2] = b"\x01\x01"
+                contexts[-1] = (kind, brace_depth + 1, delimiter)
+                index += 2
+                continue
+            if line.startswith("*/", index):
+                comments[index : index + 2] = b"\x01\x01"
+                if brace_depth == 1:
+                    contexts.pop()
+                else:
+                    contexts[-1] = (kind, brace_depth - 1, delimiter)
+                index += 2
+                continue
+            if character != "\n":
+                comments[index] = True
+            index += 1
+            continue
+
+        if kind == "string-text":
+            if character == "\\":
+                index += 2
+                continue
+            if line.startswith(delimiter, index):
+                contexts.pop()
+                index += len(delimiter)
+                continue
+            index += 1
+            continue
+
+        if kind == "shell-double-text":
+            if character == "\\":
+                index += 2
+                continue
+            if character == '"':
+                contexts.pop()
+                index += 1
+                continue
+            if character == "$" and index + 1 < len(line) and line[index + 1] == "(":
+                executable[index] = True
+                executable[index + 1] = True
+                contexts.append(("shell-command-substitution", 1, ""))
+                index += 2
+                continue
+            if character == "`":
+                executable[index] = True
+                contexts.append(("shell-backtick-substitution", 0, "`"))
+                index += 1
+                continue
+            index += 1
+            continue
+
+        if kind == "f-string-text":
+            if character == "\\":
+                index += 2
+                continue
+            if line.startswith(delimiter, index):
+                contexts.pop()
+                index += len(delimiter)
+                continue
+            if character == "{" and index + 1 < len(line) and line[index + 1] == "{":
+                index += 2
+                continue
+            if character == "}" and index + 1 < len(line) and line[index + 1] == "}":
+                index += 2
+                continue
+            if character == "{":
+                contexts.append(("f-string-expression", 1, ""))
+            index += 1
+            continue
+
+        if kind == "template-text":
+            if character == "\\":
+                index += 2
+                continue
+            if character == "`":
+                contexts.pop()
+                index += 1
+                continue
+            if character == "$" and index + 1 < len(line) and line[index + 1] == "{":
+                contexts.append(("template-expression", 1, ""))
+                index += 2
+                continue
+            index += 1
+            continue
+
+        if kind == "shell-backtick-substitution" and character == "`":
+            executable[index] = True
+            contexts.pop()
+            index += 1
+            continue
+
+        if (
+            path_suffix in _C_STYLE_BLOCK_COMMENT_SUFFIXES
+            and line.startswith("/*", index)
+        ):
+            comments[index : index + 2] = b"\x01\x01"
+            contexts.append(("block-comment", 1, ""))
+            index += 2
+            continue
+
+        comment_marker_length = _line_comment_marker_length(
+            line,
+            index,
+            path_suffix,
+        )
+        if comment_marker_length:
+            comment_end = line.find("\n", index + comment_marker_length)
+            if comment_end == -1:
+                comment_end = len(line)
+            comments[index:comment_end] = b"\x01" * (comment_end - index)
+            index = comment_end
+            continue
+
+        executable[index] = True
+        if character == "\\" and index + 1 < len(line):
+            # Outside a literal, shell uses a backslash to quote the next
+            # character (notably the close/escaped/reopen idiom: '\\''), and
+            # every scanned language uses backslash-newline continuation. The
+            # escaped character is data, not a delimiter or grouping token.
+            index += 2
+            continue
+        if is_shell and character == "$" and index + 1 < len(line) and line[index + 1] == "(":
+            executable[index + 1] = True
+            contexts.append(("shell-command-substitution", 1, ""))
+            index += 2
+            continue
+        if character in ("'", '"'):
+            quote_delimiter = character if is_shell else _quote_delimiter_at(line, index)
+            for delimiter_index in range(index, min(index + len(quote_delimiter), len(line))):
+                executable[delimiter_index] = False
+            string_kind = (
+                "shell-double-text"
+                if is_shell and character == '"'
+                else (
+                    "f-string-text"
+                    if _python_f_string_starts_at(line, index)
+                    else "string-text"
+                )
+            )
+            contexts.append((string_kind, 0, quote_delimiter))
+            index += len(quote_delimiter)
+            continue
+        if character == "`":
+            if is_shell:
+                contexts.append(("shell-backtick-substitution", 0, "`"))
+            else:
+                executable[index] = False
+                contexts.append(("template-text", 0, "`"))
+        elif kind == "shell-command-substitution" and character == "(":
+            contexts[-1] = (kind, brace_depth + 1, delimiter)
+        elif kind == "shell-command-substitution" and character == ")":
+            if brace_depth == 1:
+                contexts.pop()
+            else:
+                contexts[-1] = (kind, brace_depth - 1, delimiter)
+        elif kind in ("template-expression", "f-string-expression") and character == "{":
+            contexts[-1] = (kind, brace_depth + 1, delimiter)
+        elif kind in ("template-expression", "f-string-expression") and character == "}":
+            if brace_depth == 1:
+                contexts.pop()
+            else:
+                contexts[-1] = (kind, brace_depth - 1, delimiter)
+        index += 1
+
+    return bytes(executable), bytes(comments)
+
+
+@lru_cache(maxsize=128)
+def _cached_lexical_positions(
+    line: str,
+    path_suffix: str,
+) -> tuple[bytes, bytes]:
+    return _lexical_positions(line, path_suffix)
+
+
+def _source_lexical_positions(
+    line: str,
+    path_suffix: str = "",
+) -> tuple[bytes, bytes]:
+    if len(line) > _LEXER_CACHE_SOURCE_LIMIT:
+        return _lexical_positions(line, path_suffix)
+    return _cached_lexical_positions(line, path_suffix)
+
+
+def _executable_code_positions(
+    line: str,
+    path_suffix: str = "",
+) -> bytes:
+    return _source_lexical_positions(line, path_suffix)[0]
+
+
+def _strip_comments(source: str, path_suffix: str) -> str:
+    comments = _source_lexical_positions(source, path_suffix)[1]
+    if not any(comments):
+        return source
+    return "".join(
+        " " if comments[index] else character
+        for index, character in enumerate(source)
+    )
+
+
+def _is_inside_string_literal(
+    line: str,
+    offset: int,
+    path_suffix: str = "",
+) -> bool:
+    positions = _executable_code_positions(line, path_suffix)
+    return 0 <= offset < len(positions) and not positions[offset]
+
+
+def _call_end(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> int:
+    """Return the closing parenthesis offset, or the physical line end."""
+    depth = 0
+    executable = _executable_code_positions(line, path_suffix)
+    for index in range(opening_paren, len(line)):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return len(line)
+
+
+def _quoted_argument_bounds(
+    line: str,
+    argument_start: int,
+) -> Optional[tuple[int, int]]:
+    """Return content bounds for the first quoted positional or keyword argument."""
+    index = argument_start
+    while index < len(line) and line[index].isspace():
+        index += 1
+
+    keyword = re.match(r"[A-Za-z_][A-Za-z0-9_]*\s*=\s*", line[index:])
+    if keyword:
+        index += len(keyword.group(0))
+
+    # Python string prefixes may precede a shell command string.
+    prefix = re.match(r"(?i)(?:[rubf]{1,2})?(?=['\"`])", line[index:])
+    if prefix:
+        index += len(prefix.group(0))
+    if index >= len(line) or line[index] not in ("'", '"', "`"):
+        return None
+
+    delimiter = "`" if line[index] == "`" else _quote_delimiter_at(line, index)
+    content_start = index + len(delimiter)
+    index = content_start
+    while index < len(line):
+        if line[index] == "\\":
+            index += 2
+            continue
+        if line.startswith(delimiter, index):
+            return content_start, index
+        index += 1
+    return content_start, len(line)
+
+
+def _quoted_literals_in_range(line: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Return quoted literal content ranges without descending into a literal."""
+    bounds: list[tuple[int, int]] = []
+    index = start
+    while index < end:
+        if line[index] not in ("'", '"', "`"):
+            index += 1
+            continue
+        delimiter = "`" if line[index] == "`" else _quote_delimiter_at(line, index)
+        content_start = index + len(delimiter)
+        index = content_start
+        while index < end:
+            if line[index] == "\\":
+                index += 2
+                continue
+            if line.startswith(delimiter, index):
+                bounds.append((content_start, index))
+                index += len(delimiter)
+                break
+            index += 1
+        else:
+            bounds.append((content_start, end))
+    return bounds
+
+
+def _trim_bounds(line: str, start: int, end: int) -> tuple[int, int]:
+    while start < end and line[start].isspace():
+        start += 1
+    while end > start and line[end - 1].isspace():
+        end -= 1
+    return start, end
+
+
+_ARGUMENT_LABEL = re.compile(
+    r"""(?x)
+    (?:
+        (?P<bare>[A-Za-z_][A-Za-z0-9_]*)\s*(?:=|:)
+      | (?P<quote>["'])(?P<quoted>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)\s*:
+      | \[\s*(?P<computed_quote>["'`])
+        (?P<computed>[A-Za-z_][A-Za-z0-9_]*)
+        (?P=computed_quote)\s*\]\s*:
+    )
+    \s*
+    """
+)
+
+
+def _parse_call_argument(
+    line: str,
+    bounds: tuple[int, int],
+) -> _CallArgument:
+    start, end = bounds
+    label_match = _ARGUMENT_LABEL.match(line[start:end])
+    label = (
+        next(
+            (
+                label_match.group(group)
+                for group in ("bare", "quoted", "computed")
+                if label_match.group(group) is not None
+            ),
+            None,
+        )
+        if label_match
+        else None
+    )
+    if label_match:
+        start += len(label_match.group(0))
+    return _CallArgument(
+        value_bounds=_trim_bounds(line, start, end),
+        label=label,
+    )
+
+
+def _arguments_in_range(
+    line: str,
+    start: int,
+    end: int,
+    path_suffix: str = "",
+) -> list[_CallArgument]:
+    """Return comma-delimited arguments without splitting nested expressions."""
+    executable = _executable_code_positions(line, path_suffix)
+    arguments: list[_CallArgument] = []
+    argument_start = start
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+
+    for index in range(argument_start, end):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character == "(":
+            paren_depth += 1
+        elif character == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif character == "[":
+            bracket_depth += 1
+        elif character == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif character == "{":
+            brace_depth += 1
+        elif character == "}":
+            brace_depth = max(0, brace_depth - 1)
+        elif character == "," and not (paren_depth or bracket_depth or brace_depth):
+            bounds = _trim_bounds(line, argument_start, index)
+            if bounds[0] < bounds[1]:
+                arguments.append(_parse_call_argument(line, bounds))
+            argument_start = index + 1
+
+    bounds = _trim_bounds(line, argument_start, end)
+    if bounds[0] < bounds[1]:
+        arguments.append(_parse_call_argument(line, bounds))
+    return arguments
+
+
+def _call_arguments(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> list[_CallArgument]:
+    """Return top-level call arguments without splitting nested expressions."""
+    return _arguments_in_range(
+        line,
+        opening_paren + 1,
+        _call_end(line, opening_paren, path_suffix),
+        path_suffix,
+    )
+
+
+def _object_properties(
+    line: str,
+    bounds: tuple[int, int],
+    path_suffix: str = "",
+) -> list[_CallArgument]:
+    """Return the top-level properties of an object literal argument."""
+    start, end = _trim_bounds(line, *bounds)
+    if end - start < 2 or line[start] != "{" or line[end - 1] != "}":
+        return []
+    return _arguments_in_range(line, start + 1, end - 1, path_suffix)
+
+
+def _select_labeled_argument(
+    arguments: list[_CallArgument],
+    labels: frozenset[str],
+) -> Optional[_CallArgument]:
+    return next(
+        (
+            argument
+            for argument in arguments
+            if argument.label is not None
+            and argument.label.lower() in labels
+        ),
+        None,
+    )
+
+
+def _select_call_argument(
+    arguments: list[_CallArgument],
+    labels: frozenset[str],
+    positional_index: int,
+) -> Optional[_CallArgument]:
+    if labeled := _select_labeled_argument(arguments, labels):
+        return labeled
+
+    positional_arguments = [
+        argument
+        for argument in arguments
+        if argument.label is None
+    ]
+    if positional_index >= len(positional_arguments):
+        return None
+    return positional_arguments[positional_index]
+
+
+def _argv_source_ranges(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
+) -> list[tuple[int, int]]:
+    """Return only command/argv inputs, excluding later launcher options."""
+    arguments = _call_arguments(line, opening_paren, path_suffix)
+    if not arguments:
+        return []
+
+    command_argument = _select_call_argument(
+        arguments,
+        _ARGV_COMMAND_LABELS,
+        positional_index=0,
+    )
+    if command_argument is None:
+        return []
+
+    first = command_argument.value_bounds
+    if object_command_labels and line[first[0] : first[0] + 1] == "{":
+        object_command = _select_labeled_argument(
+            _object_properties(line, first, path_suffix),
+            object_command_labels,
+        )
+        return [object_command.value_bounds] if object_command is not None else []
+
+    ranges = [first]
+    if (
+        command_argument.label is not None
+        or line[first[0] : first[0] + 1] in ("(", "[")
+    ):
+        return ranges
+
+    positional_arguments = [
+        argument
+        for argument in arguments
+        if argument.label is None
+    ]
+    if len(positional_arguments) > 1:
+        second = positional_arguments[1].value_bounds
+        if line[second[0] : second[0] + 1] in ("(", "["):
+            ranges.append(second)
+    return ranges
+
+
+def _argv_literal_tokens(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
+) -> list[tuple[int, int]]:
+    """Return argv literals only when argv[0] itself is a quoted literal."""
+    ranges = _argv_source_ranges(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    if not ranges:
+        return []
+
+    argument_start, first_end = ranges[0]
+    while argument_start < first_end and line[argument_start] in "([":
+        argument_start += 1
+        while argument_start < first_end and line[argument_start].isspace():
+            argument_start += 1
+
+    first_literal = _quoted_argument_bounds(line, argument_start)
+    if first_literal is None or first_literal[1] > first_end:
+        return []
+
+    literals = [
+        literal
+        for start, end in ranges
+        for literal in _quoted_literals_in_range(line, start, end)
+    ]
+    if not literals or literals[0] != first_literal:
+        return []
+    return literals
+
+
+_SHELL_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SHELL_COMMAND_WRAPPERS = frozenset({"builtin", "command", "exec", "nohup", "time"})
+_SHELL_CONTROL_FLOW_PREFIXES = frozenset(
+    {"!", "do", "elif", "else", "if", "then", "until", "while", "{"}
+)
+
+
+def _shell_command_region_bounds(
+    line: str,
+    offset: int,
+) -> tuple[int, int]:
+    """Return the shell command region containing an executable offset."""
+    executable = _executable_code_positions(line, ".sh")
+    contexts: list[str] = []
+    starts = [0]
+
+    for index in range(min(offset, len(line))):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character == "(":
+            contexts.append("paren")
+            starts.append(index + 1)
+        elif character == ")":
+            if contexts and contexts[-1] == "paren":
+                contexts.pop()
+                starts.pop()
+            else:
+                # An unmatched close parenthesis terminates a shell case arm's
+                # pattern. The command list begins immediately after it.
+                starts[-1] = index + 1
+        elif character == "`":
+            if contexts and contexts[-1] == "backtick":
+                contexts.pop()
+                starts.pop()
+            else:
+                contexts.append("backtick")
+                starts.append(index + 1)
+        elif character in ";|&\n":
+            starts[-1] = index + 1
+
+    start = starts[-1]
+    base_depth = len(contexts)
+    for index in range(offset, len(line)):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character == "(":
+            contexts.append("paren")
+        elif character == ")":
+            if len(contexts) == base_depth and contexts[-1:] == ["paren"]:
+                return start, index
+            if contexts and contexts[-1] == "paren":
+                contexts.pop()
+        elif character == "`":
+            if contexts and contexts[-1] == "backtick":
+                if len(contexts) == base_depth:
+                    return start, index
+                contexts.pop()
+            else:
+                contexts.append("backtick")
+        elif character in ";|&\n" and len(contexts) == base_depth:
+            return start, index
+    return start, len(line)
+
+
+def _shell_command_word_bounds(
+    line: str,
+    offset: int,
+) -> Optional[tuple[int, int]]:
+    """Return the shell word that owns command position around an offset."""
+    start, end = _shell_command_region_bounds(line, offset)
+    words = _shell_word_bounds(line, start, end)
+    index = 0
+    while index < len(words):
+        raw = line[words[index][0] : words[index][1]]
+        is_unquoted = raw[:1] not in ("'", '"')
+        if is_unquoted and _SHELL_ASSIGNMENT_WORD.match(raw):
+            index += 1
+            continue
+        command, _ = _shell_word_value_and_bounds(line, words[index])
+        command_name = command.rsplit("/", 1)[-1]
+        if is_unquoted and command_name in _SHELL_CONTROL_FLOW_PREFIXES:
+            index += 1
+            continue
+        if command_name == "env":
+            index += 1
+            while index < len(words):
+                argument, _ = _shell_word_value_and_bounds(line, words[index])
+                if argument == "--":
+                    index += 1
+                    break
+                if argument in ("-u", "--unset"):
+                    index += 2
+                    continue
+                if argument.startswith("-") or _SHELL_ASSIGNMENT_WORD.match(argument):
+                    index += 1
+                    continue
+                break
+            continue
+        if command_name in _SHELL_COMMAND_WRAPPERS:
+            index += 1
+            while index < len(words):
+                argument, _ = _shell_word_value_and_bounds(line, words[index])
+                if argument == "--":
+                    index += 1
+                    break
+                if not argument.startswith("-"):
+                    break
+                index += 1
+            continue
+        return words[index]
+    return None
+
+
+def _shell_statement_end(line: str, start: int) -> int:
+    executable = _executable_code_positions(line, ".sh")
+    for index in range(start, len(line)):
+        if executable[index] and line[index] in ";|&\n":
+            return index
+    return len(line)
+
+
+def _shell_word_bounds(
+    line: str,
+    start: int,
+    end: int,
+) -> list[tuple[int, int]]:
+    """Return shell words while preserving their source offsets."""
+    executable = _executable_code_positions(line, ".sh")
+    words: list[tuple[int, int]] = []
+    index = start
+    while index < end:
+        while index < end:
+            if executable[index] and line[index].isspace():
+                index += 1
+                continue
+            if (
+                executable[index]
+                and line[index] == "\\"
+                and index + 1 < end
+                and line[index + 1] == "\n"
+            ):
+                index += 2
+                continue
+            break
+        if index >= end or (executable[index] and line[index] in ";|&\n"):
+            break
+        word_start = index
+        while index < end:
+            if (
+                executable[index]
+                and line[index] == "\\"
+                and index + 1 < end
+                and line[index + 1] == "\n"
+            ):
+                index += 2
+                continue
+            if executable[index] and (
+                line[index].isspace() or line[index] in ";|&\n"
+            ):
+                break
+            index += 1
+        words.append((word_start, index))
+    return words
+
+
+def _shell_word_value_and_bounds(
+    line: str,
+    bounds: tuple[int, int],
+) -> tuple[str, tuple[int, int]]:
+    start, end = bounds
+    if end - start >= 2 and line[start] in ("'", '"') and line[end - 1] == line[start]:
+        start += 1
+        end -= 1
+    return line[start:end], (start, end)
+
+
+def _evaluated_source_argument_bounds(
+    line: str,
+    arguments: list[tuple[int, int]],
+    spec: _InterpreterSourceSpec,
+) -> Optional[tuple[int, int]]:
+    index = 0
+    while index < len(arguments):
+        argument, argument_bounds = _shell_word_value_and_bounds(
+            line,
+            arguments[index],
+        )
+        if argument == "--":
+            return None
+
+        flag, separator, _ = argument.partition("=")
+        if spec.source_flag_pattern.fullmatch(flag):
+            if separator:
+                source_start = argument_bounds[0] + len(flag) + 1
+                source_bounds = (source_start, argument_bounds[1])
+                return _quoted_argument_bounds(line, source_start) or source_bounds
+            if index + 1 >= len(arguments):
+                return None
+            source_start = arguments[index + 1][0]
+            return _quoted_argument_bounds(line, source_start) or arguments[index + 1]
+
+        if argument in spec.options_with_values:
+            index += 2
+            continue
+        if argument.startswith(("-", "+")):
+            index += 1
+            continue
+        return None
+    return None
+
+
+def _interpreter_source_spec(executable: str) -> Optional[_InterpreterSourceSpec]:
+    executable_name = executable.rsplit("/", 1)[-1]
+    return next(
+        (
+            spec
+            for spec in _INTERPRETER_SOURCE_SPECS
+            if spec.executable_pattern.fullmatch(executable_name)
+        ),
+        None,
+    )
+
+
+def _shell_command_source_bounds(
+    line: str,
+    launcher_end: int,
+) -> Optional[tuple[int, int]]:
+    statement_end = _shell_statement_end(line, launcher_end)
+    words = _shell_word_bounds(line, launcher_end, statement_end)
+    return _evaluated_source_argument_bounds(line, words, _SHELL_SOURCE_SPEC)
+
+
+def _shell_eval_target_ranges(
+    line: str,
+    argument_start: int,
+    verb_start: int,
+) -> list[tuple[int, int]]:
+    statement_end = _shell_statement_end(line, argument_start)
+    arguments = _shell_word_bounds(line, argument_start, statement_end)
+    source_parts: list[str] = []
+    source_length = 0
+    source_verb_start: Optional[int] = None
+
+    for argument in arguments:
+        value, value_bounds = _shell_word_value_and_bounds(line, argument)
+        if source_parts:
+            source_length += 1
+        if _bounds_contain_offset(value_bounds, verb_start):
+            source_verb_start = source_length + verb_start - value_bounds[0]
+        source_parts.append(value)
+        source_length += len(value)
+
+    if source_verb_start is None:
+        return []
+    source = " ".join(source_parts)
+    nested_match = next(
+        (
+            match
+            for match in _NETWORK_VERB.finditer(source)
+            if match.start() <= source_verb_start < match.end()
+        ),
+        None,
+    )
+    if nested_match is None:
+        return []
+    nested_targets = _network_target_ranges(source, nested_match, ".sh")
+    if not any(
+        _contains_public_network_url(source[start:end])
+        for start, end in nested_targets
+    ):
+        return []
+    return [_trim_bounds(line, argument_start, statement_end)]
+
+
+def _call_uses_explicit_shell(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> bool:
+    arguments = _call_arguments(line, opening_paren, path_suffix)
+    candidates = list(arguments)
+    if path_suffix in _JAVASCRIPT_SUFFIXES:
+        for argument in arguments:
+            candidates.extend(
+                _object_properties(line, argument.value_bounds, path_suffix)
+            )
+
+    shell_mode = _select_labeled_argument(candidates, _SHELL_MODE_LABELS)
+    if shell_mode is None:
+        return False
+
+    start, end = shell_mode.value_bounds
+    if line[start:end] in ("True", "true"):
+        return True
+
+    quoted = _quoted_argument_bounds(line, start)
+    return quoted is not None and quoted[0] < quoted[1] < end
+
+
+def _argv_interpreter_source_bounds(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
+) -> Optional[tuple[int, int]]:
+    """Return the argv word a known interpreter consumes as evaluated source."""
+    literals = _argv_literal_tokens(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    token_index = _argv_executable_index(line, literals)
+    if token_index is None or len(literals) - token_index < 2:
+        return None
+
+    executable = line[literals[token_index][0] : literals[token_index][1]]
+    spec = _interpreter_source_spec(executable)
+    if spec is None:
+        return None
+    return _evaluated_source_argument_bounds(
+        line,
+        literals[token_index + 1 :],
+        spec,
+    )
+
+
+def _argv_executable_index(
+    line: str,
+    literals: list[tuple[int, int]],
+) -> Optional[int]:
+    if not literals:
+        return None
+    first = line[literals[0][0] : literals[0][1]]
+    if first.rsplit("/", 1)[-1] != "env":
+        return 0
+
+    index = 1
+    while index < len(literals):
+        argument = line[literals[index][0] : literals[index][1]]
+        if argument == "--":
+            index += 1
+            break
+        if argument in ("-u", "--unset"):
+            index += 2
+            continue
+        if argument.startswith("-"):
+            index += 1
+            continue
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", argument):
+            index += 1
+            continue
+        break
+    return index if index < len(literals) else None
+
+
+def _argv_executable_bounds(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
+) -> Optional[tuple[int, int]]:
+    literals = _argv_literal_tokens(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    index = _argv_executable_index(line, literals)
+    return literals[index] if index is not None else None
+
+
+def _bounds_contain_offset(bounds: tuple[int, int], offset: int) -> bool:
+    return bounds[0] <= offset < bounds[1]
+
+
+def _argv_execution_target_ranges(
+    line: str,
+    opening_paren: int,
+    verb_start: int,
+    path_suffix: str,
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
+) -> list[tuple[int, int]]:
+    evaluated_source = _argv_interpreter_source_bounds(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    if evaluated_source is not None and _bounds_contain_offset(
+        evaluated_source,
+        verb_start,
+    ):
+        return [evaluated_source]
+
+    executable_bounds = _argv_executable_bounds(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    if executable_bounds is None or not _bounds_contain_offset(
+        executable_bounds,
+        verb_start,
+    ):
+        return []
+
+    command = line[executable_bounds[0] : executable_bounds[1]]
+    if any(character.isspace() for character in command) and not _call_uses_explicit_shell(
+        line,
+        opening_paren,
+        path_suffix,
+    ):
+        return []
+
+    source_ranges = _argv_source_ranges(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
+    if not source_ranges:
+        return []
+    return [(verb_start, source_ranges[0][1]), *source_ranges[1:]]
+
+
+def _launcher_target_ranges(
+    line: str,
+    verb_start: int,
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    for launcher in _SHELL_CALL_LAUNCHER.finditer(line):
+        if launcher.start() >= verb_start:
+            break
+        if _is_inside_string_literal(line, launcher.start(), path_suffix):
+            continue
+        opening_paren = line.find("(", launcher.start(), launcher.end())
+        if opening_paren == -1:
+            continue
+        bounds = _quoted_argument_bounds(line, opening_paren + 1)
+        if bounds is not None and _bounds_contain_offset(bounds, verb_start):
+            return [bounds]
+
+    for launcher in _ARGV_CALL_LAUNCHER.finditer(line):
+        if launcher.start() >= verb_start:
+            break
+        if _is_inside_string_literal(line, launcher.start(), path_suffix):
+            continue
+        opening_paren = line.find("(", launcher.start(), launcher.end())
+        if opening_paren == -1:
+            continue
+        ranges = _argv_execution_target_ranges(
+            line,
+            opening_paren,
+            verb_start,
+            path_suffix,
+            (
+                _BUN_OBJECT_COMMAND_LABELS
+                if launcher.group("bun") is not None
+                else _NO_ARGUMENT_LABELS
+            ),
+        )
+        if ranges:
+            return ranges
+
+    for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
+        if launcher.start() >= verb_start:
+            break
+        launcher_end = launcher.end()
+        if path_suffix == ".sh":
+            command_word = _shell_command_word_bounds(line, launcher.start())
+            if command_word is None or not _bounds_contain_offset(
+                command_word,
+                launcher.start(),
+            ):
+                continue
+            launcher_end = command_word[1]
+        elif _is_inside_string_literal(line, launcher.start(), path_suffix):
+            continue
+        bounds = _shell_command_source_bounds(line, launcher_end)
+        if bounds is not None and _bounds_contain_offset(bounds, verb_start):
+            return [bounds]
+
+    if path_suffix == ".sh":
+        for launcher in _SHELL_EVAL_LAUNCHER.finditer(line):
+            if launcher.start() >= verb_start:
+                break
+            command_word = _shell_command_word_bounds(line, launcher.start())
+            if command_word is None or not _bounds_contain_offset(
+                command_word,
+                launcher.start(),
+            ):
+                continue
+            ranges = _shell_eval_target_ranges(
+                line,
+                launcher.end(),
+                verb_start,
+            )
+            if ranges:
+                return ranges
+    return []
+
+
+def _network_target_spec(matched_verb: str) -> _NetworkTargetSpec:
+    return next(
+        spec
+        for spec in _NETWORK_TARGET_SPECS
+        if spec.verb_pattern.search(matched_verb)
+    )
+
+
+def _fluent_client_kind(matched_verb: str) -> Optional[str]:
+    normalized = matched_verb.lstrip().lower()
+    if normalized.startswith("axios.create"):
+        return "axios"
+    if normalized.startswith(("httpx.client", "httpx.asyncclient")):
+        return "httpx"
+    return None
+
+
+def _fluent_terminal_opening_paren(
+    line: str,
+    constructor_opening_paren: int,
+    client_kind: str,
+    path_suffix: str,
+) -> Optional[int]:
+    constructor_end = _call_end(
+        line,
+        constructor_opening_paren,
+        path_suffix,
+    )
+    if constructor_end >= len(line):
+        return None
+    terminal = _FLUENT_TERMINAL_CALLS[client_kind].match(
+        line,
+        constructor_end + 1,
+    )
+    return terminal.end() - 1 if terminal is not None else None
+
+
+def _fluent_base_target_ranges(
+    line: str,
+    constructor_opening_paren: Optional[int],
+    terminal_target: _CallArgument,
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    """Return a fluent client's base URL when its request target is relative."""
+    if constructor_opening_paren is None:
+        return []
+    target_start, target_end = terminal_target.value_bounds
+    if _URL.search(line[target_start:target_end]):
+        return []
+
+    constructor_arguments = _call_arguments(
+        line,
+        constructor_opening_paren,
+        path_suffix,
+    )
+    candidates = list(constructor_arguments)
+    for argument in constructor_arguments:
+        candidates.extend(
+            _object_properties(line, argument.value_bounds, path_suffix)
+        )
+    base_target = _select_labeled_argument(
+        candidates,
+        _NETWORK_BASE_TARGET_LABELS,
+    )
+    return [base_target.value_bounds] if base_target is not None else []
+
+
+def _direct_network_target_ranges(
+    line: str,
+    match: re.Match[str],
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    matched_verb = match.group(0).lower()
+    if matched_verb.strip() == "curl":
+        if path_suffix == ".sh":
+            command_word = _shell_command_word_bounds(line, match.start())
+            if command_word is None or not _bounds_contain_offset(
+                command_word,
+                match.start(),
+            ):
+                return []
+            command, _ = _shell_word_value_and_bounds(line, command_word)
+            if command.rsplit("/", 1)[-1] != "curl":
+                return []
+            _, statement_end = _shell_command_region_bounds(line, match.start())
+            return [(command_word[0], statement_end)]
+
+        statement_end = line.find("\n", match.start())
+        return [(match.start(), len(line) if statement_end == -1 else statement_end)]
+
+    opening_paren = line.rfind("(", match.start(), match.end())
+    if opening_paren == -1:
+        following = match.end()
+        while following < len(line) and line[following].isspace():
+            following += 1
+        if following < len(line) and line[following] == "(":
+            opening_paren = following
+    if opening_paren == -1:
+        return []
+
+    constructor_opening_paren: Optional[int] = None
+    if client_kind := _fluent_client_kind(matched_verb):
+        constructor_opening_paren = opening_paren
+        opening_paren = _fluent_terminal_opening_paren(
+            line,
+            constructor_opening_paren,
+            client_kind,
+            path_suffix,
+        )
+        if opening_paren is None:
+            return []
+
+    arguments = _call_arguments(line, opening_paren, path_suffix)
+    target_verb = line[match.start() : opening_paren + 1]
+    spec = _network_target_spec(target_verb)
+    target = _select_call_argument(
+        arguments,
+        spec.labels,
+        spec.positional_index,
+    )
+    if target is None:
+        return []
+    return [
+        target.value_bounds,
+        *_fluent_base_target_ranges(
+            line,
+            constructor_opening_paren,
+            target,
+            path_suffix,
+        ),
+    ]
+
+
+def _network_target_ranges(
+    line: str,
+    match: re.Match[str],
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    verb_start = match.start()
+    if path_suffix == ".sh" and match.group(0).lower().strip() == "curl":
+        direct_ranges = _direct_network_target_ranges(line, match, path_suffix)
+        if direct_ranges:
+            return direct_ranges
+        return _launcher_target_ranges(line, verb_start, path_suffix)
+    if _is_inside_string_literal(line, verb_start, path_suffix):
+        return _launcher_target_ranges(line, verb_start, path_suffix)
+    return _direct_network_target_ranges(line, match, path_suffix)
 
 
 def detect_assert_on_duration(line: str) -> bool:
@@ -340,16 +1746,21 @@ def detect_assert_on_duration(line: str) -> bool:
     return has_threshold_compare or has_relational_assert
 
 
-def detect_live_network_host(line: str) -> bool:
+def detect_live_network_host(line: str, path_suffix: str = "") -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
     # requests/urlopen/...). A URL used as a string fixture (markdown builder,
     # canonical-URL assertion, toContain) opens no socket and is not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    if not _NETWORK_VERB.search(line):
-        return False
-    for match in _URL.finditer(line):
+    # A verb mentioned inside asserted/rendered text is fixture data, not code
+    # that can drive the network. URLs remain inspectable inside string
+    # arguments because only the verb's lexical position is filtered here.
+    return bool(_live_network_verb_offsets(line, path_suffix))
+
+
+def _contains_public_network_url(source: str) -> bool:
+    for match in _URL.finditer(source):
         host = match.group(1)
         if "." not in host:
             continue  # bare hostname, not a real domain
@@ -359,6 +1770,23 @@ def detect_live_network_host(line: str) -> bool:
             continue
         return True
     return False
+
+
+def _live_network_verb_offsets(
+    source: str,
+    path_suffix: str = "",
+) -> list[int]:
+    if not _contains_public_network_url(source):
+        return []
+    offsets: list[int] = []
+    for match in _NETWORK_VERB.finditer(source):
+        target_ranges = _network_target_ranges(source, match, path_suffix)
+        if any(
+            _contains_public_network_url(source[start:end])
+            for start, end in target_ranges
+        ):
+            offsets.append(match.start())
+    return offsets
 
 
 def _looks_like_ipv4(text: str) -> bool:
@@ -490,11 +1918,93 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     return True
 
 
+def _logical_network_chunks(
+    source: str,
+    path_suffix: str = "",
+) -> list[tuple[int, str]]:
+    """Group continuations for network calls without inheriting outer test scopes."""
+    if not source:
+        return []
+
+    executable = _executable_code_positions(source, path_suffix)
+    chunks: list[tuple[int, str]] = []
+    start = 0
+    start_line = 1
+    physical_line_start = 0
+    current_line = 1
+    paren_depth = 0
+    bracket_depth = 0
+    network_context = False
+
+    for index, character in enumerate(source):
+        if executable[index]:
+            if character == "(":
+                paren_depth += 1
+            elif character == ")":
+                paren_depth = max(0, paren_depth - 1)
+            elif character == "[":
+                bracket_depth += 1
+            elif character == "]":
+                bracket_depth = max(0, bracket_depth - 1)
+
+        if character != "\n":
+            continue
+
+        physical_line = source[physical_line_start:index]
+        network_context = network_context or any(
+            pattern.search(physical_line)
+            for pattern in (
+                _NETWORK_VERB,
+                _SHELL_CALL_LAUNCHER,
+                _ARGV_CALL_LAUNCHER,
+                _SHELL_COMMAND_LAUNCHER,
+                _SHELL_EVAL_LAUNCHER,
+            )
+        )
+        previous = index - 1
+        while previous >= start and source[previous] in " \t":
+            previous -= 1
+        line_continues = (
+            previous >= start
+            and source[previous] == "\\"
+            and executable[previous]
+        )
+        should_split = (
+            executable[index]
+            and not line_continues
+            and (
+                not network_context
+                or (paren_depth == 0 and bracket_depth == 0)
+            )
+        )
+        if should_split:
+            chunks.append((start_line, source[start:index]))
+            start = index + 1
+            start_line = current_line + 1
+            paren_depth = 0
+            bracket_depth = 0
+            network_context = False
+        physical_line_start = index + 1
+        current_line += 1
+
+    chunks.append((start_line, source[start:]))
+    return chunks
+
+
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
-    code_lines = [_strip_comment(l, suffix) for l in raw_lines]
+    code_lines = [_strip_comment(line, suffix) for line in raw_lines]
     findings: list[Finding] = []
+    if _NETWORK_VERB.search(text) and _contains_public_network_url(text):
+        network_source = _strip_comments(text, suffix)
+        live_network_lines = {
+            start_line + chunk.count("\n", 0, offset)
+            for start_line, chunk in _logical_network_chunks(network_source, suffix)
+            for offset in _live_network_verb_offsets(chunk, suffix)
+        }
+    else:
+        live_network_lines = set()
 
     for i, code in enumerate(code_lines):
         if not code.strip():
@@ -504,7 +2014,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
         if detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code):
+        if line_no in live_network_lines:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
@@ -627,6 +2137,417 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/curl.sh",
+            "curl -fsSL https://cmux.com/install.sh | sh\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_dollar_substitution.sh",
+            'body="$(curl -fsSL https://api.openai.com/v1/items)"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_backtick_substitution.sh",
+            'body="`curl -fsSL https://api.openai.com/v1/items`"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/quoted_curl_command.sh",
+            '"/usr/bin/curl" -fsSL https://api.openai.com/v1/items\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/quoted_shell_command.sh",
+            "'bash' -c 'curl -fsSL https://api.openai.com/v1/items'\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_curl.py",
+            'subprocess.run(["curl", "https://api.openai.com/v1/items"], check=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_keyword_args_curl.py",
+            (
+                "subprocess.run(\n"
+                "    check=True,\n"
+                '    args=["curl", "https://api.openai.com/v1/items"],\n'
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/exec_curl.ts",
+            'execSync("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_exec_curl.ts",
+            'child_process.exec("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_curl.ts",
+            (
+                'child_process.spawn("curl", [\n'
+                '  "https://api.openai.com/v1/items",\n'
+                "]);\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_shell_path.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  shell: "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_quoted_shell_key.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  "shell": "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_computed_shell_key.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  ["shell"]: "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_template_computed_shell_key.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  [`shell`]: "/bin/bash",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_options_curl.ts",
+            (
+                "Bun.spawn({\n"
+                '  cmd: ["curl", "https://api.openai.com/v1/items"],\n'
+                '  stdout: "pipe",\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_quoted_cmd_key.ts",
+            (
+                "Bun.spawn({\n"
+                '  "cmd": ["curl", "https://api.openai.com/v1/items"],\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_computed_cmd_key.ts",
+            (
+                "Bun.spawn({\n"
+                '  ["cmd"]: ["curl", "https://api.openai.com/v1/items"],\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/bun_spawn_template_computed_cmd_key.ts",
+            (
+                "Bun.spawn({\n"
+                '  [`cmd`]: ["curl", "https://api.openai.com/v1/items"],\n'
+                "});\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/os_popen_curl.py",
+            'os.popen("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/getoutput_curl.py",
+            'subprocess.getoutput("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/getoutput_keyword_curl.py",
+            'subprocess.getoutput(cmd="curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/getstatusoutput_curl.py",
+            'subprocess.getstatusoutput("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/exec_file_curl.ts",
+            'execFile("curl", ["https://api.openai.com/v1/items"], callback)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_shell_curl.py",
+            'subprocess.run("curl https://api.openai.com/v1/items", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/template_interpolation_fetch.ts",
+            'const result = `${await fetch("https://api.openai.com/v1/items")}`;\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/backtick_url_then_fetch.ts",
+            (
+                "const docs = `https://cmux.com`;\n"
+                'const result = await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/block_comment_then_fetch.ts",
+            (
+                "/* Don't call production from fixture helpers. */\n"
+                'const result = await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/fstring_network.py",
+            'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_command_network.sh",
+            'bash -c "curl -fsSL https://api.openai.com/v1/items"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_long_options_network.sh",
+            (
+                "bash --noprofile --norc --rcfile /tmp/empty "
+                '-c "curl -fsSL https://api.openai.com/v1/items"\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_eval_network.sh",
+            'eval "curl -fsSL https://api.openai.com/v1/items"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_eval_unquoted_network.sh",
+            "eval curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_if_eval_unquoted_network.sh",
+            "if eval curl -fsSL https://api.openai.com/v1/items; then :; fi\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_if_curl_network.sh",
+            "if curl -fsSL https://api.openai.com/v1/items; then :; fi\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_while_curl_network.sh",
+            "while curl -fsSL https://api.openai.com/v1/items; do :; done\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_until_curl_network.sh",
+            "until curl -fsSL https://api.openai.com/v1/items; do :; done\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_negated_curl_network.sh",
+            "! curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_case_curl_network.sh",
+            (
+                'case "$mode" in\n'
+                "  live) curl -fsSL https://api.openai.com/v1/items ;;\n"
+                "esac\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_case_eval_network.sh",
+            (
+                'case "$mode" in\n'
+                "  live) eval curl -fsSL https://api.openai.com/v1/items ;;\n"
+                "esac\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_eval_multiple_args.sh",
+            (
+                'eval "set -e;" \\\n'
+                '  "curl -fsSL https://api.openai.com/v1/items"\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/eval_fetch.ts",
+            'eval(\'fetch("https://api.openai.com/v1/items")\');\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/xhr_open.ts",
+            'xhr.open("GET", "https://api.openai.com/v1/items");\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/requests_request.py",
+            'requests.request("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_get.py",
+            'httpx.Client().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_base_url_get.py",
+            (
+                'httpx.Client(base_url="https://api.openai.com")'
+                '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_nested_client_get.py",
+            (
+                "httpx.Client("
+                "timeout=httpx.Timeout(5), "
+                'base_url="https://api.openai.com"'
+                ').get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_multiline_client_get.py",
+            (
+                "httpx.Client(\n"
+                "    timeout=httpx.Timeout(5),\n"
+                '    base_url="https://api.openai.com",\n'
+                ').get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_client_get.ts",
+            'axios.create().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_options.ts",
+            'axios.options("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_nested_factory_options.ts",
+            (
+                "axios.create(makeConfig())"
+                '.options("https://api.openai.com/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_client_base_url_get.ts",
+            (
+                'axios.create({ baseURL: "https://api.openai.com" })'
+                '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/requests_keyword_url.py",
+            (
+                "requests.get(\n"
+                "    timeout=1,\n"
+                '    url="https://api.openai.com/v1/items",\n'
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/requests_request_keyword_url.py",
+            (
+                "requests.request(\n"
+                '    url="https://api.openai.com/v1/items",\n'
+                '    method="GET",\n'
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_shell_argv.py",
+            'subprocess.run(["bash", "-c", "curl https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/spawn_shell_argv.ts",
+            'spawn("sh", ["-c", "curl https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/python_command_source.py",
+            (
+                "subprocess.run([\n"
+                '    "python3",\n'
+                '    "-c",\n'
+                '    "requests.get(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "])\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/node_eval_source.ts",
+            (
+                'spawn("node", [\n'
+                '  "--eval",\n'
+                '  "fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "]);\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/node_attached_eval_source.ts",
+            (
+                'spawn("node", [\n'
+                '  "--eval=fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "]);\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/multiline_subprocess_shell.py",
+            (
+                "subprocess.run(\n"
+                '    "curl https://api.openai.com/v1/items",\n'
+                "    shell=True,\n"
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/env_curl.py",
+            'subprocess.run(["/usr/bin/env", "curl", "https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -668,12 +2589,14 @@ def _self_test() -> int:
         # Deadline-bounded poll of a real predicate: sleep is inside a while loop.
         (
             "tests/n2.py",
-            "deadline = time.monotonic() + 5\n"
-            "while time.monotonic() < deadline:\n"
-            "    if widget.is_rendered():\n"
-            "        break\n"
-            "    time.sleep(0.05)\n"
-            "assert widget.is_rendered()\n",
+            (
+                "deadline = time.monotonic() + 5\n"
+                "while time.monotonic() < deadline:\n"
+                "    if widget.is_rendered():\n"
+                "        break\n"
+                "    time.sleep(0.05)\n"
+                "assert widget.is_rendered()\n"
+            ),
         ),
         # data: URL must not be a live-network finding.
         (
@@ -754,6 +2677,274 @@ def _self_test() -> int:
             "web/tests/n18.ts",
             'const llms = buildLlmsText("https://cmux.com")\n',
         ),
+        # A rendered shell command is output text. Merely asserting that it is
+        # present does not execute curl or open a network connection.
+        (
+            "web/tests/n18b.ts",
+            'expect(html).toContain("curl -fsSL https://cmux.com/install.sh | sh")\n',
+        ),
+        # The same applies to source-code examples embedded in asserted text.
+        (
+            "web/tests/n18c.ts",
+            'expect(help).toContain("fetch(\\"https://cmux.com/status\\")")\n',
+        ),
+        # A process-launch example remains inert when the launcher itself is
+        # part of the asserted string rather than executable code.
+        (
+            "web/tests/n18d.ts",
+            "expect(help).toContain('execSync(\\\"curl https://cmux.com/status\\\")')\n",
+        ),
+        # Unrelated object methods named exec/eval/spawn do not launch processes.
+        (
+            "web/tests/n18d_regex_exec.ts",
+            'pattern.exec("curl https://api.openai.com/v1/items")\n',
+        ),
+        (
+            "web/tests/n18d_schema_eval.ts",
+            'schema.eval("fetch(\\\"https://api.openai.com/v1/items\\\")")\n',
+        ),
+        (
+            "web/tests/n18d_pool_spawn.ts",
+            (
+                'pool.spawn("curl", [\n'
+                '  "https://api.openai.com/v1/items",\n'
+                "]);\n"
+            ),
+        ),
+        # Plain template text is still fixture data; only `${...}` regions are
+        # executable JavaScript.
+        (
+            "web/tests/n18e.ts",
+            'const example = `fetch("https://api.openai.com/v1/items")`;\n',
+        ),
+        # Escaped braces are literal f-string text, not a replacement field.
+        (
+            "tests/n18f.py",
+            'payload = f"{{requests.get(\'https://api.openai.com/v1/items\')}}"\n',
+        ),
+        # A rendered shell invocation remains inert when the shell launcher is
+        # itself inside asserted fixture text.
+        (
+            "web/tests/n18g.ts",
+            'expect(help).toContain(\'bash -c "curl https://api.openai.com/v1/items"\')\n',
+        ),
+        # A network-looking later argv element is data passed to a different
+        # executable, not a command of its own.
+        (
+            "tests/n18h.py",
+            'subprocess.run(["printf", "curl https://api.openai.com/v1/items"])\n',
+        ),
+        (
+            "web/tests/n18i.ts",
+            'spawn("echo", ["curl https://api.openai.com/v1/items"])\n',
+        ),
+        # An empty Node shell path is falsey and leaves the command in direct
+        # executable mode; the whitespace-containing command cannot run curl.
+        (
+            "web/tests/n18i_empty_shell.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  shell: "",\n'
+                "});\n"
+            ),
+        ),
+        # A dictionary entry named shell is process environment data, not
+        # Python's shell= call argument.
+        (
+            "tests/n18i_python_shell_env.py",
+            (
+                'subprocess.run("curl https://api.openai.com/v1/items",\n'
+                '    env={"shell": "/bin/bash"})\n'
+            ),
+        ),
+        # Bun's object form executes only cmd[0]. Later argv strings and option
+        # metadata are data and must not become network invocation targets.
+        (
+            "web/tests/n18i_bun_options_data.ts",
+            (
+                "Bun.spawn({\n"
+                '  cmd: ["printf", "curl https://api.openai.com/v1/items"],\n'
+                '  env: { DOCS_URL: "https://cmux.com" },\n'
+                "});\n"
+            ),
+        ),
+        # Unquoted shell arguments are still data when curl does not own
+        # command position.
+        (
+            "tests/n18i_shell_argument.sh",
+            "printf curl https://api.openai.com/v1/items\n",
+        ),
+        # Merely passing eval and curl as arguments does not execute either one.
+        (
+            "tests/n18i_shell_eval_argument.sh",
+            "printf eval curl https://api.openai.com/v1/items\n",
+        ),
+        # Eval parses its joined arguments as a shell command. Curl is inert
+        # when it is only an argument to the command selected by that source.
+        (
+            "tests/n18i_shell_eval_data_argument.sh",
+            "eval echo curl https://api.openai.com/v1/items\n",
+        ),
+        # A case pattern names data, not a command. The command begins only
+        # after the arm's unmatched close parenthesis.
+        (
+            "tests/n18i_shell_case_pattern.sh",
+            (
+                'case "$mode" in\n'
+                '  curl) printf "%s\\n" "https://api.openai.com/v1/items" ;;\n'
+                "esac\n"
+            ),
+        ),
+        # Python does not split a string command unless shell=True is explicit.
+        (
+            "tests/n18j.py",
+            'subprocess.run("curl https://api.openai.com/v1/items")\n',
+        ),
+        # Shell-looking later arguments remain inert when the actual executable
+        # is not a shell.
+        (
+            "tests/n18k.py",
+            'subprocess.run(["printf", "bash", "-c", "curl https://api.openai.com/v1/items"])\n',
+        ),
+        # A later quoted argv element is not the executable when argv[0] is a
+        # dynamic expression.
+        (
+            "tests/n18k_dynamic_command.py",
+            (
+                "subprocess.run([\n"
+                "    helper,\n"
+                '    "curl",\n'
+                '    "https://api.openai.com/v1/items",\n'
+                "])\n"
+            ),
+        ),
+        # Multiline literal contents are fixture text in every scanned language,
+        # even when a middle physical line looks like executable source.
+        (
+            "tests/n18l.py",
+            (
+                'fixture = """\n'
+                'fetch("https://api.openai.com/v1/items")\n'
+                '"""\n'
+            ),
+        ),
+        (
+            "web/tests/n18m.ts",
+            (
+                "const fixture = `\n"
+                'fetch("https://api.openai.com/v1/items")\n'
+                "`;\n"
+            ),
+        ),
+        (
+            "cmuxTests/n18n.swift",
+            (
+                'let fixture = """\n'
+                'fetch("https://api.openai.com/v1/items")\n'
+                '"""\n'
+            ),
+        ),
+        # Hash comments are inert in Python and at shell word boundaries.
+        (
+            "tests/n18o_python_line_comment.py",
+            '# fetch("https://api.openai.com/v1/items")\n',
+        ),
+        (
+            "tests/n18o_shell_whitespace_comment.sh",
+            "printf ok; # curl -fsSL https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18o_shell_operator_comment.sh",
+            "printf ok;# curl -fsSL https://api.openai.com/v1/items\n",
+        ),
+        # Network examples inside C-style block comments remain inert.
+        (
+            "web/tests/n18o.ts",
+            (
+                "/*\n"
+                'fetch("https://api.openai.com/v1/items");\n'
+                "*/\n"
+            ),
+        ),
+        # Swift block comments nest, so the outer comment still owns source
+        # after the inner close delimiter.
+        (
+            "cmuxTests/n18p.swift",
+            (
+                "/* outer\n"
+                "/* inner */\n"
+                'fetch("https://api.openai.com/v1/items")\n'
+                "*/\n"
+            ),
+        ),
+        # A later shell statement is not source consumed by the preceding eval.
+        (
+            "tests/n18q_eval_statement.sh",
+            (
+                'eval "printf ok"; '
+                'printf "%s\\n" "curl https://api.openai.com/v1/items"\n'
+            ),
+        ),
+        # Public metadata does not turn a loopback argv target into live access.
+        (
+            "tests/n18r_argv_env_url.py",
+            (
+                "subprocess.run(\n"
+                '    ["curl", "http://127.0.0.1:4321/health"],\n'
+                '    env={"DOCS_URL": "https://cmux.com"},\n'
+                ")\n"
+            ),
+        ),
+        # Network API metadata is not the target URL.
+        (
+            "web/tests/n18s_fetch_header.ts",
+            (
+                "await fetch(\n"
+                '  "http://127.0.0.1:4321/health",\n'
+                '  { headers: { Referer: "https://cmux.com" } },\n'
+                ");\n"
+            ),
+        ),
+        (
+            "tests/n18t_requests_header.py",
+            (
+                "requests.get(\n"
+                '    "http://127.0.0.1:4321/health",\n'
+                '    headers={"Referer": "https://cmux.com"},\n'
+                ")\n"
+            ),
+        ),
+        # A labeled loopback target stays local even when later metadata is public.
+        (
+            "tests/n18u_requests_keyword_url.py",
+            (
+                "requests.get(\n"
+                "    timeout=1,\n"
+                '    url="http://127.0.0.1:4321/health",\n'
+                '    headers={"Referer": "https://cmux.com"},\n'
+                ")\n"
+            ),
+        ),
+        # Interpreter script arguments are data, not evaluated command source.
+        (
+            "tests/n18v_python_script_argument.py",
+            (
+                "subprocess.run([\n"
+                '    "python3",\n'
+                '    "script.py",\n'
+                '    "requests.get(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "])\n"
+            ),
+        ),
+        (
+            "web/tests/n18w_node_script_argument.ts",
+            (
+                'spawn("node", [\n'
+                '  "script.js",\n'
+                '  "fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "]);\n"
+            ),
+        ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
         (
@@ -770,18 +2961,20 @@ def _self_test() -> int:
         # loop). The enclosing `while` must be found regardless of body length.
         (
             "tests/n21.py",
-            "        body = ''\n"
-            "        deadline = time.time() + 15.0\n"
-            "        while time.time() < deadline:\n"
-            "            try:\n"
-            "                body = fetch()\n"
-            "            except Exception:\n"
-            "                time.sleep(0.5)\n"
-            "                continue\n"
-            "            if 'ok' in body:\n"
-            "                break\n"
-            "            time.sleep(0.3)\n"
-            "        _must('ok' in body, body)\n",
+            (
+                "        body = ''\n"
+                "        deadline = time.time() + 15.0\n"
+                "        while time.time() < deadline:\n"
+                "            try:\n"
+                "                body = fetch()\n"
+                "            except Exception:\n"
+                "                time.sleep(0.5)\n"
+                "                continue\n"
+                "            if 'ok' in body:\n"
+                "                break\n"
+                "            time.sleep(0.3)\n"
+                "        _must('ok' in body, body)\n"
+            ),
         ),
     ]
 
