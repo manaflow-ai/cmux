@@ -151,6 +151,14 @@ run_cleanup() {
   bash "$CLEANUP_SCRIPT"
 }
 
+different_digest() {
+  local digest="$1"
+  case "$digest" in
+    *0) printf '%s1\n' "${digest%?}" ;;
+    *) printf '%s0\n' "${digest%?}" ;;
+  esac
+}
+
 discard_corrupted_scope_fixture() {
   local system_temp_root
   system_temp_root="$(cd /tmp && pwd -P)"
@@ -257,7 +265,11 @@ run_cleanup >/dev/null
 
 prepare_scope
 real_confirmation="$CMUX_APP_HOST_CLEANUP_CONFIRMATION"
-CMUX_APP_HOST_CLEANUP_CONFIRMATION="${real_confirmation%?}0"
+CMUX_APP_HOST_CLEANUP_CONFIRMATION="$(different_digest "$real_confirmation")"
+[ "$CMUX_APP_HOST_CLEANUP_CONFIRMATION" != "$real_confirmation" ] || {
+  echo "FAIL: wrong-confirmation fixture did not change the digest"
+  exit 1
+}
 export CMUX_APP_HOST_CLEANUP_CONFIRMATION
 if run_cleanup > "$TMP_DIR/wrong-confirmation.log" 2>&1; then
   echo "FAIL: cleanup accepted a confirmation for another target"
@@ -320,6 +332,28 @@ for mutated_xdg_kind in regular-file dangling-symlink; do
     exit 1
   }
 done
+
+prepare_scope
+derived_data_target="$RUNNER_TEMP_DIR/derived-data-symlink-target"
+mv "$DERIVED_DATA_PATH" "$derived_data_target"
+ln -s "$derived_data_target" "$DERIVED_DATA_PATH"
+if run_cleanup > "$TMP_DIR/derived-data-symlink.log" 2>&1; then
+  echo "FAIL: cleanup accepted a symlinked DerivedData input"
+  exit 1
+fi
+for preserved_path in \
+  "$CMUX_APP_HOST_HOME" \
+  "$CMUX_APP_HOST_RECEIPT_DIR" \
+  "$CMUX_APP_HOST_CONFIRMATION_FILE"
+do
+  [ -e "$preserved_path" ] || {
+    echo "FAIL: rejected DerivedData symlink changed the app-host scope"
+    exit 1
+  }
+done
+rm -f -- "$DERIVED_DATA_PATH"
+mv "$derived_data_target" "$DERIVED_DATA_PATH"
+run_cleanup >/dev/null
 
 prepare_scope
 real_home="$CMUX_APP_HOST_HOME"

@@ -2,6 +2,9 @@
 set -euo pipefail
 
 if [ "$(basename "$0")" = "fake-lsof" ]; then
+  if [ "${CMUX_FAKE_LSOF_WARNING:-0}" = "1" ]; then
+    printf 'lsof: simulated advisory diagnostic\n' >&2
+  fi
   pid_filter=""
   fd_filter=""
   path_filter=""
@@ -58,6 +61,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
 TMP_DIR="$(cd "$TMP_DIR" && pwd -P)"
 PIDS=""
+SCOPE_CLEANUP_PATHS=""
 cleanup() {
   local pid
   for pid in $PIDS; do
@@ -71,6 +75,10 @@ cleanup() {
   done
   for pid in $PIDS; do
     wait "$pid" 2>/dev/null || true
+  done
+  local scope_path
+  for scope_path in $SCOPE_CLEANUP_PATHS; do
+    rm -rf -- "$scope_path"
   done
   rm -rf "$TMP_DIR"
 }
@@ -91,11 +99,31 @@ if [ ! -f "$PROCESS_HELPER" ]; then
 fi
 # shellcheck disable=SC1090
 source "$PROCESS_HELPER"
+# shellcheck source=scripts/ci/app-host-isolation.sh
+source "$ROOT_DIR/scripts/ci/app-host-isolation.sh"
 
 fail() {
   echo "FAIL: $*" >&2
   exit 1
 }
+
+untrack_pid() {
+  local target_pid="$1"
+  local tracked_pid updated_pids
+  updated_pids=""
+  for tracked_pid in $PIDS; do
+    if [ "$tracked_pid" != "$target_pid" ]; then
+      updated_pids="${updated_pids:+$updated_pids }$tracked_pid"
+    fi
+  done
+  PIDS="$updated_pids"
+}
+
+PIDS="123 1234 9123"
+untrack_pid 123
+[ "$PIDS" = "1234 9123" ] \
+  || fail "PID tracking removed numeric substrings instead of one exact token"
+PIDS=""
 
 spawn_process() {
   /bin/bash -c 'trap "exit 0" TERM; while :; do /bin/sleep 0.1; done' &
@@ -145,9 +173,7 @@ printf '%s|%s\n' "$dead_pid" "$TEST_EXECUTABLE" > "$CMUX_FAKE_LSOF_STATE"
 write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$dead_pid" "$TEST_EXECUTABLE"
 /bin/kill -TERM "$dead_pid"
 wait "$dead_pid" 2>/dev/null || true
-case " $PIDS " in
-  *" $dead_pid "*) PIDS="${PIDS//$dead_pid/}" ;;
-esac
+untrack_pid "$dead_pid"
 export CMUX_FAKE_LSOF_DEAD_PID_DIAGNOSTIC=1
 dead_verified="$(cmux_app_host_verified_pids \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA")" \
@@ -160,15 +186,20 @@ spawn_process
 matching_pid="$CMUX_TEST_SPAWNED_PID"
 printf '%s|%s\n' "$matching_pid" "$TEST_EXECUTABLE" > "$CMUX_FAKE_LSOF_STATE"
 write_receipt "$TEST_RECEIPT_DIR" "$KEY" "$matching_pid" "$TEST_EXECUTABLE"
+export CMUX_FAKE_LSOF_WARNING=1
 verified="$(cmux_app_host_verified_pids \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA")" || fail "matching receipt was rejected"
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  2> "$TMP_DIR/matching-lsof-warning.err")" || fail "matching receipt was rejected"
 [ "$verified" = "$matching_pid" ] || fail "matching receipt did not return its PID"
 cmux_terminate_verified_app_hosts \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" || fail "matching receipt did not terminate"
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  2>> "$TMP_DIR/matching-lsof-warning.err" || fail "matching receipt did not terminate"
+grep -Fq "lsof: simulated advisory diagnostic" \
+  "$TMP_DIR/matching-lsof-warning.err" \
+  || fail "lsof advisory diagnostics did not remain on stderr"
+unset CMUX_FAKE_LSOF_WARNING
 wait "$matching_pid" 2>/dev/null || true
-case " $PIDS " in
-  *" $matching_pid "*) PIDS="${PIDS//$matching_pid/}" ;;
-esac
+untrack_pid "$matching_pid"
 
 make_scope unbound-receipt
 spawn_process
@@ -201,6 +232,7 @@ cmux_terminate_verified_app_hosts \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
   || fail "deleted-vnode receipt did not terminate"
 wait "$deleted_vnode_pid" 2>/dev/null || true
+untrack_pid "$deleted_vnode_pid"
 
 make_scope forged-argv
 spawn_forged_argv_process "$TEST_EXECUTABLE"
@@ -266,9 +298,15 @@ empty_runner_root="$TMP_DIR/empty-runner-work"
 empty_receipt_root="$TMP_DIR/empty-receipts"
 mkdir -p "$empty_runner_root" "$empty_receipt_root"
 : > "$CMUX_FAKE_LSOF_STATE"
+export CMUX_FAKE_LSOF_WARNING=1
 cmux_terminate_stale_receipted_app_hosts \
-  "$empty_runner_root" "$empty_receipt_root" \
+  "$empty_runner_root" "$empty_receipt_root" fedcba987654 \
+  2> "$TMP_DIR/empty-runner-lsof-warning.err" \
   || fail "stale receipt cleanup was unsafe when no receipts existed"
+grep -Fq "lsof: simulated advisory diagnostic" \
+  "$TMP_DIR/empty-runner-lsof-warning.err" \
+  || fail "runner lsof diagnostics did not remain on stderr"
+unset CMUX_FAKE_LSOF_WARNING
 
 preflight_runner_root="$TMP_DIR/preflight-runner-work"
 preflight_receipt_root="$TMP_DIR/preflight-receipts"
@@ -320,24 +358,100 @@ cmux_terminate_stale_receipted_app_hosts \
   "$deleted_runner_root" "$deleted_receipt_root" \
   || fail "deleted stale product was not verified and terminated"
 wait "$deleted_stale_pid" 2>/dev/null || true
+untrack_pid "$deleted_stale_pid"
 [ ! -e "$deleted_derived_data" ] \
   || fail "deleted stale verification recreated the missing DerivedData root"
 
+make_durable_scope() {
+  local scope_name="$1"
+  local run_id="$2"
+  local run_attempt="$3"
+  local shard="$4"
+  local derived_data_path="$5"
+  export GITHUB_RUN_ID="$run_id"
+  export GITHUB_RUN_ATTEMPT="$run_attempt"
+  export CMUX_APP_HOST_SHARD="$shard"
+  export RUNNER_TEMP="$stale_runner_root/$scope_name-runner-temp"
+  mkdir -p "$RUNNER_TEMP"
+  cmux_resolve_app_host_identity
+  DURABLE_SCOPE_KEY="$CMUX_RESOLVED_APP_HOST_KEY"
+  DURABLE_SCOPE_HOME="$CMUX_RESOLVED_APP_HOST_HOME"
+  DURABLE_SCOPE_RECEIPT_DIR="$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR"
+  DURABLE_SCOPE_CONFIRMATION_FILE="$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE"
+  DURABLE_SCOPE_CONFIRMATION="$CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION"
+  DURABLE_SCOPE_EXECUTABLE="$derived_data_path/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
+  mkdir -p \
+    "$DURABLE_SCOPE_HOME" \
+    "$DURABLE_SCOPE_RECEIPT_DIR" \
+    "$(dirname "$DURABLE_SCOPE_EXECUTABLE")"
+  : > "$DURABLE_SCOPE_EXECUTABLE"
+  printf 'version=2\nrun_id=%s\nrun_attempt=%s\nshard=%s\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+    "$run_id" "$run_attempt" "$shard" \
+    "$DURABLE_SCOPE_KEY" "$DURABLE_SCOPE_HOME" \
+    "$DURABLE_SCOPE_RECEIPT_DIR" "$DURABLE_SCOPE_CONFIRMATION" \
+    > "$DURABLE_SCOPE_CONFIRMATION_FILE"
+  SCOPE_CLEANUP_PATHS="${SCOPE_CLEANUP_PATHS:+$SCOPE_CLEANUP_PATHS }$DURABLE_SCOPE_HOME $DURABLE_SCOPE_RECEIPT_DIR $DURABLE_SCOPE_CONFIRMATION_FILE"
+}
+
 stale_runner_root="$TMP_DIR/stale-runner-work"
-stale_receipt_root="$TMP_DIR/stale-receipts"
-stale_key=abcdef012345
-stale_receipt_dir="$stale_receipt_root/cmux-ah-$stale_key-receipts"
-stale_derived_data="$stale_runner_root/old-job/derived-data"
-stale_executable="$stale_derived_data/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
-mkdir -p "$stale_receipt_dir" "$(dirname "$stale_executable")"
-: > "$stale_executable"
+system_temp_root="$(cd /tmp && pwd -P)"
+mkdir -p "$stale_runner_root"
+
+make_durable_scope old "930000$$" 2 1 \
+  "$stale_runner_root/old-job/derived-data"
+old_key="$DURABLE_SCOPE_KEY"
+old_home="$DURABLE_SCOPE_HOME"
+old_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
+old_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
+old_executable="$DURABLE_SCOPE_EXECUTABLE"
 spawn_process
-stale_pid="$CMUX_TEST_SPAWNED_PID"
-printf '%s|%s\n' "$stale_pid" "$stale_executable" > "$CMUX_FAKE_LSOF_STATE"
-write_receipt "$stale_receipt_dir" "$stale_key" "$stale_pid" "$stale_executable"
+old_pid_one="$CMUX_TEST_SPAWNED_PID"
+spawn_process
+old_pid_two="$CMUX_TEST_SPAWNED_PID"
+write_receipt "$old_receipt_dir" "$old_key" "$old_pid_one" "$old_executable"
+write_receipt "$old_receipt_dir" "$old_key" "$old_pid_two" "$old_executable"
+
+make_durable_scope current "930001$$" 2 1 \
+  "$stale_runner_root/current-job/derived-data"
+current_key="$DURABLE_SCOPE_KEY"
+current_home="$DURABLE_SCOPE_HOME"
+current_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
+current_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
+current_executable="$DURABLE_SCOPE_EXECUTABLE"
+spawn_process
+current_pid="$CMUX_TEST_SPAWNED_PID"
+write_receipt \
+  "$current_receipt_dir" "$current_key" "$current_pid" "$current_executable"
+
+make_durable_scope waiting "930002$$" 2 1 \
+  "$stale_runner_root/waiting-job/derived-data"
+waiting_home="$DURABLE_SCOPE_HOME"
+waiting_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
+waiting_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
+
+printf '%s|%s\n%s|%s\n%s|%s\n' \
+  "$old_pid_one" "$old_executable" \
+  "$old_pid_two" "$old_executable" \
+  "$current_pid" "$current_executable" \
+  > "$CMUX_FAKE_LSOF_STATE"
 cmux_terminate_stale_receipted_app_hosts \
-  "$stale_runner_root" "$stale_receipt_root" \
-  || fail "verified stale receipt was not terminated"
-wait "$stale_pid" 2>/dev/null || true
+  "$stale_runner_root" "$system_temp_root" "$current_key" \
+  || fail "verified stale receipts were not recovered"
+for terminated_pid in "$old_pid_one" "$old_pid_two" "$current_pid"; do
+  wait "$terminated_pid" 2>/dev/null || true
+  untrack_pid "$terminated_pid"
+done
+if [ -e "$old_home" ] \
+  || [ -e "$old_receipt_dir" ] \
+  || [ -e "$old_confirmation_file" ]; then
+  fail "terminated stale app-host authority scope was not removed"
+fi
+for preserved_path in \
+  "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
+  "$waiting_home" "$waiting_receipt_dir" "$waiting_confirmation_file"
+do
+  [ -e "$preserved_path" ] \
+    || fail "stale recovery removed a current or waiting app-host scope"
+done
 
 echo "PASS: app-host processes require matching receipts and executable vnodes"

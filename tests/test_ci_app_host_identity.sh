@@ -102,7 +102,6 @@ REAL_HOME="$CMUX_APP_HOST_HOME"
 REAL_XDG="$CMUX_APP_HOST_XDG_CONFIG_HOME"
 CMUX_APP_HOST_HOME="$HOME"
 CMUX_APP_HOST_XDG_CONFIG_HOME="$HOME/.config"
-mkdir -p "$HOME/.config"
 if cmux_validate_published_app_host_identity >"$TMP_DIR/wrong-home.log" 2>&1; then
   echo "FAIL: a self-consistent console-user home must not satisfy CI isolation"
   exit 1
@@ -111,7 +110,14 @@ CMUX_APP_HOST_HOME="$REAL_HOME"
 CMUX_APP_HOST_XDG_CONFIG_HOME="$REAL_XDG"
 
 REAL_CONFIRMATION="$CMUX_APP_HOST_CLEANUP_CONFIRMATION"
-CMUX_APP_HOST_CLEANUP_CONFIRMATION="${REAL_CONFIRMATION%?}0"
+case "$REAL_CONFIRMATION" in
+  *0) CMUX_APP_HOST_CLEANUP_CONFIRMATION="${REAL_CONFIRMATION%?}1" ;;
+  *) CMUX_APP_HOST_CLEANUP_CONFIRMATION="${REAL_CONFIRMATION%?}0" ;;
+esac
+[ "$CMUX_APP_HOST_CLEANUP_CONFIRMATION" != "$REAL_CONFIRMATION" ] || {
+  echo "FAIL: wrong-token fixture did not change the confirmation"
+  exit 1
+}
 if cmux_validate_app_host_cleanup_confirmation >"$TMP_DIR/wrong-token.log" 2>&1; then
   echo "FAIL: cleanup must reject a confirmation token not bound to this target"
   exit 1

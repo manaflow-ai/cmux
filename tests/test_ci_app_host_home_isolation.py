@@ -2,6 +2,8 @@
 """Guard app-host XCTest against persistent console-user configuration."""
 
 from pathlib import Path
+import subprocess
+import tempfile
 import xml.etree.ElementTree as ET
 
 import yaml
@@ -175,8 +177,19 @@ def main() -> int:
         "external confirmation record": "CMUX_APP_HOST_CONFIRMATION_FILE",
         "structured Ghostty config sentinel": "cmux CI app-host isolation sentinel",
         "owner-only app-host access": 'chmod -R u+rwX,go-rwx "$app_host_home"',
+        "shared confirmation record": "cmux_app_host_confirmation_record",
     }.items():
         require(prepare_app_host, needle, context)
+    require(
+        prepare_app_host,
+        '>> "$GITHUB_ENV"',
+        "published app-host environment",
+    )
+    require(
+        prepare_app_host,
+        'mkdir -m 700 "$app_host_home"',
+        "exclusive app-host home claim",
+    )
     publish = prepare_app_host.index('>> "$GITHUB_ENV"')
     first_home_mutation = prepare_app_host.index('mkdir -m 700 "$app_host_home"')
     if publish > first_home_mutation:
@@ -219,10 +232,38 @@ def main() -> int:
     ):
         raise SystemExit("FAIL: app-host home cleanup must run as the console user")
 
+    # Resolve the real shell identity format, then rebase its system-temp-relative
+    # suffix under macOS /private/tmp when this guard runs on Linux.
+    with tempfile.TemporaryDirectory() as runner_temp:
+        identity = subprocess.run(
+            [
+                "/bin/bash",
+                "-c",
+                'source "$1"; cmux_resolve_app_host_identity; '
+                'printf "%s\\n%s\\n" "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT" '
+                '"$CMUX_RESOLVED_APP_HOST_HOME"',
+                "bash",
+                str(ROOT / "scripts/ci/app-host-isolation.sh"),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            env={
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "RUNNER_TEMP": runner_temp,
+                "GITHUB_RUN_ID": "9000000000",
+                "GITHUB_RUN_ATTEMPT": "1",
+                "CMUX_APP_HOST_SHARD": "1",
+            },
+        ).stdout.splitlines()
+    if len(identity) != 2:
+        raise SystemExit("FAIL: app-host identity guard returned unexpected output")
+    system_temp_root, resolved_home = identity
+    relative_home = Path(resolved_home).relative_to(system_temp_root)
+    representative_home = str(Path("/private/tmp") / relative_home)
+
     # RemoteTmuxHost appends a fixed 55-byte suffix to HOME before OpenSSH
-    # binds its transient control socket. Keep deterministic headroom on the
-    # self-hosted runner instead of relying on today's decimal run-id length.
-    representative_home = "/private/tmp/cmux-ah-" + ("a" * 12)
+    # binds its transient control socket.
     remote_tmux_bound_path = (
         representative_home
         + "/.cmux/ssh/tmux-"
@@ -345,6 +386,11 @@ def main() -> int:
         "cmux_validate_app_host_cleanup_confirmation",
         "target-bound cleanup confirmation validation",
     )
+    require(
+        APP_HOST_ISOLATION,
+        "cmux_app_host_confirmation_record",
+        "shared cleanup confirmation record",
+    )
 
     require_no_test_runner_scheme_overrides(UNIT_SCHEME)
 
@@ -397,6 +443,13 @@ def main() -> int:
         ),
         "cleanup external process receipts": "CMUX_RESOLVED_APP_HOST_RECEIPT_DIR",
         "cleanup exact target removal": 'rm -rf -- "$app_host_home"',
+        "cleanup resolved XDG target": 'xdg_target="${app_host_xdg_config_home%/}"',
+        "cleanup original DerivedData validation": (
+            'cmux_validate_app_host_derived_data "$CMUX_DERIVED_DATA_PATH"'
+        ),
+        "cleanup stored canonical DerivedData": (
+            'derived_data_path="$CMUX_VALIDATED_APP_HOST_DERIVED_DATA"'
+        ),
     }.items():
         require(cleanup_script, needle, context)
     require(APP_HOST_PROCESSES, "/usr/sbin/lsof", "cleanup executable-vnode identity")
@@ -414,6 +467,16 @@ def main() -> int:
         APP_HOST_PROCESSES,
         "cmux_app_host_receipt_descriptor_is_open",
         "process-incarnation receipt verification",
+    )
+    require(
+        APP_HOST_PROCESSES,
+        "cmux_run_app_host_lsof",
+        "lsof stdout and stderr separation",
+    )
+    require(
+        APP_HOST_PROCESSES,
+        "cmux_remove_terminated_stale_app_host_scopes",
+        "terminated stale-scope reclamation",
     )
 
     for forbidden_process_authority in (
@@ -462,6 +525,11 @@ def main() -> int:
         APP_ENTRYPOINT,
         "AppHostProcessReceipt.writeIfRequired()",
         "pre-XCTest app-host receipt hook",
+    )
+    require(
+        APP_ENTRYPOINT,
+        "CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()",
+        "worker dispatch",
     )
     if APP_ENTRYPOINT.index("AppHostProcessReceipt.writeIfRequired()") > APP_ENTRYPOINT.index(
         "CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()"
