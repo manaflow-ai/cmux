@@ -273,6 +273,23 @@ def main() -> int:
         shown = _run_cli(cli, ["display-message", "-p", msg])
         _must(msg in shown.stdout, f"display-message -p should print message: {shown.stdout!r}")
 
+        # show-options must succeed for known and unknown options so omx/codex
+        # capability probes (e.g. `tmux show-options -sv extended-keys`) do not
+        # blow up the agent before it starts. Regression for the bug where
+        # show-options threw "Unsupported tmux compatibility command".
+        # Cover every real tmux alias so an alias-specific regression cannot slip in.
+        for show_cmd in ("show-options", "show", "show-window-options", "showw"):
+            ek = _run_cli(cli, [show_cmd, "-sv", "extended-keys"])
+            _must(ek.stdout == "off\n", f"{show_cmd} -sv extended-keys should print exactly 'off\\n', got: {ek.stdout!r}")
+            unknown = _run_cli(cli, [show_cmd, "-sv", "definitely-not-a-real-option"])
+            _must(unknown.returncode == 0, f"{show_cmd} for unknown option should exit 0, got code={unknown.returncode}, stderr={unknown.stderr!r}")
+            _must(unknown.stdout == "", f"{show_cmd} for unknown option should print nothing, got: {unknown.stdout!r}")
+        named = _run_cli(cli, ["show-options", "-s", "extended-keys"])
+        _must(named.stdout == "extended-keys off\n", f"show-options without -v should print 'name value', got: {named.stdout!r}")
+        # -t <target> must not be misparsed as an option name.
+        targeted = _run_cli(cli, ["show-options", "-t", "main", "-sv", "extended-keys"])
+        _must(targeted.stdout == "off\n", f"show-options -t target should treat target as flag value, got: {targeted.stdout!r}")
+
     print("PASS: tmux compatibility matrix commands are wired and tested")
     return 0
 
