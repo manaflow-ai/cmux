@@ -60,6 +60,7 @@ def run_feed_hook_capture(
     socket_path: Path,
     event: str,
     raw_response_delay: float = 0,
+    socket_password: str | None = None,
 ) -> tuple[dict, list, float]:
     """Runs `cmux hooks feed --source codex` and returns (stdout JSON,
     ordered received frames, elapsed seconds)."""
@@ -68,6 +69,8 @@ def run_feed_hook_capture(
         env.pop(key, None)
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    if socket_password is not None:
+        env["CMUX_SOCKET_PASSWORD"] = socket_password
     with FakeCmuxSocket(socket_path, None, raw_response_delay=raw_response_delay) as fake:
         started = time.monotonic()
         result = subprocess.run(
@@ -213,6 +216,32 @@ def test_permission_notification_is_acknowledged_before_hook_returns(
         )
 
 
+def test_permission_notification_survives_slow_authentication(
+    cli_path: str, root: Path
+) -> None:
+    """The attention lane's connect/auth budget must cover slow links: a
+    relay-backed connection's HMAC handshake spans multiple round trips. With
+    the fake delaying every command reply (including `auth`) by 0.5s, a
+    fast-fail (50ms) attention transport silently drops the notification;
+    the deadline-budgeted transport delivers it. The telemetry lane keeps
+    its deliberate fast-fail bounds, so feed.push may legitimately be absent
+    in this scenario."""
+    stdout, frames, _ = run_feed_hook_capture(
+        cli_path,
+        root / "cmux-slow-auth.sock",
+        "PermissionRequest",
+        raw_response_delay=0.5,
+        socket_password="test-password",
+    )
+    if stdout != {}:
+        raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
+    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+        raise AssertionError(
+            "notification was dropped behind a slow authentication handshake: "
+            f"{frames!r}"
+        )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -229,6 +258,7 @@ def main() -> int:
             test_post_tool_use_clears_pane_before_feed_push(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)
+            test_permission_notification_survives_slow_authentication(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1

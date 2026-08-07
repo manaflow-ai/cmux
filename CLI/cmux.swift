@@ -32717,22 +32717,34 @@ export default CMUXSessionRestore;
         attentionLine: String,
         socketPassword: String?
     ) {
+        // One absolute deadline across connect, authentication, and the
+        // acknowledged send. This line is the essential payload — unlike the
+        // fast-fail telemetry lane's 50 ms bounds, the budget must survive a
+        // relay-backed connection's multi-round-trip HMAC handshake, or
+        // remote terminals silently lose the permission notification and the
+        // agent blocks unannounced (#9592 again).
+        let deadline = Date().addingTimeInterval(Self.feedAttentionAcknowledgeTimeoutSeconds)
+        func remainingBudget() -> TimeInterval {
+            max(deadline.timeIntervalSinceNow, 0.05)
+        }
         let attentionClient = SocketClient(path: socketPath)
         defer { attentionClient.close() }
         do {
-            try attentionClient.connectWithoutRetry(responseTimeout: 0.05)
+            try attentionClient.connectWithoutRetry(responseTimeout: remainingBudget())
             try authenticateClientIfNeeded(
                 attentionClient,
                 explicitPassword: socketPassword,
                 socketPath: socketPath,
-                responseTimeout: 0.05
+                responseTimeout: remainingBudget(),
+                deadline: deadline
             )
         } catch {
             return
         }
         _ = try? attentionClient.send(
             command: attentionLine,
-            responseTimeout: Self.feedAttentionAcknowledgeTimeoutSeconds
+            responseTimeout: remainingBudget(),
+            deadline: deadline
         )
     }
 
