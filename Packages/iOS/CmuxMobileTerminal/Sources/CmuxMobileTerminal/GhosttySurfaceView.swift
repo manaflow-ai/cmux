@@ -709,7 +709,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // terminal tap focuses the proxy without closing the band), and the proxy
             // is a sibling of `composerContainer`, so `endEditing` on the container
             // alone would resign nothing and the keyboard would stay up.
-            if self.keyboardVisible {
+            // Decide from ACTUAL responder truth, not `keyboardVisible`: that
+            // bit is reconciled from keyboard notifications and lags a frame
+            // or two during rapid toggling, which made quick successive taps
+            // of the toggle re-focus when they should resign (and vice versa)
+            // until the keyboard wedged out of sync with the button.
+            if self.inputProxy.isFirstResponder || self.composerFieldIsFirstResponder {
                 self.resignCurrentInput()
             } else {
                 self.focusInput()
