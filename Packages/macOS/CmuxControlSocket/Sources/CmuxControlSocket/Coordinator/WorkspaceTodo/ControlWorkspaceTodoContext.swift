@@ -13,6 +13,9 @@ public import Foundation
 /// cross.
 @MainActor
 public protocol ControlWorkspaceTodoContext: AnyObject {
+    /// The localized workspace-todo messages resolved against the app bundle.
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings
+
     /// Reads the todo status for `workspace.status.get` (reconciling an
     /// expired override first).
     ///

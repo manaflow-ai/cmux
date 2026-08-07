@@ -11,10 +11,15 @@ import Testing
             shellState: .promptIdle
         )
 
-        #expect(!boundary.shouldApply(rawTitle: seededTitle))
-        #expect(boundary.observe(shellState: .commandRunning) == nil)
-        #expect(!boundary.shouldApply(rawTitle: seededTitle))
-        #expect(boundary.shouldApply(rawTitle: "Resumed Codex session"))
+        let rejectsInitialSeededTitle = !boundary.shouldApply(rawTitle: seededTitle)
+        let titleReleasedByCommand = boundary.observe(shellState: .commandRunning)
+        let rejectsRepeatedSeededTitle = !boundary.shouldApply(rawTitle: seededTitle)
+        let acceptsAgentTitle = boundary.shouldApply(rawTitle: "Resumed Codex session")
+
+        #expect(rejectsInitialSeededTitle)
+        #expect(titleReleasedByCommand == nil)
+        #expect(rejectsRepeatedSeededTitle)
+        #expect(acceptsAgentTitle)
         #expect(!boundary.isReleased)
     }
 
@@ -24,10 +29,14 @@ import Testing
             shellState: .promptIdle
         )
 
-        #expect(!boundary.shouldApply(rawTitle: "cd /tmp/cmux"))
-        #expect(boundary.observe(shellState: .commandRunning) == "cd /tmp/cmux")
+        let rejectsBufferedTitle = !boundary.shouldApply(rawTitle: "cd /tmp/cmux")
+        let releasedTitle = boundary.observe(shellState: .commandRunning)
+
+        #expect(rejectsBufferedTitle)
+        #expect(releasedTitle == "cd /tmp/cmux")
         #expect(boundary.isReleased)
-        #expect(boundary.shouldApply(rawTitle: "/tmp/cmux"))
+        let acceptsLaterTitle = boundary.shouldApply(rawTitle: "/tmp/cmux")
+        #expect(acceptsLaterTitle)
     }
 
     @Test func alreadyRunningUnseededShellStartsReleased() {
@@ -37,6 +46,7 @@ import Testing
         )
 
         #expect(boundary.isReleased)
-        #expect(boundary.shouldApply(rawTitle: "Genuine running command"))
+        let acceptsRunningTitle = boundary.shouldApply(rawTitle: "Genuine running command")
+        #expect(acceptsRunningTitle)
     }
 }

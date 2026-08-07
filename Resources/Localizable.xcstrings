@@ -234339,6 +234339,40 @@
         }
       }
     },
+    "socket.workspace.todo.reconcile.invalidOwnerIDLength": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id must be 1...500 characters"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id は1〜500文字で指定してください"
+          }
+        }
+      }
+    },
+    "socket.workspace.todo.reconcile.missingOwnerID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid owner_id"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "owner_id が指定されていないか無効です"
+          }
+        }
+      }
+    },
     "socket.workspace.unsupportedWindowParam": {
       "extractionState": "manual",
       "localizations": {

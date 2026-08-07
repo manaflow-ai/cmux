@@ -118,12 +118,24 @@ extension ControlCommandCoordinator {
     /// `workspace.todo.reconcile` — atomically replaces one owner's items
     /// while preserving user entries and other owners' entries.
     func workspaceTodoReconcile(_ params: [String: JSONValue]) -> ControlCallResult {
+        guard let context else {
+            return workspaceTodoSetResult(.tabManagerUnavailable)
+        }
+        let strings = context.controlWorkspaceTodoStrings()
         guard let rawOwnerID = string(params, "owner_id") else {
-            return .err(code: "invalid_params", message: "Missing or invalid owner_id", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: strings.missingOwnerID,
+                data: nil
+            )
         }
         let ownerID = rawOwnerID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !ownerID.isEmpty, ownerID.count <= 500 else {
-            return .err(code: "invalid_params", message: "owner_id must be 1...500 characters", data: nil)
+            return .err(
+                code: "invalid_params",
+                message: strings.invalidOwnerIDLength,
+                data: nil
+            )
         }
         let items: [ControlWorkspaceTodoSetItemParam]
         switch workspaceTodoSetItems(params) {
@@ -132,12 +144,12 @@ extension ControlCommandCoordinator {
         case .items(let parsed):
             items = parsed
         }
-        return workspaceTodoSetResult(context?.controlWorkspaceTodoReconcile(
+        return workspaceTodoSetResult(context.controlWorkspaceTodoReconcile(
             routing: routingSelectors(params),
             workspaceID: uuid(params, "workspace_id"),
             ownerID: ownerID,
             items: items
-        ) ?? .tabManagerUnavailable)
+        ))
     }
 
     /// `workspace.todo.open` — open (or focus) the workspace's todo pane.

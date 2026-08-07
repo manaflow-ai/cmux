@@ -9,6 +9,19 @@ import Foundation
 /// `Workspace+Todos` entry points, so socket callers get the same caps,
 /// normalization, and override anti-rot as the CLI and the sidebar UI.
 extension TerminalController: ControlWorkspaceTodoContext {
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings {
+        ControlWorkspaceTodoStrings(
+            missingOwnerID: String(
+                localized: "socket.workspace.todo.reconcile.missingOwnerID",
+                defaultValue: "Missing or invalid owner_id"
+            ),
+            invalidOwnerIDLength: String(
+                localized: "socket.workspace.todo.reconcile.invalidOwnerIDLength",
+                defaultValue: "owner_id must be 1...500 characters"
+            )
+        )
+    }
+
     // MARK: - Workspace resolution
 
     enum TodoWorkspaceResolution {

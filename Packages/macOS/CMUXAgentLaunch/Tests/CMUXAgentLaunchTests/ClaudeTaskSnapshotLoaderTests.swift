@@ -30,8 +30,10 @@ struct ClaudeTaskSnapshotLoaderTests {
         try writeTask(#"{"broken":true}"#, named: "malformed.json", in: sessionDirectory)
 
         let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
-        let todos = try loader.load(sessionID: "abc")
+        let snapshot = try #require(loader.load(sessionID: "abc"))
+        let todos = snapshot.todos
 
+        #expect(snapshot.directoryName == "session-abc")
         #expect(todos.map(\.id) == ["2", "10"])
         #expect(todos.map(\.content) == ["Write the test", "Ship the fix"])
         #expect(todos.map(\.activeForm) == ["Writing the test", "Shipping the fix"])
@@ -52,9 +54,108 @@ struct ClaudeTaskSnapshotLoaderTests {
             in: sessionDirectory
         )
 
-        let todos = try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "abc")
+        let snapshot = try #require(
+            ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "abc")
+        )
 
-        #expect(todos.map(\.content) == ["First task"])
+        #expect(snapshot.directoryName == "abc")
+        #expect(snapshot.todos.map(\.content) == ["First task"])
+    }
+
+    @Test("A deterministic session directory wins over duplicate neighboring identities")
+    func prefersDeterministicSessionDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-direct-tasks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("plain-session", isDirectory: true)
+        let neighboringDirectory = root.appendingPathComponent("session-team-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: neighboringDirectory, withIntermediateDirectories: true)
+        for directory in [sessionDirectory, neighboringDirectory] {
+            try writeTask(
+                #"{"id":"1","subject":"Shared task","status":"pending"}"#,
+                named: "1.json",
+                in: directory
+            )
+        }
+
+        let snapshot = try #require(ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+            sessionID: "plain-session",
+            taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Shared task")
+        ))
+
+        #expect(snapshot.directoryName == "plain-session")
+    }
+
+    @Test("Resolves an unrelated team directory by one exact task identity")
+    func resolvesUniqueTeamDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-team-tasks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let matchingDirectory = root.appendingPathComponent("session-team-a", isDirectory: true)
+        let neighboringDirectory = root.appendingPathComponent("session-team-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: matchingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: neighboringDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Team task","status":"pending"}"#,
+            named: "1.json",
+            in: matchingDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Neighbor task","status":"pending"}"#,
+            named: "1.json",
+            in: neighboringDirectory
+        )
+
+        let snapshot = try #require(ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+            sessionID: "unrelated-hook-session",
+            taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Team task")
+        ))
+
+        #expect(snapshot.directoryName == "session-team-a")
+        #expect(snapshot.todos.map(\.content) == ["Team task"])
+    }
+
+    @Test("Rejects an ambiguous team-directory identity")
+    func rejectsAmbiguousTeamDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ambiguous-tasks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for name in ["session-team-a", "session-team-b"] {
+            let directory = root.appendingPathComponent(name, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try writeTask(
+                #"{"id":"1","subject":"Shared task","status":"pending"}"#,
+                named: "1.json",
+                in: directory
+            )
+        }
+
+        let snapshot = try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+            sessionID: "unrelated-hook-session",
+            taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Shared task")
+        )
+
+        #expect(snapshot == nil)
+    }
+
+    @Test("A bound empty directory remains an authoritative snapshot")
+    func distinguishesBoundEmptyDirectoryFromUnresolved() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-empty-tasks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let boundDirectory = root.appendingPathComponent("session-team-a", isDirectory: true)
+        try FileManager.default.createDirectory(at: boundDirectory, withIntermediateDirectories: true)
+        let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
+
+        let emptySnapshot = try #require(loader.load(
+            sessionID: "unrelated-hook-session",
+            boundDirectoryName: "session-team-a"
+        ))
+
+        #expect(emptySnapshot.directoryName == "session-team-a")
+        #expect(emptySnapshot.todos.isEmpty)
+        #expect(try loader.load(sessionID: "unrelated-hook-session") == nil)
     }
 
     @Test("Resolves the task root from Claude's configured directory")
@@ -103,10 +204,12 @@ struct ClaudeTaskSnapshotLoaderTests {
             try Data().write(to: sessionDirectory.appendingPathComponent("\(index).txt"))
         }
 
-        let todos = try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "boundary")
+        let snapshot = try #require(
+            ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "boundary")
+        )
 
-        #expect(todos.count == 1)
-        #expect(todos[0].content.utf8.count == paddingCount)
+        #expect(snapshot.todos.count == 1)
+        #expect(snapshot.todos[0].content.utf8.count == paddingCount)
     }
 
     @Test("Task snapshots reject a directory beyond the entry boundary")
@@ -124,6 +227,29 @@ struct ClaudeTaskSnapshotLoaderTests {
             limit: ClaudeTaskSnapshotLoader.maximumDirectoryEntryCount
         )) {
             try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "entry-overflow")
+        }
+    }
+
+    @Test("Team-directory resolution rejects a task root beyond the entry boundary")
+    func rejectsTaskRootBeyondEntryBoundary() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("claude-task-root-overflow-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for index in 0...ClaudeTaskSnapshotLoader.maximumTaskRootEntryCount {
+            try FileManager.default.createDirectory(
+                at: root.appendingPathComponent("unrelated-\(index)", isDirectory: true),
+                withIntermediateDirectories: false
+            )
+        }
+
+        #expect(throws: ClaudeTaskSnapshotLoaderError.tooManyTaskRootEntries(
+            limit: ClaudeTaskSnapshotLoader.maximumTaskRootEntryCount
+        )) {
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+                sessionID: "missing-session",
+                taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Missing task")
+            )
         }
     }
 

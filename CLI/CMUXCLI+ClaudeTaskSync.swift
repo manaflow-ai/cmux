@@ -69,11 +69,27 @@ extension CMUXCLI {
                 homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
             ).resolve()
             let loader = ClaudeTaskSnapshotLoader(tasksRootURL: tasksRootURL)
-            // The cross-process lock intentionally spans both the authoritative
-            // read and both socket deliveries. A later hook cannot publish before
-            // an earlier hook finishes, then each hook reads the latest files.
+            // Claude starts async hooks as independent CLI processes, which a
+            // Swift actor cannot serialize. This filesystem lock is therefore
+            // scoped to the one read-and-publish transaction: a later hook reads
+            // the latest files only after the earlier snapshot finishes delivery.
             try withClaudeTaskSnapshotLock(loader: loader) {
-                let todos = try loader.load(sessionID: sessionID)
+                let currentRecord = try sessionStore.lookup(sessionId: sessionID)
+                guard let snapshot = try loader.load(
+                    sessionID: sessionID,
+                    boundDirectoryName: currentRecord?.claudeTaskDirectoryName,
+                    taskIdentity: claudeTaskIdentity(from: parsedInput.rawObject)
+                ) else {
+                    telemetry.breadcrumb("claude-hook.task-sync.task-directory-unresolved")
+                    return
+                }
+                try sessionStore.bindClaudeTaskDirectory(
+                    sessionId: sessionID,
+                    directoryName: snapshot.directoryName,
+                    workspaceId: resolvedTarget.workspaceId,
+                    surfaceId: resolvedTarget.surfaceId
+                )
+                let todos = snapshot.todos
                 let feedSnapshot: [String: Any] = [
                     "todos": todos.map(claudeTaskFeedDictionary),
                 ]
@@ -132,6 +148,31 @@ extension CMUXCLI {
         guard flock(descriptor, LOCK_EX) == 0 else { throw POSIXError(.EIO) }
         defer { _ = flock(descriptor, LOCK_UN) }
         try body()
+    }
+
+    /// Extracts the exact task identity from Claude's uncompacted hook payload.
+    ///
+    /// The compact Feed payload intentionally omits `tool_response`, so task
+    /// directory resolution must read the original object retained by the hook
+    /// parser. A partial identity is never used for directory selection.
+    private func claudeTaskIdentity(from rawObject: [String: Any]?) -> ClaudeTaskIdentity? {
+        let input = rawObject?["tool_input"] as? [String: Any]
+        // A successful delete removes the identity-bearing task file before
+        // PostToolUse runs. Reuse an existing proven binding (or the exact
+        // session path) instead of treating that expected absence as a failed
+        // ownership proof.
+        if input?["status"] as? String == "deleted" {
+            return nil
+        }
+        guard let response = rawObject?["tool_response"] as? [String: Any],
+              let task = response["task"] as? [String: Any],
+              let id = task["id"] as? String,
+              !id.isEmpty else { return nil }
+        let responseSubject = task["subject"] as? String
+        let inputSubject = input?["subject"] as? String
+        guard let subject = responseSubject ?? inputSubject,
+              !subject.isEmpty else { return nil }
+        return ClaudeTaskIdentity(id: id, subject: subject)
     }
 
     private func claudeTaskFeedDictionary(_ todo: WorkstreamTaskTodo) -> [String: Any] {

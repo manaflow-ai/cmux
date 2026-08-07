@@ -197,11 +197,20 @@ struct ClaudeTaskSyncHookTests {
         #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
         let createdItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
         #expect(createdItems.compactMap { $0["text"] as? String } == ["Running team task"])
+        let boundRecord = try #require(
+            ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        )
+        #expect(boundRecord["claudeTaskDirectoryName"] as? String == "session-team-a")
 
         try writeTask(
             #"{"id":"1","subject":"Team task","activeForm":"Running team task","status":"completed"}"#,
             named: "1.json",
             in: teamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Team task","status":"pending"}"#,
+            named: "1.json",
+            in: neighboringDirectory
         )
         let updateResult = runHook(
             context: context,
@@ -218,6 +227,79 @@ struct ClaudeTaskSyncHookTests {
         let updatedItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
         #expect(updatedItems.compactMap { $0["text"] as? String } == ["Team task"])
         #expect(updatedItems.compactMap { $0["state"] as? String } == ["completed"])
+
+        try FileManager.default.removeItem(at: teamDirectory.appendingPathComponent("1.json"))
+        let deleteResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate",
+            standardInput: #"{"session_id":"unrelated-hook-session","hook_event_name":"PostToolUse","tool_name":"TaskUpdate","tool_input":{"taskId":"1","status":"deleted"},"tool_response":{"task":{"id":"1","subject":"Team task","status":"deleted"}}}"#
+        )
+
+        #expect(!deleteResult.timedOut, Comment(rawValue: deleteResult.stderr))
+        #expect(deleteResult.status == 0, Comment(rawValue: deleteResult.stderr))
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        let deletedItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
+        #expect(deletedItems.isEmpty)
+    }
+
+    @Test("An ambiguous team task identity publishes no todo mutation")
+    func rejectsAmbiguousTeamTaskDirectory() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-ambiguous")
+        defer { context.cleanup() }
+        let workspaceId = "77777777-7777-7777-7777-777777777777"
+        let surfaceId = "88888888-8888-8888-8888-888888888888"
+        let sessionId = "ambiguous-hook-session"
+        _ = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path
+        )
+
+        let tasksRoot = context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        for directoryName in ["session-team-a", "session-team-b"] {
+            let directory = tasksRoot.appendingPathComponent(directoryName, isDirectory: true)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try writeTask(
+                #"{"id":"1","subject":"Shared task","status":"pending"}"#,
+                named: "1.json",
+                in: directory
+            )
+        }
+
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate",
+            standardInput: #"{"session_id":"ambiguous-hook-session","hook_event_name":"PostToolUse","tool_name":"TaskCreate","tool_input":{"subject":"Shared task"},"tool_response":{"task":{"id":"1","subject":"Shared task"}}}"#
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        let mutationMethods = context.state.snapshot().compactMap { line -> String? in
+            guard let method = jsonObject(line)?["method"] as? String,
+                  method == "feed.push" || method == "workspace.todo.reconcile" else { return nil }
+            return method
+        }
+        #expect(mutationMethods.isEmpty)
+        let record = try #require(
+            ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        )
+        #expect(record["claudeTaskDirectoryName"] == nil)
     }
 
     private func runHook(

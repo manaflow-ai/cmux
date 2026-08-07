@@ -56,6 +56,26 @@ import Testing
         #expect(checklist == result)
     }
 
+    @Test func replaceChecklistPreservesExistingOwner() throws {
+        let itemID = UUID()
+        var checklist = [
+            WorkspaceChecklistItem(
+                id: itemID,
+                text: "Old task",
+                origin: .agent,
+                ownerID: "claude:session-a"
+            ),
+        ]
+
+        let result = try checklist.replaceChecklist(with: [
+            WorkspaceChecklistReplacementItem(id: itemID, text: "Updated task"),
+        ]).get()
+
+        let replaced = try #require(result.first)
+        #expect(replaced.ownerID == "claude:session-a")
+        #expect(checklist == result)
+    }
+
     @Test func emptySnapshotRemovesOnlyMatchingOwner() throws {
         let userItem = WorkspaceChecklistItem(text: "User note")
         let owned = WorkspaceChecklistItem(

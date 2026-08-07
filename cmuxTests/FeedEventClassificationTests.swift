@@ -90,10 +90,6 @@ struct FeedEventClassificationTests {
         }
     }
 
-    @Test func claudeTaskSyncUsesCanonicalTodoWriteEvent() {
-        #expect(FeedEventClassifier.wireEventName(forClaudeHookSubcommand: "task-sync") == "TodoWrite")
-    }
-
     // MARK: Explicit approval-capable agents
 
     /// Gemini has a verified PreToolUse decision contract and explicitly

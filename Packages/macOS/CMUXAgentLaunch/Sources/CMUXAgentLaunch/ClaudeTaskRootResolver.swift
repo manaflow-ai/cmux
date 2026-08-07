@@ -46,9 +46,9 @@ public struct ClaudeTaskRootResolver {
         }
         return configURL.appendingPathComponent("tasks", isDirectory: true)
     }
-}
 
-private func nonEmptyEnvironmentValue(_ value: String?) -> String? {
-    let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed?.isEmpty == false ? trimmed : nil
+    private func nonEmptyEnvironmentValue(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
 }

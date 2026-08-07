@@ -6,6 +6,10 @@ import Testing
 /// coordinator domain without the app target.
 @MainActor
 final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
+    var todoStrings = ControlWorkspaceTodoStrings(
+        missingOwnerID: "Missing owner marker",
+        invalidOwnerIDLength: "Invalid owner length marker"
+    )
     var statusResolution: ControlWorkspaceTodoStatusResolution = .tabManagerUnavailable
     var checklistResolution: ControlWorkspaceTodoChecklistResolution = .tabManagerUnavailable
     var mutationResolution: ControlWorkspaceTodoMutationResolution = .tabManagerUnavailable
@@ -20,6 +24,10 @@ final class FakeWorkspaceTodoControlCommandContext: ControlCommandContext {
     var lastReconcile: (ownerID: String, items: [ControlWorkspaceTodoSetItemParam])?
     var lastOpenRequestedFocus: Bool?
     var lastWorkspaceID: UUID??
+
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings {
+        todoStrings
+    }
 
     func controlWorkspaceTaskStatus(
         routing: ControlRoutingSelectors,

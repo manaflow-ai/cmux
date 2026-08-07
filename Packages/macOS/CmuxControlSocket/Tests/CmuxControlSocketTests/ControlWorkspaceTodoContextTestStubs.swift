@@ -8,6 +8,10 @@ import Foundation
 // budget).
 
 extension ControlWorkspaceTodoContext {
+    func controlWorkspaceTodoStrings() -> ControlWorkspaceTodoStrings {
+        ControlWorkspaceTodoStrings(missingOwnerID: "", invalidOwnerIDLength: "")
+    }
+
     func controlWorkspaceTaskStatus(
         routing: ControlRoutingSelectors,
         workspaceID: UUID?
