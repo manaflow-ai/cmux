@@ -245,6 +245,13 @@ final class SidebarRowTextView: NSTextField {
     private var accessibilityLinks: [SidebarRowTextAccessibilityLink] = []
 
     override var isFlipped: Bool { true }
+    override var isHidden: Bool {
+        didSet {
+            if isHidden, !oldValue {
+                replaceAccessibilityLinks(with: [])
+            }
+        }
+    }
 
     private typealias LinkHitLayout = (
         attributedString: NSAttributedString,
@@ -274,6 +281,7 @@ final class SidebarRowTextView: NSTextField {
 
     /// Vends the link proxies referenced by the accessibility attributed text.
     override func accessibilityChildren() -> [Any]? {
+        guard !isHidden else { return [] }
         var children = super.accessibilityChildren() ?? []
         for link in accessibilityLinks where !children.contains(where: {
             ($0 as? SidebarRowTextAccessibilityLink) === link
@@ -291,23 +299,23 @@ final class SidebarRowTextView: NSTextField {
         color: NSColor,
         linkColor: NSColor
     ) {
-        invalidateAccessibilityLinks()
         let mutable = NSMutableAttributedString(attributedString: NSAttributedString(source))
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.font, value: font, range: fullRange)
         mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
-        applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
+        let nextAccessibilityLinks = applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
         attributedStringValue = mutable
+        replaceAccessibilityLinks(with: nextAccessibilityLinks)
         needsLayout = true
     }
 
     /// Configures non-Markdown fallback text and removes stale link semantics
     /// left by a previous pooled-row configuration.
     func configurePlainText(_ text: String, font: NSFont, color: NSColor) {
-        invalidateAccessibilityLinks()
         stringValue = text
         self.font = font
         textColor = color
+        replaceAccessibilityLinks(with: [])
         needsLayout = true
     }
 
@@ -405,10 +413,16 @@ final class SidebarRowTextView: NSTextField {
     private func applyRowOwnedLinkStyling(
         to mutable: NSMutableAttributedString,
         linkColor: NSColor
-    ) {
+    ) -> [SidebarRowTextAccessibilityLink] {
         let fullRange = NSRange(location: 0, length: mutable.length)
-        guard fullRange.length > 0 else { return }
+        guard fullRange.length > 0 else { return [] }
         var runs: [(url: URL?, range: NSRange)] = []
+        var nextAccessibilityLinks: [SidebarRowTextAccessibilityLink] = []
+        var reusableAccessibilityLinks:
+            [URL: [NSRange: [String: SidebarRowTextAccessibilityLink]]] = [:]
+        for link in accessibilityLinks {
+            reusableAccessibilityLinks[link.url, default: [:]][link.characterRange, default: [:]][link.label] = link
+        }
         mutable.enumerateAttribute(.link, in: fullRange) { value, range, _ in
             guard value != nil else { return }
             runs.append((webURL(from: value), range))
@@ -420,13 +434,19 @@ final class SidebarRowTextView: NSTextField {
                 mutable.removeAttribute(.underlineStyle, range: run.range)
                 continue
             }
-            let accessibilityLink = SidebarRowTextAccessibilityLink(
-                owner: self,
-                characterRange: run.range,
-                label: mutable.attributedSubstring(from: run.range).string,
-                url: url
-            )
-            accessibilityLinks.append(accessibilityLink)
+            let label = mutable.attributedSubstring(from: run.range).string
+            let accessibilityLink: SidebarRowTextAccessibilityLink
+            if let reusableLink = reusableAccessibilityLinks[url]?[run.range]?[label] {
+                accessibilityLink = reusableLink
+            } else {
+                accessibilityLink = SidebarRowTextAccessibilityLink(
+                    owner: self,
+                    characterRange: run.range,
+                    label: label,
+                    url: url
+                )
+            }
+            nextAccessibilityLinks.append(accessibilityLink)
             mutable.addAttributes(
                 [
                     .sidebarRowLink: url,
@@ -438,6 +458,7 @@ final class SidebarRowTextView: NSTextField {
                 range: run.range
             )
         }
+        return nextAccessibilityLinks
     }
 
     private func updateAccessibilityLinkFrames() {
@@ -465,11 +486,14 @@ final class SidebarRowTextView: NSTextField {
         }
     }
 
-    private func invalidateAccessibilityLinks() {
-        for link in accessibilityLinks {
+    private func replaceAccessibilityLinks(
+        with nextAccessibilityLinks: [SidebarRowTextAccessibilityLink]
+    ) {
+        let retainedIdentities = Set(nextAccessibilityLinks.map { ObjectIdentifier($0) })
+        for link in accessibilityLinks where !retainedIdentities.contains(ObjectIdentifier(link)) {
             link.invalidate()
         }
-        accessibilityLinks.removeAll(keepingCapacity: true)
+        accessibilityLinks = nextAccessibilityLinks
     }
 
     private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {

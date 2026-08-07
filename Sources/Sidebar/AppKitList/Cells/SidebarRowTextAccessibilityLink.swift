@@ -7,6 +7,8 @@ final class SidebarRowTextAccessibilityLink: NSAccessibilityElement {
     let characterRange: NSRange
     /// Validated HTTP(S) destination activated by this element.
     let url: URL
+    /// Visible text used to identify equivalent proxies across row repaints.
+    let label: String
     private weak var owner: SidebarRowTextView?
 
     /// Creates a link element parented to the row text view that owns its action.
@@ -19,6 +21,7 @@ final class SidebarRowTextAccessibilityLink: NSAccessibilityElement {
         self.owner = owner
         self.characterRange = characterRange
         self.url = url
+        self.label = label
         super.init()
         setAccessibilityParent(owner)
         setAccessibilityRole(.link)
