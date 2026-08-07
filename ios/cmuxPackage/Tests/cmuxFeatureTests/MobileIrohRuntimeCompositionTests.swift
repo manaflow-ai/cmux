@@ -16,13 +16,6 @@ import Testing
 @Suite
 struct MobileIrohRuntimeCompositionTests {
     @Test
-    func developmentDiscoveryScopePreservesPeerTagCase() {
-        #expect(MobileIrohRuntimeComposition.discoveryPeerTags(
-            for: .development(expectedInstanceTag: "FeatureA")
-        ) == ["FeatureA"])
-    }
-
-    @Test
     @MainActor
     func foregroundRevalidatesAuthBeforeConnectionReadinessCompletes() async throws {
         let fixture = try await MobileIrohSignOutFixture.make()

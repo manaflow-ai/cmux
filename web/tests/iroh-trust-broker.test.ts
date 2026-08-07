@@ -237,7 +237,7 @@ describe("Iroh trust broker registration", () => {
     const eligibleMac = binding({
       id: "123e4567-e89b-42d3-a456-426614174020",
       platform: "mac",
-      tag: "stable",
+      tag: "featurea",
       pairingEnabled: true,
     });
     const irrelevantMac = binding({
@@ -256,8 +256,15 @@ describe("Iroh trust broker registration", () => {
       },
       peer_bindings: {
         platform: "mac",
-        tags: ["stable"],
+        tags: ["FeatureA"],
         pairing_enabled: true,
+      },
+    };
+    const normalizedDiscoveryScope = {
+      ...discoveryScope,
+      peer_bindings: {
+        ...discoveryScope.peer_bindings,
+        tags: ["featurea"],
       },
     };
 
@@ -277,7 +284,7 @@ describe("Iroh trust broker registration", () => {
 
     expect(result.discovery_complete).toBe(false);
     expect(result.discovery_scope_complete).toBe(true);
-    expect(result.discovery_scope).toEqual(discoveryScope);
+    expect(result.discovery_scope).toEqual(normalizedDiscoveryScope);
     expect(result.discovery.bindings.map((row) => row.binding_id)).toEqual([
       eligibleMac.id,
       fixture.repository.bindings.find((row) =>

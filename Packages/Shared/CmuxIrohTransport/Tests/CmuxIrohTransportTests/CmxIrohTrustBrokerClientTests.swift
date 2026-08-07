@@ -6,6 +6,21 @@ import Testing
 @Suite(.serialized)
 struct CmxIrohTrustBrokerClientTests {
     @Test
+    func discoveryScopeNormalizesOnlyPeerTags() throws {
+        let scope = try CmxConnectivityDiscoveryScope(
+            deviceID: "123e4567-e89b-42d3-a456-426614174001",
+            appInstanceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "LocalFeatureA",
+            platform: .ios,
+            peerPlatform: .mac,
+            peerTags: ["FeatureA"]
+        )
+
+        #expect(scope.localBinding.tag == "LocalFeatureA")
+        #expect(scope.peerBindings.tags == ["featurea"])
+    }
+
+    @Test
     func challengeUsesNativeStackHeadersAndExactJSON() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(

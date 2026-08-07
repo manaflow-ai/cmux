@@ -64,6 +64,22 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func nearExpiryPublicHintDoesNotScheduleImmediateRenewal() throws {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(
+            now: now,
+            publicHintLifetime: 10
+        )
+
+        #expect(CmxIrohHostRuntime.registrationRenewalDeadline(
+            binding: fixture.binding,
+            now: now
+        ) == now.addingTimeInterval(
+            CmxIrohPathHint.maximumPrivateHintTTL - 15 * 60
+        ))
+    }
+
+    @Test
     func unchangedReachabilityRenewsRegistrationBeforeHintExpiry() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)

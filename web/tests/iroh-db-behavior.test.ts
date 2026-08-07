@@ -1304,7 +1304,7 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       endpointId: "d2".repeat(32),
       platform: "mac",
-      tag: "default",
+      tag: "FeatureA",
       pairingEnabled: true,
     });
     await insertBinding({
@@ -1359,7 +1359,7 @@ describe("Iroh trust broker database behavior", () => {
         },
         peerBindings: {
           platform: "mac",
-          tags: ["default", "nightly"],
+          tags: ["featurea", "nightly"],
           pairingEnabled: true,
         },
       },
