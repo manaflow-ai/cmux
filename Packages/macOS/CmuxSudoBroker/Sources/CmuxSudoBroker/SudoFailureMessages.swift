@@ -6,6 +6,9 @@ public struct SudoFailureMessages: Sendable, Equatable {
     /// The diagnostic for a request that expired before approval.
     public let approvalTimedOut: String
 
+    /// The diagnostic for a requesting process that exited before approval.
+    public let requesterUnavailable: String
+
     /// The diagnostic for an interrupted approved execution.
     public let executionInterrupted: String
 
@@ -32,6 +35,7 @@ public struct SudoFailureMessages: Sendable, Equatable {
     /// - Parameters:
     ///   - pamTidUnavailable: Guidance for a missing Touch ID PAM rule.
     ///   - approvalTimedOut: The approval deadline diagnostic.
+    ///   - requesterUnavailable: The requester-liveness diagnostic.
     ///   - executionInterrupted: The interrupted-execution diagnostic.
     ///   - executionTimedOut: The bounded execution deadline diagnostic.
     ///   - authenticationFailed: The Touch ID authentication diagnostic.
@@ -42,6 +46,7 @@ public struct SudoFailureMessages: Sendable, Equatable {
     public init(
         pamTidUnavailable: String,
         approvalTimedOut: String,
+        requesterUnavailable: String,
         executionInterrupted: String,
         executionTimedOut: String,
         authenticationFailed: String,
@@ -52,6 +57,7 @@ public struct SudoFailureMessages: Sendable, Equatable {
     ) {
         self.pamTidUnavailable = pamTidUnavailable
         self.approvalTimedOut = approvalTimedOut
+        self.requesterUnavailable = requesterUnavailable
         self.executionInterrupted = executionInterrupted
         self.executionTimedOut = executionTimedOut
         self.authenticationFailed = authenticationFailed

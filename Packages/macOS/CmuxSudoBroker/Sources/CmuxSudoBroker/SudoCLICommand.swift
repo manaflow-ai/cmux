@@ -6,7 +6,7 @@ public struct SudoCLICommand {
     private let store: SudoSpoolStore
     private let appBundleURL: URL
     private let currentDirectoryURL: URL
-    private let requesterProcessIdentifier: Int32
+    private let requesterIdentity: SudoProcessIdentity
     private let requesterCommand: String
     private let launcher: any SudoAppLaunching
     private let io: SudoCLIIO
@@ -20,20 +20,20 @@ public struct SudoCLICommand {
     ///   - paths: The enclosing app bundle's private sudo spool.
     ///   - appBundleURL: The exact enclosing `.app` URL opened for approval.
     ///   - currentDirectoryURL: The script working directory.
-    ///   - requesterProcessIdentifier: The process requesting privileged execution.
+    ///   - requesterIdentity: The generation-qualified process requesting execution.
     ///   - requesterCommand: The requester name shown during approval.
     public init(
         paths: SudoBrokerPaths,
         appBundleURL: URL,
         currentDirectoryURL: URL,
-        requesterProcessIdentifier: Int32,
+        requesterIdentity: SudoProcessIdentity,
         requesterCommand: String
     ) {
         let inspector = SystemSudoProcessInspector()
         store = SudoSpoolStore(paths: paths)
         self.appBundleURL = appBundleURL
         self.currentDirectoryURL = currentDirectoryURL.standardizedFileURL
-        self.requesterProcessIdentifier = requesterProcessIdentifier
+        self.requesterIdentity = requesterIdentity
         self.requesterCommand = requesterCommand
         launcher = SystemSudoAppLauncher(
             inspector: inspector,
@@ -49,7 +49,7 @@ public struct SudoCLICommand {
         store: SudoSpoolStore,
         appBundleURL: URL,
         currentDirectoryURL: URL,
-        requesterProcessIdentifier: Int32,
+        requesterIdentity: SudoProcessIdentity,
         requesterCommand: String,
         launcher: any SudoAppLaunching,
         io: SudoCLIIO,
@@ -60,7 +60,7 @@ public struct SudoCLICommand {
         self.store = store
         self.appBundleURL = appBundleURL
         self.currentDirectoryURL = currentDirectoryURL
-        self.requesterProcessIdentifier = requesterProcessIdentifier
+        self.requesterIdentity = requesterIdentity
         self.requesterCommand = requesterCommand
         self.launcher = launcher
         self.io = io
@@ -119,7 +119,7 @@ public struct SudoCLICommand {
         let request = SudoRequest(
             id: requestIdentifier(createdAt: createdAt),
             reason: invocation.reason,
-            requesterPid: requesterProcessIdentifier,
+            requesterIdentity: requesterIdentity,
             requesterCommand: requesterCommand,
             currentDirectory: currentDirectoryURL.path,
             createdAt: createdAt,
@@ -150,11 +150,27 @@ public struct SudoCLICommand {
             messages.queued(id: request.id, timeoutSeconds: request.timeoutSeconds)
         )
         let waiter = SudoResultWaiter(store: store, io: io)
-        let outcome = try waiter.wait(
-            requestID: request.id,
-            deadline: request.approvalDeadline,
-            approvalTimeoutNote: failureMessages.approvalTimedOut
-        )
+        let outcome: SudoResultWaitOutcome
+        do {
+            outcome = try waiter.wait(
+                requestID: request.id,
+                deadline: request.approvalDeadline,
+                approvalTimeoutNote: failureMessages.approvalTimedOut
+            )
+        } catch {
+            if let result = store.result(id: request.id) {
+                return resultCode(.result(result), requestID: request.id)
+            }
+            _ = try? store.settlePendingTimeout(
+                SudoResult(
+                    id: request.id,
+                    status: .failed,
+                    errorCode: .resultWaitFailed,
+                    note: messages.resultWaitFailed
+                )
+            )
+            throw SudoCLICommandError(message: messages.resultWaitFailed)
+        }
         return resultCode(outcome, requestID: request.id)
     }
 

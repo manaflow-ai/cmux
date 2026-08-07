@@ -63,7 +63,7 @@ struct SudoBoundedProcessRunner: Sendable {
         } while result < 0 && errno == EINTR
 
         guard result == processIdentifier else {
-            return .signaled(SIGKILL)
+            return .unavailable
         }
         let terminationSignal = status & 0x7f
         if terminationSignal == 0 {

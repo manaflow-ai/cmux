@@ -1,5 +1,5 @@
 /// A PID paired with its creation time to reject PID reuse during recovery.
-public struct SudoProcessIdentity: Codable, Sendable, Equatable {
+public struct SudoProcessIdentity: Codable, Sendable, Hashable {
     /// The process identifier.
     public let processIdentifier: Int32
 

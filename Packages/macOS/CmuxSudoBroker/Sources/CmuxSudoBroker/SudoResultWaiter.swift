@@ -36,7 +36,7 @@ struct SudoResultWaiter {
 
         let timerIdentifier = UInt.max
         let remainingSeconds = max(0, deadline.timeIntervalSinceNow)
-        let milliseconds = max(1, min(Int.max, Int(ceil(remainingSeconds * 1_000))))
+        let milliseconds = SudoKeventTimeout(seconds: remainingSeconds).milliseconds
         var timerEvent = kevent(
             ident: timerIdentifier,
             filter: Int16(EVFILT_TIMER),

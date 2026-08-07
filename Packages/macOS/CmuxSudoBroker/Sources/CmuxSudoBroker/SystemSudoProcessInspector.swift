@@ -37,11 +37,13 @@ struct SystemSudoProcessInspector: SudoProcessInspecting {
         let length = buffer.withUnsafeMutableBufferPointer { pointer in
             proc_pidpath(processIdentifier, pointer.baseAddress, UInt32(pointer.count))
         }
-        guard length > 0 else { return nil }
-        let path = String(
-            decoding: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) },
-            as: UTF8.self
-        )
+        guard length > 0,
+              let path = String(
+                  bytes: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) },
+                  encoding: .utf8
+              ) else {
+            return nil
+        }
         return URL(fileURLWithPath: path)
             .resolvingSymlinksInPath()
             .standardizedFileURL

@@ -265097,6 +265097,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "sudo リクエストは承認前に期限切れになりました" } }
       }
     },
+    "sudo.error.requester_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo request cancelled because the requesting process exited" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "要求元のプロセスが終了したため、sudo リクエストはキャンセルされました" } }
+      }
+    },
     "sudo.error.execution_interrupted": {
       "extractionState": "manual",
       "localizations": {
@@ -265198,8 +265205,8 @@
     "sudo.cli.error.app_launch_failed": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not launch the enclosing cmux app" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 対応する cmux アプリを起動できませんでした" } }
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not open cmux for approval; open cmux and retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 承認のために cmux を開けませんでした。cmux を開いて再試行してください" } }
       }
     },
     "sudo.cli.error.request_write_failed": {
@@ -265207,6 +265214,20 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "sudo: could not write the approval request" } },
         "ja": { "stringUnit": { "state": "translated", "value": "sudo: 承認リクエストを書き込めませんでした" } }
+      }
+    },
+    "sudo.cli.error.requester_identity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not verify the requesting process; retry the command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 要求元のプロセスを確認できませんでした。コマンドを再試行してください" } }
+      }
+    },
+    "sudo.cli.error.result_wait_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not monitor the approval result; retry the command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 承認結果を監視できませんでした。コマンドを再試行してください" } }
       }
     },
     "sudo.cli.denied": {
@@ -265258,6 +265279,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "sudo: リクエスト %1$@ をキューに追加しました。cmux での承認を最大 %2$d 秒待ちます…" } }
       }
     },
+    "sudo.cli.queued.singular": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: request %@ queued; waiting up to 1 second for approval in cmux…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: リクエスト %@ をキューに追加しました。cmux での承認を最大 1 秒待ちます…" } }
+      }
+    },
     "sudo.cli.timeout.pending": {
       "extractionState": "manual",
       "localizations": {
@@ -265275,22 +265303,15 @@
     "sudo.cli.error.runner_context": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "sudo: the hidden runner could not resolve its enclosing cmux app" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 内部ランナーが対応する cmux アプリを解決できませんでした" } }
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not start secure execution; retry from a cmux terminal" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 安全な実行を開始できませんでした。cmux ターミナルから再試行してください" } }
       }
     },
     "sudo.cli.error.enclosing_app": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "sudo requires the bundled cmux CLI from an installed or tagged cmux app" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "sudo には、インストール済みまたはタグ付き cmux アプリに同梱された cmux CLI が必要です" } }
-      }
-    },
-    "sudo.cli.requester.unknown": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: use the cmux CLI included with the cmux app, then retry" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: cmux アプリに含まれる cmux CLI を使用して再試行してください" } }
       }
     },
     "sudo.cli.global_usage.run": {

@@ -13,7 +13,6 @@ public struct SudoExecutionRunner {
     private let processRunner: SudoBoundedProcessRunner
     private let expectedParentExecutableURL: URL
     private let messages: SudoFailureMessages
-    private let outputDetector: SudoAuthenticationOutputDetector
     private let now: @Sendable () -> Date
 
     /// Creates the production runner used by the hidden bundled-CLI entrypoint.
@@ -43,7 +42,6 @@ public struct SudoExecutionRunner {
         )
         self.expectedParentExecutableURL = expectedParentExecutableURL
         self.messages = messages
-        outputDetector = SudoAuthenticationOutputDetector()
         now = { .now }
     }
 
@@ -55,7 +53,6 @@ public struct SudoExecutionRunner {
         processRunner: SudoBoundedProcessRunner,
         expectedParentExecutableURL: URL,
         messages: SudoFailureMessages,
-        outputDetector: SudoAuthenticationOutputDetector = SudoAuthenticationOutputDetector(),
         now: @Sendable @escaping () -> Date
     ) {
         self.store = store
@@ -65,7 +62,6 @@ public struct SudoExecutionRunner {
         self.processRunner = processRunner
         self.expectedParentExecutableURL = expectedParentExecutableURL
         self.messages = messages
-        self.outputDetector = outputDetector
         self.now = now
     }
 
@@ -155,18 +151,13 @@ public struct SudoExecutionRunner {
                     execution: process.identity,
                     now: now()
                 ) else {
-                    _ = processRunner.terminate(process)
+                    let survivors = processRunner.terminate(process)
+                    recordCleanupSurvivors(survivors, requestID: requestID)
                     return 0
                 }
             } catch {
                 let survivors = processRunner.terminate(process)
-                if !survivors.isEmpty {
-                    _ = try? store.recordCleanupSurvivors(
-                        id: requestID,
-                        survivors: survivors,
-                        now: now()
-                    )
-                }
+                recordCleanupSurvivors(survivors, requestID: requestID)
                 try settle(
                     SudoResult(
                         id: requestID,
@@ -182,17 +173,17 @@ public struct SudoExecutionRunner {
             }
 
             let outcome = processRunner.wait(for: process, deadline: manifest.deadline)
-            if case .timedOut(let survivors) = outcome, !survivors.isEmpty {
-                _ = try? store.recordCleanupSurvivors(
-                    id: requestID,
-                    survivors: survivors,
-                    now: now()
-                )
+            let cleanupSurvivors: [SudoProcessIdentity]
+            switch outcome {
+            case .authenticationFailed(let survivors), .timedOut(let survivors):
+                cleanupSurvivors = survivors
+            case .exited, .signaled, .unavailable:
+                cleanupSurvivors = []
             }
+            recordCleanupSurvivors(cleanupSurvivors, requestID: requestID)
             try settle(
                 result(
                     requestID: requestID,
-                    outputURL: command.outputURL,
                     outcome: outcome
                 ),
                 auditStatus: "execution-finished"
@@ -214,27 +205,23 @@ public struct SudoExecutionRunner {
 
     private func result(
         requestID: String,
-        outputURL: URL,
         outcome: SudoProcessOutcome
     ) -> SudoResult {
         switch outcome {
         case .exited(let exitCode):
-            if exitCode != 0,
-               outputDetector.indicatesAuthenticationFailure(at: outputURL) {
-                return SudoResult(
-                    id: requestID,
-                    status: .failed,
-                    exitCode: exitCode,
-                    errorCode: .authenticationFailed,
-                    note: messages.authenticationFailed
-                )
-            }
             return SudoResult(
                 id: requestID,
                 status: .completed,
                 exitCode: exitCode
             )
         case .signaled:
+            return SudoResult(
+                id: requestID,
+                status: .failed,
+                errorCode: .executionInterrupted,
+                note: messages.executionInterrupted
+            )
+        case .unavailable:
             return SudoResult(
                 id: requestID,
                 status: .failed,
@@ -266,6 +253,18 @@ public struct SudoExecutionRunner {
         _ = try store.settle(result)
         store.appendAudit(
             "\(now().ISO8601Format()) \(result.id) \(auditStatus)"
+        )
+    }
+
+    private func recordCleanupSurvivors(
+        _ survivors: [SudoProcessIdentity],
+        requestID: String
+    ) {
+        guard !survivors.isEmpty else { return }
+        _ = try? store.recordCleanupSurvivors(
+            id: requestID,
+            survivors: survivors,
+            now: now()
         )
     }
 

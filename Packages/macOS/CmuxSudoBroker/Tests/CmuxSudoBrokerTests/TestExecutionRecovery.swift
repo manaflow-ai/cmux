@@ -3,6 +3,7 @@ import Foundation
 
 actor TestExecutionRecovery: SudoInterruptedExecutionRecovering {
     private(set) var recoveredStates: [SudoRequestState] = []
+    private(set) var recoveryBatches: [[SudoRequestState]] = []
     private let disposition: SudoExecutionRecoveryDisposition
 
     init(disposition: SudoExecutionRecoveryDisposition = .recovered) {
@@ -10,10 +11,13 @@ actor TestExecutionRecovery: SudoInterruptedExecutionRecovering {
     }
 
     func recover(
-        state: SudoRequestState,
+        states: [SudoRequestState],
         approvedDirectory: URL
-    ) async -> SudoExecutionRecoveryDisposition {
-        recoveredStates.append(state)
-        return disposition
+    ) async -> [String: SudoExecutionRecoveryDisposition] {
+        recoveryBatches.append(states)
+        recoveredStates.append(contentsOf: states)
+        return Dictionary(
+            uniqueKeysWithValues: states.map { ($0.id, disposition) }
+        )
     }
 }

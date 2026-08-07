@@ -18,7 +18,7 @@ public struct SudoBrokerPaths: Sendable, Equatable {
     ///   - applicationSupportDirectory: The injected user application-support root.
     ///   - bundleIdentifier: The enclosing cmux app's bundle identifier.
     public init(applicationSupportDirectory: URL, bundleIdentifier: String) {
-        let scope = bundleIdentifier
+        let sanitizedScope = bundleIdentifier
             .unicodeScalars
             .map { scalar in
                 CharacterSet.alphanumerics.contains(scalar) || scalar == "." || scalar == "-"
@@ -26,10 +26,13 @@ public struct SudoBrokerPaths: Sendable, Equatable {
                     : "_"
             }
             .joined()
+        let scope = sanitizedScope.isEmpty || sanitizedScope == "." || sanitizedScope == ".."
+            ? "com.cmuxterm.app"
+            : sanitizedScope
         base = applicationSupportDirectory
             .appendingPathComponent("cmux", isDirectory: true)
             .appendingPathComponent("sudo", isDirectory: true)
-            .appendingPathComponent(scope.isEmpty ? "com.cmuxterm.app" : scope, isDirectory: true)
+            .appendingPathComponent(scope, isDirectory: true)
             .standardizedFileURL
     }
 

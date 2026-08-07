@@ -25,6 +25,7 @@ final class SudoApprovalWindowController: NSWindowController, NSWindowDelegate {
             )
         )
         let window = NSWindow(contentViewController: hostingController)
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.sudo.approval")
         window.title = presentation.windowTitle
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.setContentSize(NSSize(width: 720, height: 560))

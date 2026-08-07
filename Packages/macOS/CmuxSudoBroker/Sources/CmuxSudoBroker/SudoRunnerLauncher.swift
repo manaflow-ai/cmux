@@ -16,6 +16,7 @@ struct SudoRunnerLauncher: SudoRunnerLaunching {
         self.reaper = reaper
     }
 
+    @concurrent
     func launch(requestID: String) async throws -> SudoLaunchedRunner {
         var fileActions: posix_spawn_file_actions_t?
         try Self.requireSuccess(posix_spawn_file_actions_init(&fileActions))
@@ -47,9 +48,7 @@ struct SudoRunnerLauncher: SudoRunnerLaunching {
         )
 
         let arguments = [executableURL.path, SudoExecutionRunner.hiddenCommand, requestID]
-        let environment = ProcessInfo.processInfo.environment
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
+        let environment = SudoProcessEnvironment().entries
         var processIdentifier: pid_t = 0
         let status = try Self.withCStringArray(arguments) { arguments in
             try Self.withCStringArray(environment) { environment in

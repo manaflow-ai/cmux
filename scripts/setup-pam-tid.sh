@@ -28,8 +28,8 @@ if grep -Eq '^[[:space:]]*#[[:space:]]*auth[[:space:]]+sufficient[[:space:]]+pam
     's/^[[:space:]]*#[[:space:]]*(auth[[:space:]]+sufficient[[:space:]]+pam_tid\.so.*)$/\1/' \
     "$pam_file"
 else
-  printf 'auth       sufficient     pam_tid.so\n' >> "$pam_file"
+  printf '\nauth       sufficient     pam_tid.so\n' >> "$pam_file"
 fi
 
 echo "Touch ID for sudo enabled in $pam_file:"
-grep -n 'pam_tid\.so' "$pam_file"
+grep -nE '^[[:space:]]*auth[[:space:]]+sufficient[[:space:]]+pam_tid\.so([[:space:]]|$)' "$pam_file"

@@ -4,17 +4,7 @@ import Testing
 
 @Suite("Sudo broker lifecycle regressions")
 struct SudoBrokerRegressionTests {
-    private let messages = SudoFailureMessages(
-        pamTidUnavailable: "pam_tid is not enabled; run scripts/setup-pam-tid.sh",
-        approvalTimedOut: "request expired before approval",
-        executionInterrupted: "approved execution was interrupted",
-        executionTimedOut: "approved execution timed out",
-        authenticationFailed: "authentication failed",
-        stagingFailed: "staging failed",
-        runnerLaunchFailed: "runner launch failed",
-        processLaunchFailed: "process launch failed",
-        cleanupFailed: "process cleanup failed"
-    )
+    private let messages = SudoFailureMessages.testMessages
 
     @Test("Missing pam_tid settles without launching sudo")
     func missingPAMFailsBeforeLaunch() async throws {
@@ -119,6 +109,44 @@ struct SudoBrokerRegressionTests {
         #expect(result.errorCode == .approvalTimedOut)
     }
 
+    @Test("Startup rejects a request whose PID generation has exited")
+    func startupRejectsUnavailableRequester() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let identity = SudoProcessIdentity(
+            processIdentifier: 123,
+            startSeconds: 10,
+            startMicroseconds: 20
+        )
+        let request = try fixture.enqueue(
+            id: "requester-exited",
+            createdAt: now,
+            requesterIdentity: identity
+        )
+        let inspector = TestRunnerBootstrapInspector(
+            parentProcessIdentifier: identity.processIdentifier,
+            parentExecutableURL: URL(fileURLWithPath: "/usr/bin/test-agent")
+        )
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: TestExecutionRecovery(),
+                watcher: nil,
+                requesterInspector: inspector
+            ),
+            messages: messages
+        )
+
+        let discovered = try await broker.start()
+
+        #expect(discovered.isEmpty)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .requesterUnavailable)
+    }
+
     @Test("Startup reaps and settles interrupted approved execution")
     func startupRecoversInterruptedExecution() async throws {
         let fixture = try SudoTestFixture()
@@ -161,6 +189,51 @@ struct SudoBrokerRegressionTests {
         #expect(recoveredStates == [state])
         let result = try #require(fixture.store.result(id: request.id))
         #expect(result.errorCode == .executionInterrupted)
+    }
+
+    @Test("Startup batches recovery and continues after one settlement fails")
+    func startupRecoveryIsBatchedAndFailureIsolated() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let first = try fixture.enqueue(id: "a-settle-fails", createdAt: now)
+        let second = try fixture.enqueue(id: "b-settles", createdAt: now)
+        let states = [first, second].map { request in
+            SudoRequestState(
+                id: request.id,
+                phase: .executing,
+                updatedAt: now,
+                execution: SudoProcessIdentity(
+                    processIdentifier: request.id == first.id ? 5_160 : 5_161,
+                    startSeconds: 110,
+                    startMicroseconds: 210
+                )
+            )
+        }
+        for state in states {
+            try fixture.store.writeState(state)
+        }
+        try Data().write(
+            to: fixture.paths.results.appendingPathComponent("\(first.id).json")
+        )
+        let recovery = TestExecutionRecovery()
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: recovery,
+                watcher: nil
+            ),
+            messages: messages
+        )
+
+        _ = try await broker.start()
+
+        #expect(await recovery.recoveryBatches == [states])
+        #expect(fixture.store.result(id: first.id) == nil)
+        #expect(fixture.store.result(id: second.id)?.errorCode == .executionInterrupted)
     }
 
     @Test("Incomplete cleanup settles while retaining restart recovery evidence")

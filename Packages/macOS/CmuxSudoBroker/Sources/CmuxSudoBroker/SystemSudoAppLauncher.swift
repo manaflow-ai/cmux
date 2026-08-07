@@ -43,9 +43,7 @@ struct SystemSudoAppLauncher: SudoAppLaunching {
         )
 
         let arguments = ["/usr/bin/open", "-g", "-a", appBundleURL.path]
-        let environment = ProcessInfo.processInfo.environment
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
+        let environment = SudoProcessEnvironment().entries
         var processIdentifier: pid_t = 0
         let spawnStatus = try Self.withCStringArray(arguments) { arguments in
             try Self.withCStringArray(environment) { environment in

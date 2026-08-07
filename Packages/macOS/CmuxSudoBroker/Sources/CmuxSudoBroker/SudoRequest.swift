@@ -20,6 +20,9 @@ public struct SudoRequest: Codable, Sendable, Equatable {
     /// The requesting executable name shown during approval.
     public let requesterCommand: String
 
+    /// The requester's PID generation when the executable name was captured.
+    public let requesterIdentity: SudoProcessIdentity?
+
     /// The working directory used by the approved script.
     public let currentDirectory: String
 
@@ -48,10 +51,64 @@ public struct SudoRequest: Codable, Sendable, Equatable {
         createdAt: Date,
         timeoutSeconds: Int = defaultTimeoutSeconds
     ) {
+        self.init(
+            id: id,
+            reason: reason,
+            requesterPid: requesterPid,
+            requesterCommand: requesterCommand,
+            requesterIdentity: nil,
+            currentDirectory: currentDirectory,
+            createdAt: createdAt,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    /// Creates a generation-qualified sudo request.
+    ///
+    /// - Parameters:
+    ///   - id: A filesystem-safe request identifier.
+    ///   - reason: The explanation shown to the approver.
+    ///   - requesterIdentity: The requester generation captured with its executable.
+    ///   - requesterCommand: The requester's executable name.
+    ///   - currentDirectory: The script working directory.
+    ///   - createdAt: The creation date used for expiry.
+    ///   - timeoutSeconds: The requested timeout, clamped to 1 through 86400.
+    public init(
+        id: String,
+        reason: String,
+        requesterIdentity: SudoProcessIdentity,
+        requesterCommand: String,
+        currentDirectory: String,
+        createdAt: Date,
+        timeoutSeconds: Int = defaultTimeoutSeconds
+    ) {
+        self.init(
+            id: id,
+            reason: reason,
+            requesterPid: requesterIdentity.processIdentifier,
+            requesterCommand: requesterCommand,
+            requesterIdentity: requesterIdentity,
+            currentDirectory: currentDirectory,
+            createdAt: createdAt,
+            timeoutSeconds: timeoutSeconds
+        )
+    }
+
+    private init(
+        id: String,
+        reason: String,
+        requesterPid: Int32,
+        requesterCommand: String,
+        requesterIdentity: SudoProcessIdentity?,
+        currentDirectory: String,
+        createdAt: Date,
+        timeoutSeconds: Int
+    ) {
         self.id = id
         self.reason = reason
         self.requesterPid = requesterPid
         self.requesterCommand = requesterCommand
+        self.requesterIdentity = requesterIdentity
         self.currentDirectory = currentDirectory
         self.createdAt = createdAt
         self.timeoutSeconds = min(Self.maximumTimeoutSeconds, max(1, timeoutSeconds))
@@ -63,6 +120,7 @@ public struct SudoRequest: Codable, Sendable, Equatable {
         case requesterPid
         case requesterCommand
         case requesterCmd
+        case requesterIdentity
         case currentDirectory
         case cwd
         case createdAt
@@ -80,6 +138,18 @@ public struct SudoRequest: Codable, Sendable, Equatable {
         requesterPid = try container.decode(Int32.self, forKey: .requesterPid)
         requesterCommand = try container.decodeIfPresent(String.self, forKey: .requesterCommand)
             ?? container.decode(String.self, forKey: .requesterCmd)
+        requesterIdentity = try container.decodeIfPresent(
+            SudoProcessIdentity.self,
+            forKey: .requesterIdentity
+        )
+        if let requesterIdentity,
+           requesterIdentity.processIdentifier != requesterPid {
+            throw DecodingError.dataCorruptedError(
+                forKey: .requesterIdentity,
+                in: container,
+                debugDescription: "Requester identity does not match requesterPid"
+            )
+        }
         currentDirectory = try container.decodeIfPresent(String.self, forKey: .currentDirectory)
             ?? container.decode(String.self, forKey: .cwd)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
@@ -98,6 +168,7 @@ public struct SudoRequest: Codable, Sendable, Equatable {
         try container.encode(reason, forKey: .reason)
         try container.encode(requesterPid, forKey: .requesterPid)
         try container.encode(requesterCommand, forKey: .requesterCommand)
+        try container.encodeIfPresent(requesterIdentity, forKey: .requesterIdentity)
         try container.encode(currentDirectory, forKey: .currentDirectory)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(timeoutSeconds, forKey: .timeoutSeconds)

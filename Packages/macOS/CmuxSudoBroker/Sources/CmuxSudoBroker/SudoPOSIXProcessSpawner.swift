@@ -79,9 +79,7 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             error: { .attributesFailed($0) }
         )
 
-        let environment = ProcessInfo.processInfo.environment
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
+        let environment = SudoProcessEnvironment().entries
         guard (command.arguments + environment).allSatisfy({ !$0.utf8.contains(0) }) else {
             throw SudoPOSIXSpawnError.invalidCString
         }
@@ -106,14 +104,13 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
                 spawnStatus == 0 ? ECHILD : spawnStatus
             )
         }
-        shouldRemoveOutput = false
-
         guard let identity = inspector.identity(for: processIdentifier) else {
             _ = kill(-processIdentifier, SIGKILL)
             _ = kill(processIdentifier, SIGKILL)
             Self.reap(processIdentifier)
             throw SudoPOSIXSpawnError.identityUnavailable
         }
+        shouldRemoveOutput = false
         return SudoSpawnedProcess(
             identity: identity,
             processGroupIdentifier: processIdentifier,

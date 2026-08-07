@@ -2,22 +2,39 @@ public import Foundation
 
 /// Reads the sudo PAM policy used for Touch ID authentication.
 public struct SudoPAMConfiguration: Sendable {
-    /// The PAM policy file to inspect.
-    public let fileURL: URL
+    /// The PAM policy files inspected in precedence order.
+    public let fileURLs: [URL]
 
-    /// Creates a PAM policy reader.
+    /// Creates a reader for the standard local and system sudo policies.
+    public init() {
+        fileURLs = [
+            URL(fileURLWithPath: "/etc/pam.d/sudo_local"),
+            URL(fileURLWithPath: "/etc/pam.d/sudo"),
+        ]
+    }
+
+    /// Creates a reader for one injected PAM policy file.
     ///
-    /// - Parameter fileURL: The injected policy file, normally /etc/pam.d/sudo_local.
-    public init(fileURL: URL = URL(fileURLWithPath: "/etc/pam.d/sudo_local")) {
-        self.fileURL = fileURL
+    /// - Parameter fileURL: The policy file used instead of the standard locations.
+    public init(fileURL: URL) {
+        fileURLs = [fileURL]
+    }
+
+    /// Creates a reader for multiple injected policy files.
+    init(fileURLs: [URL]) {
+        self.fileURLs = fileURLs
     }
 
     /// Whether the policy file appears to mention pam_tid.so.
     ///
     /// - Returns: `true` only for an active `auth sufficient pam_tid.so` entry.
     public func touchIDIsEnabled() -> Bool {
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return false }
-        return Self.containsEnabledEntry(contents)
+        fileURLs.contains { fileURL in
+            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
+                return false
+            }
+            return Self.containsEnabledEntry(contents)
+        }
     }
 
     /// Parses a PAM policy string for Touch ID support.

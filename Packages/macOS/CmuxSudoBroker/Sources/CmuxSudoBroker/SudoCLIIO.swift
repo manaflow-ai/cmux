@@ -7,7 +7,7 @@ struct SudoCLIIO {
 
     static var live: SudoCLIIO {
         SudoCLIIO(
-            readStandardInput: { FileHandle.standardInput.readDataToEndOfFile() },
+            readStandardInput: { try FileHandle.standardInput.readToEnd() ?? Data() },
             writeStandardOutput: { try FileHandle.standardOutput.write(contentsOf: $0) },
             writeStandardError: { message in
                 try? FileHandle.standardError.write(contentsOf: Data((message + "\n").utf8))
