@@ -340,6 +340,23 @@ def detect_assert_on_duration(line: str) -> bool:
     return has_threshold_compare or has_relational_assert
 
 
+def _starts_outside_quoted_string(line: str, index: int) -> bool:
+    """Whether line[index] is outside a single-, double-, or backtick string."""
+    quote: Optional[str] = None
+    escaped = False
+    for char in line[:index]:
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote is None:
+            if char in ("'", '"', "`"):
+                quote = char
+        elif char == quote:
+            quote = None
+    return quote is None
+
+
 def detect_live_network_host(line: str) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
@@ -347,7 +364,13 @@ def detect_live_network_host(line: str) -> bool:
     # canonical-URL assertion, toContain) opens no socket and is not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    if not _NETWORK_VERB.search(line):
+    # The URL argument to a real network call is normally quoted, but the verb
+    # itself must be executable code. Ignore command text embedded in fixtures,
+    # such as `expect(text).toContain("curl https://cmux.com/install.sh")`.
+    if not any(
+        _starts_outside_quoted_string(line, match.start())
+        for match in _NETWORK_VERB.finditer(line)
+    ):
         return False
     for match in _URL.finditer(line):
         host = match.group(1)
