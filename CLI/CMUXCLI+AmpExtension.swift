@@ -1,10 +1,11 @@
 import Foundation
+import Darwin
 
 extension CMUXCLI {
     private static let ampExtensionMarker = "cmux-amp-session-extension-marker"
     private static let ampExtensionFilename = "cmux-session.ts"
     private static let ampExtensionSource = #"""
-// cmux-amp-session-extension-marker v2
+// cmux-amp-session-extension-marker v3
 // Bridges Amp session lifecycle events into cmux's restorable session store
 // AND reports live agent status (idle/thinking/tool calls/done/error) into
 // the cmux tab status bar.
@@ -1142,16 +1143,126 @@ export default function (amp: PluginAPI) {
             .appendingPathComponent(Self.ampExtensionFilename, isDirectory: false)
     }
 
+    @discardableResult
+    private func withAmpExtensionMutationLock<T>(
+        at extensionURL: URL,
+        createParentDirectory: Bool,
+        acquireNonBlocking: Bool = false,
+        fileManager: FileManager = .default,
+        _ operation: () throws -> T
+    ) throws -> T? {
+        let directoryURL = extensionURL.deletingLastPathComponent()
+        if createParentDirectory {
+            try fileManager.createDirectory(
+                at: directoryURL,
+                withIntermediateDirectories: true
+            )
+        }
+        let lockURL = directoryURL.appendingPathComponent(
+            ".cmux-session.lock",
+            isDirectory: false
+        )
+        let descriptor = Darwin.open(
+            lockURL.path,
+            O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW,
+            mode_t(S_IRUSR | S_IWUSR)
+        )
+        guard descriptor >= 0 else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSFilePathErrorKey: lockURL.path]
+            )
+        }
+        defer { Darwin.close(descriptor) }
+        var metadata = stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSFilePathErrorKey: lockURL.path]
+            )
+        }
+        let lockOperation = LOCK_EX | (acquireNonBlocking ? LOCK_NB : 0)
+        guard flock(descriptor, lockOperation) == 0 else {
+            if acquireNonBlocking,
+               errno == EWOULDBLOCK || errno == EAGAIN {
+                return nil
+            }
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(errno),
+                userInfo: [NSFilePathErrorKey: lockURL.path]
+            )
+        }
+        defer { flock(descriptor, LOCK_UN) }
+        return try operation()
+    }
+
+    func refreshManagedAmpExtensionIfNeeded(_ def: AgentHookDef) {
+        let extensionURL = ampExtensionURL(for: def)
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: extensionURL.path) else { return }
+        do {
+            try withAmpExtensionMutationLock(
+                at: extensionURL,
+                createParentDirectory: false,
+                acquireNonBlocking: true,
+                fileManager: fileManager
+            ) {
+                guard fileManager.fileExists(atPath: extensionURL.path) else {
+                    return
+                }
+                let existing = try String(
+                    contentsOf: extensionURL,
+                    encoding: .utf8
+                )
+                if existing.isEmpty {
+                    try Self.ampExtensionSource.write(
+                        to: extensionURL,
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                    return
+                }
+                guard existing.contains(Self.ampExtensionMarker),
+                      existing != Self.ampExtensionSource else {
+                    return
+                }
+                // All cmux plugin mutations share this lock. Revalidation keeps
+                // a concurrent user replacement or uninstall authoritative.
+                guard try String(
+                    contentsOf: extensionURL,
+                    encoding: .utf8
+                ) == existing else {
+                    return
+                }
+                try Self.ampExtensionSource.write(
+                    to: extensionURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+        } catch {
+            // Hook delivery must continue when a managed plugin cannot refresh.
+        }
+    }
+
     func installAmpExtensionHooks(_ def: AgentHookDef) throws {
         let extensionURL = ampExtensionURL(for: def)
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
-        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        let existing = (try? String(
+            contentsOf: extensionURL,
+            encoding: .utf8
+        )) ?? ""
         if existing == Self.ampExtensionSource {
             print("Amp hooks already up to date at \(extensionURL.path)")
             return
         }
-        if !existing.isEmpty, !existing.contains(Self.ampExtensionMarker) {
+        if !existing.isEmpty,
+           !existing.contains(Self.ampExtensionMarker) {
             throw CLIError(message: "\(extensionURL.path) exists and is not a cmux plugin; leaving it alone")
         }
         if !skipConfirm {
@@ -1167,12 +1278,25 @@ export default function (amp: PluginAPI) {
                 return
             }
         }
-        try FileManager.default.createDirectory(
-            at: extensionURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try Self.ampExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
-        print("Amp hooks installed at \(extensionURL.path)")
+        let installed = try withAmpExtensionMutationLock(
+            at: extensionURL,
+            createParentDirectory: true
+        ) {
+            let current = (try? String(
+                contentsOf: extensionURL,
+                encoding: .utf8
+            )) ?? ""
+            guard current == existing else { return false }
+            try Self.ampExtensionSource.write(
+                to: extensionURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            return true
+        } ?? false
+        if installed {
+            print("Amp hooks installed at \(extensionURL.path)")
+        }
     }
 
     func uninstallAmpExtensionHooks(_ def: AgentHookDef) throws {
@@ -1182,12 +1306,32 @@ export default function (amp: PluginAPI) {
             print("No Amp cmux plugin found at \(extensionURL.path)")
             return
         }
-        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        let existing = (try? String(
+            contentsOf: extensionURL,
+            encoding: .utf8
+        )) ?? ""
         guard existing.contains(Self.ampExtensionMarker) else {
             print("Refusing to remove \(extensionURL.path): missing cmux marker")
             return
         }
-        try fm.removeItem(at: extensionURL)
-        print("Removed Amp cmux plugin from \(extensionURL.path)")
+        let removed = try withAmpExtensionMutationLock(
+            at: extensionURL,
+            createParentDirectory: false,
+            fileManager: fm
+        ) {
+            guard fm.fileExists(atPath: extensionURL.path) else {
+                return false
+            }
+            let current = (try? String(
+                contentsOf: extensionURL,
+                encoding: .utf8
+            )) ?? ""
+            guard current == existing else { return false }
+            try fm.removeItem(at: extensionURL)
+            return true
+        } ?? false
+        if removed {
+            print("Removed Amp cmux plugin from \(extensionURL.path)")
+        }
     }
 }

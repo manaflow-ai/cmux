@@ -36559,8 +36559,15 @@ export default CMUXSessionRestore;
                 print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
                 return true
             }
-            if def.name == "pi", action == "session-start" {
-                refreshManagedPiExtensionIfNeeded(def)
+            if action == "session-start" {
+                switch def.name {
+                case "amp":
+                    refreshManagedAmpExtensionIfNeeded(def)
+                case "pi":
+                    refreshManagedPiExtensionIfNeeded(def)
+                default:
+                    break
+                }
             }
             let actionArgs = Array(rest.dropFirst())
             switch action {
