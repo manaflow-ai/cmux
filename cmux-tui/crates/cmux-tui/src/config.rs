@@ -119,7 +119,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
-#[cfg(all(unix, not(test)))]
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Child;
@@ -3206,13 +3206,15 @@ fn desktop_theme_command_output(
     if timeout.is_zero() {
         return None;
     }
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
+        .stderr(std::process::Stdio::null());
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn().ok()?;
     let Some(stdout) = child.stdout.take() else {
         terminate_ghostty_helper_child(child);
         return None;
@@ -4952,6 +4954,48 @@ mod tests {
         }
 
         assert!(!unix_process_exists(pid), "helper child {pid} was not reaped");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_cleanup_reaps_process_group_children() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-process-group-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let child_pid_path = dir.join("child.pid");
+        let script = format!("sleep 5 & echo $! > '{}'; wait", child_pid_path.display());
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(script).process_group(0);
+        let child = command.spawn().unwrap();
+        let parent_pid = child.id() as libc::pid_t;
+        let child_pid = {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
+                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
+                {
+                    break pid;
+                }
+                assert!(Instant::now() < deadline, "child pid was not written");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+
+        terminate_ghostty_helper_child(child);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while (unix_process_exists(parent_pid) || unix_process_exists(child_pid))
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
+        assert!(!unix_process_exists(child_pid), "helper child {child_pid} was not killed");
     }
 
     #[cfg(unix)]
