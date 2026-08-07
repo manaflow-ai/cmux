@@ -6,6 +6,7 @@ Regression test: the generated Amp plugin is importable and emits cmux hook call
 from __future__ import annotations
 
 import base64
+import json
 import os
 import shutil
 import subprocess
@@ -78,6 +79,49 @@ def main() -> int:
         extension_text = extension_path.read_text(encoding="utf-8")
         if "cmux-amp-session-extension-marker" not in extension_text:
             print(f"FAIL: expected cmux marker in {extension_path}")
+            return 1
+
+        extension_path.write_text(
+            "// cmux-amp-session-extension-marker v2\n"
+            "// stale managed fixture without settled turn boundaries\n",
+            encoding="utf-8",
+        )
+        workspace_id = "55555555-5555-5555-5555-555555555555"
+        surface_id = "66666666-6666-6666-6666-666666666666"
+        refresh_env = env.copy()
+        refresh_env["CMUX_WORKSPACE_ID"] = workspace_id
+        refresh_env["CMUX_SURFACE_ID"] = surface_id
+        refresh_result = subprocess.run(
+            [
+                cli_path,
+                "--socket",
+                str(root / "missing-amp-refresh.sock"),
+                "hooks",
+                "amp",
+                "session-start",
+                "--workspace",
+                workspace_id,
+                "--surface",
+                surface_id,
+            ],
+            input=json.dumps(
+                {
+                    "session_id": "amp-managed-plugin-refresh",
+                    "cwd": str(root),
+                    "hook_event_name": "SessionStart",
+                }
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=refresh_env,
+            timeout=20,
+        )
+        if refresh_result.returncode == 0:
+            print("FAIL: Amp refresh fixture unexpectedly connected to its missing socket")
+            return 1
+        if extension_path.read_text(encoding="utf-8") != extension_text:
+            print("FAIL: Amp session-start did not refresh the stale cmux-managed plugin")
             return 1
 
         fake_cmux = root / "fake-cmux"
