@@ -6,7 +6,7 @@ public import Foundation
 /// an adapter-generated value when the protocol lacks one. `generation` must
 /// change whenever a new logical connection could make old actions unsafe.
 public struct NestedProviderInstanceID: Codable, Hashable, Sendable {
-    /// Provider or adapter supplied opaque instance value.
+    /// Provider or adapter supplied opaque instance value preserved byte-for-byte on the wire.
     public let rawValue: String
 
     /// Connection generation that invalidates stale nodes and actions.
@@ -37,5 +37,28 @@ public struct NestedProviderInstanceID: Codable, Hashable, Sendable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(generation)
         hasher.combine(ExactUTF8String(rawValue))
+    }
+
+    /// Decodes an instance identity while preserving opaque provider bytes.
+    ///
+    /// - Parameter decoder: Decoder containing the instance identity.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rawValue = try container.decode(ExactUTF8String.self, forKey: .rawValue).value
+        generation = try container.decode(UUID.self, forKey: .generation)
+    }
+
+    /// Encodes an instance identity with a byte-exact provider value.
+    ///
+    /// - Parameter encoder: Encoder receiving the instance identity.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(ExactUTF8String(rawValue), forKey: .rawValue)
+        try container.encode(generation, forKey: .generation)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case rawValue
+        case generation
     }
 }

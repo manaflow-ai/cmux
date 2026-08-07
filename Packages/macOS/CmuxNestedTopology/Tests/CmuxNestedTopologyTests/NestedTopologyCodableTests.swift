@@ -40,8 +40,8 @@ struct NestedTopologyCodableTests {
         ])
     }
 
-    @Test("opaque identity and association bytes survive Codable round trips")
-    func opaqueUTF8RoundTrip() throws {
+    @Test("opaque protocol bytes survive Codable round trips")
+    func opaqueProtocolUTF8RoundTrip() throws {
         let leadingByteOrderMark = "\u{FEFF}"
         let provider = NestedProviderIdentity(
             kind: NestedProviderKind(rawValue: "\(leadingByteOrderMark)herdr"),
@@ -97,7 +97,10 @@ struct NestedTopologyCodableTests {
                 sessionID: "\(leadingByteOrderMark)agent-session",
                 order: 0,
                 title: nil,
-                status: NestedAgentStatus(presentation: .idle, providerRawValue: "idle")
+                status: NestedAgentStatus(
+                    presentation: .idle,
+                    providerRawValue: "\(leadingByteOrderMark)idle"
+                )
             )],
             focus: .none
         )
@@ -111,6 +114,7 @@ struct NestedTopologyCodableTests {
         #expect(decoded.panes[0].association.key == snapshot.panes[0].association.key)
         #expect(decoded.agents[0].sessionID.map(ExactUTF8String.init)
             == snapshot.agents[0].sessionID.map(ExactUTF8String.init))
+        #expect(decoded.agents[0].status == snapshot.agents[0].status)
         #expect(decoded == snapshot)
     }
 

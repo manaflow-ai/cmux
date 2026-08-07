@@ -24,7 +24,7 @@ public struct NestedProviderCapability: Codable, Comparable, Hashable, Sendable 
     /// Provider supports prompting a nested agent.
     public static let agentPrompt = NestedProviderCapability(rawValue: "agent.prompt.v1")
 
-    /// Provider-defined opaque semantic capability.
+    /// Provider-defined opaque semantic capability preserved byte-for-byte on the wire.
     public let rawValue: String
 
     /// Creates a semantic capability.
@@ -61,19 +61,19 @@ public struct NestedProviderCapability: Codable, Comparable, Hashable, Sendable 
         ExactUTF8String(lhs.rawValue) < ExactUTF8String(rhs.rawValue)
     }
 
-    /// Decodes a capability from its single string token.
+    /// Decodes a capability from its byte-exact wire token.
     ///
     /// - Parameter decoder: Decoder containing the token.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.singleValueContainer()
-        rawValue = try container.decode(String.self)
+        rawValue = try container.decode(ExactUTF8String.self).value
     }
 
-    /// Encodes a capability as its single string token.
+    /// Encodes a capability as a byte-exact wire token.
     ///
     /// - Parameter encoder: Encoder receiving the token.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.singleValueContainer()
-        try container.encode(rawValue)
+        try container.encode(ExactUTF8String(rawValue))
     }
 }

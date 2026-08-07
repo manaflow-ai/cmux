@@ -74,12 +74,30 @@ struct NestedNodeIDTests {
         let id = NestedTopologyTestFixture().id("pane:17", kind: .pane)
         let data = try JSONEncoder().encode(id)
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let providerKind = try #require(object["providerKind"] as? String)
+        let rawID = try #require(object["rawID"] as? String)
 
         #expect(object["version"] as? Int == Int(NestedNodeID.currentVersion))
-        #expect(object["providerKind"] as? String == "herdr")
-        #expect(object["rawID"] as? String == "pane:17")
+        #expect(providerKind.hasPrefix("cmux-utf8-v1:"))
+        #expect(rawID.hasPrefix("cmux-utf8-v1:"))
         #expect(object["kind"] as? String == "pane")
         #expect(object["providerInstanceID"] is [String: Any])
+    }
+
+    @Test("malformed opaque wire values fail closed", arguments: [
+        "pane:17",
+        "cmux-utf8-v1:/w==",
+    ])
+    func rejectsMalformedOpaqueWireValue(_ wireValue: String) throws {
+        let id = NestedTopologyTestFixture().id("pane:17", kind: .pane)
+        let data = try JSONEncoder().encode(id)
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        object["rawID"] = wireValue
+        let malformed = try JSONSerialization.data(withJSONObject: object)
+
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(NestedNodeID.self, from: malformed)
+        }
     }
 
     @Test("opaque identity components preserve exact canonically equivalent UTF-8")

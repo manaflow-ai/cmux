@@ -16,6 +16,8 @@ This package contains only immutable values, validation, and pure reduction. It 
 
 Opaque provider kinds, instance values, node IDs, capability tokens, and session IDs use exact UTF-8 identity rather than Swift `String` canonical equivalence. Providers may therefore use canonically equivalent Unicode representations as distinct protocol identifiers without collisions.
 
+Their Codable wire values use a versioned `cmux-utf8-v1:` base64 envelope while public APIs remain `String`-based. The ASCII envelope prevents Darwin Foundation from consuming a leading U+FEFF as a byte-order mark during JSON decoding. Raw provider status values use the same lossless representation so forward-compatible states remain verbatim.
+
 The provider instance raw value may come from a server-lifetime protocol identifier. When a provider does not expose one, its adapter must generate an opaque value and always generate a fresh connection generation. Socket paths and agent session IDs are never provider identity.
 
 ## Constructing validated state

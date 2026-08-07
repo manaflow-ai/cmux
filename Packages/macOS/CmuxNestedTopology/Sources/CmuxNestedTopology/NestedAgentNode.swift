@@ -6,7 +6,7 @@ public struct NestedAgentNode: Codable, Equatable, Sendable {
     /// Provider-owned parent pane.
     public let paneID: NestedNodeID
 
-    /// Optional provider conversation or agent session value.
+    /// Optional provider session value preserved byte-for-byte on the wire.
     public let sessionID: String?
 
     /// Provider order among sibling agents.
@@ -54,6 +54,38 @@ public struct NestedAgentNode: Codable, Equatable, Sendable {
             && lhs.status == rhs.status
     }
 
+    /// Decodes an agent while preserving opaque session bytes.
+    ///
+    /// - Parameter decoder: Decoder containing the provider-owned agent.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(NestedNodeID.self, forKey: .id)
+        paneID = try container.decode(NestedNodeID.self, forKey: .paneID)
+        sessionID = try container.decodeIfPresent(
+            ExactUTF8String.self,
+            forKey: .sessionID
+        )?.value
+        order = try container.decode(Int.self, forKey: .order)
+        title = try container.decodeIfPresent(NestedNodeTitle.self, forKey: .title)
+        status = try container.decode(NestedAgentStatus.self, forKey: .status)
+    }
+
+    /// Encodes an agent with a byte-exact optional session value.
+    ///
+    /// - Parameter encoder: Encoder receiving the provider-owned agent.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(paneID, forKey: .paneID)
+        try container.encodeIfPresent(
+            sessionID.map(ExactUTF8String.init),
+            forKey: .sessionID
+        )
+        try container.encode(order, forKey: .order)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encode(status, forKey: .status)
+    }
+
     func mergingUpdate(_ candidate: NestedAgentNode) -> NestedAgentNode {
         NestedAgentNode(
             id: id,
@@ -74,5 +106,14 @@ public struct NestedAgentNode: Codable, Equatable, Sendable {
         return order == candidate.order
             ? ExactUTF8String(id.rawID) < ExactUTF8String(candidate.id.rawID)
             : order < candidate.order
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case paneID
+        case sessionID
+        case order
+        case title
+        case status
     }
 }
