@@ -768,47 +768,46 @@ fn response_json<T: serde::de::DeserializeOwned>(
     if !status.is_success() {
         let body = response.text().unwrap_or_default();
         let parsed = serde_json::from_str::<Value>(&body).ok();
-        let code = parsed
-            .as_ref()
-            .and_then(|value| value.get("error"))
-            .and_then(Value::as_str);
-        if status.as_u16() == 402 && code == Some("pro_required") {
-            return Err(Error::Usage(
-                "hosted coderouter requires cmux Pro; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`".into(),
-            ));
-        }
-        let server_message = parsed
-            .as_ref()
-            .and_then(|value| value.get("message"))
-            .and_then(Value::as_str)
-            .filter(|message| !message.trim().is_empty() && message.len() <= 500)
-            .map(scrub_server_message);
-        let guidance = match status.as_u16() {
-            400 => server_message.unwrap_or_else(|| {
-                format!("{action} rejected the request; verify the supplied code or input")
-            }),
-            401 => format!(
-                "{action}: your authorization expired or was revoked; run `cr login` and retry"
-            ),
-            403 => format!("{action}: your account does not have permission for this team"),
-            404 => format!(
-                "{action}: coderouter endpoint not found; verify `cr login --server <URL>` and update `cr`"
-            ),
-            409 => format!("{action}: another update won the race; refresh with `cr` and retry"),
-            429 => format!("{action}: temporarily rate limited; retry shortly"),
-            500..=599 => server_message.unwrap_or_else(|| {
-                format!("{action}: coderouter is temporarily unavailable; retry shortly")
-            }),
-            _ => server_message.unwrap_or_else(|| format!("{action}: request failed ({status})")),
-        };
-        return Err(Error::Backend(format!(
-            "{guidance} [HTTP {}]",
-            status.as_u16(),
-        )));
+        return Err(response_error(status, parsed.as_ref(), action));
     }
     response
         .json()
         .map_err(|error| Error::Backend(format!("{action}: invalid response: {error}")))
+}
+
+fn response_error(status: reqwest::StatusCode, parsed: Option<&Value>, action: &str) -> Error {
+    let code = parsed
+        .and_then(|value| value.get("error"))
+        .and_then(Value::as_str);
+    if status.as_u16() == 402 && code == Some("pro_required") {
+        return Error::Usage(
+            "hosted coderouter requires cmux Pro; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`".into(),
+        );
+    }
+    let server_message = parsed
+        .and_then(|value| value.get("message"))
+        .and_then(Value::as_str)
+        .filter(|message| !message.trim().is_empty() && message.len() <= 500)
+        .map(scrub_server_message);
+    let guidance = match status.as_u16() {
+        400 => server_message.unwrap_or_else(|| {
+            format!("{action} rejected the request; verify the supplied code or input")
+        }),
+        401 => {
+            format!("{action}: your authorization expired or was revoked; run `cr login` and retry")
+        }
+        403 => format!("{action}: your account does not have permission for this team"),
+        404 => format!(
+            "{action}: coderouter endpoint not found; verify `cr login --server <URL>` and update `cr`"
+        ),
+        409 => format!("{action}: another update won the race; refresh with `cr` and retry"),
+        429 => format!("{action}: temporarily rate limited; retry shortly"),
+        500..=599 => server_message.unwrap_or_else(|| {
+            format!("{action}: coderouter is temporarily unavailable; retry shortly")
+        }),
+        _ => server_message.unwrap_or_else(|| format!("{action}: request failed ({status})")),
+    };
+    Error::Backend(format!("{guidance} [HTTP {}]", status.as_u16()))
 }
 
 fn network_error(action: &'static str) -> impl FnOnce(reqwest::Error) -> Error {
@@ -842,4 +841,96 @@ fn scrub_server_message(message: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(test)]
+mod fault_matrix_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn message(status: u16, body: Option<Value>) -> String {
+        response_error(
+            reqwest::StatusCode::from_u16(status).unwrap(),
+            body.as_ref(),
+            "test action",
+        )
+        .to_string()
+    }
+
+    #[test]
+    fn snapshots_actionable_http_error_matrix() {
+        let cases = [
+            (
+                400,
+                "test action rejected the request; verify the supplied code or input [HTTP 400]",
+            ),
+            (
+                401,
+                "test action: your authorization expired or was revoked; run `cr login` and retry [HTTP 401]",
+            ),
+            (
+                403,
+                "test action: your account does not have permission for this team [HTTP 403]",
+            ),
+            (
+                404,
+                "test action: coderouter endpoint not found; verify `cr login --server <URL>` and update `cr` [HTTP 404]",
+            ),
+            (
+                409,
+                "test action: another update won the race; refresh with `cr` and retry [HTTP 409]",
+            ),
+            (
+                429,
+                "test action: temporarily rate limited; retry shortly [HTTP 429]",
+            ),
+            (
+                500,
+                "test action: coderouter is temporarily unavailable; retry shortly [HTTP 500]",
+            ),
+            (
+                503,
+                "test action: coderouter is temporarily unavailable; retry shortly [HTTP 503]",
+            ),
+        ];
+        for (status, expected) in cases {
+            assert_eq!(message(status, None), expected);
+        }
+    }
+
+    #[test]
+    fn snapshots_hosted_pro_self_hosting_guidance() {
+        assert_eq!(
+            message(402, Some(json!({ "error": "pro_required" }))),
+            "hosted coderouter requires cmux Pro; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`"
+        );
+    }
+
+    #[test]
+    fn accepts_safe_server_guidance_but_scrubs_credentials() {
+        let rendered = message(
+            503,
+            Some(json!({
+                "message": "account unavailable for crt_secret sk-secret eyJtoken; add a healthy subscription"
+            })),
+        );
+        assert_eq!(
+            rendered,
+            "account unavailable for [redacted] [redacted] [redacted] add a healthy subscription [HTTP 503]"
+        );
+        assert!(!rendered.contains("secret"));
+        assert!(!rendered.contains("eyJtoken"));
+    }
+
+    #[test]
+    fn ignores_oversized_or_empty_server_messages() {
+        assert_eq!(
+            message(500, Some(json!({ "message": "x".repeat(501) }))),
+            "test action: coderouter is temporarily unavailable; retry shortly [HTTP 500]"
+        );
+        assert_eq!(
+            message(400, Some(json!({ "message": "   " }))),
+            "test action rejected the request; verify the supplied code or input [HTTP 400]"
+        );
+    }
 }
