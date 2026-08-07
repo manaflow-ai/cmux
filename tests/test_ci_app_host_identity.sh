@@ -51,6 +51,27 @@ cmux_resolve_app_host_identity
 cmux_validate_published_app_host_identity
 cmux_validate_app_host_cleanup_confirmation
 
+printf 'preserve home\n' > "$CMUX_APP_HOST_HOME/reprepare-marker"
+printf 'preserve receipts\n' > "$CMUX_APP_HOST_RECEIPT_DIR/reprepare-marker"
+confirmation_before="$(cat "$CMUX_APP_HOST_CONFIRMATION_FILE")"
+: > "$TMP_DIR/reprepare-github-env"
+set +e
+GITHUB_ENV="$TMP_DIR/reprepare-github-env" \
+  bash "$PREPARE_SCRIPT" >"$TMP_DIR/reprepare.log" 2>&1
+reprepare_status=$?
+set -e
+if [ "$reprepare_status" -ne 1 ] \
+  || ! grep -Fq \
+    "FAIL: app-host isolation scope already exists; verified cleanup is required" \
+    "$TMP_DIR/reprepare.log" \
+  || ! grep -Fxq 'preserve home' "$CMUX_APP_HOST_HOME/reprepare-marker" \
+  || ! grep -Fxq 'preserve receipts' "$CMUX_APP_HOST_RECEIPT_DIR/reprepare-marker" \
+  || [ "$(cat "$CMUX_APP_HOST_CONFIRMATION_FILE")" != "$confirmation_before" ]; then
+  cat "$TMP_DIR/reprepare.log"
+  echo "FAIL: preparation must preserve an existing app-host authority scope"
+  exit 1
+fi
+
 if [ "$CMUX_RESOLVED_APP_HOST_HOME" != "$(cd /tmp && pwd -P)/cmux-ah-$CMUX_APP_HOST_KEY" ]; then
   echo "FAIL: app-host home must be derived from the run identity"
   exit 1
