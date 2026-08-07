@@ -1081,6 +1081,29 @@ class cmux:
             params["label"] = label
         return dict(self._call("debug.window.screenshot", params) or {})
 
+    def surface_screenshot(
+        self,
+        panel: Union[str, int],
+        scale: Optional[float] = None,
+        label: str = "",
+        path: str = "",
+        timeout_s: float = 20.0,
+    ) -> dict:
+        """Ground-truth capture of one terminal surface via the renderer's own
+        presented IOSurface (debug.surface.screenshot). Works while the window
+        is occluded, on another Space, or never ordered front; never focuses or
+        reorders anything. Native backing scale (2x on Retina) by default;
+        pixels are Display P3 (the PNG is tagged accordingly)."""
+        sid = self._resolve_surface_id(panel)
+        params: Dict[str, Any] = {"surface_id": sid}
+        if scale is not None:
+            params["scale"] = scale
+        if label:
+            params["label"] = label
+        if path:
+            params["path"] = path
+        return dict(self._call("debug.surface.screenshot", params, timeout_s=timeout_s) or {})
+
 
 def main() -> None:
     import argparse

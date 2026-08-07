@@ -240,6 +240,10 @@ extension TerminalSurface {
             on: runtimeSurface,
             callbackContext: callbackContext
         )
+        installRenderPresentedObservation(
+            on: runtimeSurface,
+            callbackContext: callbackContext
+        )
     }
 #endif
 }

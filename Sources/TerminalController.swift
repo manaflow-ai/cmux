@@ -1483,6 +1483,8 @@ class TerminalController {
         case "sidebar.custom.open":
             return v2Result(id: request.id, v2CustomSidebarOpen(params: request.params))
 #if DEBUG
+        case "debug.surface.screenshot":
+            return v2Result(id: request.id, v2DebugSurfaceScreenshot(params: request.params))
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
         case "debug.window.screenshot":
@@ -1548,7 +1550,8 @@ class TerminalController {
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
-                || request.method == "debug.mobile.transport.disconnect" {
+                || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "debug.surface.screenshot" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -13192,7 +13195,7 @@ class TerminalController {
         return nil
     }
 
-    private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
+    func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg),
            tab.panels[uuid] != nil || tab.remoteTmuxControlPane(surfaceID: uuid) != nil {
             return uuid

@@ -693,6 +693,10 @@ extension TerminalSurface {
             on: createdSurface,
             callbackContext: surfaceCallbackContext
         )
+        installRenderPresentedObservation(
+            on: createdSurface,
+            callbackContext: surfaceCallbackContext
+        )
         if source == .scheduledRestore || source == .inputDemand {
             requiresRestoreSpawnPacing = false
         }
