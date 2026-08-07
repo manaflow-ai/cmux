@@ -29,13 +29,31 @@ extension Workspace {
     }
 
     @discardableResult
-    func closeDockPanel(_ panelId: UUID, force: Bool = false) -> Bool {
-        _dockSplit?.closePanel(panelId, force: force) ?? false
+    func closeDockPanel(
+        _ panelId: UUID,
+        force: Bool = false,
+        recordsHistory: Bool = true
+    ) -> Bool {
+        _dockSplit?.closePanel(
+            panelId,
+            force: force,
+            recordsHistory: recordsHistory
+        ) ?? false
     }
 
     @discardableResult
-    func closeDockPanelAndClearNotifications(_ panelId: UUID, force: Bool = false) -> Bool {
-        guard closeDockPanel(panelId, force: force) else { return false }
+    func closeDockPanelAndClearNotifications(
+        _ panelId: UUID,
+        force: Bool = false,
+        recordsHistory: Bool = true
+    ) -> Bool {
+        guard closeDockPanel(
+            panelId,
+            force: force,
+            recordsHistory: recordsHistory
+        ) else {
+            return false
+        }
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         return true
     }
@@ -80,18 +98,19 @@ extension Workspace {
 extension AppDelegate {
     @discardableResult
     func closeFocusedDockPanelForCommand(preferredWindow: NSWindow?) -> Bool {
-        guard let context = preferredRegisteredMainWindowContext(preferredWindow: preferredWindow) else { return false }
-        guard context.keyboardFocusCoordinator.activeRightSidebarMode == .dock else { return false }
-        if let windowDock = existingWindowDock(forWindowId: context.windowId) {
-            guard let panelId = windowDock.focusedPanelId else { return true }
-            if windowDock.closePanel(panelId, force: false) {
-                notificationStore?.clearNotifications(forTabId: windowDock.workspaceId, surfaceId: panelId)
-            }
-            return true
+        guard let dock = focusedDockStoreForShortcut(
+            action: .closeTab,
+            preferredWindow: preferredWindow
+        ) else {
+            return false
         }
-        guard let workspace = context.tabManager.selectedWorkspace,
-              let panelId = workspace.focusedDockPanelId else { return true }
-        _ = workspace.closeDockPanelAndClearNotifications(panelId, force: false)
+        guard let panelId = dock.focusedPanelId else { return true }
+        if dock.closePanel(panelId, force: false) {
+            notificationStore?.clearNotifications(
+                forTabId: dock.workspaceId,
+                surfaceId: panelId
+            )
+        }
         return true
     }
 }
@@ -203,6 +222,7 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -214,6 +234,7 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     initialRequest: request,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: true
                 ) != nil
@@ -225,9 +246,11 @@ extension DockSplitStore {
                     initialRequest: request,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { self.isBrowserAvailable() }
         )
     }
 
@@ -259,6 +282,7 @@ extension DockSplitStore {
                     url: url,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -271,6 +295,7 @@ extension DockSplitStore {
                     sourcePanelId: sourcePanel.id,
                     url: url,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore,
                     focus: true
                 ) != nil
@@ -283,18 +308,31 @@ extension DockSplitStore {
                     url: url,
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
+                    allowsExternalBrowserFallback: false,
                     websiteDataStore: websiteDataStore
                 ) != nil
-            }
+            },
+            isBrowserAvailable: { self.isBrowserAvailable() }
         )
     }
 
     @discardableResult
-    func closePanel(_ panelId: UUID, force: Bool = false) -> Bool {
+    func closePanel(
+        _ panelId: UUID,
+        force: Bool = false,
+        recordsHistory: Bool = true
+    ) -> Bool {
         guard let tabId = surfaceId(forPanelId: panelId) else { return false }
+        if recordsHistory, !force {
+            markDockCloseHistoryEligible(panelId: panelId)
+        }
         if force { forceCloseDockTabIds.insert(tabId) }
         let closed = bonsplitController.closeTab(tabId)
         if force && !closed { forceCloseDockTabIds.remove(tabId) }
+        if !closed,
+           !pendingCloseConfirmDockTabIds.contains(tabId) {
+            discardDockClosedPanelHistory(tabId: tabId)
+        }
         return closed
     }
 

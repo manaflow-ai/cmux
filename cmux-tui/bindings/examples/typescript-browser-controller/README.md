@@ -1,6 +1,6 @@
 # TypeScript browser controller
 
-This package consumes only the public `cmux/browser` resource API. It lists
+This package consumes only the public `cmux-sdk/browser` resource API. It lists
 typed browser snapshots, sends browser controls through `Browser` handles,
 creates tabs with caller-owned correlation and idempotency keys, recovers an
 exact created path after a lost response, follows MIME-tagged frames and state,
@@ -38,5 +38,5 @@ the exact frame being presented; a null token keeps the image visible while
 blocking clicks and scrolling.
 
 The controller imports `Client`, `WebSocketTransport`, typed IDs, resource
-handles, models, errors, and transport interfaces from `cmux/browser`. It uses
+handles, models, errors, and transport interfaces from `cmux-sdk/browser`. It uses
 no low-level client or private import.

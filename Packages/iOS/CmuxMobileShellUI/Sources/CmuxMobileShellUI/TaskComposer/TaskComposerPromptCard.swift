@@ -13,26 +13,44 @@ struct TaskComposerPromptCard: View {
     let endEditing: () -> Void
     let templates: [MobileTaskTemplate]
     let selectedTemplateID: MobileTaskTemplate.ID?
+    let modelPickerVariant: TaskComposerModelPickerVariant
+    let models: [MobileTaskAgentModel]
+    let selectedModelID: String?
+    let attachments: [TaskComposerAttachment]
+    let showsAttachmentButton: Bool
     let selectTemplate: (MobileTaskTemplate.ID) -> Void
+    let selectTemplateAndModel: (MobileTaskTemplate.ID, String?) -> Void
+    let selectModel: (String?) -> Void
     let editTemplates: () -> Void
+    let chooseAttachmentPhotos: () -> Void
+    let chooseAttachmentFiles: () -> Void
+    let removeAttachment: (UUID) -> Void
 
     @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TaskComposerAgentMenu(
-                value: TaskComposerAgentMenuValue(
-                    templates: templates,
-                    selectedTemplateID: selectedTemplateID,
-                    isDisabled: isDisabled
-                ),
-                actions: TaskComposerAgentMenuActions(
-                    selectTemplate: selectTemplate,
-                    editTemplates: editTemplates
+            agentRow
+
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .separateRow {
+                TaskComposerModelRow(
+                    models: models,
+                    selectedModelID: selectedModelID,
+                    isDisabled: isDisabled,
+                    selectModel: selectModel
                 )
-            )
-            .equatable()
-            .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .pillStrip {
+                TaskComposerModelPillStrip(
+                    models: models,
+                    selectedModelID: selectedModelID,
+                    isDisabled: isDisabled,
+                    selectModel: selectModel
+                )
+            }
 
             TextField(placeholder, text: $prompt, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -50,9 +68,65 @@ struct TaskComposerPromptCard: View {
                     endEditing: endEditing
                 )
 
+            if !attachments.isEmpty {
+                TaskComposerAttachmentStrip(
+                    attachments: attachments,
+                    isDisabled: isDisabled,
+                    remove: removeAttachment
+                )
+            }
         }
         .padding(14)
         .mobileGlassField(cornerRadius: 26)
+    }
+
+    @ViewBuilder
+    private var agentRow: some View {
+        HStack(spacing: 8) {
+            if !models.isEmpty,
+               modelPickerVariant.renderedVariant == .trailingChip {
+                agentMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                TaskComposerModelChip(
+                    models: models,
+                    selectedModelID: selectedModelID,
+                    isDisabled: isDisabled,
+                    selectModel: selectModel
+                )
+            } else {
+                agentMenu
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if showsAttachmentButton {
+                TaskComposerAttachmentPickerMenu(
+                    style: .paperclip,
+                    isDisabled: isDisabled,
+                    choosePhotos: chooseAttachmentPhotos,
+                    chooseFiles: chooseAttachmentFiles
+                )
+            }
+        }
+    }
+
+    private var agentMenu: some View {
+        TaskComposerAgentMenu(
+            value: TaskComposerAgentMenuValue(
+                templates: templates,
+                selectedTemplateID: selectedTemplateID,
+                modelPickerVariant: modelPickerVariant,
+                models: models,
+                selectedModelID: selectedModelID,
+                isDisabled: isDisabled
+            ),
+            actions: TaskComposerAgentMenuActions(
+                selectTemplate: selectTemplate,
+                selectTemplateAndModel: selectTemplateAndModel,
+                editTemplates: editTemplates
+            )
+        )
+        .equatable()
     }
 
     private var promptLineLimit: ClosedRange<Int> {

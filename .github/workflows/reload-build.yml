@@ -246,5 +246,5 @@ jobs:
         with:
           name: reload-${{ inputs.tag }}-${{ inputs.platform }}
           path: artifact/
-          retention-days: 3
+          retention-days: 1
           if-no-files-found: error

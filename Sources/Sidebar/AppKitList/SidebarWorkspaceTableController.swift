@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxNotifications
 import SwiftUI
 
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
@@ -23,6 +24,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var rows: [SidebarWorkspaceTableRowConfiguration] = []
     private var actions: SidebarWorkspaceTableActions?
     private var deferredRowClick: DeferredRowClick?
+    /// SwiftUI-side wake-up for a parked click. A deferred click only lands
+    /// through the next authoritative apply, and applies only happen when
+    /// the deliberately Equatable-gated sidebar body re-evaluates. The park
+    /// itself mutates no SwiftUI-tracked state, so without requesting an
+    /// apply an idle app never re-arms the rows and the click waits on
+    /// unrelated invalidation — historically an app deactivate/reactivate
+    /// (issue #9690).
+    var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
     private var workspaceIds: [UUID] = []
@@ -31,6 +40,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var appKitDropIndicator: SidebarDropIndicator?
     private var appKitDropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     private var appKitDropIndicatorIncludesRowTargets = false
+    private weak var unreadSource: SidebarUnreadModel?
+    private var unreadSnapshot = SidebarUnreadSnapshot()
+    private var unreadObservation: SidebarUnreadObservation?
     private var clipBoundsObserver: NSObjectProtocol?
     private var resizeDidEndObserver: NSObjectProtocol?
     private lazy var mutationScheduler = SidebarWorkspaceTableMutationScheduler(
@@ -156,6 +168,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let postUpdateActions = detachLoadedCells()
         workspaceDragSessionDidEnd()
         actions = nil
+        unreadObservation?.cancel()
+        unreadObservation = nil
+        unreadSource = nil
+        unreadSnapshot = SidebarUnreadSnapshot()
         rows.removeAll(keepingCapacity: false)
         workspaceIds.removeAll(keepingCapacity: false)
         selectedScrollTargetWorkspaceId = nil
@@ -170,6 +186,58 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         container.tableView.delegate = nil
         containerView = nil
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
+    }
+
+    /// Installs one unread subscription for the native table. Snapshot changes
+    /// are projected directly into affected visible cells, bypassing SwiftUI's
+    /// `VerticalTabsSidebar.body` and its O(workspaces) row construction.
+    func setUnreadSource(_ source: SidebarUnreadModel) {
+        guard unreadSource !== source else { return }
+        unreadObservation?.cancel()
+        unreadSource = source
+        applyUnreadSnapshot(source.snapshot)
+        unreadObservation = source.observeChanges(owner: self) { controller, snapshot in
+            controller.applyUnreadSnapshot(snapshot)
+        }
+    }
+
+    private func applyUnreadSnapshot(_ nextSnapshot: SidebarUnreadSnapshot) {
+        let previousSnapshot = unreadSnapshot
+        unreadSnapshot = nextSnapshot
+        guard isPresentationActive, let table = containerView?.tableView else { return }
+
+        let candidateIds = Set(previousSnapshot.summaryByWorkspaceId.keys)
+            .union(nextSnapshot.summaryByWorkspaceId.keys)
+        let changedWorkspaceIds = Set(candidateIds.filter {
+            previousSnapshot.summary(forWorkspaceId: $0)
+                != nextSnapshot.summary(forWorkspaceId: $0)
+        })
+        guard !changedWorkspaceIds.isEmpty else { return }
+
+        var changedRows = IndexSet()
+        for row in rows.indices {
+            let configuration = rows[row]
+            guard !configuration.appKitUnreadDependencyWorkspaceIds.isDisjoint(
+                with: changedWorkspaceIds
+            ) else {
+                continue
+            }
+            let updated = configuration.applyingUnreadSnapshot(nextSnapshot)
+            guard !configuration.hasEquivalentContent(to: updated) else { continue }
+            rows[row] = updated
+            changedRows.insert(row)
+        }
+        guard !changedRows.isEmpty else { return }
+
+        let heightChanges = rowHeightCache.prepareRows(
+            at: changedRows,
+            in: rows,
+            columnWidth: currentColumnWidth()
+        )
+        reconfigureVisibleRows(changedRows)
+        if !heightChanges.isEmpty {
+            noteHeightOfRowsWithoutAnimation(table, heightChanges)
+        }
     }
 
     func setPresentationActive(_ isActive: Bool, workspaceIds liveWorkspaceIds: [UUID]) {
@@ -277,7 +345,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private func flushApply(_ input: SidebarWorkspaceTableApplyInput) {
         guard isPresentationActive, let containerView else { return }
-        let nextRows = input.rows
+        let nextRows = input.rows.map { $0.applyingUnreadSnapshot(unreadSnapshot) }
         let actions = input.actions
         let nextWorkspaceIds = input.workspaceIds
         let selectedWorkspaceId = input.selectedWorkspaceId
@@ -505,6 +573,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             // so preserve the completed click by stable row identity.
             previewSelection(row: row, modifiers: modifiers, hitView: nil)
             deferredRowClick = click
+            // Request the apply the replay depends on. Fired only from a
+            // physical click (never from a replay re-park), so a request per
+            // click is the ceiling and a pathological apply cannot loop.
+#if DEBUG
+            cmuxDebugLog("sidebar.table.applyRequest row=\(row)")
+#endif
+            onDeferredRowClickAwaitingApply?()
         case .invalid:
             deferredRowClick = nil
         }

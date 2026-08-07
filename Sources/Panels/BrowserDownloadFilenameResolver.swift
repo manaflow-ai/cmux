@@ -288,29 +288,36 @@ struct BrowserDownloadFilenameResolver: Sendable {
 
 extension URL {
     func cmuxApplyWebDownloadQuarantine(sourceURL: URL?) throws {
-        guard let sourceURL,
-              !sourceURL.isFileURL else {
+        guard let quarantineProperties = Self.cmuxWebDownloadQuarantineProperties(sourceURL: sourceURL) else {
             return
-        }
-
-        var quarantineProperties: [String: Any] = [
-            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
-            kLSQuarantineTimeStampKey as String: Date(),
-            kLSQuarantineAgentNameKey as String: Self.cmuxDownloadQuarantineAgentName(),
-        ]
-        if let bundleIdentifier = Bundle.main.bundleIdentifier,
-           !bundleIdentifier.isEmpty {
-            quarantineProperties[kLSQuarantineAgentBundleIdentifierKey as String] = bundleIdentifier
-        }
-        if let sanitizedSourceURL = Self.cmuxSanitizedDownloadSourceURL(sourceURL) {
-            quarantineProperties[kLSQuarantineDataURLKey as String] = sanitizedSourceURL
-            quarantineProperties[kLSQuarantineOriginURLKey as String] = sanitizedSourceURL
         }
 
         var resourceValues = URLResourceValues()
         resourceValues.quarantineProperties = quarantineProperties
         var fileURL = self
         try fileURL.setResourceValues(resourceValues)
+    }
+
+    static func cmuxWebDownloadQuarantineProperties(sourceURL: URL?) -> [String: Any]? {
+        guard let sourceURL,
+              !sourceURL.isFileURL else {
+            return nil
+        }
+
+        var quarantineProperties: [String: Any] = [
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+            kLSQuarantineTimeStampKey as String: Date(),
+            kLSQuarantineAgentNameKey as String: cmuxDownloadQuarantineAgentName(),
+        ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier,
+           !bundleIdentifier.isEmpty {
+            quarantineProperties[kLSQuarantineAgentBundleIdentifierKey as String] = bundleIdentifier
+        }
+        if let sanitizedSourceURL = cmuxSanitizedDownloadSourceURL(sourceURL) {
+            quarantineProperties[kLSQuarantineDataURLKey as String] = sanitizedSourceURL
+            quarantineProperties[kLSQuarantineOriginURLKey as String] = sanitizedSourceURL
+        }
+        return quarantineProperties
     }
 
     private static func cmuxDownloadQuarantineAgentName() -> String {

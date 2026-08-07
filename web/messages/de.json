@@ -867,6 +867,8 @@
       "concepts": "Konzepte",
       "anchorTitle": "Anker-Workspace",
       "anchorDesc": "Jede Gruppe gehört genau einem Workspace, dem sogenannten Anker. Die Gruppenkopfzeile in der Seitenleiste ist die Repräsentation des Ankers – es gibt keine separate Zeile dafür. Ein Klick auf den Namensbereich der Kopfzeile fokussiert die Bereiche des Ankers; ein Klick auf das Chevron schaltet das Zusammenklappen um.",
+      "anchorNew": "Der Anker einer Gruppe ist beim Erstellen immer ein völlig neuer Workspace; weder beim Gruppieren einer Auswahl noch beim Erstellen einer Gruppe wird einer Ihrer vorhandenen Workspaces zum Anker hochgestuft. (Beim späteren Schließen des Ankers wird jedoch das erste verbleibende Gruppenmitglied hochgestuft; siehe unten.) Das Arbeitsverzeichnis des Ankers wird beim Gruppieren einer Auswahl vom zuerst ausgewählten Workspace übernommen oder beim Erstellen über die CLI ohne --cwd vom aktiven Workspace.",
+      "anchorClose": "Beim Schließen des Anker-Workspaces wird nur dieser Workspace geschlossen und das erste verbleibende Mitglied der Gruppe (das in der Gruppenreihenfolge am weitesten vorne stehende) zum neuen Anker hochgestuft. Dadurch bleiben die Gruppe und ihre übrigen Mitglieder erhalten (das hochgestufte Mitglied zeigt anschließend den Gruppennamen als Kopfzeile an). Ist der Anker der einzige Workspace der Gruppe, wird die Gruppe entfernt. Verwenden Sie „Arbeitsbereiche auflösen“, um eine Gruppe in nicht gruppierte Workspaces umzuwandeln, und „Gruppe löschen“, um alle Workspaces einer Gruppe zu schließen.",
       "identityTitle": "Gruppenidentität",
       "identityDesc": "Eine Gruppe hat einen Namen, ein Symbol (ein SF Symbol, standardmäßig folder.fill) und eine optionale benutzerdefinierte Farbe. Diese sind unabhängig von den eigenen Anpassungen des Anker-Workspace. Die Farbe und das Symbol des Ankers werden bei der Erstellung von der Gruppe übernommen, können danach aber abweichen.",
       "pinningTitle": "Anheften",
@@ -1405,7 +1407,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "cmux Release-Notes und Versionshistorie. Neue Funktionen, Fehlerbehebungen und Änderungen für das native macOS-Terminal.",
-      "metaTitle": "Änderungsprotokoll"
+      "metaTitle": "Änderungsprotokoll",
+      "versionTitle": "cmux {version} · Änderungsprotokoll",
+      "releaseNavLabel": "Versionen rund um cmux {version}",
+      "sections": {
+        "added": "Hinzugefügt",
+        "changed": "Geändert",
+        "fixed": "Behoben",
+        "removed": "Entfernt",
+        "contributors": "Mitwirkende"
+      }
     },
     "navItems": {
       "gettingStarted": "Erste Schritte",
@@ -3524,7 +3535,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut."
+    "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
+    "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
+    "signedOutSignIn": "Anmelden"
   },
   "platforms": {
     "macos": "macOS",
@@ -3558,7 +3571,6 @@
     "title": "cmux für {platform}",
     "tagline": "Ein Chromium-Browser und Agenten-Workspace, gemeinsam entwickelt.",
     "logoAlt": "cmux-App-Symbol",
-    "portableCta": "Portable ZIP-Datei",
     "featuresTitle": "Für agentenbasierte Arbeit entwickelt",
     "features": {
       "chromium": {
@@ -3580,7 +3592,7 @@
     },
     "installTitle": "Installieren",
     "releaseTitle": "Versionen und Updates",
-    "releaseBody": "Diese Links führen immer zur neuesten stabilen Version auf <github>GitHub Releases</github>. cmux prüft signierte Update-Manifeste, bevor ein Update installiert wird.",
+    "releaseBody": "Diese Links führen immer zur neuesten Nightly-Version auf <github>GitHub Releases</github>. cmux prüft signierte Update-Manifeste, bevor ein Update installiert wird.",
     "sourceLink": "Quellcode auf GitHub ansehen",
     "otherPlatform": "cmux für {platform}",
     "macLink": "cmux-Terminal für Mac",
@@ -3590,6 +3602,7 @@
       "metaDescription": "cmux für Windows x64 herunterladen: ein kostenloser, quelloffener Chromium-Browser und Agenten-Workspace mit aufgabenorientierten Tabs und Terminal-Oberflächen.",
       "subtitle": "Ein nativer x64-Build mit Chromium-Tabs, cmux-Workspaces und vertrauter Windows-Tastaturbedienung.",
       "primaryCta": "Installationsprogramm (.exe) herunterladen",
+      "secondaryCta": "Portable ZIP-Datei",
       "requirements": "Windows 10 oder neuer · x64",
       "installBody": "Führe das Installationsprogramm aus und folge den Windows-Anweisungen. Wähle die portable ZIP-Datei, wenn du cmux ohne systemweite Installation in einem Ordner behalten möchtest."
     },
@@ -3598,9 +3611,10 @@
       "metaTitle": "cmux für Linux herunterladen",
       "metaDescription": "cmux für Linux x64 herunterladen: ein kostenloser, quelloffener Chromium-Browser und Agenten-Workspace mit aufgabenorientierten Tabs und Terminal-Oberflächen.",
       "subtitle": "Ein nativer x64-Build mit Chromium-Tabs, cmux-Workspaces und integrierten Terminal-Oberflächen.",
-      "primaryCta": ".deb herunterladen",
-      "requirements": "Debian oder Ubuntu · x64",
-      "installBody": "Lade das Debian-Paket herunter und installiere es mit deiner Paketverwaltung. Wähle die portable ZIP-Datei für eine benutzerspezifische Installation und Updates innerhalb der App."
+      "primaryCta": "Installationsprogramm mit automatischen Updates (.run) herunterladen",
+      "secondaryCta": "Debian-Paket (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Führe das Installationsprogramm für deinen Benutzer einmal aus. Es installiert cmux ohne Root-Rechte unter ~/.local und aktiviert signierte Updates innerhalb der App. Wähle stattdessen das Debian-Paket, wenn deine Paketverwaltung die Updates verwalten soll."
     }
   },
   "emails": {
