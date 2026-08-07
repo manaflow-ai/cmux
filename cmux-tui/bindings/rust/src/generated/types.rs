@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd.
+// cmux-tui mux protocol 10, IR 95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -76,6 +76,20 @@ pub struct ApplyLayoutResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewOutcomeResult {
+    pub outcome: ViewAttachmentOutcome,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AttachedViewResizeResult {
+    pub accepted: bool,
+    pub outcome: ViewAttachmentOutcome,
+    pub reservation_id: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserFrame {
     pub data: Base64,
     pub height: u32,
@@ -97,6 +111,14 @@ pub struct CellPixelResize {
     pub reservation_id: u64,
     pub rows: u16,
     pub surface: Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CellPixelSurface {
+    pub height_px: u16,
+    pub surface: Id,
+    pub width_px: u16,
 }
 
 #[rustfmt::skip]
@@ -246,6 +268,14 @@ pub struct FrontendProjection {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetCellPixelsResult {
+    pub height_px: u16,
+    pub surfaces: Vec<CellPixelSurface>,
+    pub width_px: u16,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IdMappingKind {
     #[serde(rename = "workspace")]
@@ -291,6 +321,27 @@ pub struct IdentifyResult {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct IdsResult {
     pub ids: Vec<IdMapping>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KittyGraphicsState {
+    pub alternate_next_image_id: u32,
+    pub alternate_replay_next_image_id: u32,
+    pub image_bytes: u64,
+    pub images: u64,
+    pub inflight_bytes: u64,
+    pub placements: u64,
+    pub primary_next_image_id: u32,
+    pub primary_replay_next_image_id: u32,
+    pub replay_cursor_offset: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct KittyImageAlias {
+    pub image_id: u32,
+    pub image_number: u32,
 }
 
 #[rustfmt::skip]
@@ -491,6 +542,7 @@ pub struct ReadScreenResult {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReadScrollbackResult {
+    pub epoch: u64,
     pub rows: Vec<RenderRow>,
     pub start: u32,
     pub total: u32,
@@ -505,6 +557,77 @@ pub struct RenderCursor {
     pub visible: bool,
     pub x: u16,
     pub y: u16,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RenderGraphicFormat {
+    #[serde(rename = "rgb")]
+    Rgb,
+    #[serde(rename = "rgba")]
+    Rgba,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphicImage {
+    pub data: Base64,
+    pub format: RenderGraphicFormat,
+    pub generation: u64,
+    pub height: u32,
+    pub id: u32,
+    pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphicPlacement {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub anchor_col: Option<u16>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub anchor_row: Option<u32>,
+    pub columns: u32,
+    pub grid_cols: u32,
+    pub grid_rows: u32,
+    pub image_id: u32,
+    pub ordinal: u32,
+    pub pixel_height: u32,
+    pub pixel_width: u32,
+    pub placement_id: u32,
+    pub rows: u32,
+    pub source_height: u32,
+    pub source_width: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub viewport_col: i32,
+    pub viewport_row: i32,
+    pub viewport_visible: bool,
+    pub x_offset: u32,
+    pub y_offset: u32,
+    pub z: i32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphics {
+    pub generation: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<RenderGraphicImage>>,
+    pub placements: Vec<RenderGraphicPlacement>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed_image_ids: Option<Vec<u32>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderGraphicsDelta {
+    pub generation: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<RenderGraphicImage>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub placements: Option<Vec<RenderGraphicPlacement>>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed_image_ids: Option<Vec<u32>>,
 }
 
 #[rustfmt::skip]
@@ -571,6 +694,43 @@ pub struct ResolveTerminalResult {
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
     pub workspace_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ResourceSelectors {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub browser: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub frontend_projection: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub machine: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub notification: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pairing_request: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub screen: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sidebar_view: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub split: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stream: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub workspace: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -1078,10 +1238,25 @@ pub struct Tree {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViewAttachmentOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "passive")]
+    Passive,
+    #[serde(rename = "superseded")]
+    Superseded,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VtStateResult {
     pub cols: u16,
     pub data: Base64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_graphics_state: Option<KittyGraphicsState>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub kitty_image_aliases: Option<Vec<KittyImageAlias>>,
     pub rows: u16,
 }
 

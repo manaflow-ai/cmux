@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { CmuxClient } from "cmux/browser";
+import type { CmuxClient } from "cmux/raw";
 import { ExtraKeysBar } from "./ExtraKeysBar";
 
 interface TerminalFrameProps {

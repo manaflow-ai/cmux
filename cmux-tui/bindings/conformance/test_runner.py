@@ -18,7 +18,7 @@ from runner import (
     PROTOCOL,
     TRANSPORTED_OPERATION_COUNT,
     ConformanceFailure,
-    ResourceV1Server,
+    ResourceV2Server,
     assert_response,
     live_server_command,
     live_transports,
@@ -137,7 +137,7 @@ class ContractTests(unittest.TestCase):
             ("python", "typescript", "rust", "go", "java", "cpp", "zig"),
         )
 
-    def test_catalog_is_public_v1_and_has_expected_transported_operations(
+    def test_catalog_is_public_v2_and_has_expected_transported_operations(
         self,
     ) -> None:
         self.assertEqual(self.catalog["protocol"], PROTOCOL)
@@ -203,7 +203,7 @@ class ContractTests(unittest.TestCase):
             Path("/tmp/exact/cmux-tui"),
             Path("/tmp/socket"),
             Path("/tmp/state"),
-            "resource-v1-test",
+            "resource-v2-test",
             43210,
             "secret",
         )
@@ -215,7 +215,7 @@ class ContractTests(unittest.TestCase):
                 "/tmp/exact/cmux-tui",
                 "--headless",
                 "--session",
-                "resource-v1-test",
+                "resource-v2-test",
                 "--socket",
                 "/tmp/socket",
                 "--state",
@@ -369,13 +369,13 @@ class EnvelopeServerTests(unittest.TestCase):
         cls.constants = cls.fixtures["constants"]
         cls.operations = cls.catalog["operations"]
 
-    def connect(self, server: ResourceV1Server) -> socket.socket:
+    def connect(self, server: ResourceV2Server) -> socket.socket:
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         connection.connect(str(server.socket_path))
         return connection
 
     def test_read_accepts_only_exact_public_envelope(self) -> None:
-        with ResourceV1Server(
+        with ResourceV2Server(
             "read", self.constants, self.operations
         ) as server:
             with self.connect(server) as connection:
@@ -403,7 +403,7 @@ class EnvelopeServerTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ConformanceFailure, "envelope keys"
         ):
-            with ResourceV1Server(
+            with ResourceV2Server(
                 "read", self.constants, self.operations
             ) as server:
                 with self.connect(server) as connection:
@@ -426,7 +426,7 @@ class EnvelopeServerTests(unittest.TestCase):
                 server.wait_for_requests(1, timeout=0.2)
 
     def test_mutation_requires_exact_key_and_revision(self) -> None:
-        with ResourceV1Server(
+        with ResourceV2Server(
             "mutation-replay", self.constants, self.operations
         ) as server:
             with self.connect(server) as connection:
@@ -452,7 +452,7 @@ class EnvelopeServerTests(unittest.TestCase):
             server.assert_complete()
 
     def test_creation_resolution_is_a_read_and_preserves_terminal_path(self) -> None:
-        with ResourceV1Server(
+        with ResourceV2Server(
             "creation-created-terminal", self.constants, self.operations
         ) as server:
             with self.connect(server) as connection:
@@ -481,7 +481,7 @@ class EnvelopeServerTests(unittest.TestCase):
             server.assert_complete()
 
     def test_creation_conflict_preserves_both_semantics(self) -> None:
-        with ResourceV1Server(
+        with ResourceV2Server(
             "creation-conflict", self.constants, self.operations
         ) as server:
             with self.connect(server) as connection:
@@ -519,7 +519,7 @@ class EnvelopeServerTests(unittest.TestCase):
             server.assert_complete()
 
     def test_wait_exit_timeout_is_a_pending_value(self) -> None:
-        with ResourceV1Server(
+        with ResourceV2Server(
             "terminal-exit-pending", self.constants, self.operations
         ) as server:
             with self.connect(server) as connection:
@@ -544,7 +544,7 @@ class EnvelopeServerTests(unittest.TestCase):
             server.assert_complete()
 
     def test_cancel_end_is_written_before_cancel_response(self) -> None:
-        with ResourceV1Server(
+        with ResourceV2Server(
             "stream-cancel", self.constants, self.operations
         ) as server:
             with self.connect(server) as connection:

@@ -6,7 +6,7 @@ is fetched at build time with the same ASC API credentials the upload already
 uses, so regenerating the profile in the developer portal needs no secret update.
 
 Usage:
-  ./ios/scripts/asc_download_profile.py --name "cmux Demo Distribution"
+  ./ios/scripts/asc_download_profile.py --name "cmux Demo Distribution Push"
 
 Auth comes from ASC environment:
   ASC_API_KEY_ID, ASC_API_ISSUER_ID, and either ASC_API_KEY_PATH or ASC_API_KEY_P8_BASE64.

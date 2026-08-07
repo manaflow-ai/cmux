@@ -59,6 +59,108 @@
       "kind": "opaque_json",
       "reason": "The wire field intentionally carries a frontend-authored or runtime-authored arbitrary JSON document."
     },
+    "ResourceSelectors": {
+      "kind": "object",
+      "fields": {
+        "machine": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "session": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "workspace": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "screen": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "pane": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "tab": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "terminal": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "browser": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "client": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "split": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "stream": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "notification": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "agent": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "frontend_projection": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "pairing_request": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "sidebar_view": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        }
+      },
+      "additional_properties": false
+    },
     "EmptyResult": {
       "kind": "object",
       "fields": {},
@@ -94,6 +196,42 @@
               "maximum": 10000
             }
           ]
+        }
+      },
+      "additional_properties": false
+    },
+    "ViewAttachmentOutcome": {
+      "kind": "enum",
+      "values": ["applied", "passive", "superseded"]
+    },
+    "AttachedViewResizeResult": {
+      "kind": "object",
+      "fields": {
+        "accepted": {
+          "type": {"kind": "scalar", "name": "boolean"},
+          "presence": "required",
+          "nullable": false
+        },
+        "reservation_id": {
+          "type": {"kind": "scalar", "name": "uint64"},
+          "presence": "required",
+          "nullable": true
+        },
+        "outcome": {
+          "type": {"kind": "ref", "name": "ViewAttachmentOutcome"},
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "AttachedViewOutcomeResult": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "type": {"kind": "ref", "name": "ViewAttachmentOutcome"},
+          "presence": "required",
+          "nullable": false
         }
       },
       "additional_properties": false
@@ -1888,6 +2026,294 @@
       },
       "additional_properties": false
     },
+    "KittyImageAlias": {
+      "kind": "object",
+      "fields": {
+        "image_id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "image_number": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "KittyGraphicsState": {
+      "kind": "object",
+      "fields": {
+        "image_bytes": {
+          "type": { "kind": "scalar", "name": "uint64" },
+          "presence": "required",
+          "nullable": false
+        },
+        "inflight_bytes": {
+          "type": { "kind": "scalar", "name": "uint64" },
+          "presence": "required",
+          "nullable": false
+        },
+        "images": {
+          "type": { "kind": "scalar", "name": "uint64" },
+          "presence": "required",
+          "nullable": false
+        },
+        "placements": {
+          "type": { "kind": "scalar", "name": "uint64" },
+          "presence": "required",
+          "nullable": false
+        },
+        "replay_cursor_offset": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "primary_replay_next_image_id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "primary_next_image_id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "alternate_replay_next_image_id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "alternate_next_image_id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "RenderGraphicFormat": {
+      "kind": "enum",
+      "values": ["rgb", "rgba"]
+    },
+    "RenderGraphicImage": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "generation": {
+          "type": { "kind": "scalar", "name": "uint64" },
+          "presence": "required",
+          "nullable": false
+        },
+        "width": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "height": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "format": {
+          "type": { "kind": "ref", "name": "RenderGraphicFormat" },
+          "presence": "required",
+          "nullable": false
+        },
+        "data": {
+          "type": { "kind": "ref", "name": "Base64" },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "RenderGraphicPlacement": {
+      "kind": "object",
+      "fields": {
+        "image_id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "placement_id": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "ordinal": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "x_offset": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "y_offset": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "source_x": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "source_y": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "source_width": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "source_height": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "columns": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "rows": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "grid_cols": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "grid_rows": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "pixel_width": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "pixel_height": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "viewport_col": {
+          "type": { "kind": "scalar", "name": "int32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "viewport_row": {
+          "type": { "kind": "scalar", "name": "int32" },
+          "presence": "required",
+          "nullable": false
+        },
+        "viewport_visible": {
+          "type": { "kind": "scalar", "name": "boolean" },
+          "presence": "required",
+          "nullable": false
+        },
+        "anchor_col": {
+          "type": { "kind": "scalar", "name": "uint16" },
+          "presence": "optional",
+          "nullable": false
+        },
+        "anchor_row": {
+          "type": { "kind": "scalar", "name": "uint32" },
+          "presence": "optional",
+          "nullable": false
+        },
+        "z": {
+          "type": { "kind": "scalar", "name": "int32" },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "RenderGraphicsDelta": {
+      "kind": "object",
+      "fields": {
+        "generation": {
+          "type": { "kind": "scalar", "name": "uint64" },
+          "presence": "required",
+          "nullable": false
+        },
+        "images": {
+          "type": {
+            "kind": "array",
+            "items": { "kind": "ref", "name": "RenderGraphicImage" }
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "removed_image_ids": {
+          "type": {
+            "kind": "array",
+            "items": { "kind": "scalar", "name": "uint32" }
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "placements": {
+          "type": {
+            "kind": "array",
+            "items": { "kind": "ref", "name": "RenderGraphicPlacement" }
+          },
+          "presence": "optional",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "RenderGraphics": {
+      "kind": "object",
+      "fields": {
+        "generation": {
+          "type": { "kind": "scalar", "name": "uint64" },
+          "presence": "required",
+          "nullable": false
+        },
+        "images": {
+          "type": {
+            "kind": "array",
+            "items": { "kind": "ref", "name": "RenderGraphicImage" }
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "removed_image_ids": {
+          "type": {
+            "kind": "array",
+            "items": { "kind": "scalar", "name": "uint32" }
+          },
+          "presence": "optional",
+          "nullable": false
+        },
+        "placements": {
+          "type": {
+            "kind": "array",
+            "items": { "kind": "ref", "name": "RenderGraphicPlacement" }
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
     "RenderRun": {
       "kind": "object",
       "fields": {
@@ -2050,6 +2476,15 @@
           },
           "presence": "required",
           "nullable": false
+        },
+        "epoch": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 10
         }
       },
       "additional_properties": false
@@ -2115,6 +2550,21 @@
               "encoding": "standard base64"
             }
           ]
+        },
+        "kitty_image_aliases": {
+          "type": {
+            "kind": "array",
+            "items": { "kind": "ref", "name": "KittyImageAlias" }
+          },
+          "presence": "optional",
+          "nullable": false,
+          "since": 9
+        },
+        "kitty_graphics_state": {
+          "type": { "kind": "ref", "name": "KittyGraphicsState" },
+          "presence": "optional",
+          "nullable": false,
+          "since": 10
         }
       },
       "additional_properties": false
@@ -2973,6 +3423,69 @@
           "type": {
             "kind": "scalar",
             "name": "string"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "CellPixelSurface": {
+      "kind": "object",
+      "fields": {
+        "surface": {
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "width_px": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "height_px": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "GetCellPixelsResult": {
+      "kind": "object",
+      "fields": {
+        "width_px": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "height_px": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "surfaces": {
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "CellPixelSurface"
+            }
           },
           "presence": "required",
           "nullable": false
@@ -4315,6 +4828,109 @@
       },
       "stream": null,
       "constraints": []
+    },
+    "create-surface-with-receipt": {
+      "authority": "control",
+      "since": 10,
+      "capability": "creation-receipts-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "operation": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "origin": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "receipt": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "selectors": {
+            "type": {"kind": "ref", "name": "ResourceSelectors"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "selector_fallbacks": {
+            "type": {
+              "kind": "array",
+              "items": {"kind": "ref", "name": "ResourceSelectors"},
+              "max_items": 7
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": []
+          },
+          "pane": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "workspace": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "argv": {
+            "type": {
+              "kind": "array",
+              "items": {"kind": "scalar", "name": "string"}
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "cwd": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "url": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "width": {
+            "type": {"kind": "scalar", "name": "float32"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "cols": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "rows": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          }
+        },
+        "additional_properties": false,
+        "constraints": [
+          "operation is one of new-tab, run-command, new-browser-tab, new-workspace, new-screen, new-pane, new-pane-right, split-right, or split-down.",
+          "Each operation admits only its documented selector and option fields.",
+          "cols and rows must be supplied together."
+        ]
+      },
+      "result": {"kind": "ref", "name": "JsonValue"},
+      "stream": null,
+      "constraints": [
+        "Repeating one origin and receipt with identical fields returns the original creation result."
+      ]
     },
     "send-key": {
       "authority": "control",
@@ -6448,6 +7064,45 @@
       "stream": null,
       "constraints": []
     },
+    "resize-attached-view": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "view-attachment-lease-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "required",
+            "nullable": false
+          },
+          "lease": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "cols": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "required",
+            "nullable": false,
+            "constraints": [{"clamped_minimum": 1, "clamped_maximum": 10000}]
+          },
+          "rows": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "required",
+            "nullable": false,
+            "constraints": [{"clamped_minimum": 1, "clamped_maximum": 10000}]
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {"kind": "ref", "name": "AttachedViewResizeResult"},
+      "stream": null,
+      "constraints": [
+        "The lease must belong to this connection and surface.",
+        "A retired lease returns outcome:superseded without changing replacement views."
+      ]
+    },
     "release-surface-size": {
       "authority": "control",
       "since": 7,
@@ -6473,6 +7128,59 @@
       "stream": null,
       "constraints": [
         "An absent lease is a successful no-op."
+      ]
+    },
+    "release-attached-view-size": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "view-attachment-lease-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "required",
+            "nullable": false
+          },
+          "lease": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {"kind": "ref", "name": "AttachedViewOutcomeResult"},
+      "stream": null,
+      "constraints": [
+        "The attach stream remains live for cached rendering."
+      ]
+    },
+    "detach-attached-view": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "view-attachment-detach-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "required",
+            "nullable": false
+          },
+          "lease": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {"kind": "ref", "name": "AttachedViewOutcomeResult"},
+      "stream": null,
+      "constraints": [
+        "The command closes only the named view stream and releases its size contribution.",
+        "A retired lease returns outcome:superseded."
       ]
     },
     "focus-pane": {
@@ -6741,6 +7449,22 @@
       "constraints": [
         "Only terminal-host-backed PTYs can mint one-use renderer credentials."
       ]
+    },
+    "get-cell-pixels": {
+      "authority": "frontend",
+      "since": 6,
+      "capability": null,
+      "request": {
+        "kind": "object",
+        "fields": {},
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GetCellPixelsResult"
+      },
+      "stream": null,
+      "constraints": []
     },
     "set-cell-pixels": {
       "authority": "frontend",
@@ -7676,6 +8400,17 @@
             },
             "presence": "required",
             "nullable": false
+          },
+          "force": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": false,
+            "since": 10,
+            "capability": "daemon-handoff-force-v1"
           }
         },
         "additional_properties": false
@@ -7687,6 +8422,8 @@
       "stream": null,
       "constraints": [
         "pid and generation must match the latest identify result.",
+        "force bypasses native-browser ownership only; the identity fence and trusted-local authority still apply.",
+        "Clients must require daemon-handoff-force-v1 before sending force:true.",
         "The daemon exits only after the success response is queued."
       ]
     },
@@ -8450,6 +9187,101 @@
         "additional_properties": false
       }
     },
+    "graphics-status": {
+      "since": 10,
+      "capability": null,
+      "streams": [
+        "subscribe"
+      ],
+      "emission": "emitted",
+      "payload": {
+        "kind": "object",
+        "fields": {
+          "event": {
+            "type": {
+              "kind": "literal",
+              "value": "graphics-status"
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "kind": {
+            "type": {
+              "kind": "enum",
+              "values": [
+                "kitty-image-budget-worker-start-failed",
+                "kitty-image-budget-update-failed",
+                "cell-pixel-update-retries-exhausted"
+              ]
+            },
+            "presence": "required",
+            "nullable": false
+          },
+          "error": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": false
+          },
+          "retry_exhausted": {
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            },
+            "presence": "optional",
+            "nullable": false
+          },
+          "summary": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "optional",
+            "nullable": false
+          },
+          "attempts": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            },
+            "presence": "optional",
+            "nullable": false
+          },
+          "remaining": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": false
+          },
+          "cell_width": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            },
+            "presence": "optional",
+            "nullable": false
+          },
+          "cell_height": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint16"
+            },
+            "presence": "optional",
+            "nullable": false
+          }
+        },
+        "additional_properties": false,
+        "constraints": [
+          "kitty-image-budget-worker-start-failed carries error.",
+          "kitty-image-budget-update-failed carries retry_exhausted and summary.",
+          "cell-pixel-update-retries-exhausted carries attempts, remaining, cell_width, and cell_height."
+        ]
+      }
+    },
     "layout-changed": {
       "since": 6,
       "capability": null,
@@ -8925,6 +9757,15 @@
             "presence": "optional",
             "nullable": false
           },
+          "history_epoch": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "since": 10
+          },
           "rows": {
             "type": {
               "kind": "array",
@@ -8934,6 +9775,11 @@
               }
             },
             "presence": "required",
+            "nullable": false
+          },
+          "graphics": {
+            "type": { "kind": "ref", "name": "RenderGraphicsDelta" },
+            "presence": "optional",
             "nullable": false
           }
         },
@@ -9009,6 +9855,15 @@
             "presence": "required",
             "nullable": false
           },
+          "history_epoch": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "required",
+            "nullable": false,
+            "since": 10
+          },
           "rows": {
             "type": {
               "kind": "array",
@@ -9018,6 +9873,11 @@
               }
             },
             "presence": "required",
+            "nullable": false
+          },
+          "graphics": {
+            "type": { "kind": "ref", "name": "RenderGraphics" },
+            "presence": "optional",
             "nullable": false
           }
         },
@@ -9083,6 +9943,21 @@
             "presence": "optional",
             "nullable": false,
             "description": "Protocol 6 compatibility field."
+          },
+          "kitty_image_aliases": {
+            "type": {
+              "kind": "array",
+              "items": { "kind": "ref", "name": "KittyImageAlias" }
+            },
+            "presence": "optional",
+            "nullable": false,
+            "since": 9
+          },
+          "kitty_graphics_state": {
+            "type": { "kind": "ref", "name": "KittyGraphicsState" },
+            "presence": "optional",
+            "nullable": false,
+            "since": 10
           },
           "colors": {
             "type": {
@@ -9884,6 +10759,21 @@
             },
             "presence": "required",
             "nullable": false
+          },
+          "kitty_image_aliases": {
+            "type": {
+              "kind": "array",
+              "items": { "kind": "ref", "name": "KittyImageAlias" }
+            },
+            "presence": "optional",
+            "nullable": false,
+            "since": 9
+          },
+          "kitty_graphics_state": {
+            "type": { "kind": "ref", "name": "KittyGraphicsState" },
+            "presence": "optional",
+            "nullable": false,
+            "since": 10
           },
           "colors": {
             "type": {

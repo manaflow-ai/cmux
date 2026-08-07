@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "f225f1a51128c6ce8d6526c5cc83bc28b3e2bd47b27f3da9fbb29262bc7e831b",
+  "catalog_sha256": "cc0bb86c58cfcbf271fe3380614f198fe15fa25b62972bf0cf082f5495c839ca",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -286,6 +286,9 @@
     "terminal.process.get": {
       "class": "read"
     },
+    "terminal.project": {
+      "class": "mutation"
+    },
     "terminal.renderer_grant.create": {
       "class": "connection_control"
     },
@@ -338,5 +341,5 @@
       "class": "mutation"
     }
   },
-  "protocol": "cmux.protocol/1"
+  "protocol": "cmux.protocol/2"
 }

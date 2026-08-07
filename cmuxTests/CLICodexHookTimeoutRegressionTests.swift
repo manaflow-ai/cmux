@@ -459,7 +459,7 @@ struct CLICodexHookTimeoutRegressionTests {
         )
         #expect(oldPrompt.status == 0, Comment(rawValue: oldPrompt.stderr))
         #expect(oldPrompt.stdout == "{}\n")
-        #expect(waitForCondition(timeout: 2) {
+        #expect(waitForConditionBlocking(timeout: 2) {
             commands.snapshot().contains { $0.hasPrefix("set_status codex Running ") }
         })
 
@@ -472,7 +472,7 @@ struct CLICodexHookTimeoutRegressionTests {
         )
         #expect(currentPrompt.status == 0, Comment(rawValue: currentPrompt.stderr))
         #expect(currentPrompt.stdout == "{}\n")
-        #expect(waitForCondition(timeout: 2) {
+        #expect(waitForConditionBlocking(timeout: 2) {
             let snapshot = commands.snapshot()
             return snapshot.contains { $0.hasPrefix("clear_notifications ") }
                 && snapshot.contains { $0.hasPrefix("set_status codex Running ") }
@@ -488,7 +488,7 @@ struct CLICodexHookTimeoutRegressionTests {
         )
         #expect(staleStop.status == 0, Comment(rawValue: staleStop.stderr))
         #expect(staleStop.stdout == "{}\n")
-        #expect(waitForCondition(timeout: 2) {
+        #expect(waitForConditionBlocking(timeout: 2) {
             commands.snapshot().count > staleStopStart
         })
 
