@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
+EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 
 
 def main() -> int:
@@ -206,12 +207,42 @@ def main() -> int:
         timeout=5,
         env=expected_mixed_framework_env,
     )
-    if delayed_swift_testing_result.returncode != 124:
+    if (
+        delayed_swift_testing_result.returncode
+        != EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    ):
         print(delayed_swift_testing_result.stdout, end="")
         print(delayed_swift_testing_result.stderr, end="", file=sys.stderr)
         print(
             "FAIL: expected a missing or delayed Swift Testing phase to fail closed, "
             f"got {delayed_swift_testing_result.returncode}"
+        )
+        return 1
+
+    missing_swift_testing_child = textwrap.dedent(
+        """
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        """
+    )
+    missing_swift_testing_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", missing_swift_testing_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=expected_mixed_framework_env,
+    )
+    if (
+        missing_swift_testing_result.returncode
+        != EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    ):
+        print(missing_swift_testing_result.stdout, end="")
+        print(missing_swift_testing_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected a clean child exit without Swift Testing to fail closed, "
+            f"got {missing_swift_testing_result.returncode}"
         )
         return 1
 

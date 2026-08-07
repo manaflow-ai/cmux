@@ -32,6 +32,11 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
+    config-home-alias) config_home="$CMUX_MOCK_CONFIG_HOME_ALIAS" ;;
+    config-home-alias-traversal)
+      config_home="$CMUX_MOCK_CONFIG_HOME_ALIAS/.config/ghostty"
+      config_suffix='../../..'
+      ;;
     published-default-alias) config_home="$CMUX_APP_HOST_HOME" ;;
     published-config-alias)
       config_category=config
@@ -66,9 +71,14 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   esac
   if [ "$emit_config_evidence" = "1" ]; then
     echo "cmux DEV [$config_category] $config_message path=$config_home/$config_suffix"
+    if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias-traversal" ]; then
+      echo "cmux DEV [default] reading configuration file path=${TEST_RUNNER_HOME}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+    fi
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "config-home-alias-traversal" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
@@ -336,6 +346,63 @@ for published_alias_evidence in published-default-alias published-config-alias; 
     exit 1
   fi
 done
+
+CONFIG_HOME_ALIAS="$TMP_DIR/app-host-home-alias"
+ln -s "$RESOLVED_APP_HOST_HOME" "$CONFIG_HOME_ALIAS"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/config-home-alias-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/config-home-alias-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/config-home-alias-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/config-home-alias-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=config-home-alias \
+CMUX_MOCK_CONFIG_HOME_ALIAS="$CONFIG_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/config-home-alias-output.log" 2>&1
+config_home_alias_status=$?
+set -e
+
+if [ "$config_home_alias_status" -ne 0 ]; then
+  cat "$TMP_DIR/config-home-alias-output.log"
+  echo "FAIL: wrapper must accept a configuration path whose resolved home is isolated"
+  exit 1
+fi
+
+mkdir -p "$RESOLVED_APP_HOST_HOME/.config/ghostty"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/config-home-alias-traversal-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/config-home-alias-traversal-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/config-home-alias-traversal-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/config-home-alias-traversal-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=config-home-alias-traversal \
+CMUX_MOCK_CONFIG_HOME_ALIAS="$CONFIG_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=15 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/config-home-alias-traversal-output.log" 2>&1
+config_home_alias_traversal_status=$?
+set -e
+
+if [ "$config_home_alias_traversal_status" -ne 1 ] || ! grep -Fq \
+  "FAIL: Ghostty accessed configuration outside the isolated app-host home" \
+  "$TMP_DIR/config-home-alias-traversal-output.log"; then
+  cat "$TMP_DIR/config-home-alias-traversal-output.log"
+  echo "FAIL: wrapper must reject canonical aliases followed by path traversal"
+  exit 1
+fi
 
 for evidence_regression in no-config-evidence unrelated-config-token; do
   set +e
