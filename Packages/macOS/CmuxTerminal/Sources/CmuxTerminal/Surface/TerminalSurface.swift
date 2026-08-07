@@ -57,6 +57,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
     private var runtimeSurface: ghostty_surface_t?
+    /// Native API admission state replaced with every installed runtime pointer.
     var runtimeNativeAccessGate = TerminalSurfaceRuntimeNativeAccessGate()
     var runtimeControllingTTYName: String?
     var runtimeControllingTTYDeviceIdentifier: Int64?

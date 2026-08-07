@@ -6,6 +6,29 @@ import Testing
 @testable import CmuxTerminal
 
 @Suite(.serialized) struct TerminalSurfaceRuntimeNativeAccessTests {
+    @Test func finalBorrowStartsTheFirstTeardownExactlyOnce() throws {
+        let teardownBegun = OSAllocatedUnfairLock(initialState: 0)
+        let gate = TerminalSurfaceRuntimeNativeAccessGate()
+        let firstBorrow = try #require(gate.acquireBorrow())
+        let secondBorrow = try #require(gate.acquireBorrow())
+
+        gate.requestTeardown {
+            teardownBegun.withLock { $0 += 1 }
+        }
+        #expect(gate.acquireBorrow() == nil)
+        #expect(teardownBegun.withLock { $0 } == 0)
+
+        firstBorrow.release()
+        #expect(teardownBegun.withLock { $0 } == 0)
+
+        secondBorrow.release()
+        secondBorrow.release()
+        gate.requestTeardown {
+            teardownBegun.withLock { $0 += 100 }
+        }
+        #expect(teardownBegun.withLock { $0 } == 1)
+    }
+
     @Test func screenTailBorrowIsRejectedAfterTeardownStarts() async {
         let teardownBegun = OSAllocatedUnfairLock(initialState: 0)
         let releaseNativeFree = DispatchSemaphore(value: 0)

@@ -31,7 +31,10 @@ final class TerminalSurfaceRuntimeNativeAccessGate: Sendable {
         }
     }
 
-    /// Closes admission and starts teardown after all admitted borrows finish.
+    /// Closes admission and starts the first teardown after admitted borrows finish.
+    ///
+    /// Later teardown requests are ignored because one native runtime generation
+    /// has exactly one terminal teardown transition.
     func requestTeardown(start: @escaping @Sendable () -> Void) {
         let retainedAction = Unmanaged.passRetained(
             TerminalSurfaceRuntimeTeardownAction(start: start)
