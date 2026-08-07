@@ -18,6 +18,24 @@ struct CLIWindowHandleRoutingTests {
         )
     }
 
+    @Test func resizeWindowResolvesTypedHandleBeforeLegacyMutation() throws {
+        try assertTypedHandleRoutes(
+            command: "resize-window",
+            extraArguments: ["--height", "600"],
+            expectedMutationLine: "resize_window \(Self.targetWindowID) - 600"
+        )
+    }
+
+    /// An omitted dimension travels as `-` so the app keeps it, which is what
+    /// makes a height-only resize behave like dragging the bottom edge.
+    @Test func resizeWindowSendsWidthAndHeightTogether() throws {
+        try assertTypedHandleRoutes(
+            command: "resize-window",
+            extraArguments: ["--width", "1200", "--height", "900"],
+            expectedMutationLine: "resize_window \(Self.targetWindowID) 1200 900"
+        )
+    }
+
     @Test func closeWindowPreservesLegacyNotFoundError() throws {
         let socketPath = Self.makeSocketPath("missing")
         let server = try CLIWindowCommandMockServer(
@@ -67,7 +85,11 @@ struct CLIWindowHandleRoutingTests {
         #expect(server.receivedLinesSnapshot().isEmpty)
     }
 
-    private func assertTypedHandleRoutes(command: String, expectedMutationLine: String) throws {
+    private func assertTypedHandleRoutes(
+        command: String,
+        extraArguments: [String] = [],
+        expectedMutationLine: String
+    ) throws {
         let socketPath = Self.makeSocketPath(command)
         let server = try CLIWindowCommandMockServer(
             socketPath: socketPath,
@@ -78,7 +100,7 @@ struct CLIWindowHandleRoutingTests {
         defer { server.stop() }
 
         let result = try Self.runCLI(
-            arguments: [command, "--window", Self.targetWindowRef],
+            arguments: [command, "--window", Self.targetWindowRef] + extraArguments,
             socketPath: socketPath
         )
 
