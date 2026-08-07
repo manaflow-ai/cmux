@@ -237,7 +237,7 @@ private struct PDFPreviewChromeDebugSample: View {
             rotateLeft: { model.record(.rotateLeft) },
             rotateRight: { model.record(.rotateRight) },
             refresh: { model.record(.refresh) },
-            share: { _ in model.record(.share) }
+            share: { _, _ in model.record(.share) }
         )
     }
 }
