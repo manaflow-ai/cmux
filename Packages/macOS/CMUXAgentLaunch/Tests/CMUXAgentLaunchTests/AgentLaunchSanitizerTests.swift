@@ -664,5 +664,19 @@ struct AgentLaunchSanitizerTests {
                 removeAllWorkingDirectoryOptions: true
             ) == ["grok", "-r", "session", "--", "--cwd", "prompt text"]
         )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["codex", "resume", "session", "-C/local/repo", "--model", "gpt-5.4"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "-w/local/repo", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
     }
 }
