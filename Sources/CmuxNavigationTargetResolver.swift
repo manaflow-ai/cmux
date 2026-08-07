@@ -43,6 +43,10 @@ struct CmuxNavigationTargetResolver {
                 if surfaceByRuntimeId[surface.panelId] == nil {
                     surfaceByRuntimeId[surface.panelId] = (workspace.workspaceId, surface.panelId)
                 }
+                for runtimeSurfaceId in surface.runtimeSurfaceIds
+                    where surfaceByRuntimeId[runtimeSurfaceId] == nil {
+                    surfaceByRuntimeId[runtimeSurfaceId] = (workspace.workspaceId, surface.panelId)
+                }
                 if surfaceByStableId[surface.stableSurfaceId] == nil {
                     surfaceByStableId[surface.stableSurfaceId] = (workspace.workspaceId, surface.panelId)
                 }
@@ -56,6 +60,31 @@ struct CmuxNavigationTargetResolver {
 
     /// Resolves a parsed navigation target to current-session identifiers, or
     /// nil when no open workspace/pane/surface matches either identity.
+    func resolve(_ request: CmuxNavigationURLRequest) -> Resolution? {
+        if let resolution = resolve(request.target) {
+            return resolution
+        }
+        guard request.stableFallbackWorkspaceId != nil || request.stableFallbackSurfaceId != nil else {
+            return nil
+        }
+
+        switch request.target {
+        case .workspace:
+            guard let workspaceId = request.stableFallbackWorkspaceId,
+                  let workspace = resolveWorkspace(workspaceId) else {
+                return nil
+            }
+            return .workspace(workspaceId: workspace.workspaceId)
+        case .pane:
+            return nil
+        case .surface(let workspaceId, _):
+            let linkedWorkspace = request.stableFallbackWorkspaceId.flatMap(resolveWorkspace)
+                ?? resolveWorkspace(workspaceId)
+            guard let surfaceId = request.stableFallbackSurfaceId else { return nil }
+            return resolveSurfaceTarget(surfaceId, linkedWorkspace: linkedWorkspace)
+        }
+    }
+
     func resolve(_ target: CmuxNavigationURLRequest.Target) -> Resolution? {
         switch target {
         case .workspace(let workspaceId):
@@ -72,19 +101,7 @@ struct CmuxNavigationTargetResolver {
                let panelId = resolveSurface(surfaceId, in: linkedWorkspace) {
                 return .surface(workspaceId: linkedWorkspace.workspaceId, panelId: panelId)
             }
-            // The tab may have moved to another workspace since the link was
-            // copied (or its workspace was closed); surface identity wins over
-            // the stale workspace route. Exact runtime ids beat stable ids.
-            let excludedWorkspaceId = linkedWorkspace?.workspaceId
-            if let target = surfaceByRuntimeId[surfaceId],
-               target.workspaceId != excludedWorkspaceId {
-                return .surface(workspaceId: target.workspaceId, panelId: target.panelId)
-            }
-            if let target = surfaceByStableId[surfaceId],
-               target.workspaceId != excludedWorkspaceId {
-                return .surface(workspaceId: target.workspaceId, panelId: target.panelId)
-            }
-            return nil
+            return resolveSurfaceTarget(surfaceId, linkedWorkspace: linkedWorkspace)
         }
     }
 
@@ -96,6 +113,32 @@ struct CmuxNavigationTargetResolver {
         if workspace.surfaces.contains(where: { $0.panelId == id }) {
             return id
         }
+        if let surface = workspace.surfaces.first(where: { $0.runtimeSurfaceIds.contains(id) }) {
+            return surface.panelId
+        }
         return workspace.surfaces.first(where: { $0.stableSurfaceId == id })?.panelId
+    }
+
+    private func resolveSurfaceTarget(
+        _ surfaceId: UUID,
+        linkedWorkspace: WorkspaceDescriptor?
+    ) -> Resolution? {
+        if let linkedWorkspace,
+           let panelId = resolveSurface(surfaceId, in: linkedWorkspace) {
+            return .surface(workspaceId: linkedWorkspace.workspaceId, panelId: panelId)
+        }
+        // The tab may have moved to another workspace since the link was copied
+        // or its workspace was closed. Surface identity wins over the stale
+        // workspace route. Exact runtime ids beat stable ids.
+        let excludedWorkspaceId = linkedWorkspace?.workspaceId
+        if let target = surfaceByRuntimeId[surfaceId],
+           target.workspaceId != excludedWorkspaceId {
+            return .surface(workspaceId: target.workspaceId, panelId: target.panelId)
+        }
+        if let target = surfaceByStableId[surfaceId],
+           target.workspaceId != excludedWorkspaceId {
+            return .surface(workspaceId: target.workspaceId, panelId: target.panelId)
+        }
+        return nil
     }
 }
