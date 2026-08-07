@@ -269,6 +269,149 @@ struct WorkspaceSidebarObservationTests {
     }
 
     @Test
+    func newerRelayGenerationRetiresOlderObservedAttention() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "test-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_004,
+            relayID: "relay-replacement-test",
+            relayToken: String(repeating: "r", count: 64),
+            localSocketPath: "/tmp/cmux-relay-replacement-test.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh test-remote"
+        )
+        defer {
+            FeedCoordinator.shared.retireAgentAttention(
+                workspaceId: workspace.id,
+                panelId: panelId
+            )
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let older = AgentPIDProcessIdentity(
+            pid: 4_242,
+            startSeconds: 100,
+            startMicroseconds: 10
+        )
+        let newer = AgentPIDProcessIdentity(
+            pid: 4_242,
+            startSeconds: 200,
+            startMicroseconds: 20
+        )
+        #expect(
+            FeedCoordinator.shared.beginObservedAgentAttention(
+                source: "amp",
+                sessionId: "relay-replacement-old",
+                observationId: "relay-replacement-observation",
+                scopeId: "relay-replacement-scope",
+                workspaceId: workspace.id,
+                surfaceId: panelId,
+                processGeneration: older
+            )
+        )
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "amp",
+                panelId: panelId
+            )
+        )
+
+        #expect(
+            ControlSidebarPanelOwner.workspace(workspace).setAgentLifecycle(
+                key: "amp",
+                panelId: panelId,
+                lifecycle: .running,
+                processGeneration: newer
+            )
+        )
+
+        #expect(
+            !workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "amp",
+                panelId: panelId
+            ),
+            "An accepted replacement relay generation must retire attention owned by the superseded process."
+        )
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .running
+        )
+    }
+
+    @Test
+    func unresolvedExplicitSurfaceDoesNotRetargetObservedAttention() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "test-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_005,
+            relayID: "relay-explicit-surface-test",
+            relayToken: String(repeating: "s", count: 64),
+            localSocketPath: "/tmp/cmux-relay-explicit-surface-test.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh test-remote"
+        )
+        defer {
+            FeedCoordinator.shared.retireAgentAttention(
+                workspaceId: workspace.id,
+                panelId: focusedPanelId
+            )
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let generation = AgentPIDProcessIdentity(
+            pid: 5_252,
+            startSeconds: 300,
+            startMicroseconds: 30
+        )
+        #expect(
+            !FeedCoordinator.shared.beginObservedAgentAttention(
+                source: "amp",
+                sessionId: "relay-stale-explicit-surface",
+                observationId: "relay-stale-explicit-observation",
+                scopeId: "relay-stale-explicit-scope",
+                workspaceId: workspace.id,
+                surfaceId: UUID(),
+                processGeneration: generation
+            ),
+            "A stale explicit surface identity must fail closed instead of targeting the focused panel."
+        )
+        #expect(
+            !workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "amp",
+                panelId: focusedPanelId
+            )
+        )
+        #expect(workspace.statusEntries["amp"] == nil)
+    }
+
+    @Test
     func cursorBoundaryRejectsDelayedObserverButAllowsFutureObserver() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

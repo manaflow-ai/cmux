@@ -274,6 +274,65 @@ struct CLIHookNoResponseTests {
         #expect(result.stdout == "{}\n")
     }
 
+    @Test func oversizedFeedHookReturnsWithoutWaitingForStandardInputEOF() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try Self.bundledCLIPath())
+        process.arguments = [
+            "hooks", "feed", "--source", "codex", "--event", "PostToolUse",
+        ]
+        process.environment = [
+            "HOME": FileManager.default.temporaryDirectory.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        let stdin = Pipe()
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardInput = stdin
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+        try process.run()
+        defer {
+            try? stdin.fileHandleForWriting.close()
+            if process.isRunning {
+                process.terminate()
+                _ = finished.wait(timeout: .now() + 1)
+            }
+        }
+
+        try stdin.fileHandleForWriting.write(
+            contentsOf: Data(repeating: 0x78, count: 1 * 1024 * 1024 + 1)
+        )
+        let returnedBeforeEOF = finished.wait(timeout: .now() + 2) == .success
+        if !returnedBeforeEOF {
+            try? stdin.fileHandleForWriting.close()
+            if finished.wait(timeout: .now() + 1) != .success,
+               process.isRunning {
+                process.terminate()
+                _ = finished.wait(timeout: .now() + 1)
+            }
+        }
+
+        let standardOutput = String(
+            data: stdout.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let standardError = String(
+            data: stderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        #expect(
+            returnedBeforeEOF,
+            "An oversized untrusted hook payload must not keep the CLI blocked until its producer closes stdin."
+        )
+        #expect(process.terminationStatus == 0, Comment(rawValue: standardError))
+        #expect(standardOutput == "{}\n")
+    }
+
     private static func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: BundleProbe.self)

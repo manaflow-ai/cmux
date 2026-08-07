@@ -348,11 +348,20 @@ mod.default({
     handlers.set(name, handler);
   }
 });
-for (const name of ["agent.start", "tool.call", "tool.result", "agent.end"]) {
+for (const name of [
+  "session.start",
+  "agent.start",
+  "tool.call",
+  "tool.result",
+  "agent.end"
+]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
 const stopCalls = () => globalThis.__cmuxAmpSpawnCalls.filter(
   (call) => call.args.join(" ") === "hooks amp stop"
+);
+const statusCalls = () => globalThis.__cmuxAmpSpawnCalls.filter(
+  (call) => call.args[0] === "set-status" && call.args[1] === "amp"
 );
 const attentionCalls = (action) => globalThis.__cmuxAmpSpawnCalls.filter(
   (call) =>
@@ -550,6 +559,96 @@ if (
       JSON.stringify(unacknowledgedBegin)
     } end=${JSON.stringify(unacknowledgedConclusion)}`
   );
+}
+const approvalStatusThread = makeThread("T-amp-status-approval", "running");
+const approvalStatusCtx = { thread: approvalStatusThread };
+const siblingStatusThread = makeThread("T-amp-status-sibling", "running");
+const siblingStatusCtx = { thread: siblingStatusThread };
+await handlers.get("agent.start")({
+  thread: approvalStatusThread,
+  message: "approval owns aggregate status",
+  id: "msg-status-approval"
+}, approvalStatusCtx);
+await handlers.get("agent.start")({
+  thread: siblingStatusThread,
+  message: "sibling status work",
+  id: "msg-status-sibling"
+}, siblingStatusCtx);
+await handlers.get("tool.call")({
+  thread: siblingStatusThread,
+  toolUseID: "tool-status-sibling",
+  tool: "Task",
+  input: { prompt: "retain shared status" }
+}, siblingStatusCtx);
+const aggregateApprovalBeginCount = attentionCalls("begin").length;
+approvalStatusThread.setState("awaiting-approval");
+await waitFor(
+  () => attentionCalls("begin").length === aggregateApprovalBeginCount + 1
+    && attentionCalls("begin").at(-1).closedWith === 0,
+  "Amp did not publish the aggregate-status approval"
+);
+const statusCountDuringApproval = statusCalls().length;
+const transientSessionThread = { id: "T-amp-status-session-start" };
+await handlers.get("session.start")(
+  { thread: transientSessionThread },
+  { thread: transientSessionThread }
+);
+await handlers.get("tool.result")({
+  thread: siblingStatusThread,
+  toolUseID: "tool-status-sibling",
+  tool: "Task",
+  status: "done",
+  output: "sibling work finished"
+}, siblingStatusCtx);
+if (statusCalls().length !== statusCountDuringApproval) {
+  throw new Error(
+    "another Amp thread overwrote the shared Needs input status"
+  );
+}
+const aggregateApprovalEndCount = attentionCalls("end").length;
+approvalStatusThread.setState("running");
+await waitFor(
+  () => attentionCalls("end").length === aggregateApprovalEndCount + 2
+    && attentionCalls("end").at(-1).closedWith === 0,
+  "Amp did not conclude the aggregate-status approval"
+);
+await handlers.get("tool.call")({
+  thread: siblingStatusThread,
+  toolUseID: "tool-status-sibling-2",
+  tool: "Task",
+  input: { prompt: "keep active tool visible" }
+}, siblingStatusCtx);
+const secondTransientSessionThread = { id: "T-amp-status-session-start-2" };
+await handlers.get("session.start")(
+  { thread: secondTransientSessionThread },
+  { thread: secondTransientSessionThread }
+);
+if (statusCalls().at(-1)?.args[2] !== "subagent") {
+  throw new Error(
+    `an idle session hid an active sibling tool: ${
+      JSON.stringify(statusCalls().at(-1))
+    }`
+  );
+}
+await handlers.get("tool.result")({
+  thread: siblingStatusThread,
+  toolUseID: "tool-status-sibling-2",
+  tool: "Task",
+  status: "done",
+  output: "second sibling work finished"
+}, siblingStatusCtx);
+for (const [statusThread, statusCtx, messageId] of [
+  [approvalStatusThread, approvalStatusCtx, "msg-status-approval"],
+  [siblingStatusThread, siblingStatusCtx, "msg-status-sibling"]
+]) {
+  await handlers.get("agent.end")({
+    thread: statusThread,
+    message: "aggregate status complete",
+    id: messageId,
+    status: "done",
+    messages: []
+  }, statusCtx);
+  statusThread.setState("idle");
 }
 await handlers.get("tool.call")({
   toolUseID: "tool-main",
