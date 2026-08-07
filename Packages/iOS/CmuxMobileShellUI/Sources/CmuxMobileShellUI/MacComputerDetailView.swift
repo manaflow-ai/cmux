@@ -439,23 +439,6 @@ struct MacComputerDetailView: View {
             } label: {
                 Label(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"), systemImage: "arrow.clockwise")
             }
-            Button {
-                let id = macDeviceID
-                let tag = instanceTag
-                Task {
-                    // Scope the hide to this exact pairing; the alias-based
-                    // overload would also hide sibling app instances (e.g. DEV
-                    // vs. stable) the user is not viewing here.
-                    await store.hideMac(macDeviceID: id, instanceTag: tag)
-                }
-                dismiss()
-            } label: {
-                Label(
-                    L10n.string("mobile.computers.hide", defaultValue: "Hide"),
-                    systemImage: "eye.slash"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerDetailHide")
         }
     }
 

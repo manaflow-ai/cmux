@@ -770,6 +770,70 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerVisibilitySwitchesKeepShownAndHiddenMacsInOneSection() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func waitForLabel(_ label: String, on element: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", label),
+                object: element
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func assertUnifiedRowsRemainVisible() {
+            XCTAssertTrue(app.navigationBars["Computers"].exists)
+            XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+            XCTAssertTrue(app.staticTexts["Preview Mac"].exists)
+            XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+        }
+
+        let shownToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-2"]
+        let hiddenToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-1"]
+        let shownPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-2"
+        ]
+        let hiddenPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-1"
+        ]
+        XCTAssertTrue(shownToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(hiddenToggle.waitForExistence(timeout: 3))
+        XCTAssertTrue(shownPersistence.waitForExistence(timeout: 3))
+        XCTAssertTrue(hiddenPersistence.waitForExistence(timeout: 3))
+        waitForLabel("shown", on: shownPersistence)
+        waitForLabel("hidden", on: hiddenPersistence)
+        waitForValue("1", on: shownToggle)
+        waitForValue("0", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        shownToggle.tap()
+        waitForLabel("hidden", on: shownPersistence)
+        waitForValue("0", on: shownToggle)
+        assertUnifiedRowsRemainVisible()
+
+        hiddenToggle.tap()
+        waitForLabel("shown", on: hiddenPersistence)
+        waitForValue("1", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-visibility-switches-unified-section"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testHiddenComputersForgetSwipeConfirmsWithoutRemovingRow() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
@@ -2968,6 +3032,74 @@ final class cmuxUITests: XCTestCase {
         // or jumbled grid.
         assertTerminalRow(0, label: "$ cmux ios status", in: app)
         assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+    }
+
+    /// A composer submission stays visibly in progress until the Mac responds,
+    /// then exposes a durable failure while preserving the draft for retry.
+    @MainActor
+    func testTerminalComposerShowsSendingAndFailureSettlement() async throws {
+        let server = try MobileSyncMockHostServer(
+            holdsTerminalPasteResponse: true,
+            rejectsTerminalPaste: true
+        )
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Preserve this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+        XCTAssertFalse(send.isEnabled)
+
+        server.releaseTerminalPasteResponse()
+        let failure = app.staticTexts["MobileComposerSendFailure"]
+        XCTAssertTrue(failure.waitForExistence(timeout: 4))
+        XCTAssertEqual(send.label, "Send failed")
+        XCTAssertEqual(field.value as? String, "Preserve this prompt")
+    }
+
+    /// A successful acknowledgement removes the in-flight treatment instead of
+    /// replacing Send with a persistent success glyph.
+    @MainActor
+    func testTerminalComposerReturnsToSendAfterAcknowledgement() async throws {
+        let server = try MobileSyncMockHostServer(holdsTerminalPasteResponse: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Acknowledge this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+        let sending = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Sending"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [sending], timeout: 2), .completed)
+
+        server.releaseTerminalPasteResponse()
+        let normalSend = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Send"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [normalSend], timeout: 4), .completed)
     }
 
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
@@ -7405,6 +7537,8 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let createdWorkspaceTerminalDelay: TimeInterval?
     private let supportsManualAttachTicket: Bool
     private let workspaceCreateSelectsCreatedWorkspace: Bool
+    private let holdsTerminalPasteResponse: Bool
+    private let rejectsTerminalPaste: Bool
     private let macInstanceTag: String
     private var readyContinuation: CheckedContinuation<UInt16, Error>?
     private var connections: [NWConnection] = []
@@ -7414,6 +7548,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private var replayCounts: [String: Int] = [:]
     private var terminalScrollRequestsReceived = 0
     private var streamOffset: UInt64 = 1
+    private var terminalPasteRequestReached = false
+    private var terminalPasteRequestReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var heldTerminalPasteResponse: (() -> Void)?
     private var workspaces: [Workspace] = [
         Workspace(
             id: "workspace-main",
@@ -7469,12 +7606,16 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         createdWorkspaceTerminalDelay: TimeInterval? = nil,
         supportsManualAttachTicket: Bool = false,
         workspaceCreateSelectsCreatedWorkspace: Bool = true,
+        holdsTerminalPasteResponse: Bool = false,
+        rejectsTerminalPaste: Bool = false,
         macInstanceTag: String = mockHostInstanceTag()
     ) throws {
         listener = try NWListener(using: .tcp, on: .any)
         self.createdWorkspaceTerminalDelay = createdWorkspaceTerminalDelay
         self.supportsManualAttachTicket = supportsManualAttachTicket
         self.workspaceCreateSelectsCreatedWorkspace = workspaceCreateSelectsCreatedWorkspace
+        self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
+        self.rejectsTerminalPaste = rejectsTerminalPaste
         self.macInstanceTag = macInstanceTag
         appendMainTerminals(count: additionalMainTerminalCount)
         // Optionally replace the selected terminal's content (used by the
@@ -7713,23 +7854,80 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private func respond(to payload: Data, on connection: NWConnection, remainingBuffer: Data) {
         do {
             let responseFrame = try makeResponseFrame(for: payload)
-            connection.send(
-                content: responseFrame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self, weak connection] error in
-                    guard error == nil,
-                          let self,
-                          let connection else {
-                        connection?.cancel()
-                        return
-                    }
-                    self.receiveRequest(on: connection, buffer: remainingBuffer)
+            if Self.requestMethod(in: payload) == "terminal.paste",
+               holdsTerminalPasteResponse {
+                terminalPasteRequestReached = true
+                let waiters = terminalPasteRequestReachedWaiters
+                terminalPasteRequestReachedWaiters = []
+                for waiter in waiters { waiter.resume() }
+                heldTerminalPasteResponse = { [weak self, weak connection] in
+                    guard let self, let connection else { return }
+                    self.sendResponse(
+                        responseFrame,
+                        on: connection,
+                        remainingBuffer: remainingBuffer
+                    )
                 }
-            )
+            } else {
+                sendResponse(
+                    responseFrame,
+                    on: connection,
+                    remainingBuffer: remainingBuffer
+                )
+            }
         } catch {
             connection.cancel()
         }
+    }
+
+    func awaitTerminalPasteRequestReached() async {
+        await withCheckedContinuation { continuation in
+            queue.async { [weak self] in
+                guard let self else {
+                    continuation.resume()
+                    return
+                }
+                if terminalPasteRequestReached {
+                    continuation.resume()
+                } else {
+                    terminalPasteRequestReachedWaiters.append(continuation)
+                }
+            }
+        }
+    }
+
+    func releaseTerminalPasteResponse() {
+        queue.async { [weak self] in
+            let response = self?.heldTerminalPasteResponse
+            self?.heldTerminalPasteResponse = nil
+            response?()
+        }
+    }
+
+    private func sendResponse(
+        _ responseFrame: Data,
+        on connection: NWConnection,
+        remainingBuffer: Data
+    ) {
+        connection.send(
+            content: responseFrame,
+            contentContext: .defaultMessage,
+            isComplete: false,
+            completion: .contentProcessed { [weak self, weak connection] error in
+                guard error == nil,
+                      let self,
+                      let connection else {
+                    connection?.cancel()
+                    return
+                }
+                self.receiveRequest(on: connection, buffer: remainingBuffer)
+            }
+        )
+    }
+
+    private static func requestMethod(in payload: Data) -> String? {
+        let request = try? JSONSerialization.jsonObject(with: payload) as? [String: Any]
+        return request?["method"] as? String
     }
 
     private func makeResponseFrame(for payload: Data) throws -> Data {
@@ -7747,6 +7945,18 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
                 "error": [
                     "code": "method_not_found",
                     "message": "Unknown method",
+                ],
+            ]
+            let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
+            return Self.frame(responsePayload)
+        }
+        if method == "terminal.paste", rejectsTerminalPaste {
+            let envelope: [String: Any] = [
+                "id": id,
+                "ok": false,
+                "error": [
+                    "code": "send_failed",
+                    "message": "Rejected terminal paste",
                 ],
             ]
             let responsePayload = try JSONSerialization.data(withJSONObject: envelope)
