@@ -411,11 +411,11 @@ def _assertion_statement_contexts(lines: list[str]) -> dict[int, tuple[str, int]
 _INERT_TEXT_MATCHER = re.compile(r"\.(?:toContain|toStartWith)\s*\(")
 _DIRECT_URL_ASSIGNMENT = re.compile(
     r"""(?x)
-    (?<![\w.$])
+    ^\s*
     (?:(const|let|var)\s+)?
     ([A-Za-z_$][A-Za-z0-9_$]*)
     (?:\s*:\s*[^=]+)?
-    \s*=\s*(?:[rRbBuUfF]{0,2})?["'`]\s*$
+    \s*=\s*[^;"'`]*["'`]\s*$
     """
 )
 
@@ -567,13 +567,8 @@ def _assigned_identifier_for_url(
         segment_index,
     )
     prefix = line[segment_start:url_index]
-    assignment = _DIRECT_URL_ASSIGNMENT.search(prefix)
-    if assignment is None:
-        return None
-    declaration = assignment.group(1)
-    if declaration is None and prefix[:assignment.start()].strip():
-        return None
-    return assignment.group(2)
+    assignment = _DIRECT_URL_ASSIGNMENT.match(prefix)
+    return assignment.group(2) if assignment is not None else None
 
 
 def _identifier_is_reassigned(
