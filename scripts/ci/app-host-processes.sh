@@ -226,7 +226,7 @@ cmux_app_host_primary_executable() {
   cmux_select_app_host_lsof || return 1
 
   local output status line reported_pid first_executable
-  if output="$(cmux_run_app_host_lsof -a -p "$pid" -d txt -Fn)"; then
+  if output="$(cmux_run_app_host_lsof -a -p "$pid" -d txt -Ffn)"; then
     status=0
   else
     status=$?
@@ -287,7 +287,7 @@ cmux_app_host_receipt_descriptor_is_open() {
 
   local output status line reported_pid reported_fd reported_path
   if output="$(cmux_run_app_host_lsof \
-    -a -p "$pid" -d "$receipt_fd" -Fn -- "$receipt_file")"; then
+    -a -p "$pid" -d "$receipt_fd" -Ffn -- "$receipt_file")"; then
     status=0
   else
     status=$?
@@ -406,7 +406,7 @@ cmux_scan_app_host_target_pids() {
   cmux_select_app_host_lsof || return 1
 
   local output status line current_pid first_executable target_pids scoped_executable
-  if output="$(cmux_run_app_host_lsof -d txt -Fn)"; then
+  if output="$(cmux_run_app_host_lsof -d txt -Ffn)"; then
     status=0
   else
     status=$?
@@ -662,6 +662,7 @@ cmux_app_host_derived_data_from_executable() {
   esac
   cmux_app_host_executable_is_scoped \
     "$derived_data_path" "$executable" || return 1
+  CMUX_APP_HOST_RECEIPT_DERIVED_DATA="$derived_data_path"
 }
 
 cmux_validate_app_host_runner_root() {
@@ -754,6 +755,7 @@ cmux_record_runner_app_host_target() {
   fi
   local target_index="${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}"
   CMUX_APP_HOST_RUNNER_TARGET_PIDS[target_index]="$pid"
+  CMUX_APP_HOST_RUNNER_TARGET_EXECUTABLES[target_index]="$executable"
 }
 
 # Enumerate process executable vnodes, not command lines. The first txt vnode
@@ -765,7 +767,7 @@ cmux_scan_runner_app_host_targets() {
   cmux_select_app_host_lsof || return 1
 
   local output status line current_pid first_executable
-  if output="$(cmux_run_app_host_lsof -d txt -Fn)"; then
+  if output="$(cmux_run_app_host_lsof -d txt -Ffn)"; then
     status=0
   else
     status=$?
@@ -776,6 +778,7 @@ cmux_scan_runner_app_host_targets() {
   fi
 
   CMUX_APP_HOST_RUNNER_TARGET_PIDS=()
+  CMUX_APP_HOST_RUNNER_TARGET_EXECUTABLES=()
   current_pid=""
   first_executable=""
   while IFS= read -r line; do
@@ -835,6 +838,79 @@ cmux_app_host_scope_mtime() {
       ;;
   esac
   CMUX_APP_HOST_SCOPE_MTIME="$mtime"
+}
+
+cmux_app_host_scope_file_identity() {
+  local scope_path="$1"
+  local identity
+  if identity="$(/usr/bin/stat -f '%d:%i:%m' "$scope_path" 2>/dev/null)"; then
+    :
+  elif identity="$(/usr/bin/stat -c '%d:%i:%Y' "$scope_path" 2>/dev/null)"; then
+    :
+  else
+    echo "FAIL: app-host scope file identity is unavailable" >&2
+    return 1
+  fi
+  case "$identity" in
+    *[!0-9:]*|:*|*:)
+      echo "FAIL: app-host scope file identity is invalid" >&2
+      return 1
+      ;;
+  esac
+  CMUX_APP_HOST_SCOPE_FILE_IDENTITY="$identity"
+}
+
+# The newest confirmation may belong to a job that has prepared its scope but
+# is still waiting for the canonical machine lock. Only regular confirmation
+# files participate; malformed unrelated debris is left for advisory scope
+# maintenance and cannot authorize a process signal.
+cmux_newest_app_host_confirmation_mtime() {
+  local system_temp_root="$1"
+  cmux_validate_app_host_runner_root "$system_temp_root" || return 1
+  system_temp_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
+
+  local confirmation_file newest_mtime mtime
+  newest_mtime=0
+  for confirmation_file in "$system_temp_root"/cmux-ah-*.confirm; do
+    if [ -L "$confirmation_file" ] || [ ! -f "$confirmation_file" ]; then
+      continue
+    fi
+    if ! cmux_app_host_scope_mtime "$confirmation_file" 2>/dev/null; then
+      # A setup/teardown step may unlink unrelated process-free authority
+      # between the glob and stat. It cannot authorize a live process signal.
+      continue
+    fi
+    mtime="$CMUX_APP_HOST_SCOPE_MTIME"
+    if [ "$mtime" -gt "$newest_mtime" ]; then
+      newest_mtime="$mtime"
+    fi
+  done
+  CMUX_NEWEST_APP_HOST_CONFIRMATION_MTIME="$newest_mtime"
+}
+
+# Set CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE to 1 only for an authenticated v2
+# scope that is old enough, is not current, and is not tied for newest.
+cmux_classify_app_host_scope_recovery_eligibility() {
+  local key="$1"
+  local preserved_key="$2"
+  local version="$3"
+  local mtime="$4"
+  local newest_mtime="$5"
+  local now_epoch="$6"
+  local minimum_age_seconds="$7"
+  CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE=0
+
+  if [ "$version" != "2" ] \
+    || [ -z "$mtime" ] \
+    || [ "$key" = "$preserved_key" ] \
+    || [ "$mtime" -eq "$newest_mtime" ] \
+    || [ "$mtime" -gt "$now_epoch" ]; then
+    return 0
+  fi
+  if [ $((now_epoch - mtime)) -lt "$minimum_age_seconds" ]; then
+    return 0
+  fi
+  CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE=1
 }
 
 # Validate a complete or confirmation-only process-free scope. Missing mutable
@@ -911,6 +987,124 @@ cmux_validate_abandoned_app_host_scope() {
   CMUX_VALIDATED_ABANDONED_APP_HOST_CONFIRMATION_FILE="$confirmation_file"
 }
 
+# Match one runner-scoped live PID to one old prior-run authority scope. This
+# is only an admission check. The caller completes a runner-wide preflight and
+# revalidates every admitted authority before any signal is sent.
+cmux_find_eligible_prior_app_host_receipt() {
+  local runner_root="$1"
+  local system_temp_root="$2"
+  local preserved_key="$3"
+  local target_pid="$4"
+  local target_executable="$5"
+  local newest_mtime="$6"
+  local now_epoch="$7"
+  local minimum_age_seconds="$8"
+
+  local current_uid receipt_file receipt_dir receipt_dir_name expected_key
+  local confirmation_file mtime confirmation_identity verify_status
+  local matching_receipts matched_receipt matched_key matched_derived_data
+  local matched_confirmation matched_confirmation_identity matched_confirmation_mtime
+  current_uid="$(/usr/bin/id -u)" || {
+    echo "FAIL: prior app-host cleanup account is unavailable" >&2
+    return 1
+  }
+  matching_receipts=0
+  matched_receipt=""
+  matched_key=""
+  matched_derived_data=""
+  matched_confirmation=""
+  matched_confirmation_identity=""
+  matched_confirmation_mtime=""
+
+  for receipt_file in \
+    "$system_temp_root"/cmux-ah-*-receipts/"app-host-$target_pid.receipt"; do
+    if [ ! -e "$receipt_file" ] && [ ! -L "$receipt_file" ]; then
+      continue
+    fi
+    receipt_dir="$(dirname "$receipt_file")"
+    cmux_validate_app_host_receipt_dir "$receipt_dir" || return 1
+    receipt_dir_name="$(basename "$receipt_dir")"
+    expected_key="${receipt_dir_name#cmux-ah-}"
+    expected_key="${expected_key%-receipts}"
+    cmux_validate_app_host_key "$expected_key" || return 1
+    cmux_read_app_host_receipt "$receipt_file" "$expected_key" || return 1
+    if [ "$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE" != "$target_executable" ]; then
+      continue
+    fi
+    matching_receipts=$((matching_receipts + 1))
+    if [ "$expected_key" = "$preserved_key" ]; then
+      echo "FAIL: current app-host PID $target_pid was not authenticated by its current receipt set" >&2
+      return 1
+    fi
+
+    cmux_validate_abandoned_app_host_scope \
+      "$system_temp_root" "$expected_key" "$current_uid" || return 1
+    if [ ! -d "$CMUX_VALIDATED_ABANDONED_APP_HOST_RECEIPT_DIR" ]; then
+      echo "FAIL: prior app-host receipt root is unavailable" >&2
+      return 1
+    fi
+    confirmation_file="$CMUX_VALIDATED_ABANDONED_APP_HOST_CONFIRMATION_FILE"
+    cmux_app_host_scope_mtime "$confirmation_file" || return 1
+    mtime="$CMUX_APP_HOST_SCOPE_MTIME"
+    cmux_classify_app_host_scope_recovery_eligibility \
+      "$expected_key" "$preserved_key" 2 "$mtime" "$newest_mtime" \
+      "$now_epoch" "$minimum_age_seconds" || return 1
+    if [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -ne 1 ]; then
+      echo "FAIL: foreign app-host PID $target_pid is not old enough for prior-run recovery" >&2
+      return 1
+    fi
+    cmux_app_host_scope_file_identity "$confirmation_file" || return 1
+    confirmation_identity="$CMUX_APP_HOST_SCOPE_FILE_IDENTITY"
+
+    if cmux_verify_stale_app_host_receipt \
+      "$receipt_file" "$expected_key" "$runner_root"; then
+      verify_status=0
+    else
+      verify_status=$?
+    fi
+    if [ "$verify_status" -eq 2 ]; then
+      return 2
+    fi
+    if [ "$verify_status" -ne 0 ]; then
+      return 1
+    fi
+    matched_receipt="$receipt_file"
+    matched_key="$expected_key"
+    matched_derived_data="$CMUX_APP_HOST_RECEIPT_DERIVED_DATA"
+    matched_confirmation="$confirmation_file"
+    matched_confirmation_identity="$confirmation_identity"
+    matched_confirmation_mtime="$mtime"
+  done
+
+  if [ "$matching_receipts" -eq 0 ]; then
+    # Avoid a false missing-receipt error if the target exited during preflight.
+    if cmux_app_host_primary_executable "$target_pid"; then
+      if [ "$CMUX_APP_HOST_PRIMARY_EXECUTABLE" != "$target_executable" ]; then
+        return 2
+      fi
+    else
+      verify_status=$?
+      if [ "$verify_status" -eq 2 ]; then
+        return 2
+      fi
+      return 1
+    fi
+    echo "FAIL: foreign app-host PID $target_pid has no eligible prior-run receipt" >&2
+    return 1
+  fi
+  if [ "$matching_receipts" -ne 1 ]; then
+    echo "FAIL: live app-host PID $target_pid has ambiguous prior-run receipts" >&2
+    return 1
+  fi
+
+  CMUX_PRIOR_APP_HOST_RECEIPT="$matched_receipt"
+  CMUX_PRIOR_APP_HOST_KEY="$matched_key"
+  CMUX_PRIOR_APP_HOST_DERIVED_DATA="$matched_derived_data"
+  CMUX_PRIOR_APP_HOST_CONFIRMATION_FILE="$matched_confirmation"
+  CMUX_PRIOR_APP_HOST_CONFIRMATION_IDENTITY="$matched_confirmation_identity"
+  CMUX_PRIOR_APP_HOST_CONFIRMATION_MTIME="$matched_confirmation_mtime"
+}
+
 # Reclaim only authenticated, process-free scopes older than the grace period.
 # The current key and every scope tied for newest confirmation are preserved.
 # All candidates are validated and previewed before the first deletion.
@@ -942,7 +1136,7 @@ cmux_reclaim_abandoned_app_host_scopes() {
 
   local current_uid confirmation_file confirmation_name key first_line
   local seen_keys key_count key_index newest_mtime candidate_count
-  local mtime age candidate_index scope_path
+  local mtime candidate_index scope_path
   local -a scope_keys scope_mtimes scope_versions candidate_keys candidate_mtimes
   current_uid="$(/usr/bin/id -u)" || {
     echo "FAIL: abandoned app-host cleanup account is unavailable" >&2
@@ -1017,16 +1211,11 @@ cmux_reclaim_abandoned_app_host_scopes() {
   while [ "$key_index" -lt "$key_count" ]; do
     key="${scope_keys[$key_index]}"
     mtime="${scope_mtimes[$key_index]:-}"
-    if [ "${scope_versions[$key_index]:-}" != "2" ] \
-      || [ -z "$mtime" ] \
-      || [ "$key" = "$preserved_key" ] \
-      || [ "$mtime" -eq "$newest_mtime" ] \
-      || [ "$mtime" -gt "$now_epoch" ]; then
-      key_index=$((key_index + 1))
-      continue
-    fi
-    age=$((now_epoch - mtime))
-    if [ "$age" -lt "$minimum_age_seconds" ]; then
+    cmux_classify_app_host_scope_recovery_eligibility \
+      "$key" "$preserved_key" "${scope_versions[$key_index]:-}" \
+      "$mtime" "$newest_mtime" "$now_epoch" "$minimum_age_seconds" \
+      || return 1
+    if [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -ne 1 ]; then
       key_index=$((key_index + 1))
       continue
     fi
@@ -1074,11 +1263,11 @@ cmux_reclaim_abandoned_app_host_scopes() {
   done
 }
 
-# Retry recovery is scoped to the immutable current run key and its exact
-# receipt directory. A foreign live app host aborts the entire preflight before
-# any current or foreign PID is signaled. Process-free scope reclamation is
-# advisory after owned-process safety is established, so unrelated malformed
-# debris cannot prevent the current run from launching.
+# Retry recovery always owns the immutable current run key. While holding the
+# canonical machine lock, it may also admit a prior-run owner whose confirmation
+# is authenticated, older than the grace period, and not newest. Every live PID
+# and admitted confirmation is preflighted twice before any signal. Process-free
+# scope maintenance remains advisory after process safety is established.
 cmux_recover_owned_app_host_attempt() {
   local receipt_dir="$1"
   local expected_key="$2"
@@ -1088,6 +1277,12 @@ cmux_recover_owned_app_host_attempt() {
   local now_epoch="${6:-}"
   local minimum_age_seconds="${7:-21600}"
   shift "$(( $# < 7 ? $# : 7 ))"
+
+  if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" != "1" ] \
+    && [ "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-0}" != "1" ]; then
+    echo "FAIL: app-host recovery requires the canonical machine lock" >&2
+    return 1
+  fi
 
   cmux_validate_app_host_receipt_dir "$receipt_dir" || return 1
   receipt_dir="$CMUX_VALIDATED_APP_HOST_RECEIPT_DIR"
@@ -1101,43 +1296,217 @@ cmux_recover_owned_app_host_attempt() {
   if [ -z "$now_epoch" ]; then
     now_epoch="$(/bin/date +%s)" || return 1
   fi
+  case "$now_epoch:$minimum_age_seconds" in
+    *[!0-9:]*|:*|*:)
+      echo "FAIL: app-host recovery age inputs are invalid" >&2
+      return 1
+      ;;
+  esac
 
-  local verified_pids target_index target_pid
+  local requested_scope_count requested_scope_index
+  local -a requested_scope_keys
+  requested_scope_keys=()
+  requested_scope_count=$#
+  requested_scope_index=0
+  while [ "$requested_scope_index" -lt "$requested_scope_count" ]; do
+    requested_scope_keys[requested_scope_index]="$1"
+    shift
+    requested_scope_index=$((requested_scope_index + 1))
+  done
+
+  local verified_pids verified_pid verified_pid_tokens
+  local target_count target_index target_pid target_executable
+  local newest_mtime find_status prior_count current_uid
+  local -a initial_target_pids initial_target_executables
+  local -a prior_pids prior_executables prior_receipts prior_keys
+  local -a prior_derived_data prior_confirmations prior_confirmation_identities
+  local -a prior_confirmation_mtimes maintenance_keys
   verified_pids="$(cmux_app_host_verified_pids \
     "$receipt_dir" "$expected_key" "$derived_data_path")" || return 1
+  verified_pid_tokens=""
+  for verified_pid in $verified_pids; do
+    verified_pid_tokens="${verified_pid_tokens:+$verified_pid_tokens }$verified_pid"
+  done
+  verified_pids="$verified_pid_tokens"
+  cmux_newest_app_host_confirmation_mtime "$system_temp_root" || return 1
+  newest_mtime="$CMUX_NEWEST_APP_HOST_CONFIRMATION_MTIME"
   cmux_scan_runner_app_host_targets "$runner_root" || return 1
+  target_count="${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}"
+  initial_target_pids=()
+  initial_target_executables=()
+  prior_pids=()
+  prior_executables=()
+  prior_receipts=()
+  prior_keys=()
+  prior_derived_data=()
+  prior_confirmations=()
+  prior_confirmation_identities=()
+  prior_confirmation_mtimes=()
+  prior_count=0
   target_index=0
-  while [ "$target_index" -lt "${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}" ]; do
+  while [ "$target_index" -lt "$target_count" ]; do
     target_pid="${CMUX_APP_HOST_RUNNER_TARGET_PIDS[$target_index]}"
+    target_executable="${CMUX_APP_HOST_RUNNER_TARGET_EXECUTABLES[$target_index]}"
+    initial_target_pids[target_index]="$target_pid"
+    initial_target_executables[target_index]="$target_executable"
     case " $verified_pids " in
-      *" $target_pid "*) ;;
-      *)
-        echo "FAIL: foreign app-host PID $target_pid is live; refusing cross-job termination" >&2
-        return 1
+      *" $target_pid "*)
+        target_index=$((target_index + 1))
+        continue
         ;;
     esac
+
+    if cmux_find_eligible_prior_app_host_receipt \
+      "$runner_root" "$system_temp_root" "$expected_key" \
+      "$target_pid" "$target_executable" "$newest_mtime" \
+      "$now_epoch" "$minimum_age_seconds"; then
+      find_status=0
+    else
+      find_status=$?
+    fi
+    if [ "$find_status" -eq 2 ]; then
+      echo "FAIL: runner app-host set changed during prior-owner preflight" >&2
+      return 1
+    fi
+    if [ "$find_status" -ne 0 ]; then
+      return 1
+    fi
+    prior_pids[prior_count]="$target_pid"
+    prior_executables[prior_count]="$target_executable"
+    prior_receipts[prior_count]="$CMUX_PRIOR_APP_HOST_RECEIPT"
+    prior_keys[prior_count]="$CMUX_PRIOR_APP_HOST_KEY"
+    prior_derived_data[prior_count]="$CMUX_PRIOR_APP_HOST_DERIVED_DATA"
+    prior_confirmations[prior_count]="$CMUX_PRIOR_APP_HOST_CONFIRMATION_FILE"
+    prior_confirmation_identities[prior_count]="$CMUX_PRIOR_APP_HOST_CONFIRMATION_IDENTITY"
+    prior_confirmation_mtimes[prior_count]="$CMUX_PRIOR_APP_HOST_CONFIRMATION_MTIME"
+    prior_count=$((prior_count + 1))
+    target_index=$((target_index + 1))
+  done
+
+  # Preparation can publish a waiting scope outside the machine lock. Recheck
+  # both the complete live target set and the global newest confirmation before
+  # signaling current or prior owners.
+  cmux_scan_runner_app_host_targets "$runner_root" || return 1
+  if [ "${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}" -ne "$target_count" ]; then
+    echo "FAIL: runner app-host set changed before recovery" >&2
+    return 1
+  fi
+  target_index=0
+  while [ "$target_index" -lt "$target_count" ]; do
+    if [ "${CMUX_APP_HOST_RUNNER_TARGET_PIDS[$target_index]}" \
+        != "${initial_target_pids[$target_index]}" ] \
+      || [ "${CMUX_APP_HOST_RUNNER_TARGET_EXECUTABLES[$target_index]}" \
+        != "${initial_target_executables[$target_index]}" ]; then
+      echo "FAIL: runner app-host identity changed before recovery" >&2
+      return 1
+    fi
+    target_index=$((target_index + 1))
+  done
+  cmux_newest_app_host_confirmation_mtime "$system_temp_root" || return 1
+  if [ "$CMUX_NEWEST_APP_HOST_CONFIRMATION_MTIME" != "$newest_mtime" ]; then
+    echo "FAIL: app-host confirmation set changed before recovery" >&2
+    return 1
+  fi
+
+  current_uid="$(/usr/bin/id -u)" || {
+    echo "FAIL: prior app-host cleanup account is unavailable" >&2
+    return 1
+  }
+  target_index=0
+  while [ "$target_index" -lt "$prior_count" ]; do
+    cmux_validate_abandoned_app_host_scope \
+      "$system_temp_root" "${prior_keys[$target_index]}" "$current_uid" \
+      || return 1
+    if [ "$CMUX_VALIDATED_ABANDONED_APP_HOST_CONFIRMATION_FILE" \
+        != "${prior_confirmations[$target_index]}" ] \
+      || [ ! -d "$CMUX_VALIDATED_ABANDONED_APP_HOST_RECEIPT_DIR" ]; then
+      echo "FAIL: prior app-host authority changed before recovery" >&2
+      return 1
+    fi
+    cmux_app_host_scope_mtime \
+      "${prior_confirmations[$target_index]}" || return 1
+    if [ "$CMUX_APP_HOST_SCOPE_MTIME" \
+        != "${prior_confirmation_mtimes[$target_index]}" ]; then
+      echo "FAIL: prior app-host confirmation changed before recovery" >&2
+      return 1
+    fi
+    cmux_app_host_scope_file_identity \
+      "${prior_confirmations[$target_index]}" || return 1
+    if [ "$CMUX_APP_HOST_SCOPE_FILE_IDENTITY" \
+        != "${prior_confirmation_identities[$target_index]}" ]; then
+      echo "FAIL: prior app-host confirmation identity changed before recovery" >&2
+      return 1
+    fi
+    cmux_classify_app_host_scope_recovery_eligibility \
+      "${prior_keys[$target_index]}" "$expected_key" 2 \
+      "${prior_confirmation_mtimes[$target_index]}" "$newest_mtime" \
+      "$now_epoch" "$minimum_age_seconds" || return 1
+    if [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -ne 1 ]; then
+      echo "FAIL: prior app-host scope became ineligible before recovery" >&2
+      return 1
+    fi
+    if cmux_verify_stale_app_host_receipt \
+      "${prior_receipts[$target_index]}" \
+      "${prior_keys[$target_index]}" "$runner_root"; then
+      find_status=0
+    else
+      find_status=$?
+    fi
+    if [ "$find_status" -eq 2 ]; then
+      echo "FAIL: prior app-host owner exited before recovery" >&2
+      return 1
+    fi
+    if [ "$find_status" -ne 0 ] \
+      || [ "$CMUX_VERIFIED_APP_HOST_PID" != "${prior_pids[$target_index]}" ] \
+      || [ "$CMUX_VERIFIED_APP_HOST_EXECUTABLE" \
+        != "${prior_executables[$target_index]}" ] \
+      || [ "$CMUX_APP_HOST_RECEIPT_DERIVED_DATA" \
+        != "${prior_derived_data[$target_index]}" ]; then
+      echo "FAIL: prior app-host receipt changed before recovery" >&2
+      return 1
+    fi
     target_index=$((target_index + 1))
   done
 
   cmux_terminate_verified_app_hosts \
     "$receipt_dir" "$expected_key" "$derived_data_path" || return 1
+  target_index=0
+  while [ "$target_index" -lt "$prior_count" ]; do
+    cmux_terminate_one_verified_app_host \
+      "${prior_receipts[$target_index]}" \
+      "${prior_keys[$target_index]}" \
+      "${prior_derived_data[$target_index]}" \
+      "$runner_root" || return 1
+    target_index=$((target_index + 1))
+  done
+
   cmux_scan_runner_app_host_targets "$runner_root" || return 1
   if [ "${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}" -ne 0 ]; then
-    echo "FAIL: an app host remained live after owned retry recovery" >&2
+    echo "FAIL: an app host remained live after authenticated retry recovery" >&2
     return 1
   fi
 
-  if [ "$#" -gt 0 ]; then
+  maintenance_keys=()
+  maintenance_keys[0]="$expected_key"
+  target_count=1
+  requested_scope_index=0
+  while [ "$requested_scope_index" -lt "$requested_scope_count" ]; do
+    maintenance_keys[target_count]="${requested_scope_keys[$requested_scope_index]}"
+    target_count=$((target_count + 1))
+    requested_scope_index=$((requested_scope_index + 1))
+  done
+  target_index=0
+  while [ "$target_index" -lt "$prior_count" ]; do
+    maintenance_keys[target_count]="${prior_keys[$target_index]}"
+    target_count=$((target_count + 1))
+    target_index=$((target_index + 1))
+  done
+
+  if [ "$requested_scope_count" -gt 0 ] \
+    || [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
     cmux_reclaim_abandoned_app_host_scopes \
       "$runner_root" "$system_temp_root" "$expected_key" \
-      "$now_epoch" "$minimum_age_seconds" "$expected_key" "$@" || {
-      echo "WARNING: abandoned app-host scope reclamation was skipped" >&2
-      return 0
-    }
-  elif [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
-    cmux_reclaim_abandoned_app_host_scopes \
-      "$runner_root" "$system_temp_root" "$expected_key" \
-      "$now_epoch" "$minimum_age_seconds" "$expected_key" || {
+      "$now_epoch" "$minimum_age_seconds" "${maintenance_keys[@]}" || {
       echo "WARNING: abandoned app-host scope reclamation was skipped" >&2
       return 0
     }
