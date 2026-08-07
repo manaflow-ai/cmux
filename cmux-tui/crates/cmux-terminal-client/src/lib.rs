@@ -1692,6 +1692,19 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
     required
 }
 
+/// Returns the number of rows in the latest materialized viewport frame.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_frame_row_count(
+    client: *const CmuxTerminalClient,
+) -> usize {
+    let Some(client) = (unsafe { client.as_ref() }) else { return 0 };
+    let mut state = client.state.lock().unwrap();
+    if let Err(error) = state.materialize_frame() {
+        state.status = format!("render: {error}");
+    }
+    state.frame_rows.len()
+}
+
 /// Copies one row from the latest materialized frame as a NUL-terminated
 /// UTF-8 string. The row index is zero-based.
 #[unsafe(no_mangle)]

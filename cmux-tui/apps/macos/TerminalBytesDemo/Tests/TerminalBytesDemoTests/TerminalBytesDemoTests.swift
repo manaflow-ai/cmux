@@ -208,7 +208,8 @@ final class TerminalBytesDemoTests: XCTestCase {
         terminal.applyTerminalFrame(
             nil,
             dirtyRows: [0, 1],
-            dirtyRowText: [0: "one\n", 1: "two\n"]
+            dirtyRowText: [0: "one\n", 1: "two\n"],
+            rowCount: 2
         )
 
         XCTAssertEqual(terminal.string, "one\ntwo\n")

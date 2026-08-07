@@ -73,6 +73,7 @@ struct ContentView: View {
                 text: model.frameUpdate,
                 dirtyRows: model.dirtyRows,
                 dirtyRowText: model.dirtyRowText,
+                rowCount: model.rowCount,
                 inputReady: model.isConnected,
                 submit: model.submit,
                 resize: model.resize

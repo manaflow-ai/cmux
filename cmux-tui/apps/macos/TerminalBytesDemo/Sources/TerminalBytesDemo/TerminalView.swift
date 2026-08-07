@@ -208,7 +208,8 @@ final class TerminalTextView: NSTextView {
     func applyTerminalFrame(
         _ next: String?,
         dirtyRows: [UInt16] = [],
-        dirtyRowText: [UInt16: String] = [:]
+        dirtyRowText: [UInt16: String] = [:],
+        rowCount: Int = 0
     ) -> TerminalTextEdit? {
         let edit: TerminalTextEdit
         if let next {
@@ -221,12 +222,14 @@ final class TerminalTextView: NSTextView {
             guard let first = dirtyRows.min().map(Int.init),
                 let last = dirtyRows.max().map(Int.init)
             else { return nil }
-            let fullCoverage = dirtyRows.first == 0 && dirtyRows.count == last + 1
+            let fullCoverage = dirtyRows.first == 0
+                && dirtyRows.count == last + 1
+                && rowCount == last + 1
             guard terminalRowOffsets.count == terminalRows.count + 1,
                 fullCoverage || last < terminalRows.count
             else { return nil }
             guard dirtyRows.allSatisfy({ dirtyRowText[$0] != nil }) else { return nil }
-            let changedRows = (first...last).map { dirtyRowText[UInt16($0)]! }
+            let changedRows = (first...last).map { dirtyRowText[UInt16($0)] ?? terminalRows[$0] }
             let start = fullCoverage ? 0 : terminalRowOffsets[first]
             let end = fullCoverage ? terminalRowOffsets.last! : terminalRowOffsets[last + 1]
             edit = TerminalTextEdit(
@@ -420,6 +423,7 @@ struct TerminalView: NSViewRepresentable {
     let text: String?
     let dirtyRows: [UInt16]
     let dirtyRowText: [UInt16: String]
+    let rowCount: Int
     let inputReady: Bool
     let submit: (TerminalInput) -> Void
     let resize: (TerminalGeometry) -> Void
@@ -470,7 +474,8 @@ struct TerminalView: NSViewRepresentable {
         guard let edit = terminal.applyTerminalFrame(
             text,
             dirtyRows: dirtyRows,
-            dirtyRowText: dirtyRowText
+            dirtyRowText: dirtyRowText,
+            rowCount: rowCount
         ) else { return }
         if !isComposing {
             terminal.selectedRanges = terminalSelections(

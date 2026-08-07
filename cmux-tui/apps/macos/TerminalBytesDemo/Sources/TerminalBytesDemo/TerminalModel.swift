@@ -199,6 +199,7 @@ private let defaultTerminalConnector: TerminalConnector = { invitation, terminal
 struct TerminalClientSnapshot: Equatable, Sendable {
     let frame: String?
     let diagnostics: String
+    let rowCount: Int
     let dirtyRows: [UInt16]
     let dirtyRowText: [UInt16: String]
     let didExit: Bool
@@ -300,6 +301,7 @@ actor TerminalClientHandle {
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Int
+    private let frameRowCountClient: @Sendable (OpaquePointer) -> Int
     private let copyDiagnosticsClient:
         @Sendable (
             OpaquePointer,
@@ -404,6 +406,9 @@ actor TerminalClientHandle {
             ) -> Int = {
                 cmux_terminal_client_copy_frame_row($0, $1, $2, $3)
             },
+        frameRowCountClient: @escaping @Sendable (OpaquePointer) -> Int = {
+            Int(cmux_terminal_client_frame_row_count($0))
+        },
         copyDiagnosticsClient:
             @escaping @Sendable (
                 OpaquePointer,
@@ -430,9 +435,11 @@ actor TerminalClientHandle {
         if enableFrameDelta {
             self.copyFrameDirtyRowsClient = copyFrameDirtyRowsClient
             self.copyFrameRowClient = copyFrameRowClient
+            self.frameRowCountClient = frameRowCountClient
         } else {
             self.copyFrameDirtyRowsClient = { _, _, _ in 0 }
             self.copyFrameRowClient = { _, _, _, _ in 0 }
+            self.frameRowCountClient = { _ in 0 }
         }
         self.copyDiagnosticsClient = copyDiagnosticsClient
         self.hasExitedClient = hasExitedClient
@@ -585,6 +592,7 @@ actor TerminalClientHandle {
             let diagnostics = copyString(using: copyDiagnosticsClient)
         else { return nil }
         let dirtyRows = copyDirtyRows(raw)
+        let rowCount = frameRowCountClient(raw)
         var dirtyRowText: [UInt16: String] = [:]
         for row in dirtyRows {
             guard let value = copyRowString(raw, row) else { return nil }
@@ -601,6 +609,7 @@ actor TerminalClientHandle {
         return TerminalClientSnapshot(
             frame: frame,
             diagnostics: diagnostics,
+            rowCount: rowCount,
             dirtyRows: dirtyRows,
             dirtyRowText: dirtyRowText,
             didExit: hasExitedClient(raw),
@@ -832,6 +841,7 @@ final class TerminalModel {
     private(set) var frameUpdate: String? = ""
     private(set) var dirtyRows: [UInt16] = []
     private(set) var dirtyRowText: [UInt16: String] = [:]
+    private(set) var rowCount = 0
     private(set) var diagnostics = ""
     private var errorKind: TerminalErrorKind?
     var errorMessage: String { errorKind?.message ?? "" }
@@ -943,6 +953,7 @@ final class TerminalModel {
             frameUpdate = ""
             dirtyRows = []
             dirtyRowText = [:]
+            rowCount = 0
             diagnostics = ""
             geometryDelivery.resetConnection()
             client = nil
@@ -1002,6 +1013,7 @@ final class TerminalModel {
         frameUpdate = ""
         dirtyRows = []
         dirtyRowText = [:]
+        rowCount = 0
         diagnostics = ""
         geometryDelivery.resetConnection()
         connectionOperation &+= 1
@@ -1239,6 +1251,7 @@ final class TerminalModel {
         frameUpdate = snapshot.frame
         dirtyRows = snapshot.dirtyRows
         dirtyRowText = snapshot.dirtyRowText
+        rowCount = snapshot.rowCount
         if let snapshotFrame = snapshot.frame {
             frame = snapshotFrame
         }

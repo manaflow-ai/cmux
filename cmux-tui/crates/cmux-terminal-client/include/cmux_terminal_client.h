@@ -106,6 +106,7 @@ size_t cmux_terminal_client_copy_frame_dirty_rows(
     const CmuxTerminalClient *client,
     uint16_t *buffer,
     size_t capacity);
+size_t cmux_terminal_client_frame_row_count(const CmuxTerminalClient *client);
 // Copies one zero-based viewport row from the latest frame.
 size_t cmux_terminal_client_copy_frame_row(
     const CmuxTerminalClient *client,
