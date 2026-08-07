@@ -1,4 +1,5 @@
 public import Foundation
+import CoreGraphics
 
 /// Immutable identity for one process-wide workspace drag.
 struct SidebarWorkspaceDragSession: Equatable, Sendable {
@@ -25,11 +26,21 @@ public final class SidebarWorkspaceDragRegistry {
     }
 
     private(set) var currentSession: SidebarWorkspaceDragSession?
+    private let isLeftMouseButtonPressed: @MainActor () -> Bool
     private var lifecycleMonitor: SidebarWorkspaceDragLifecycleMonitor?
     private var participants: [WeakParticipant] = []
 
     /// Creates an empty registry with no drag in flight.
-    public init() {}
+    public convenience init() {
+        self.init(isLeftMouseButtonPressed: {
+            CGEventSource.buttonState(.combinedSessionState, button: .left)
+        })
+    }
+
+    /// Creates a registry with an injected physical-button state source.
+    init(isLeftMouseButtonPressed: @escaping @MainActor () -> Bool) {
+        self.isLeftMouseButtonPressed = isLeftMouseButtonPressed
+    }
 
     /// The workspace participating in the active process-wide drag, if any.
     public var currentWorkspaceId: UUID? { currentSession?.workspaceId }
@@ -43,7 +54,10 @@ public final class SidebarWorkspaceDragRegistry {
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session
         if monitorLifecycle {
-            let monitor = SidebarWorkspaceDragLifecycleMonitor(sessionId: session.id) { [weak self] sessionId in
+            let monitor = SidebarWorkspaceDragLifecycleMonitor(
+                sessionId: session.id,
+                isLeftMouseButtonPressed: isLeftMouseButtonPressed
+            ) { [weak self] sessionId in
                 self?.end(sessionId: sessionId)
             }
             lifecycleMonitor = monitor
@@ -71,10 +85,11 @@ public final class SidebarWorkspaceDragRegistry {
         currentSession = nil
         lifecycleMonitor?.stop()
         lifecycleMonitor = nil
-        participants.removeAll { participant in
-            guard let state = participant.state else { return true }
+        let participantsSnapshot = participants
+        for participant in participantsSnapshot {
+            guard let state = participant.state else { continue }
             state.coordinatorDidEnd(sessionId: session.id)
-            return false
         }
+        participants.removeAll { $0.state == nil }
     }
 }

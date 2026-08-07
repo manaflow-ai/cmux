@@ -113,8 +113,8 @@ import CmuxFoundation
         #expect(registry.currentWorkspaceId == nil)
     }
 
-    @Test func appResignClearsActiveWorkspaceDrag() async {
-        let registry = SidebarWorkspaceDragRegistry()
+    @Test func appResignClearsActiveWorkspaceDragSynchronously() {
+        let registry = SidebarWorkspaceDragRegistry(isLeftMouseButtonPressed: { true })
         let workspaceId = UUID()
         let source = SidebarDragState(workspaceDragRegistry: registry)
         let destination = SidebarDragState(workspaceDragRegistry: registry)
@@ -127,7 +127,6 @@ import CmuxFoundation
             name: NSApplication.didResignActiveNotification,
             object: nil
         )
-        await Task.yield()
 
         #expect(
             registry.currentWorkspaceId == nil,
