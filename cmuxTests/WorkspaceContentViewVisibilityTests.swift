@@ -285,6 +285,9 @@ final class WorkspaceContentViewVisibilityTests {
         )
         .environmentObject(TabManager())
         .environmentObject(CmuxConfigStore())
+        .environmentObject(TerminalNotificationStore.shared)
+        .environmentObject(SidebarState())
+        .environmentObject(SidebarSelectionState())
         .environment(
             \.minimalModeInvalidationProbe,
             MinimalModeInvalidationProbe(
@@ -811,22 +814,25 @@ private struct SidebarUnrelatedEnvironmentHarness: View {
     let observedWindowReference: WeakWindowReference
 
     var body: some View {
-        VerticalTabsSidebar(
-            updateViewModel: updateViewModel,
-            fileExplorerState: fileExplorerState,
-            sidebarUnread: sidebarUnread,
-            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
-            windowId: windowId,
-            onSendFeedback: {},
-            onToggleSidebar: {},
-            onNewTab: {},
-            observedWindowReference: observedWindowReference,
-            selection: .constant(.tabs),
-            selectedTabIds: .constant([]),
-            lastSidebarSelectionIndex: .constant(nil),
-            sidebarRenderWorkerClient: .constant(nil)
-        )
-        .equatable()
+        SidebarWorkspaceTableEnvironmentReader { tableEnvironment in
+            VerticalTabsSidebar(
+                updateViewModel: updateViewModel,
+                fileExplorerState: fileExplorerState,
+                sidebarUnread: sidebarUnread,
+                titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+                windowId: windowId,
+                onSendFeedback: {},
+                onToggleSidebar: {},
+                onNewTab: {},
+                observedWindowReference: observedWindowReference,
+                tableEnvironment: tableEnvironment,
+                selection: .constant(.tabs),
+                selectedTabIds: .constant([]),
+                lastSidebarSelectionIndex: .constant(nil),
+                sidebarRenderWorkerClient: .constant(nil)
+            )
+            .equatable()
+        }
         .environment(\.sidebarUnrelatedEnvironmentNoise, state.noise)
     }
 }

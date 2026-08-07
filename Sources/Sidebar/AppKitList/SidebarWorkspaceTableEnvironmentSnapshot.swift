@@ -3,6 +3,38 @@ import CmuxFoundation
 import CoreGraphics
 import SwiftUI
 
+/// Resolves the broad SwiftUI environment at a lightweight boundary before
+/// the O(workspaces) sidebar projection. Unrelated environment changes can
+/// re-evaluate this reader, but the compact snapshot lets the inner
+/// `VerticalTabsSidebar.equatable()` gate discard them.
+@MainActor
+struct SidebarWorkspaceTableEnvironmentReader<Content: View>: View {
+    @Environment(\.self) private var environment
+
+    private let content: (SidebarWorkspaceTableEnvironmentSnapshot) -> Content
+
+    init(
+        @ViewBuilder content: @escaping (SidebarWorkspaceTableEnvironmentSnapshot) -> Content
+    ) {
+        self.content = content
+    }
+
+    var body: some View {
+#if DEBUG
+        content(SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: environment,
+            globalFontMagnificationPercent: environment.cmuxGlobalFontMagnificationPercent,
+            lazyContractProbe: environment.sidebarLazyContractProbe
+        ))
+#else
+        content(SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: environment,
+            globalFontMagnificationPercent: environment.cmuxGlobalFontMagnificationPercent
+        ))
+#endif
+    }
+}
+
 /// Immutable presentation environment shared by hosted and pure-AppKit table cells.
 /// The initializer projects the supplied SwiftUI environment immediately; it
 /// never retains environment objects across the sidebar's lazy-list boundary.
