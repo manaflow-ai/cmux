@@ -1,5 +1,6 @@
 import Darwin
 import CMUXAgentLaunch
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -253,7 +254,8 @@ struct AgentPromptSubmissionTests {
             Issue.record("Expected pre-binding mobile send to remain available")
             return
         }
-        #expect(payload["submitted"] as? Bool == true)
+        let response = try #require(payload as? [String: Any])
+        #expect(response["submitted"] as? Bool == true)
         let pending = panel.surface.pendingSocketInputSnapshotForTests
         #expect(pending.items == 4)
         #expect(pending.keyEvents == 3)
