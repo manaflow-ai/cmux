@@ -28,11 +28,15 @@
 "workspace.number" = "ワークスペース %d";
 "workspace.default_name" = "ワークスペース";
 "spaces.count" = "%d 個のスペース";
+"spaces.count.one" = "%d 個のスペース";
+"spaces.count.other" = "%d 個のスペース";
 "space.number" = "%d";
 "space.default_name" = "スペース %d";
 "pane.auto" = "自動ペイン";
 "pane.new_auto" = "新規自動レイアウトペイン";
 "columns.count" = "%d カラム";
+"columns.count.one" = "%d カラム";
+"columns.count.other" = "%d カラム";
 "column.base_width" = "基準幅 %.2f";
 "pane.short_id" = "ペイン %@";
 "error.connection_closed" = "フロントエンド接続が閉じています。";

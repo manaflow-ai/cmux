@@ -59,10 +59,11 @@ struct WorkspaceSidebar: View {
                         ? L10n.format("workspace.number", "workspace %d", workspace.index + 1)
                         : workspace.name)
                         .lineLimit(1)
+                    let spaceCount = snapshot.screens(in: workspace.id).count
                     Text(L10n.format(
-                        "spaces.count",
-                        "%d spaces",
-                        snapshot.screens(in: workspace.id).count
+                        spaceCount == 1 ? "spaces.count.one" : "spaces.count.other",
+                        spaceCount == 1 ? "%d space" : "%d spaces",
+                        spaceCount
                     ))
                         .font(.caption2)
                         .foregroundStyle(.secondary)

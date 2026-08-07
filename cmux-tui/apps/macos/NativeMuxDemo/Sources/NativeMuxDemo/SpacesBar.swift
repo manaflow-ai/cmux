@@ -65,8 +65,13 @@ struct SpacesBar: View {
             if let screen = model.selectedScreen,
                 case .viewport(_, let columns) = screen.layout.root
             {
+                let columnCount = columns.count
                 Label(
-                    L10n.format("columns.count", "%d columns", columns.count),
+                    L10n.format(
+                        columnCount == 1 ? "columns.count.one" : "columns.count.other",
+                        columnCount == 1 ? "%d column" : "%d columns",
+                        columnCount
+                    ),
                     systemImage: "rectangle.3.group"
                 )
                     .font(.caption2)

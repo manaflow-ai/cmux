@@ -28,11 +28,15 @@
 "workspace.number" = "workspace %d";
 "workspace.default_name" = "workspace";
 "spaces.count" = "%d spaces";
+"spaces.count.one" = "%d space";
+"spaces.count.other" = "%d spaces";
 "space.number" = "%d";
 "space.default_name" = "space %d";
 "pane.auto" = "Auto pane";
 "pane.new_auto" = "New auto-layout pane";
 "columns.count" = "%d columns";
+"columns.count.one" = "%d column";
+"columns.count.other" = "%d columns";
 "column.base_width" = "base width %.2f";
 "pane.short_id" = "Pane %@";
 "error.connection_closed" = "The frontend connection is closed.";
