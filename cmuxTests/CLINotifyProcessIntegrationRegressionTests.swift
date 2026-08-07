@@ -1070,6 +1070,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
         let record = try readClaudeHookSession(sessionId, context: context)
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, compactedLineCount)
+        XCTAssertEqual(record["autoNameLastObservedLineCount"] as? Int, compactedLineCount)
         XCTAssertEqual(record["autoNameLastTitle"] as? String, "Fix auth bug")
     }
 
@@ -1134,6 +1135,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             }
             XCTAssertEqual(params["title"] as? String, "New panel topic")
             XCTAssertNil(params["expected_workspace_title"])
+            XCTAssertNil(params["expected_panel_title"])
             XCTAssertEqual(params["clear_status_on_apply"] as? Bool, true)
             return self.v2Response(id: id, ok: true, result: [
                 "workspace_applied": false,

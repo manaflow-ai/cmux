@@ -169,6 +169,14 @@ struct ClaudeHookSessionRecord: Codable {
     // confirmed title apply; the in-flight marker dedupes concurrent Stops.
     var autoNameLastTitle: String?
     var autoNameLastLineCount: Int?
+    /// Transcript high-water observed by any hook pass, including passes that
+    /// cannot generate a title. This is separate from the successful naming
+    /// baseline so compaction remains detectable while naming is suppressed.
+    var autoNameLastObservedLineCount: Int?
+    /// Compare-and-set token for the hook pass that most recently observed the
+    /// transcript. Finishers only lower the high-water while this token still
+    /// belongs to their observation.
+    var autoNameLastObservationGeneration: String?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
     /// A durable compact-lifecycle obligation. `SessionStart(source=compact)`
@@ -286,6 +294,7 @@ final class ClaudeHookSessionStore {
     struct AutoNamingBeginOutcome {
         var decision: AutoNamingThrottleDecision
         var lastTitle: String?
+        var observationGeneration: String?
     }
 
     /// Atomically evaluates the auto-naming throttle and records the in-flight
@@ -305,7 +314,11 @@ final class ClaudeHookSessionStore {
     ) throws -> AutoNamingBeginOutcome {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else {
-            return AutoNamingBeginOutcome(decision: .skipShortTranscript, lastTitle: nil)
+            return AutoNamingBeginOutcome(
+                decision: .skipShortTranscript,
+                lastTitle: nil,
+                observationGeneration: nil
+            )
         }
         return try withLockedState { state in
             var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
@@ -318,6 +331,7 @@ final class ClaudeHookSessionStore {
             let snapshot = AutoNamingSessionSnapshot(
                 lastTitle: record.autoNameLastTitle,
                 lastLineCount: record.autoNameLastLineCount,
+                lastObservedLineCount: record.autoNameLastObservedLineCount,
                 lastNamedAt: record.autoNameLastNamedAt,
                 inFlightAt: record.autoNameInFlightAt,
                 lastAttemptAt: record.autoNameLastAttemptAt
@@ -327,6 +341,10 @@ final class ClaudeHookSessionStore {
                 transcriptLineCount: transcriptLineCount,
                 now: now
             )
+            let observationGeneration = recordAutoNamingObservation(
+                transcriptLineCount,
+                record: &record
+            )
             switch decision {
             case .proceed where allowNewTitleGeneration, .reseedBaseline:
                 record.autoNameInFlightAt = now.timeIntervalSince1970
@@ -335,8 +353,27 @@ final class ClaudeHookSessionStore {
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
-            return AutoNamingBeginOutcome(decision: decision, lastTitle: snapshot.lastTitle)
+            return AutoNamingBeginOutcome(
+                decision: decision,
+                lastTitle: snapshot.lastTitle,
+                observationGeneration: observationGeneration
+            )
         }
+    }
+
+    /// Records one transcript observation and returns the token its finisher
+    /// must still own before lowering the persisted high-water.
+    private func recordAutoNamingObservation(
+        _ lineCount: Int,
+        record: inout ClaudeHookSessionRecord
+    ) -> String {
+        let generation = UUID().uuidString
+        record.autoNameLastObservedLineCount = max(
+            lineCount,
+            record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+        )
+        record.autoNameLastObservationGeneration = generation
+        return generation
     }
 
     /// Records an explicit Claude compaction before any best-effort title
@@ -366,40 +403,55 @@ final class ClaudeHookSessionStore {
         transcriptLineCount: Int?,
         now: Date,
         engine: AutoNamingEngine
-    ) throws -> (pending: Bool, title: String?, compactedLineCount: Int?, generation: String?) {
+    ) throws -> (
+        pending: Bool,
+        title: String?,
+        compactedLineCount: Int?,
+        generation: String?,
+        observationGeneration: String?
+    ) {
         let normalized = normalizeSessionId(sessionId)
-        guard !normalized.isEmpty else { return (false, nil, nil, nil) }
+        guard !normalized.isEmpty else { return (false, nil, nil, nil, nil) }
         return try withLockedState { state in
             guard var record = state.sessions[normalized],
                   let generation = record.autoNameTitleReconciliationGeneration else {
-                return (false, nil, nil, nil)
+                return (false, nil, nil, nil, nil)
             }
             let hasLiveInFlight = record.autoNameInFlightAt.map {
                 now.timeIntervalSince1970 - $0 < engine.config.inFlightExpiry
             } ?? false
+            let observedHighWater = max(
+                record.autoNameLastLineCount ?? 0,
+                record.autoNameLastObservedLineCount ?? 0
+            )
+            let compactedLineCount: Int? = transcriptLineCount.flatMap { current in
+                guard observedHighWater > 0,
+                      record.autoNameLastNamedAt != nil,
+                      current < observedHighWater else { return nil }
+                return current
+            }
+            let observationGeneration = transcriptLineCount.map {
+                recordAutoNamingObservation($0, record: &record)
+            }
+            record.updatedAt = now.timeIntervalSince1970
+            state.sessions[normalized] = record
             guard let title = record.autoNameLastTitle else {
                 if hasLiveInFlight {
-                    return (true, nil, nil, nil)
+                    return (true, nil, nil, nil, observationGeneration)
                 }
                 record.autoNameTitleReconciliationGeneration = nil
                 record.autoNameInFlightAt = nil
                 record.updatedAt = now.timeIntervalSince1970
                 state.sessions[normalized] = record
-                return (false, nil, nil, nil)
+                return (false, nil, nil, nil, observationGeneration)
             }
             if hasLiveInFlight {
-                return (true, nil, nil, nil)
+                return (true, nil, nil, nil, observationGeneration)
             }
             record.autoNameInFlightAt = now.timeIntervalSince1970
             record.updatedAt = now.timeIntervalSince1970
             state.sessions[normalized] = record
-            let compactedLineCount: Int? = transcriptLineCount.flatMap { current in
-                guard let previous = record.autoNameLastLineCount,
-                      record.autoNameLastNamedAt != nil,
-                      current < previous else { return nil }
-                return current
-            }
-            return (true, title, compactedLineCount, generation)
+            return (true, title, compactedLineCount, generation, observationGeneration)
         }
     }
 
@@ -411,6 +463,7 @@ final class ClaudeHookSessionStore {
         compactedLineCount: Int?,
         confirmedApply: Bool,
         claimedReconciliationGeneration: String? = nil,
+        observationGeneration: String? = nil,
         clearPendingOnConfirmation: Bool = true
     ) throws {
         let normalized = normalizeSessionId(sessionId)
@@ -422,6 +475,10 @@ final class ClaudeHookSessionStore {
                record.autoNameTitleReconciliationGeneration == claimedReconciliationGeneration {
                 if let compactedLineCount {
                     record.autoNameLastLineCount = compactedLineCount
+                    if let observationGeneration,
+                       record.autoNameLastObservationGeneration == observationGeneration {
+                        record.autoNameLastObservedLineCount = compactedLineCount
+                    }
                 }
                 if clearPendingOnConfirmation,
                    claimedReconciliationGeneration != nil {
@@ -440,6 +497,7 @@ final class ClaudeHookSessionStore {
         sessionId: String,
         appliedTitle: String?,
         baselineLineCount: Int?,
+        observationGeneration: String?,
         now: Date
     ) throws {
         let normalized = normalizeSessionId(sessionId)
@@ -451,9 +509,19 @@ final class ClaudeHookSessionStore {
             // enforces a cooldown before retrying a failing summarizer.
             record.autoNameLastAttemptAt = now.timeIntervalSince1970
             if let appliedTitle, let baselineLineCount {
+                let isFirstConfirmedTitle = record.autoNameLastNamedAt == nil
                 record.autoNameLastTitle = appliedTitle
                 record.autoNameLastLineCount = baselineLineCount
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
+                if isFirstConfirmedTitle,
+                   let observationGeneration,
+                   record.autoNameLastObservationGeneration == observationGeneration {
+                    // A failed first attempt may have observed a larger
+                    // pre-compaction transcript. Once the first title is
+                    // confirmed, discard that stale high-water unless a newer
+                    // hook observation won the compare-and-set.
+                    record.autoNameLastObservedLineCount = baselineLineCount
+                }
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record

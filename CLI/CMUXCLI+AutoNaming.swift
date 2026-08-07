@@ -44,6 +44,10 @@ struct AutoNamingConfig: Sendable {
 struct AutoNamingSessionSnapshot: Sendable {
     var lastTitle: String?
     var lastLineCount: Int?
+    /// Highest transcript size observed by any hook pass since the last
+    /// confirmed compaction reconciliation. Unlike `lastLineCount`, this also
+    /// advances while title generation is suppressed or fails.
+    var lastObservedLineCount: Int?
     var lastNamedAt: TimeInterval?
     var inFlightAt: TimeInterval?
     /// Last attempt time, success or failure (see the record field of the same
@@ -53,12 +57,14 @@ struct AutoNamingSessionSnapshot: Sendable {
     init(
         lastTitle: String? = nil,
         lastLineCount: Int? = nil,
+        lastObservedLineCount: Int? = nil,
         lastNamedAt: TimeInterval? = nil,
         inFlightAt: TimeInterval? = nil,
         lastAttemptAt: TimeInterval? = nil
     ) {
         self.lastTitle = lastTitle
         self.lastLineCount = lastLineCount
+        self.lastObservedLineCount = lastObservedLineCount
         self.lastNamedAt = lastNamedAt
         self.inFlightAt = inFlightAt
         self.lastAttemptAt = lastAttemptAt
@@ -183,8 +189,12 @@ struct AutoNamingEngine: Sendable {
         if let inFlightAt = snapshot.inFlightAt, nowInterval - inFlightAt < config.inFlightExpiry { return .skipInFlight }
         // A shrink is authoritative even when the replacement transcript is short:
         // reseed so the caller reconciles the title and measures future growth correctly.
-        if let lastLineCount = snapshot.lastLineCount, snapshot.lastNamedAt != nil,
-           transcriptLineCount < lastLineCount {
+        let observedHighWater = max(
+            snapshot.lastLineCount ?? 0,
+            snapshot.lastObservedLineCount ?? 0
+        )
+        if observedHighWater > 0, snapshot.lastNamedAt != nil,
+           transcriptLineCount < observedHighWater {
             return .reseedBaseline(to: transcriptLineCount)
         }
         guard transcriptLineCount >= config.minTranscriptLines else { return .skipShortTranscript }

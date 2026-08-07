@@ -3840,8 +3840,10 @@ class TerminalController {
     /// mid-session toggles. `panel_id` accepts either a panel UUID or a
     /// surface UUID. `expected_workspace_title` makes reconciliation a
     /// compare-and-set: a manual or different current automatic title is
-    /// preserved and reported as `workspace_apply_skipped`. `panel_apply_skipped`
-    /// distinguishes a valid single-panel suppression from an unresolved target, while
+    /// preserved and reported as `workspace_apply_skipped`. The corresponding
+    /// `expected_panel_title` protects a newer automatic panel title in the same
+    /// transaction. `panel_apply_skipped` distinguishes compare-and-set and
+    /// valid single-panel suppression from an unresolved target, while
     /// `clear_status_on_apply=false` lets reconciliation preserve the last
     /// summarizer health warning when it only reapplies a stored title.
     private func v2WorkspaceSetAutoTitle(params: [String: Any]) -> V2CallResult {
@@ -3888,16 +3890,22 @@ class TerminalController {
         }
         let expectedWorkspaceTitleRaw = v2String(params, "expected_workspace_title")
         let hasExpectedWorkspaceTitle = params.keys.contains("expected_workspace_title")
+        let expectedPanelTitleRaw = v2String(params, "expected_panel_title")
+        let hasExpectedPanelTitle = params.keys.contains("expected_panel_title")
         guard let titleRaw = v2String(params, "title"),
               !titleRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !hasExpectedWorkspaceTitle
-                || expectedWorkspaceTitleRaw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                || expectedWorkspaceTitleRaw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              !hasExpectedPanelTitle
+                || expectedPanelTitleRaw?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
             return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
         }
         let panelId = v2UUID(params, "panel_id")
 
         let title = titleRaw.trimmingCharacters(in: .whitespacesAndNewlines)
         let expectedWorkspaceTitle = expectedWorkspaceTitleRaw?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedPanelTitle = expectedPanelTitleRaw?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let panelOnlyIfMultiple = v2Bool(params, "panel_only_if_multiple") ?? false
         let clearStatusOnApply = v2Bool(params, "clear_status_on_apply") ?? true
@@ -3930,6 +3938,12 @@ class TerminalController {
             }
             if let resolvedPanelId {
                 if panelOnlyIfMultiple && workspace.panels.count < 2 {
+                    panelApplySkipped = true
+                } else if let expectedPanelTitle,
+                          workspace.panelCustomTitleSources[resolvedPanelId] == .auto,
+                          workspace.panelCustomTitles[resolvedPanelId] != expectedPanelTitle {
+                    // A newer automatic title from another session owns this
+                    // panel now. Preserve it just like the workspace CAS above.
                     panelApplySkipped = true
                 } else {
                     panelApplied = workspace.setPanelCustomTitle(

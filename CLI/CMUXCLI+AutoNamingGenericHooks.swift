@@ -241,6 +241,7 @@ extension CMUXCLI {
             workspaceId: workspaceId,
             surfaceId: surfaceId,
             expectedWorkspaceTitle: title,
+            expectedPanelTitle: title,
             clearStatusOnApply: false,
             client: client,
             telemetryKey: telemetryKey,
@@ -252,6 +253,7 @@ extension CMUXCLI {
             compactedLineCount: claim.compactedLineCount,
             confirmedApply: confirmedApply,
             claimedReconciliationGeneration: claim.generation,
+            observationGeneration: claim.observationGeneration,
             clearPendingOnConfirmation: clearPendingOnConfirmation
         )
         return true
@@ -287,6 +289,7 @@ extension CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     expectedWorkspaceTitle: lastTitle,
+                    expectedPanelTitle: lastTitle,
                     clearStatusOnApply: false,
                     client: client,
                     telemetryKey: "\(telemetryKey).reconcile",
@@ -301,7 +304,8 @@ extension CMUXCLI {
             try? sessionStore.finishAutoNamingReconciliation(
                 sessionId: sessionId,
                 compactedLineCount: compactedLineCount,
-                confirmedApply: confirmedApply
+                confirmedApply: confirmedApply,
+                observationGeneration: outcome.observationGeneration
             )
             return
         }
@@ -320,6 +324,7 @@ extension CMUXCLI {
                 sessionId: sessionId,
                 appliedTitle: confirmedTitle,
                 baselineLineCount: confirmedTitle != nil ? baseline : nil,
+                observationGeneration: outcome.observationGeneration,
                 now: Date()
             )
         }
