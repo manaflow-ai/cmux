@@ -2302,6 +2302,24 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_case_curl_network.sh",
+            (
+                'case "$mode" in\n'
+                "  live) curl -fsSL https://api.openai.com/v1/items ;;\n"
+                "esac\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_case_eval_network.sh",
+            (
+                'case "$mode" in\n'
+                "  live) eval curl -fsSL https://api.openai.com/v1/items ;;\n"
+                "esac\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_eval_multiple_args.sh",
             (
                 'eval "set -e;" \\\n'
@@ -2338,8 +2356,41 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/httpx_nested_client_get.py",
+            (
+                "httpx.Client("
+                "timeout=httpx.Timeout(5), "
+                'base_url="https://api.openai.com"'
+                ').get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_multiline_client_get.py",
+            (
+                "httpx.Client(\n"
+                "    timeout=httpx.Timeout(5),\n"
+                '    base_url="https://api.openai.com",\n'
+                ').get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/axios_client_get.ts",
             'axios.create().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_options.ts",
+            'axios.options("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_nested_factory_options.ts",
+            (
+                "axios.create(makeConfig())"
+                '.options("https://api.openai.com/v1/items")\n'
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2662,6 +2713,16 @@ def _self_test() -> int:
         (
             "tests/n18i_shell_eval_data_argument.sh",
             "eval echo curl https://api.openai.com/v1/items\n",
+        ),
+        # A case pattern names data, not a command. The command begins only
+        # after the arm's unmatched close parenthesis.
+        (
+            "tests/n18i_shell_case_pattern.sh",
+            (
+                'case "$mode" in\n'
+                '  curl) printf "%s\\n" "https://api.openai.com/v1/items" ;;\n'
+                "esac\n"
+            ),
         ),
         # Python does not split a string command unless shell=True is explicit.
         (
