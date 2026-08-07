@@ -175,7 +175,14 @@ struct SSHConfiguredRemoteCommandHostTests {
             timeout: 10
         )
 
-        #expect(!startupResult.timedOut, Comment(rawValue: startupResult.stderr))
+        try #require(
+            !startupResult.timedOut,
+            "Startup timed out; stdout: \(startupResult.stdout); stderr: \(startupResult.stderr)"
+        )
+        try #require(
+            startupResult.status == 0,
+            "Startup exited \(startupResult.status); stdout: \(startupResult.stdout); stderr: \(startupResult.stderr)"
+        )
         #expect(
             !startupResult.stderr.contains("Cannot execute command-line and remote command."),
             "cmux-controlled ssh invocations must override a host-configured RemoteCommand; stderr: \(startupResult.stderr)"
@@ -186,9 +193,9 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
 
         let events = harness.recordedSSHEvents()
-        #expect(
+        try #require(
             events.contains("invocation kind=command override=none"),
-            "The foreground auth hop must pass -o RemoteCommand=none so a host-configured RemoteCommand cannot conflict with its command-line command; events: \(events)"
+            "The foreground auth hop must pass -o RemoteCommand=none; events: \(events); stdout: \(startupResult.stdout); stderr: \(startupResult.stderr)"
         )
         #expect(
             !events.contains("invocation kind=command override=absent"),
