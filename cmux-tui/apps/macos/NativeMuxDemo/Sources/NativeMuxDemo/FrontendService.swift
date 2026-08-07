@@ -326,8 +326,10 @@ actor TerminalHandle {
     }
   }
 
-  func drainRenderEvents() async -> [TerminalRenderEvent] {
-    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return [] }
+  func drainRenderEvents() async -> TerminalRenderEventBatch {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
+      return TerminalRenderEventBatch(events: [], hasMore: false)
+    }
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
       var result: [TerminalRenderEvent] = []
@@ -349,7 +351,7 @@ actor TerminalHandle {
         }
         result.append(TerminalRenderEvent(kind: kind, geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows), payload: payload))
       }
-      return result
+      return TerminalRenderEventBatch(events: result, hasMore: result.count == 64)
     }
   }
 
@@ -391,4 +393,9 @@ struct TerminalRenderEvent: Sendable {
   let kind: Kind
   let geometry: TerminalGeometry
   let payload: Data
+}
+
+struct TerminalRenderEventBatch: Sendable {
+  let events: [TerminalRenderEvent]
+  let hasMore: Bool
 }

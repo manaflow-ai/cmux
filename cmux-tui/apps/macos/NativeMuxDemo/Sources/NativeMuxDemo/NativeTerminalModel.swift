@@ -139,10 +139,13 @@ final class NativeTerminalModel {
   }
 
   private func consumeUpdates(from handle: TerminalHandle) async {
-    let events = await handle.drainRenderEvents()
-    for event in events {
-      surfaceView.apply(event)
-    }
+    var batch = await handle.drainRenderEvents()
+    repeat {
+      for event in batch.events { surfaceView.apply(event) }
+      guard batch.hasMore else { break }
+      await Task.yield()
+      batch = await handle.drainRenderEvents()
+    } while !Task.isCancelled
     if let rendererError = surfaceView.initializationError {
       errorMessage = rendererError
     }
