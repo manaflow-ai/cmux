@@ -752,7 +752,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func ownershipExpansionRejectsReusedPIDWithChangedParentOrGroup(shellPath: String) throws {
+    func ownershipExpansionRetainsReparentedPIDAndRejectsChangedStableIdentity(
+        shellPath: String
+    ) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-reused-pid-\(UUID().uuidString)", isDirectory: true)
@@ -769,13 +771,23 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
         cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
         cmux_ssh_auth_expand_owned_processes "$CMUX_TEST_SNAPSHOT" || exit 99
-        test "$(/usr/bin/wc -l < "$CMUX_TEST_OWNED" | /usr/bin/tr -d '[:space:]')" -eq 1 || exit 98
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_OWNED" | /usr/bin/tr -d '[:space:]')" -eq 2 || exit 98
+        /usr/bin/grep -Fqx '101 9 11 Thu_Jan_1_00:00:00_1970 S' "$CMUX_TEST_OWNED" || exit 97
         /usr/bin/grep -Fqx '103 1 13 Thu_Jan_1_00:00:00_1970 T' "$CMUX_TEST_OWNED" || exit 97
+        ! /usr/bin/grep -Eq '^102 ' "$CMUX_TEST_OWNED" || exit 96
+
+        printf '101 1 11 Thu_Jan_1_00:00:00_1970 S\n' > "$CMUX_TEST_CANDIDATES"
+        cmux_ssh_auth_filter_current_processes "$CMUX_TEST_SNAPSHOT" \
+          "$CMUX_TEST_CANDIDATES" "$CMUX_TEST_FILTERED" 0 || exit 95
+        /usr/bin/grep -Fqx '101 1 11 Thu_Jan_1_00:00:00_1970 S' \
+          "$CMUX_TEST_FILTERED" || exit 94
         """
 
         let result = try runShellCommand(
             command,
             environment: [
+                "CMUX_TEST_CANDIDATES": root.appendingPathComponent("candidates").path,
+                "CMUX_TEST_FILTERED": root.appendingPathComponent("filtered").path,
                 "CMUX_TEST_OWNED": root.appendingPathComponent("owned").path,
                 "CMUX_TEST_OWNED_NEXT": root.appendingPathComponent("owned.next").path,
                 "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
@@ -910,7 +922,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func freezeRecordsGroupImmediatelyBeforeStop(shellPath: String) throws {
+    func freezeSignalsValidatedMembersInsteadOfWholeProcessGroup(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-group-stop-journal-\(UUID().uuidString)", isDirectory: true)
@@ -924,21 +936,17 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_select_exclusive_groups() {
           printf '777\n' > "$cmux_ssh_auth_owned_groups"
         }
-        cmux_ssh_auth_filter_current_processes() { : > "$3"; }
-        cmux_ssh_auth_order_children_first() { : > "$2"; }
+        cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
+        cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
         cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
         cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
-        kill() {
-          if [ "$*" = '-STOP -- -777' ] && \
-            /usr/bin/grep -Fqx \
-              '777 101 1 Thu_Jan_1_00:00:00_1970' \
-              "$CMUX_TEST_SIGNALED_GROUPS"; then
-            : > "$CMUX_TEST_RECORDED_BEFORE_STOP"
-          fi
-          printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_stable_identity() {
+          printf '777|Thu_Jan_1_00:00:00_1970\n'
         }
-        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n' > "$CMUX_TEST_OWNED"
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n102 1 777 Thu_Jan_1_00:00:00_1970 S\n' \
+          > "$CMUX_TEST_OWNED"
         : > "$CMUX_TEST_GROUPS"
         : > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALED_GROUPS"
@@ -954,22 +962,25 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_freeze_owned_processes || exit 99
-        test -f "$CMUX_TEST_RECORDED_BEFORE_STOP" || exit 98
-        test "$(/usr/bin/grep -Fxc \
-          '777 101 1 Thu_Jan_1_00:00:00_1970' \
-          "$CMUX_TEST_SIGNALED_GROUPS")" -eq 1 || exit 97
+        test ! -s "$CMUX_TEST_SIGNALED_GROUPS" || exit 98
+        ! /usr/bin/grep -Fq -- '-STOP -- -777' "$CMUX_TEST_SIGNALS" || exit 97
+        /usr/bin/grep -Fqx -- '-STOP 101' "$CMUX_TEST_SIGNALS" || exit 96
+        /usr/bin/grep -Fqx -- '-STOP 102' "$CMUX_TEST_SIGNALS" || exit 95
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALED_PIDS" | \
+          /usr/bin/tr -d '[:space:]')" -eq 2 || exit 94
         """
 
-        var environment = freezeIdentityTestEnvironment(root: root)
-        environment["CMUX_TEST_RECORDED_BEFORE_STOP"] = root
-            .appendingPathComponent("recorded-before-stop").path
-        let result = try runShellCommand(command, environment: environment, shellPath: shellPath)
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root),
+            shellPath: shellPath
+        )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func freezeBoundsWriteAheadStopJournal(shellPath: String) throws {
+    func freezeBatchesOwnedProcessesAboveWriteAheadStopBudget(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-stop-budget-\(UUID().uuidString)", isDirectory: true)
@@ -981,11 +992,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_deadline_allows_work() { return 0; }
         cmux_ssh_auth_deadline_allows_signal() { return 0; }
         cmux_ssh_auth_select_exclusive_groups() { return 0; }
-        cmux_ssh_auth_filter_current_processes() { : > "$3"; }
-        cmux_ssh_auth_order_children_first() { : > "$2"; }
+        cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
+        cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
         cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
         cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
+        cmux_ssh_auth_stable_identity() {
+          printf '%s|Thu_Jan_1_00:00:00_1970\n' "$1"
+        }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         /usr/bin/awk 'BEGIN { for (group = 1000; group <= 2024; group += 1) print group }' \
           > "$CMUX_TEST_GROUPS"
@@ -1008,9 +1022,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
-        if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
+        cmux_ssh_auth_freeze_owned_processes || exit 99
         test ! -s "$CMUX_TEST_SIGNALED_GROUPS" || exit 98
-        test ! -s "$CMUX_TEST_SIGNALS" || exit 97
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALED_PIDS" | \
+          /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 97
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_FROZEN" | \
+          /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 96
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | \
+          /usr/bin/tr -d '[:space:]')" -eq 1024 || exit 95
+        ! /usr/bin/grep -Fq -- '-STOP -- -' "$CMUX_TEST_SIGNALS" || exit 94
         """
 
         let result = try runShellCommand(
@@ -3104,6 +3124,47 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             environment: [
                 "CMUX_TEST_PROCESS_SNAPSHOT": root.appendingPathComponent("processes").path,
                 "CMUX_TEST_POSTSTOP_SNAPSHOT": root.appendingPathComponent("poststop").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func cleanupTransactionsContinueAfterCommittedPartialBatch(shellPath: String) throws {
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_freeze_and_force_owned_processes() {
+          cmux_test_transaction_calls=$((cmux_test_transaction_calls + 1))
+          if [ "$cmux_test_transaction_calls" -eq 1 ]; then return 2; fi
+          return 0
+        }
+        cmux_ssh_auth_resume_signaled_processes() {
+          : > "$CMUX_TEST_UNEXPECTED_ROLLBACK"
+          return 0
+        }
+        cmux_test_transaction_calls=0
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_run_cleanup_transactions || exit 99
+        test "$cmux_test_transaction_calls" -eq 2 || exit 98
+        test ! -e "$CMUX_TEST_UNEXPECTED_ROLLBACK" || exit 97
+        """
+
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-partial-batch-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_UNEXPECTED_ROLLBACK": root.appendingPathComponent("rollback").path,
             ],
             shellPath: shellPath
         )
