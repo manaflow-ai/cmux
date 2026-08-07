@@ -44,7 +44,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     static let piAction = builtInAgentAction(
         id: "pi",
         title: "Pi",
-        commandPrefix: "pi --",
+        commandPrefix: "pi",
         systemImage: "brain.head.profile",
         assetName: "AgentIcons/Pi",
         backgroundColorHex: "#D0B3FF"
@@ -182,7 +182,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             return nil
         }
         if self == Self.piAction, let surfaceId {
-            let script = "case \"$(pi --version 2>/dev/null)\" in 0.8[4-9].*|0.9[0-9].*|[1-9]*.*) exec pi --session-id \"$1\" -- \"$2\" ;; *) exec pi -- \"$2\" ;; esac"
+            let script = "case \"$(pi --version 2>/dev/null)\" in 0.8[4-9].*|0.9[0-9].*|[1-9]*.*) exec pi --session-id \"$1\" \"$2\" ;; *) exec pi \"$2\" ;; esac"
             return [
                 "sh",
                 "-c",
