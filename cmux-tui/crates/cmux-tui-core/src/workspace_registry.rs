@@ -392,27 +392,35 @@ pub fn reset_persistent_session_state(
     if !root.is_dir() {
         anyhow::bail!("workspace state root is not a directory: {}", root.display());
     }
-    platform::restrict_directory(root)?;
-    let _session_guard = acquire_session_guard(root, session_name)?;
-    let _lease = if session_dir.exists() {
+    if !session_dir.exists() && !terminal_host_root.exists() {
+        return Ok(reset);
+    }
+    if session_dir.exists() {
         if !session_dir.is_dir() {
             anyhow::bail!(
                 "workspace session state path is not a directory: {}",
                 session_dir.display()
             );
         }
+        let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        if !db_path.is_file() {
+            anyhow::bail!("workspace session state path has no registry");
+        }
+    }
+    if terminal_host_root.exists() && !terminal_host_root.is_dir() {
+        anyhow::bail!(
+            "terminal host state path is not a directory: {}",
+            terminal_host_root.display()
+        );
+    }
+    let _session_guard = acquire_existing_session_guard(root, session_name)?;
+    let _lease = if session_dir.exists() {
         platform::restrict_directory(&session_dir)?;
         Some(SessionLease::acquire(&session_dir.join("writer.lock"))?)
     } else {
         None
     };
     if terminal_host_root.exists() {
-        if !terminal_host_root.is_dir() {
-            anyhow::bail!(
-                "terminal host state path is not a directory: {}",
-                terminal_host_root.display()
-            );
-        }
         prepare_terminal_host_root_for_reset(&terminal_host_root)?;
     }
     if terminal_host_root.exists() {
@@ -2841,6 +2849,10 @@ const SESSION_GUARD_DIR: &str = "session-locks";
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
+    acquire_existing_session_guard(root, session_name)
+}
+
+fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     platform::restrict_directory(root)?;
     let lock_dir = root.join(SESSION_GUARD_DIR);
     fs::create_dir_all(&lock_dir)

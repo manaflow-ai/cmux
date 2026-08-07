@@ -722,6 +722,34 @@ fn session_reset_state_refuses_live_terminal_host_state() {
 }
 
 #[test]
+fn session_reset_state_missing_target_does_not_mutate_state_root() {
+    let dir = unique_temp_dir("session-reset-missing-target");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("not-cmux-state");
+    fs::create_dir_all(&state).unwrap();
+    #[cfg(unix)]
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(state.join("sentinel"), b"keep").unwrap();
+
+    let reset = Command::new(bin())
+        .args(["--json", "session", "missing-session", "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    let reset: serde_json::Value = serde_json::from_slice(&reset.stdout).unwrap();
+    assert_eq!(reset["removed_session_state"], false);
+    assert_eq!(reset["removed_terminal_hosts"], false);
+    assert!(state.join("sentinel").exists());
+    assert!(!state.join("session-locks").exists());
+    #[cfg(unix)]
+    assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o755);
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn durable_registry_survives_sigkill_and_rejects_a_second_writer() {
     let dir = unique_temp_dir("durable-restart");
     fs::create_dir_all(&dir).unwrap();
