@@ -123,6 +123,26 @@ class Finding:
         }
 
 
+@dataclass(frozen=True)
+class _CallArgument:
+    value_bounds: tuple[int, int]
+    label: Optional[str]
+
+
+@dataclass(frozen=True)
+class _NetworkTargetSpec:
+    verb_pattern: re.Pattern[str]
+    positional_index: int
+    labels: frozenset[str]
+
+
+@dataclass(frozen=True)
+class _InterpreterSourceSpec:
+    executable_pattern: re.Pattern[str]
+    source_flag_pattern: re.Pattern[str]
+    options_with_values: frozenset[str]
+
+
 # ---------------------------------------------------------------------------
 # Detector regexes
 # ---------------------------------------------------------------------------
@@ -242,6 +262,20 @@ _NETWORK_VERB = re.compile(
     """
 )
 
+_NETWORK_TARGET_LABELS = frozenset({"uri", "url"})
+_NETWORK_TARGET_SPECS = (
+    _NetworkTargetSpec(
+        verb_pattern=re.compile(r"\.open|(?:httpx|requests|session)\.request"),
+        positional_index=1,
+        labels=_NETWORK_TARGET_LABELS,
+    ),
+    _NetworkTargetSpec(
+        verb_pattern=re.compile(r".*", re.DOTALL),
+        positional_index=0,
+        labels=_NETWORK_TARGET_LABELS,
+    ),
+)
+
 # Shell-string launchers evaluate their first argument as source.
 _SHELL_CALL_LAUNCHER = re.compile(
     r"""(?x)
@@ -264,10 +298,46 @@ _EXPLICIT_SHELL_MODE = re.compile(
     r"\bshell\s*(?:=|:)\s*(?:True|true)\b"
 )
 
-_SHELL_EXECUTABLES = frozenset({"bash", "dash", "fish", "ksh", "sh", "zsh"})
 _SHELL_COMMAND_FLAG = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|--command)$")
 _SHELL_OPTIONS_WITH_VALUES = frozenset(
     {"+O", "+o", "-O", "-o", "--init-file", "--profile", "--rcfile"}
+)
+_SHELL_SOURCE_SPEC = _InterpreterSourceSpec(
+    executable_pattern=re.compile(r"^(?:bash|dash|fish|ksh|sh|zsh)$"),
+    source_flag_pattern=_SHELL_COMMAND_FLAG,
+    options_with_values=_SHELL_OPTIONS_WITH_VALUES,
+)
+_PYTHON_SOURCE_SPEC = _InterpreterSourceSpec(
+    executable_pattern=re.compile(
+        r"^(?:python(?:\d+(?:\.\d+)*t?)?|pypy(?:\d+(?:\.\d+)*)?)$"
+    ),
+    source_flag_pattern=re.compile(r"^-c$"),
+    options_with_values=frozenset({"-W", "-X", "--check-hash-based-pycs"}),
+)
+_NODE_SOURCE_SPEC = _InterpreterSourceSpec(
+    executable_pattern=re.compile(r"^(?:bun|node|nodejs)$"),
+    source_flag_pattern=re.compile(r"^(?:-e|--eval|-p|--print)$"),
+    options_with_values=frozenset(
+        {
+            "-C",
+            "-r",
+            "--conditions",
+            "--env-file",
+            "--env-file-if-exists",
+            "--icu-data-dir",
+            "--import",
+            "--input-type",
+            "--loader",
+            "--openssl-config",
+            "--require",
+            "--title",
+        }
+    ),
+)
+_INTERPRETER_SOURCE_SPECS = (
+    _SHELL_SOURCE_SPEC,
+    _PYTHON_SOURCE_SPEC,
+    _NODE_SOURCE_SPEC,
 )
 
 # Locate a shell program; `_shell_command_source_bounds` owns option parsing and
@@ -732,15 +802,35 @@ def _trim_bounds(line: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
-def _call_argument_bounds(
+_ARGUMENT_LABEL = re.compile(
+    r"(?P<label>[A-Za-z_][A-Za-z0-9_]*)\s*(?:=|:)\s*"
+)
+
+
+def _parse_call_argument(
+    line: str,
+    bounds: tuple[int, int],
+) -> _CallArgument:
+    start, end = bounds
+    label_match = _ARGUMENT_LABEL.match(line[start:end])
+    label = label_match.group("label") if label_match else None
+    if label_match:
+        start += len(label_match.group(0))
+    return _CallArgument(
+        value_bounds=_trim_bounds(line, start, end),
+        label=label,
+    )
+
+
+def _call_arguments(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
-) -> list[tuple[int, int]]:
+) -> list[_CallArgument]:
     """Return top-level call arguments without splitting nested expressions."""
     call_end = _call_end(line, opening_paren, path_suffix)
     executable = _executable_code_positions(line, path_suffix)
-    arguments: list[tuple[int, int]] = []
+    arguments: list[_CallArgument] = []
     argument_start = opening_paren + 1
     paren_depth = 0
     bracket_depth = 0
@@ -765,28 +855,13 @@ def _call_argument_bounds(
         elif character == "," and not (paren_depth or bracket_depth or brace_depth):
             bounds = _trim_bounds(line, argument_start, index)
             if bounds[0] < bounds[1]:
-                arguments.append(bounds)
+                arguments.append(_parse_call_argument(line, bounds))
             argument_start = index + 1
 
     bounds = _trim_bounds(line, argument_start, call_end)
     if bounds[0] < bounds[1]:
-        arguments.append(bounds)
+        arguments.append(_parse_call_argument(line, bounds))
     return arguments
-
-
-def _argument_value_bounds(
-    line: str,
-    bounds: tuple[int, int],
-) -> tuple[int, int]:
-    """Strip a Python/Swift-style argument label from top-level argument bounds."""
-    start, end = bounds
-    label = re.match(
-        r"[A-Za-z_][A-Za-z0-9_]*\s*(?:=|:)\s*",
-        line[start:end],
-    )
-    if label:
-        start += len(label.group(0))
-    return _trim_bounds(line, start, end)
 
 
 def _argv_source_ranges(
@@ -795,17 +870,17 @@ def _argv_source_ranges(
     path_suffix: str = "",
 ) -> list[tuple[int, int]]:
     """Return only command/argv inputs, excluding later launcher options."""
-    arguments = _call_argument_bounds(line, opening_paren, path_suffix)
+    arguments = _call_arguments(line, opening_paren, path_suffix)
     if not arguments:
         return []
 
-    first = _argument_value_bounds(line, arguments[0])
+    first = arguments[0].value_bounds
     ranges = [first]
     if line[first[0] : first[0] + 1] in ("(", "["):
         return ranges
 
     if len(arguments) > 1:
-        second = _argument_value_bounds(line, arguments[1])
+        second = arguments[1].value_bounds
         if line[second[0] : second[0] + 1] in ("(", "["):
             ranges.append(second)
     return ranges
@@ -874,12 +949,62 @@ def _shell_word_bounds(
     return words
 
 
-def _shell_word_value(line: str, bounds: tuple[int, int]) -> str:
+def _shell_word_value_and_bounds(
+    line: str,
+    bounds: tuple[int, int],
+) -> tuple[str, tuple[int, int]]:
     start, end = bounds
-    value = line[start:end]
-    if len(value) >= 2 and value[0] in ("'", '"') and value[-1] == value[0]:
-        return value[1:-1]
-    return value
+    if end - start >= 2 and line[start] in ("'", '"') and line[end - 1] == line[start]:
+        start += 1
+        end -= 1
+    return line[start:end], (start, end)
+
+
+def _evaluated_source_argument_bounds(
+    line: str,
+    arguments: list[tuple[int, int]],
+    spec: _InterpreterSourceSpec,
+) -> Optional[tuple[int, int]]:
+    index = 0
+    while index < len(arguments):
+        argument, argument_bounds = _shell_word_value_and_bounds(
+            line,
+            arguments[index],
+        )
+        if argument == "--":
+            return None
+
+        flag, separator, _ = argument.partition("=")
+        if spec.source_flag_pattern.fullmatch(flag):
+            if separator:
+                source_start = argument_bounds[0] + len(flag) + 1
+                source_bounds = (source_start, argument_bounds[1])
+                return _quoted_argument_bounds(line, source_start) or source_bounds
+            if index + 1 >= len(arguments):
+                return None
+            source_start = arguments[index + 1][0]
+            return _quoted_argument_bounds(line, source_start) or arguments[index + 1]
+
+        if argument in spec.options_with_values:
+            index += 2
+            continue
+        if argument.startswith(("-", "+")):
+            index += 1
+            continue
+        return None
+    return None
+
+
+def _interpreter_source_spec(executable: str) -> Optional[_InterpreterSourceSpec]:
+    executable_name = executable.rsplit("/", 1)[-1]
+    return next(
+        (
+            spec
+            for spec in _INTERPRETER_SOURCE_SPECS
+            if spec.executable_pattern.fullmatch(executable_name)
+        ),
+        None,
+    )
 
 
 def _shell_command_source_bounds(
@@ -888,22 +1013,7 @@ def _shell_command_source_bounds(
 ) -> Optional[tuple[int, int]]:
     statement_end = _shell_statement_end(line, launcher_end)
     words = _shell_word_bounds(line, launcher_end, statement_end)
-    index = 0
-    while index < len(words):
-        option = _shell_word_value(line, words[index])
-        if _SHELL_COMMAND_FLAG.fullmatch(option):
-            if index + 1 >= len(words):
-                return None
-            command_start = words[index + 1][0]
-            return _quoted_argument_bounds(line, command_start) or words[index + 1]
-        if option in _SHELL_OPTIONS_WITH_VALUES:
-            index += 2
-            continue
-        if option.startswith(("-", "+")):
-            index += 1
-            continue
-        return None
-    return None
+    return _evaluated_source_argument_bounds(line, words, _SHELL_SOURCE_SPEC)
 
 
 def _shell_eval_source_ranges(
@@ -930,33 +1040,26 @@ def _call_uses_explicit_shell(
     )
 
 
-def _argv_shell_source_bounds(
+def _argv_interpreter_source_bounds(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
 ) -> Optional[tuple[int, int]]:
-    """Return the argv word a launched shell consumes as command source."""
+    """Return the argv word a known interpreter consumes as evaluated source."""
     literals = _argv_literal_tokens(line, opening_paren, path_suffix)
     token_index = _argv_executable_index(line, literals)
-    if token_index is None or len(literals) - token_index < 3:
+    if token_index is None or len(literals) - token_index < 2:
         return None
 
     executable = line[literals[token_index][0] : literals[token_index][1]]
-    if executable.rsplit("/", 1)[-1] not in _SHELL_EXECUTABLES:
+    spec = _interpreter_source_spec(executable)
+    if spec is None:
         return None
-
-    flag_index = token_index + 1
-    while flag_index < len(literals):
-        flag = line[literals[flag_index][0] : literals[flag_index][1]]
-        if _SHELL_COMMAND_FLAG.fullmatch(flag):
-            return literals[flag_index + 1] if flag_index + 1 < len(literals) else None
-        if flag in _SHELL_OPTIONS_WITH_VALUES:
-            flag_index += 2
-            continue
-        if not flag.startswith(("-", "+")):
-            return None
-        flag_index += 1
-    return None
+    return _evaluated_source_argument_bounds(
+        line,
+        literals[token_index + 1 :],
+        spec,
+    )
 
 
 def _argv_executable_index(
@@ -1008,9 +1111,16 @@ def _argv_execution_target_ranges(
     verb_start: int,
     path_suffix: str,
 ) -> list[tuple[int, int]]:
-    shell_source = _argv_shell_source_bounds(line, opening_paren, path_suffix)
-    if shell_source is not None and _bounds_contain_offset(shell_source, verb_start):
-        return [shell_source]
+    evaluated_source = _argv_interpreter_source_bounds(
+        line,
+        opening_paren,
+        path_suffix,
+    )
+    if evaluated_source is not None and _bounds_contain_offset(
+        evaluated_source,
+        verb_start,
+    ):
+        return [evaluated_source]
 
     executable_bounds = _argv_executable_bounds(line, opening_paren, path_suffix)
     if executable_bounds is None or not _bounds_contain_offset(
@@ -1088,6 +1198,32 @@ def _launcher_target_ranges(
     return []
 
 
+def _network_target_spec(matched_verb: str) -> _NetworkTargetSpec:
+    return next(
+        spec
+        for spec in _NETWORK_TARGET_SPECS
+        if spec.verb_pattern.search(matched_verb)
+    )
+
+
+def _call_target_bounds(
+    arguments: list[_CallArgument],
+    spec: _NetworkTargetSpec,
+) -> Optional[tuple[int, int]]:
+    for argument in arguments:
+        if argument.label is not None and argument.label.lower() in spec.labels:
+            return argument.value_bounds
+
+    positional_arguments = [
+        argument
+        for argument in arguments
+        if argument.label is None
+    ]
+    if spec.positional_index >= len(positional_arguments):
+        return None
+    return positional_arguments[spec.positional_index].value_bounds
+
+
 def _direct_network_target_ranges(
     line: str,
     match: re.Match[str],
@@ -1112,16 +1248,9 @@ def _direct_network_target_ranges(
     if opening_paren == -1:
         return []
 
-    arguments = _call_argument_bounds(line, opening_paren, path_suffix)
-    target_index = 0
-    if ".open" in matched_verb or re.search(
-        r"(?:httpx|requests|session)\.request",
-        matched_verb,
-    ):
-        target_index = 1
-    if target_index >= len(arguments):
-        return []
-    return [_argument_value_bounds(line, arguments[target_index])]
+    arguments = _call_arguments(line, opening_paren, path_suffix)
+    target = _call_target_bounds(arguments, _network_target_spec(matched_verb))
+    return [target] if target is not None else []
 
 
 def _network_target_ranges(
@@ -1718,6 +1847,15 @@ def _self_test() -> int:
                 'spawn("node", [\n'
                 '  "--eval",\n'
                 '  "fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "]);\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/node_attached_eval_source.ts",
+            (
+                'spawn("node", [\n'
+                '  "--eval=fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
                 "]);\n"
             ),
             {RULE_LIVE_NETWORK_HOST},
