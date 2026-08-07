@@ -43,15 +43,16 @@ enum GhosttySurfaceConfigurationRefresh {
         refreshHostBackground: () -> Void,
         forceRefresh: (String) -> Void
     ) {
-        if let surface {
-            reloadSurfaceConfiguration(surface, true, source)
-            // The scheme must resolve against the newly installed config. Applying
-            // it to the stale config can emit an old background before the reload,
-            // pairing that background with the new foreground (issue #8938).
-            applySurfaceColorScheme()
-        }
-        refreshHostBackground()
-        forceRefresh(forceRefreshReason)
+        applyConfigurationReload(
+            to: surface,
+            soft: true,
+            source: source,
+            redrawReason: forceRefreshReason,
+            reloadSurfaceConfiguration: reloadSurfaceConfiguration,
+            applySurfaceColorScheme: applySurfaceColorScheme,
+            refreshHostBackground: refreshHostBackground,
+            forceRefresh: forceRefresh
+        )
     }
 
     static func applyConfigurationReload(
@@ -65,8 +66,11 @@ enum GhosttySurfaceConfigurationRefresh {
         forceRefresh: (String) -> Void
     ) {
         if let surface {
-            applySurfaceColorScheme()
             reloadSurfaceConfiguration(surface, soft, source)
+            // The scheme must resolve against the newly installed config. Applying
+            // it to the stale config can emit an old background before the reload,
+            // pairing that background with the new foreground (issues #8938, #9588).
+            applySurfaceColorScheme()
         }
         refreshHostBackground()
         forceRefresh(redrawReason)
