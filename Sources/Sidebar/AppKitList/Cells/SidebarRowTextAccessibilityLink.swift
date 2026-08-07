@@ -34,10 +34,17 @@ final class SidebarRowTextAccessibilityLink: NSAccessibilityElement {
         owner?.openLink(url) ?? false
     }
 
+    /// Resolves geometry only when an accessibility client asks for it, so
+    /// ordinary sidebar layout does not instantiate a TextKit stack per link.
+    override func accessibilityFrameInParentSpace() -> NSRect {
+        owner?.accessibilityFrame(forLinkRange: characterRange) ?? .zero
+    }
+
     /// Detaches a proxy that no longer represents the owner's current text.
     func invalidate() {
+        guard owner != nil else { return }
+        NSAccessibility.post(element: self, notification: .uiElementDestroyed)
         owner = nil
         setAccessibilityParent(nil)
-        setAccessibilityFrameInParentSpace(.zero)
     }
 }

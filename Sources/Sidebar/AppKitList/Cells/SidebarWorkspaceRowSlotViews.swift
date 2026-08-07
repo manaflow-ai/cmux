@@ -321,11 +321,6 @@ final class SidebarRowTextView: NSTextField {
         needsLayout = true
     }
 
-    override func layout() {
-        super.layout()
-        updateAccessibilityLinkFrames()
-    }
-
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let superview else { return nil }
         let localPoint = convert(point, from: superview)
@@ -456,29 +451,28 @@ final class SidebarRowTextView: NSTextField {
         return nextAccessibilityLinks
     }
 
-    private func updateAccessibilityLinkFrames() {
-        guard !accessibilityLinks.isEmpty else { return }
+    /// Resolves one proxy's frame on demand. Pointer hit testing and
+    /// accessibility geometry share the cached TextKit layout, while normal
+    /// row layout stays allocation-free for assistive-technology-only work.
+    func accessibilityFrame(forLinkRange characterRange: NSRange) -> NSRect {
+        guard !isHidden else { return .zero }
         let textRect = cell?.titleRect(forBounds: bounds) ?? bounds
-        guard textRect.width > 0, textRect.height > 0 else { return }
+        guard textRect.width > 0, textRect.height > 0 else { return .zero }
         let layout = linkHitLayout(textRectSize: textRect.size)
         let layoutManager = layout.layoutManager
         let textContainer = layout.textContainer
         layoutManager.ensureLayout(for: textContainer)
-        let usedRect = layoutManager.usedRect(for: textContainer)
         let fullRange = NSRange(location: 0, length: attributedStringValue.length)
-
-        for accessibilityLink in accessibilityLinks {
-            let characterRange = NSIntersectionRange(accessibilityLink.characterRange, fullRange)
-            guard characterRange.length > 0 else { continue }
-            let glyphRange = layoutManager.glyphRange(
-                forCharacterRange: characterRange,
-                actualCharacterRange: nil
-            )
-            var frame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-            frame.origin.x += textRect.minX
-            frame.origin.y += textRect.minY
-            accessibilityLink.setAccessibilityFrameInParentSpace(frame)
-        }
+        let boundedCharacterRange = NSIntersectionRange(characterRange, fullRange)
+        guard boundedCharacterRange.length > 0 else { return .zero }
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: boundedCharacterRange,
+            actualCharacterRange: nil
+        )
+        var frame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        frame.origin.x += textRect.minX
+        frame.origin.y += textRect.minY
+        return frame
     }
 
     /// Releases link state before the owning row takes on a new semantic identity.
@@ -498,11 +492,19 @@ final class SidebarRowTextView: NSTextField {
     private func replaceAccessibilityLinks(
         with nextAccessibilityLinks: [SidebarRowTextAccessibilityLink]
     ) {
+        let previousIdentities = accessibilityLinks.map(ObjectIdentifier.init)
+        let nextIdentities = nextAccessibilityLinks.map(ObjectIdentifier.init)
         let retainedIdentities = Set(nextAccessibilityLinks.map { ObjectIdentifier($0) })
         for link in accessibilityLinks where !retainedIdentities.contains(ObjectIdentifier(link)) {
             link.invalidate()
         }
         accessibilityLinks = nextAccessibilityLinks
+        guard previousIdentities != nextIdentities else { return }
+        NSAccessibility.post(
+            element: self,
+            notification: .layoutChanged,
+            userInfo: [.uiElements: nextAccessibilityLinks]
+        )
     }
 
     private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {
