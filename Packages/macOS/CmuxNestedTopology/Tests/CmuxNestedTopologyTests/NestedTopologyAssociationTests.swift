@@ -9,6 +9,7 @@ struct NestedTopologyAssociationTests {
         let reducer = NestedTopologyReducer()
         let original = fixture.pane(
             tabRawID: "tab-1",
+            title: NestedNodeTitle(value: "First guess", authority: .inferred),
             associationAuthority: .heuristic,
             heuristicAlreadySatisfied: true
         )
@@ -33,6 +34,7 @@ struct NestedTopologyAssociationTests {
 
         #expect(result.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
         #expect(result.panes[0].association.heuristicAlreadySatisfied)
+        #expect(result.panes[0].title == original.title)
     }
 
     @Test("authoritative provider parentage can replace a prior heuristic")
