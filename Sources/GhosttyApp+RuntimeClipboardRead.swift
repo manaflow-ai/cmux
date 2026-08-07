@@ -168,12 +168,13 @@ extension GhosttyApp {
                         plan: plan,
                         operation: operation,
                         uploadWorkspaceRemote: { fileURLs, operation, finish in
-                            guard let workspace = MainActor.assumeIsolated({
+                            let workspace: Workspace? = MainActor.assumeIsolated {
                                 guard requestSurfaceIdentity.matches(
                                     requestTerminalSurface
                                 ) else { return nil }
                                 return requestTerminalSurface.owningWorkspace()
-                            }) else {
+                            }
+                            guard let workspace else {
                                 finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
                                 terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                                 return
