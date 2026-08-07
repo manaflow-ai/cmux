@@ -79,6 +79,58 @@ struct TerminalNativeScrollGeometryTests {
         #expect(returning.contentTranslationY == -8)
     }
 
+    @Test("sub-row movement translates content pixel-for-pixel between row flips")
+    func presentationTranslationSmoothsSubRowMovement() {
+        let geometry = TerminalNativeScrollGeometry(
+            totalRows: 100,
+            viewportOffsetRows: 40,
+            visibleRows: 20,
+            cellHeight: 20,
+            viewportHeight: 400
+        )
+
+        // Finger 5pt above the rendered row position: content follows by 5pt.
+        #expect(geometry.presentationTranslation(rawOffsetY: 795, effectiveOffsetY: 795) == 5)
+        // Aligned with the rendered row: no translation.
+        #expect(geometry.presentationTranslation(rawOffsetY: 800, effectiveOffsetY: 800) == 0)
+        // Finger 5pt below: content follows the other way.
+        #expect(geometry.presentationTranslation(rawOffsetY: 805, effectiveOffsetY: 805) == -5)
+    }
+
+    @Test("presentation compensation is clamped when the renderer lags")
+    func presentationTranslationClampsRendererLag() {
+        let geometry = TerminalNativeScrollGeometry(
+            totalRows: 100,
+            viewportOffsetRows: 40,
+            visibleRows: 20,
+            cellHeight: 20,
+            viewportHeight: 400
+        )
+
+        // Renderer four rows behind the finger: compensation stops at two rows.
+        #expect(geometry.presentationTranslation(rawOffsetY: 720, effectiveOffsetY: 720) == 40)
+        #expect(geometry.presentationTranslation(rawOffsetY: 880, effectiveOffsetY: 880) == -40)
+    }
+
+    @Test("presentation translation preserves rubber-band overdrag")
+    func presentationTranslationPreservesRubberBand() {
+        let geometry = TerminalNativeScrollGeometry(
+            totalRows: 100,
+            viewportOffsetRows: 80,
+            visibleRows: 20,
+            cellHeight: 20,
+            viewportHeight: 400
+        )
+        let maximum = geometry.maximumContentOffsetY
+
+        #expect(
+            geometry.presentationTranslation(
+                rawOffsetY: maximum + 24,
+                effectiveOffsetY: maximum
+            ) == -24
+        )
+    }
+
     @Test("appended history extends the range without moving a held viewport")
     func appendedOutputPreservesHeldViewport() {
         let before = TerminalNativeScrollGeometry(

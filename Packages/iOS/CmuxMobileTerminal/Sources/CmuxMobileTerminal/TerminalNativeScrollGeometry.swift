@@ -67,5 +67,18 @@ struct TerminalNativeScrollGeometry: Equatable, Sendable {
             contentTranslationY: -(rawOffsetY - effectiveOffsetY)
         )
     }
+
+    /// Pixel-smooth presentation for an interacting finger: the terminal grid
+    /// renders whole rows only, so content is translated by the remainder
+    /// between the finger's pixel position and the last authoritative row
+    /// position. The in-range compensation is clamped to two rows so a lagging
+    /// renderer can never drag content far from what it actually drew; the
+    /// rubber-band component stays unclamped so overdrag tracks the finger.
+    func presentationTranslation(rawOffsetY: CGFloat, effectiveOffsetY: CGFloat) -> CGFloat {
+        let rubberBand = -(rawOffsetY - effectiveOffsetY)
+        let limit = cellHeight * 2
+        let fractional = min(max(authoritativeContentOffsetY - effectiveOffsetY, -limit), limit)
+        return rubberBand + fractional
+    }
 }
 #endif

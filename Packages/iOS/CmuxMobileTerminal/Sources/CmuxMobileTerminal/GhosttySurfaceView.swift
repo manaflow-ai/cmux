@@ -1824,6 +1824,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
             lastScrollMechanicsOffsetY = scrollMechanicsView.contentOffset.y
             lastScrollMechanicsEffectiveOffsetY = effective
+            if isScrollMechanicsInteracting {
+                // A row flip applied under a stationary finger must refresh
+                // the sub-row compensation, or content holds a one-row skew
+                // until the next scroll delegate callback.
+                applyNativeScrollContentTranslation(
+                    geometry.presentationTranslation(
+                        rawOffsetY: scrollMechanicsView.contentOffset.y,
+                        effectiveOffsetY: effective
+                    )
+                )
+            }
         }
         scrollMechanicsIsRecentering = false
     }
@@ -4359,7 +4370,16 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
             )
             lastScrollMechanicsOffsetY = rawOffsetY
             lastScrollMechanicsEffectiveOffsetY = sample.effectiveOffsetY
-            applyNativeScrollContentTranslation(sample.contentTranslationY)
+            // While the finger (or its momentum) owns the viewport, translate
+            // the render layer by the sub-row remainder so movement is pixel
+            // continuous between row-quantized grid flips.
+            let translation = isScrollMechanicsInteracting
+                ? geometry.presentationTranslation(
+                    rawOffsetY: rawOffsetY,
+                    effectiveOffsetY: sample.effectiveOffsetY
+                )
+                : sample.contentTranslationY
+            applyNativeScrollContentTranslation(translation)
             if sample.rowDelta != 0 {
                 enqueueScrollMechanicsLines(sample.rowDelta, touchPoint: touchPoint)
             }
