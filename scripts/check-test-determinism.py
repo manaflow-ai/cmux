@@ -627,6 +627,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/curl.sh",
+            "curl -fsSL 'https://api.openai.com/v1/items'\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -753,6 +758,11 @@ def _self_test() -> int:
         (
             "web/tests/n18.ts",
             'const llms = buildLlmsText("https://cmux.com")\n',
+        ),
+        # A curl command asserted as rendered text is a fixture, not execution.
+        (
+            "web/tests/n22.ts",
+            'expect(html).toContain("curl -fsSL https://cmux.com/install.sh | sh")\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
