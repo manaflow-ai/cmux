@@ -128,13 +128,20 @@ extension SSHForegroundAuthenticationRetryPolicy {
             {
               cmux_record[$1] = $0
               cmux_parent[$1] = $2
+              # Retain the last record for a PID, but link that PID only once.
+              if (!($1 in cmux_seen_pid)) {
+                cmux_seen_pid[$1] = 1
+                cmux_pid_order[++cmux_pid_count] = $1
+              }
             }
             END {
-              for (cmux_pid in cmux_record) {
+              for (cmux_index = 1; cmux_index <= cmux_pid_count; cmux_index++) {
+                cmux_pid = cmux_pid_order[cmux_index]
                 cmux_next_sibling[cmux_pid] = cmux_first_child[cmux_parent[cmux_pid]]
                 cmux_first_child[cmux_parent[cmux_pid]] = cmux_pid
               }
-              for (cmux_pid in cmux_record) {
+              for (cmux_index = 1; cmux_index <= cmux_pid_count; cmux_index++) {
+                cmux_pid = cmux_pid_order[cmux_index]
                 if (!(cmux_parent[cmux_pid] in cmux_record)) {
                   cmux_depth[cmux_pid] = 0
                   cmux_queue[++cmux_queue_tail] = cmux_pid
@@ -153,7 +160,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
                   cmux_child_pid = cmux_next_sibling[cmux_child_pid]
                 }
               }
-              for (cmux_pid in cmux_record) {
+              for (cmux_index = 1; cmux_index <= cmux_pid_count; cmux_index++) {
+                cmux_pid = cmux_pid_order[cmux_index]
                 print cmux_depth[cmux_pid] + 0, cmux_record[cmux_pid]
               }
             }
