@@ -20,4 +20,14 @@ struct SSHAgentSocketResolverTests {
             in: ["RequestTTY \"false\""]
         ) == "false")
     }
+
+    @Test(arguments: ["ForwardAgent=\"\"", "ForwardAgent=''"])
+    func skipsEmptyQuotedValues(_ emptyOption: String) {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+
+        #expect(resolver.optionValue(
+            named: "ForwardAgent",
+            in: [emptyOption, "ForwardAgent=yes"]
+        ) == "yes")
+    }
 }
