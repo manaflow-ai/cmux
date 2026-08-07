@@ -316,7 +316,7 @@ extension CmuxExtensionWorktreeCreationResult {
 
     private func rollbackRefused(_ details: String) -> NSError {
         CmuxExtensionWorktreePrototype.logPrivateFailure(details)
-        NSError(
+        return NSError(
             domain: "CmuxExtensionWorktreePrototype",
             code: 3,
             userInfo: [NSLocalizedDescriptionKey: "Could not remove the unclaimed worktree."]
