@@ -320,6 +320,33 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         #expect(toggle.accessibilityLabel == "Show Keyboard")
     }
 
+    @Test("the accessory paints its home-indicator band with the terminal background")
+    func accessorySafeAreaBandMatchesTerminalTheme() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        let accessory = try #require(
+            harness.view.inputAccessoryView as? KeyboardDockAccessoryView
+        )
+        // The accessory is a `UIInputView` whose frame extends through the
+        // bottom safe area when docked. Its system keyboard backdrop follows
+        // the OS appearance, not the terminal theme, so the content-free
+        // safe-area band must be painted with the terminal background or a
+        // light-mode phone shows a white stripe under the dark dock.
+        let band = try #require(
+            accessory.subviews.first {
+                $0.accessibilityIdentifier == "terminal.dockAccessory.safeAreaBand"
+            }
+        )
+        #expect(band.backgroundColor == harness.view.terminalTheme.terminalBackgroundUIColor)
+
+        // Recolors in place with the theme.
+        var theme = TerminalTheme.monokai
+        theme.background = "#102030"
+        harness.view.terminalTheme = theme
+        #expect(band.backgroundColor == theme.terminalBackgroundUIColor)
+    }
+
     @Test("a real keyboard-down outlives intent left by a same-keyboard composer handoff")
     func swipeDismissAfterComposerCloseHandoffReadsKeyboardDown() throws {
         let harness = try makeHarness()
