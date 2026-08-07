@@ -26,13 +26,7 @@ public struct SSHAgentSocketResolver: Sendable {
     /// - Parameter option: An option such as `ForwardAgent=yes` or `ForwardAgent yes`.
     /// - Returns: The normalized option key, or `nil` when the option has no key.
     public func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
+        parsedOption(option)?.key
     }
 
     /// Reads the first non-empty value for an OpenSSH-style option.
@@ -47,21 +41,45 @@ public struct SSHAgentSocketResolver: Sendable {
     public func optionValue(named key: String, in options: [String]) -> String? {
         let loweredKey = key.lowercased()
         for option in options {
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            let parts = trimmed.split(
-                maxSplits: 1,
-                omittingEmptySubsequences: true,
-                whereSeparator: { $0 == "=" || $0.isWhitespace }
-            )
-            if parts.count == 2, parts[0].lowercased() == loweredKey {
-                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty {
-                    return value
-                }
+            if let parsed = parsedOption(option),
+               parsed.key == loweredKey,
+               let value = parsed.value {
+                return value
             }
         }
         return nil
+    }
+
+    /// Parses the key and optional value forms accepted by OpenSSH's `-o` argument.
+    private func parsedOption(_ option: String) -> (key: String, value: String?)? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let separator = trimmed.firstIndex(where: { $0 == "=" || $0.isWhitespace }) else {
+            return (trimmed.lowercased(), nil)
+        }
+
+        let key = trimmed[..<separator]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !key.isEmpty else { return nil }
+
+        var value = trimmed[separator...]
+        value = value.drop(while: { $0.isWhitespace })
+        if value.first == "=" {
+            value = value.dropFirst()
+        }
+        let rawValue = value
+            .drop(while: { $0.isWhitespace })
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawValue.isEmpty else { return (key, nil) }
+
+        if rawValue.count >= 2,
+           let quote = rawValue.first,
+           (quote == "\"" || quote == "'"),
+           rawValue.last == quote {
+            return (key, String(rawValue.dropFirst().dropLast()))
+        }
+        return (key, rawValue)
     }
 
     /// Returns whether an option list contains a key.
