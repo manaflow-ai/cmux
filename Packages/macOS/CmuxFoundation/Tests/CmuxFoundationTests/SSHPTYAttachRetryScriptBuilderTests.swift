@@ -5,6 +5,45 @@ import Testing
 @testable import CmuxFoundation
 
 struct SSHPTYAttachRetryScriptBuilderTests {
+    @Test func finalAuthenticationCleanupRemovesEveryStateFile() {
+        let script = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        ).joined(separator: "\n")
+        for stateFileName in SSHForegroundAuthenticationRetryPolicy.groupStateFileNames {
+            #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/\(stateFileName)\""))
+        }
+        for stateFileName in SSHForegroundAuthenticationRetryPolicy.reaperLockStateFileNames {
+            #expect(script.contains("\"$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock/\(stateFileName)\""))
+        }
+        #expect(script.contains(
+            "wait \"$cmux_ssh_attach_auth_pid\"; cmux_ssh_attach_status=$?; " +
+                "cmux_ssh_attach_auth_pid=; cmux_ssh_attach_remove_auth_group_dir"
+        ))
+        #expect(script.contains("CMUX_SSH_AUTH_GROUP_DIR=$(cmux_ssh_auth_create_group_dir)"))
+    }
+
+    @Test func standaloneReauthenticationScriptProvidesAuthenticationGroupFactory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-standalone-auth-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_test_attach",
+            reauthenticates: true
+        )
+        let script = ([
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_ssh_attach_foreground_auth() { return 7; }",
+            "cmux_test_attach() { return 0; }",
+        ] + retryLines).joined(separator: "\n")
+
+        let result = try run(script, environment: ["TMPDIR": root.path])
+
+        #expect(result.status == 7, "Shell failed: \(result.stderr)")
+    }
+
     @Test func retriesInitialAuthenticationBeforeAttaching() throws {
         let logURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-attach-retry-\(UUID().uuidString)")
