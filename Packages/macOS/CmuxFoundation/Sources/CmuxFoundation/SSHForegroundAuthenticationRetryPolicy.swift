@@ -1440,7 +1440,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
             "/usr/bin/mkfifo \"$cmux_ssh_auth_group_anchor_fifo\" || exit 255",
             "exec {cmux_ssh_auth_group_anchor_guard_fd}<> \"$cmux_ssh_auth_group_anchor_fifo\" || exit 255",
-            "( trap '' HUP INT TERM; while IFS= read -r cmux_ssh_auth_group_anchor_input; do :; done ) < \"$cmux_ssh_auth_group_anchor_fifo\" >/dev/null 2>&1 &",
+            "( trap '' HUP INT TERM; exec {cmux_ssh_auth_group_anchor_guard_fd}>&-; while IFS= read -r cmux_ssh_auth_group_anchor_input; do :; done; while [ -s \"$cmux_ssh_auth_group_file\" ]; do /bin/sleep 1; done ) < \"$cmux_ssh_auth_group_anchor_fifo\" >/dev/null 2>&1 &",
             "cmux_ssh_auth_group_anchor_pid=$!",
             "cmux_ssh_auth_supervisor_group=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -p \"$$\" 2>/dev/null | /usr/bin/tr -d '[:space:]')",
             "cmux_ssh_auth_anchor_identity=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -o state= -o lstart= -p \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null | /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ { print $1 \"|\" $3 \"_\" $4 \"_\" $5 \"_\" $6 \"_\" $7 }')",
