@@ -59,6 +59,37 @@ struct MobileHostAuthorizationTests {
         #expect(authorization.createdWorkspaceIDs == Set(["created-workspace"]))
         #expect(authorization.createdTerminalIDs == Set(["created-terminal"]))
     }
+    @Test func testPhysicalDeviceAttachURLUsesActualSelectedRouteEndpoint() throws {
+        let store = MobileAttachTicketStore()
+        let route = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.7", port: 52_461),
+            priority: 10
+        )
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route],
+            ttl: 3600,
+            macUserID: "mac-user",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: "0.65.0",
+            macAppBuild: "9"
+        )
+
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let rawURL = try #require(payload["attach_url"] as? String)
+        let components = try #require(URLComponents(string: rawURL))
+        let decoded = try CmxPairingQRCode().decode(components)
+
+        #expect(decoded.routes == [route])
+        guard case let .hostPort(host, port) = decoded.routes.first?.endpoint else {
+            return #expect(Bool(false), "expected host/port route")
+        }
+        #expect(host == "100.64.0.7")
+        #expect(port == 52_461)
+    }
     @Test func testMobileWorkspaceRPCRequiresAuthorization() async {
         let request = MobileHostRPCRequest(
             id: "workspace-list",
