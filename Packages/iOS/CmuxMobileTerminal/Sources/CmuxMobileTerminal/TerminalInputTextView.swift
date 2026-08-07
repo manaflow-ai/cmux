@@ -128,6 +128,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     override var canBecomeFirstResponder: Bool { true }
 
+    /// Supplies the shared keyboard dock accessory (toolbar row + composer
+    /// band). Set by `GhosttySurfaceView`; resolved on every keyboard
+    /// presentation so a chrome toggle can withhold it.
+    var keyboardAccessoryProvider: (() -> UIView?)?
+
+    override var inputAccessoryView: UIView? { keyboardAccessoryProvider?() }
+
     override func becomeFirstResponder() -> Bool {
         let wasFirstResponder = isFirstResponder
         let succeeded = super.becomeFirstResponder()
@@ -426,9 +433,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         )
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
-        // ``dockedBottomPadding``) that holds the button row. The host pins that
-        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
-        // bottom-pinning the controls keeps them glued to the system keyboard edge.
+        // ``dockedBottomPadding``) that holds the button row. The row is the top
+        // slot of the shared keyboard dock accessory, so bottom-pinning the
+        // controls keeps them glued to the composer band / keyboard edge below.
         // `dockedBottomPadding` lifts the strip off the very bottom edge so the
         // controls have breathing room.
         let buttonRow = UILayoutGuide()
@@ -504,11 +511,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     /// The terminal accessory bar (modifier keys, arrow nub, shortcut buttons).
     ///
-    /// Formerly the keyboard `inputAccessoryView`; it is now docked as a
-    /// persistent bottom bar by ``GhosttySurfaceView`` so it stays visible when
-    /// the keyboard is dismissed and reserves space above the bottom TUI rows.
-    /// Its buttons still target this text view, so the action wiring is intact
-    /// regardless of where the view is hosted.
+    /// Once again keyboard-accessory-hosted: it is the top row of the shared
+    /// `KeyboardDockAccessoryView` that ``GhosttySurfaceView`` returns as the
+    /// `inputAccessoryView` of every cmux keyboard owner, so the system
+    /// positions it (riding the keyboard while typing, docked at the screen
+    /// bottom while the surface itself holds first responder). Its buttons
+    /// still target this text view, so the action wiring is intact regardless
+    /// of where the view is hosted.
     var toolbarView: UIView { terminalAccessoryToolbar }
 
     private weak var accessoryStackView: UIStackView?
@@ -698,12 +707,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         backgroundColor = .clear
         tintColor = .clear
         // The view owns no visible content; it is a zero-size hidden responder
-        // docked by `GhosttySurfaceView`. The accessory bar is no longer the
-        // keyboard's `inputAccessoryView`; `GhosttySurfaceView` docks
-        // `toolbarView` persistently at the bottom so it survives keyboard
-        // dismissal. Leaving `inputAccessoryView` nil means the keyboard shows
-        // without its own accessory (the docked bar rides above it via
-        // `keyboardLayoutGuide`).
+        // owned by `GhosttySurfaceView`. The accessory bar is once again
+        // keyboard-accessory-hosted: `keyboardAccessoryProvider` returns the
+        // surface's shared `KeyboardDockAccessoryView` (toolbar row + composer
+        // band), so the system keyboard carries the whole dock on its own
+        // animation and docks it at the screen bottom when the surface holds
+        // first responder instead.
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAccessoryConfigurationChanged),

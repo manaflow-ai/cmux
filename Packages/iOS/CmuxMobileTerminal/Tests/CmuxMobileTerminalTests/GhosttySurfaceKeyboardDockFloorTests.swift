@@ -6,21 +6,23 @@ import UIKit
 
 @testable import CmuxMobileTerminal
 
-/// Regression coverage for the field failure where the keyboard rises but the
-/// bottom bars (accessory toolbar + composer band) stay seated at the
-/// keyboard-down position behind it.
+/// Contract coverage for the keyboard dock accessory: the bottom dock (toolbar
+/// row + composer band) is one self-sizing `UIInputView` that the OS keyboard
+/// system positions. Every cmux keyboard owner returns it as its
+/// `inputAccessoryView` — the terminal input proxy while typing (the dock rides
+/// the keyboard's own animation) and the surface itself in the keyboard-down
+/// state (the system docks it at the screen bottom) — so the surface never
+/// computes a dock position. What remains surface-owned is the MODEL: the grid
+/// reservation derived from the notification-tracked keyboard overlap.
 ///
-/// In a test window UIKit's `keyboardLayoutGuide` never observes a real
-/// keyboard, so it stays on its bottom fallback exactly like a guide that
-/// missed a live transition around window (re)attachment. Docking correctly
-/// here therefore proves the dock does not depend on the guide having seen the
-/// keyboard event. Each test injects a notification-center-isolated
-/// `MobileKeyboardFrameTracker` (the floor's single data source) through the
-/// surface initializer and calls the view's notification handler directly for
-/// animation-curve application, mirroring the production wiring where the
+/// A test window never shows a real keyboard, so these tests assert the
+/// responder wiring and the model, not OS-owned positions. Each test injects a
+/// notification-center-isolated `MobileKeyboardFrameTracker` (the model's
+/// single data source) through the surface initializer and calls the view's
+/// notification handler directly, mirroring the production wiring where the
 /// shared tracker observes the same notifications the view does.
 @MainActor
-@Suite("Keyboard dock floor", .serialized)
+@Suite("Keyboard dock accessory", .serialized)
 struct GhosttySurfaceKeyboardDockFloorTests {
     private final class Delegate: NSObject, GhosttySurfaceViewDelegate {
         func ghosttySurfaceView(
@@ -69,7 +71,9 @@ struct GhosttySurfaceKeyboardDockFloorTests {
     private func attach(_ view: GhosttySurfaceView, to window: UIWindow) {
         view.frame = window.bounds
         window.addSubview(view)
-        window.isHidden = false
+        // Key AND visible: first-responder status (the keyboard-down docking
+        // seat under test) requires the view's window to be key.
+        window.makeKeyAndVisible()
         view.setNeedsLayout()
         view.layoutIfNeeded()
     }
@@ -99,7 +103,7 @@ struct GhosttySurfaceKeyboardDockFloorTests {
 
     /// Delivers a keyboard transition the way production sees it: the tracker
     /// (registered first) records it, then the view's handler re-applies the
-    /// floor on the notification's animation curve.
+    /// overlap model on the notification's animation curve.
     private func deliverKeyboardTransition(
         coveringBottom overlap: CGFloat,
         to harness: Harness
@@ -122,7 +126,7 @@ struct GhosttySurfaceKeyboardDockFloorTests {
     }
 
     /// The accessory toolbar's keyboard-toggle button, found by its stable
-    /// accessibility identifier in the surface's subtree.
+    /// accessibility identifier in the given subtree.
     private func keyboardToggleButton(in view: UIView) -> UIButton? {
         if let button = view as? UIButton,
            button.accessibilityIdentifier == "terminal.inputAccessory.hideKeyboard" {
@@ -136,24 +140,71 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         return nil
     }
 
-    @Test("keyboard rise docks the bars above it even when the layout guide missed it")
-    func barsRideTheKeyboardWhenTheGuideStaysOnItsFallback() throws {
+    @Test("the dock accessory exists, hosts toolbar + composer, and is the inputAccessoryView")
+    func accessoryHostsToolbarAndComposerBand() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        let accessory = try #require(
+            harness.view.inputAccessoryView as? KeyboardDockAccessoryView
+        )
+        // The toolbar row (identified by its keyboard-toggle button) lives
+        // INSIDE the accessory, not in the surface's own subtree.
+        #expect(keyboardToggleButton(in: accessory) != nil)
+        #expect(keyboardToggleButton(in: harness.view) == nil)
+        // The composer band is the accessory's other slot: a host-mounted
+        // compose view lands inside the accessory subtree.
+        let composerContent = UIView()
+        harness.view.mountComposerView(composerContent)
+        #expect(composerContent.isDescendant(of: accessory))
+        // The typing responder shares the exact same accessory instance, so
+        // the dock transfers seamlessly between keyboard owners.
+        #expect(harness.view.inputProxyForTesting.inputAccessoryView === accessory)
+    }
+
+    @Test("hidden chrome withholds the accessory from the keyboard system")
+    func chromeHiddenReturnsNilAccessory() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        #expect(harness.view.inputAccessoryView != nil)
+        harness.view.setChromeHidden(true)
+        #expect(harness.view.inputAccessoryView == nil)
+        #expect(harness.view.inputProxyForTesting.inputAccessoryView == nil)
+        harness.view.setChromeHidden(false)
+        #expect(harness.view.inputAccessoryView != nil)
+    }
+
+    @Test("after attach without autofocus the surface holds first responder (docked accessory state)")
+    func attachSeatsSurfaceAsFirstResponder() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        // No cmux text responder owns the keyboard and the chrome is visible,
+        // so the SURFACE must hold first responder — that is what makes the
+        // system dock the accessory at the screen bottom.
+        #expect(harness.view.isFirstResponder)
+    }
+
+    @Test("a keyboard rise updates the grid overlap model from the tracked window-space overlap")
+    func keyboardRiseUpdatesOverlapModel() throws {
         let harness = try makeHarness()
         defer { tearDown(harness) }
 
         deliverKeyboardTransition(coveringBottom: Self.keyboardHeight, to: harness)
 
-        let dockBottom = Self.windowHeight - Self.keyboardHeight
-        let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
-        let toolbarMaxY = try #require(probeValue(of: harness.view, key: "toolbarMaxY"))
+        // The view fills the window, so the window-space overlap converts 1:1.
         let modelKeyboardHeight = try #require(probeValue(of: harness.view, key: "keyboardHeight"))
-        #expect(abs(composerMaxY - dockBottom) <= 1)
-        #expect(abs(toolbarMaxY - dockBottom) <= 1)
         #expect(abs(modelKeyboardHeight - Self.keyboardHeight) <= 1)
+
+        // Dismissal releases the model back to zero.
+        deliverKeyboardTransition(coveringBottom: 0, to: harness)
+        let released = try #require(probeValue(of: harness.view, key: "keyboardHeight"))
+        #expect(abs(released) <= 1)
     }
 
-    @Test("a view attached after the keyboard came up docks from the tracker")
-    func lateAttachedViewDocksFromTheTrackedKeyboardFrame() throws {
+    @Test("a view attached after the keyboard came up seats the model from the tracker")
+    func lateAttachedViewSeatsModelFromTracker() throws {
         let harness = try makeHarness(attached: false)
         defer { tearDown(harness) }
 
@@ -163,47 +214,11 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         harness.center.post(keyboardNotification(coveringBottom: Self.keyboardHeight))
         attach(harness.view, to: harness.window)
 
-        let dockBottom = Self.windowHeight - Self.keyboardHeight
-        let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
-        let toolbarMaxY = try #require(probeValue(of: harness.view, key: "toolbarMaxY"))
         let modelKeyboardHeight = try #require(probeValue(of: harness.view, key: "keyboardHeight"))
         let keyboardUp = try #require(probeValue(of: harness.view, key: "keyboardUp"))
-        #expect(abs(composerMaxY - dockBottom) <= 1)
-        #expect(abs(toolbarMaxY - dockBottom) <= 1)
         #expect(abs(modelKeyboardHeight - Self.keyboardHeight) <= 1)
         // The visibility bit catches up too: the toggle must read hide-keyboard.
         #expect(keyboardUp == 1)
-    }
-
-    @Test("the floor holds the window-correct seat while the surface's own frame breathes")
-    func floorStaysWindowCorrectWhenTheSurfaceFrameChanges() throws {
-        let harness = try makeHarness(attached: false)
-        defer { tearDown(harness) }
-
-        // Attach with the bottom edge respecting a 34pt indicator inset — the
-        // shape the host gives the surface while the keyboard is down.
-        harness.view.frame = CGRect(x: 0, y: 0, width: 402, height: Self.windowHeight - 34)
-        harness.window.addSubview(harness.view)
-        harness.window.isHidden = false
-        harness.view.setNeedsLayout()
-        harness.view.layoutIfNeeded()
-
-        // The keyboard rises while the frame is still short (mid-transition
-        // conversion territory: this is where the device build seeded a floor
-        // 34pt shy of the settled truth).
-        deliverKeyboardTransition(coveringBottom: Self.keyboardHeight, to: harness)
-
-        // Safe-area propagation then extends the surface to the window bottom.
-        harness.view.frame = CGRect(x: 0, y: 0, width: 402, height: Self.windowHeight)
-        harness.view.setNeedsLayout()
-        harness.view.layoutIfNeeded()
-
-        // The bars must already sit at the window-correct keyboard top — the
-        // late +34 pop the dogfood recordings showed is exactly this assertion
-        // failing at the old view-anchored floor.
-        let dockBottom = Self.windowHeight - Self.keyboardHeight
-        let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
-        #expect(abs(composerMaxY - dockBottom) <= 1)
     }
 
     @Test("a fresh toolbar is born in the keyboard-down state")
@@ -211,7 +226,8 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         let harness = try makeHarness()
         defer { tearDown(harness) }
 
-        let toggle = try #require(keyboardToggleButton(in: harness.view))
+        let accessory = try #require(harness.view.inputAccessoryView)
+        let toggle = try #require(keyboardToggleButton(in: accessory))
         #expect(toggle.accessibilityLabel == "Show Keyboard")
         let keyboardUp = try #require(probeValue(of: harness.view, key: "keyboardUp"))
         #expect(keyboardUp == 0)
@@ -231,34 +247,16 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         harness.view.removeFromSuperview()
         harness.center.post(keyboardNotification(coveringBottom: 0))
 
-        // Re-enter: the visibility bit, the toggle glyph state, and the dock
-        // must all reflect the keyboard-down truth.
+        // Re-enter: the visibility bit and the toggle glyph must reflect the
+        // keyboard-down truth (positions are OS-owned now, so only the state
+        // is asserted).
         attach(harness.view, to: harness.window)
 
         let keyboardUp = try #require(probeValue(of: harness.view, key: "keyboardUp"))
-        let bottomSafeArea = try #require(probeValue(of: harness.view, key: "bottomSafeArea"))
-        let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
-        let toggle = try #require(keyboardToggleButton(in: harness.view))
+        let accessory = try #require(harness.view.inputAccessoryView)
+        let toggle = try #require(keyboardToggleButton(in: accessory))
         #expect(keyboardUp == 0)
-        #expect(abs(composerMaxY - (Self.windowHeight - bottomSafeArea)) <= 1)
         #expect(toggle.accessibilityLabel == "Show Keyboard")
-    }
-
-    @Test("a dismissal transition releases the floor and reseats the bars at the bottom")
-    func dismissalReturnsTheBarsToTheBottomFallback() throws {
-        let harness = try makeHarness()
-        defer { tearDown(harness) }
-
-        deliverKeyboardTransition(coveringBottom: Self.keyboardHeight, to: harness)
-        deliverKeyboardTransition(coveringBottom: 0, to: harness)
-
-        // Released, the dock reseats on the guide's bottom fallback, which
-        // clears the simulator device's real bottom safe-area inset.
-        let bottomSafeArea = try #require(probeValue(of: harness.view, key: "bottomSafeArea"))
-        let composerMaxY = try #require(probeValue(of: harness.view, key: "composerMaxY"))
-        let modelKeyboardHeight = try #require(probeValue(of: harness.view, key: "keyboardHeight"))
-        #expect(abs(composerMaxY - (Self.windowHeight - bottomSafeArea)) <= 1)
-        #expect(abs(modelKeyboardHeight) <= 1)
     }
 }
 #endif
