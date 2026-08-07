@@ -99,9 +99,7 @@ extension CMUXCLI {
     ) -> String? {
         resolveExecutable(
             name,
-            searchDirectories: normalizedExecutableSearchDirectories(
-                searchPath?.split(separator: ":").map(String.init) ?? []
-            ),
+            searchDirectories: suppliedExecutableSearchDirectories(searchPath: searchPath),
             skip: skip
         )
     }
@@ -367,12 +365,20 @@ extension CMUXCLI {
             .filter { !isCmuxAppBundleResourceBinDirectory($0) }
     }
 
+    private func suppliedExecutableSearchDirectories(searchPath: String?) -> [String] {
+        guard let searchPath else { return [] }
+        let currentDirectory = FileManager.default.currentDirectoryPath
+        let directories = searchPath
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .map { $0.isEmpty ? currentDirectory : String($0) }
+        return normalizedExecutableSearchDirectories(directories)
+    }
+
     private func normalizedExecutableSearchDirectories(_ directories: [String]) -> [String] {
         var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
+        return directories.compactMap { directory in
+            guard !directory.isEmpty else { return nil }
+            let standardized = URL(fileURLWithPath: directory, isDirectory: true)
                 .standardizedFileURL
                 .path
             guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
