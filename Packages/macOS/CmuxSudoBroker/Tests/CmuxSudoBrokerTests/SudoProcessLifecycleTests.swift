@@ -111,6 +111,46 @@ struct SudoProcessLifecycleTests {
         #expect(!inspector.isRunning(process.identity))
     }
 
+    @Test("Execution output is capped while the child is fully drained", .timeLimit(.minutes(1)))
+    func executionOutputIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let inspector = SystemSudoProcessInspector()
+        let runner = SudoBoundedProcessRunner(
+            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+            inspector: inspector,
+            signaler: SystemSudoProcessSignaler()
+        )
+        let outputURL = fixture.paths.results.appendingPathComponent("bounded-output.out")
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/bin/dd"),
+            arguments: [
+                "/bin/dd", "if=/dev/zero", "bs=1048576", "count=17",
+            ],
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: outputURL
+        )
+
+        let process = try runner.spawn(command)
+        let outcome = runner.wait(
+            for: process,
+            deadline: Date.now.addingTimeInterval(10)
+        )
+        let outputSize = try #require(
+            FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? NSNumber
+        )
+
+        #expect(outcome == .exited(0))
+        #expect(outputSize.intValue <= 16 * 1_024 * 1_024)
+    }
+
+    @Test("System process inventory includes the calling process")
+    func systemProcessInventoryIncludesSelf() {
+        let processIdentifiers = SystemSudoProcessInspector().allProcessIdentifiers()
+
+        #expect(processIdentifiers.contains(getpid()))
+    }
+
     @Test("Hidden runner parent failure settles the approved request")
     func runnerSettlesUnexpectedParent() throws {
         let fixture = try SudoTestFixture()

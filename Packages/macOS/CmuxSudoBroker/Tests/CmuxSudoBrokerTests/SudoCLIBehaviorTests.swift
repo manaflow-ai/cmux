@@ -82,6 +82,50 @@ struct SudoCLIBehaviorTests {
         #expect(fixture.store.state(id: pending.request.id)?.phase == .approved)
         #expect(fixture.store.result(id: pending.request.id) == nil)
     }
+
+    @Test("A terminal result removes output after the CLI consumes it")
+    func terminalResultRemovesConsumedOutput() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let output = TestCLIOutput()
+        let requestID = "consumed-output"
+        let outputURL = fixture.store.outputURL(id: requestID)
+        try Data("root output\n".utf8).write(to: outputURL)
+        try fixture.store.writeResultIfAbsent(
+            SudoResult(id: requestID, status: .completed, exitCode: 0)
+        )
+        let waiter = SudoResultWaiter(store: fixture.store, io: output.io)
+
+        let outcome = try waiter.wait(
+            requestID: requestID,
+            deadline: Date.now.addingTimeInterval(10),
+            approvalTimeoutNote: "timed out"
+        )
+
+        #expect(outcome == .result(SudoResult(id: requestID, status: .completed, exitCode: 0)))
+        #expect(output.standardOutput == Data("root output\n".utf8))
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path))
+    }
+
+    @Test("Old abandoned terminal output is pruned on spool maintenance")
+    func staleTerminalOutputIsPruned() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let requestID = "abandoned-output"
+        let outputURL = fixture.store.outputURL(id: requestID)
+        try Data("uncollected\n".utf8).write(to: outputURL)
+        try fixture.store.writeResultIfAbsent(
+            SudoResult(id: requestID, status: .completed, exitCode: 0)
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1)],
+            ofItemAtPath: outputURL.path
+        )
+
+        try fixture.store.ensureDirectories()
+
+        #expect(!FileManager.default.fileExists(atPath: outputURL.path))
+    }
 }
 
 private final class TestCLIOutput {

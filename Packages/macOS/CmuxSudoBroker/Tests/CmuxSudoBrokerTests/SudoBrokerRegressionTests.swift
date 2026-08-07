@@ -39,6 +39,66 @@ struct SudoBrokerRegressionTests {
         #expect(pending.isEmpty)
     }
 
+    @Test("Approval hands the exact reviewed bytes to the detached runner")
+    func approvalLaunchesReviewedScriptCapability() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "reviewed-capability", createdAt: now)
+        let reviewedScript = Data("echo test\n".utf8)
+        let launcher = TestRunnerLauncher()
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: launcher,
+                recovery: TestExecutionRecovery(),
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
+            ),
+            messages: messages
+        )
+
+        _ = try await broker.start()
+        try Data("echo replaced after review\n".utf8).write(
+            to: fixture.paths.requests.appendingPathComponent("\(request.id).sh")
+        )
+        await broker.approve(id: request.id)
+
+        #expect(await launcher.reviewedScripts[request.id] == reviewedScript)
+    }
+
+    @Test("Refresh never recovers an execution owned by this broker")
+    func refreshDoesNotRecoverKnownApproval() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "broker-owned", createdAt: now)
+        let recovery = TestExecutionRecovery()
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: recovery,
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
+            ),
+            messages: messages
+        )
+
+        _ = try await broker.start()
+        await broker.approve(id: request.id)
+        _ = try await broker.refresh()
+
+        let recoveredRequestIDs = await recovery.recoveryBatches
+            .flatMap { $0.map(\.id) }
+        #expect(!recoveredRequestIDs.contains(request.id))
+        #expect(fixture.store.result(id: request.id) == nil)
+    }
+
     @Test("A launched runner that exits early is recovered and settled", .timeLimit(.minutes(1)))
     func runnerTerminationSettlesApprovedRequest() async throws {
         let fixture = try SudoTestFixture()
@@ -185,6 +245,31 @@ struct SudoBrokerRegressionTests {
                 recovery: TestExecutionRecovery(),
                 watcher: nil,
                 requesterInspector: inspector
+            ),
+            messages: messages
+        )
+
+        let discovered = try await broker.start()
+
+        #expect(discovered.isEmpty)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .requesterUnavailable)
+    }
+
+    @Test("Startup rejects legacy requests without a generation-qualified requester")
+    func startupRejectsMissingRequesterIdentity() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "requester-missing", createdAt: now)
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: TestExecutionRecovery(),
+                watcher: nil,
+                requesterInspector: TestSudoProcessInspector()
             ),
             messages: messages
         )
