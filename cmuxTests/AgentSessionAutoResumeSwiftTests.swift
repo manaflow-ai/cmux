@@ -1911,7 +1911,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
     }
 
     @MainActor
-    @Test func remoteDirectoryNamespacedAutoResumeRejectsUntrustedAgentDirectories() throws {
+    @Test func remoteDirectoryNamespacedAutoResumeSkipsWithoutTrustedLaunchDirectory() throws {
         let defaultsName = "cmux-remote-launch-cwd-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsName))
         defer { defaults.removePersistentDomain(forName: defaultsName) }
@@ -1967,12 +1967,9 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
         let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
         let restoredPanel = try #require(restored.terminalPanel(for: restoredPanelId))
-        let startupInput = try #require(restoredPanel.surface.initialInput)
+        let startupInput = restoredPanel.surface.initialInput
 
-        #expect(!startupInput.contains(staleAgentDirectory), Comment(rawValue: startupInput))
-        #expect(!startupInput.contains(staleLaunchDirectory), Comment(rawValue: startupInput))
-        #expect(!startupInput.contains(latestRemoteDirectory), Comment(rawValue: startupInput))
-        #expect(!startupInput.contains(localDirectory), Comment(rawValue: startupInput))
+        #expect(startupInput == nil, Comment(rawValue: startupInput ?? "nil"))
         #expect(restoredPanel.requestedWorkingDirectory == nil)
     }
 
