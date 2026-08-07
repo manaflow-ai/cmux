@@ -1349,6 +1349,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/block_comment_then_fetch.ts",
+            (
+                "/* Don't call production from fixture helpers. */\n"
+                'const result = await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/fstring_network.py",
             'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1604,6 +1612,26 @@ def _self_test() -> int:
                 'let fixture = """\n'
                 'fetch("https://api.openai.com/v1/items")\n'
                 '"""\n'
+            ),
+        ),
+        # Network examples inside C-style block comments remain inert.
+        (
+            "web/tests/n18o.ts",
+            (
+                "/*\n"
+                'fetch("https://api.openai.com/v1/items");\n'
+                "*/\n"
+            ),
+        ),
+        # Swift block comments nest, so the outer comment still owns source
+        # after the inner close delimiter.
+        (
+            "cmuxTests/n18p.swift",
+            (
+                "/* outer\n"
+                "/* inner */\n"
+                'fetch("https://api.openai.com/v1/items")\n'
+                "*/\n"
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
