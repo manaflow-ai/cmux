@@ -117,6 +117,14 @@ struct SidebarPortVisibilityPolicyTests {
         #expect(SidebarIgnoredPortRule.decodeFromJSON(NSNumber(value: 49_152.5)) == nil)
     }
 
+    @Test("Out-of-range numeric JSON values are rejected without truncation")
+    func outOfRangeJSONNumbersAreRejectedWithoutTruncation() {
+        // `NSNumber.intValue` truncates this value to the valid-looking port 24_678.
+        let oversizedNumber = NSDecimalNumber(string: "1844674407370955161624678")
+
+        #expect(SidebarIgnoredPortRule.decodeFromJSON(oversizedNumber) == nil)
+    }
+
     @Test("Out-of-range numeric UserDefaults values are rejected without truncation")
     func outOfRangeUserDefaultsNumbersAreRejectedWithoutTruncation() {
         // `NSNumber.intValue` truncates this value to the valid-looking port 24_678.
