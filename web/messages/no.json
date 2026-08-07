@@ -1,4 +1,5 @@
 {
+  "vault": {"cliAuth": {"spritesEyebrow": "cmux Sprites", "spritesTitle": "Godkjenn tilgang til cmux Sprites", "spritesDescription": "Skriv inn koden som vises av cmux-sprites. Fly-legitimasjonen forblir på cmux.com og sendes aldri til denne enheten."}},
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Fortsett i terminalen",

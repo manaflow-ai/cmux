@@ -56,6 +56,7 @@ export type VmEntry = {
   readonly imageVersion: string | null;
   readonly status: CloudVmStatus;
   readonly createdAt: number;
+  readonly connectionUrl?: string;
 };
 
 export type BaseVmEntry = VmEntry & {
@@ -2039,6 +2040,9 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   if (!row.providerVmId) {
     throw new Error(`VM row has no provider VM id: ${row.id}`);
   }
+  const connectionUrl = row.provider === "sprites" && typeof row.providerMetadata.url === "string"
+    ? row.providerMetadata.url
+    : undefined;
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -2046,6 +2050,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     imageVersion: row.imageVersion,
     status: row.status,
     createdAt: row.createdAt.getTime(),
+    ...(connectionUrl ? { connectionUrl } : {}),
   };
 }
 

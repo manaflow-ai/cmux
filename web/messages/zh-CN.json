@@ -1,4 +1,5 @@
 {
+  "vault": {"cliAuth": {"spritesEyebrow": "cmux Sprites", "spritesTitle": "批准访问 cmux Sprites", "spritesDescription": "输入 cmux-sprites 显示的代码。Fly 凭据仅保留在 cmux.com，绝不会发送到此设备。"}},
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "在终端中继续",

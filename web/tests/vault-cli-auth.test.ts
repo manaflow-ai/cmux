@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   claimCliAuthTokens,
+  type CliAuthClient,
   type CliAuthRepository,
   type CliAuthTokenMinter,
   type CliAuthTokens,
@@ -9,7 +10,7 @@ import {
 type FakeRow = {
   id: string;
   deviceCodeHash: string;
-  client: "cmux-vault" | "subrouter";
+  client: CliAuthClient;
   status: string;
   userId: string | null;
   expiresAt: Date;
@@ -51,11 +52,11 @@ function countingMinter(
   tokens: CliAuthTokens | null,
 ): {
   minter: CliAuthTokenMinter;
-  calls: Array<{ userId: string; client: "cmux-vault" | "subrouter" }>;
+  calls: Array<{ userId: string; client: CliAuthClient }>;
 } {
   const calls: Array<{
     userId: string;
-    client: "cmux-vault" | "subrouter";
+    client: CliAuthClient;
   }> = [];
   return {
     minter: async (userId, client) => {
@@ -93,6 +94,19 @@ describe("vault CLI auth claim", () => {
     });
     expect(calls).toEqual([{ userId: "user-1", client: "subrouter" }]);
     expect(row.status).toBe("claimed");
+  });
+
+  test("binds a cmux-sprites approval to the cmux-sprites client", async () => {
+    const row = approvedRow();
+    row.client = "cmux-sprites";
+    const { minter } = countingMinter({ accessToken: "access-1", refreshToken: "refresh-1" });
+
+    await expect(claimCliAuthTokens(fakeRepository(row), minter, "hash-1", NOW)).resolves.toEqual({
+      status: "approved",
+      client: "cmux-sprites",
+      accessToken: "access-1",
+      refreshToken: "refresh-1",
+    });
   });
 
   test("second claim is terminal and does not mint again", async () => {

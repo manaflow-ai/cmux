@@ -8,6 +8,7 @@ import {
 } from "../../../services/vms/auth";
 import {
   defaultProviderId,
+  isProviderId,
   type ProviderId,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
@@ -92,8 +93,9 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         createdAt: entry.createdAt,
+        ...(entry.connectionUrl ? { connectionUrl: entry.connectionUrl } : {}),
       }));
-      return jsonResponse({ vms });
+      return jsonResponse({ vms }, 200, { "cache-control": "no-store" });
     },
   );
 }
@@ -166,7 +168,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona") {
+          if (!isProviderId(candidate.provider)) {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -358,10 +360,12 @@ export async function POST(request: Request): Promise<Response> {
         return jsonResponse({
           id: created.providerVmId,
           provider: created.provider,
+          status: created.status,
           image: created.image,
           imageVersion: created.imageVersion,
           createdAt: created.createdAt,
-        });
+          ...(created.connectionUrl ? { connectionUrl: created.connectionUrl } : {}),
+        }, 200, { "cache-control": "no-store" });
       }
     },
   );

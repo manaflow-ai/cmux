@@ -1,4 +1,5 @@
 {
+  "vault": {"cliAuth": {"spritesEyebrow": "cmux Sprites", "spritesTitle": "Zatwierdź dostęp do cmux Sprites", "spritesDescription": "Wprowadź kod wyświetlony przez cmux-sprites. Dane logowania Fly pozostają w cmux.com i nigdy nie są wysyłane na to urządzenie."}},
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Kontynuuj w terminalu",
