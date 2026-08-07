@@ -67,6 +67,8 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 | `sidebar.showPullRequests` | boolean | `true` | Show pull request metadata in the sidebar. |
 | `sidebar.makePullRequestsClickable` | boolean | `true` | Allow sidebar pull request metadata to open links when clicked. |
 | `sidebar.openPullRequestLinksInCmuxBrowser` | boolean | `true` | Open sidebar pull request links in the embedded cmux browser. |
+| `sidebar.pullRequestLinkDestination` | `"github"` or `"graphite"` or `"custom"` | `"github"` | Where sidebar pull request links go. github keeps the pull request's own URL, graphite opens it in Graphite's review UI, and custom renders customPullRequestLinkURLTemplate. |
+| `sidebar.customPullRequestLinkURLTemplate` | string | `""` | Pull request URL used when pullRequestLinkDestination is custom. Include {owner}, {repo}, and {number}; {number} is required. An empty or invalid template falls back to the pull request's own page. |
 | `sidebar.openPortLinksInCmuxBrowser` | boolean | `true` | Open sidebar port links in the embedded cmux browser. |
 | `sidebar.showSSH` | boolean | `true` | Show SSH connection details. |
 | `sidebar.showPorts` | boolean | `true` | Show listening ports. |

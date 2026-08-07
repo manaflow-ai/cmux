@@ -102,6 +102,18 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     )
 
+    public let pullRequestLinkDestination = DefaultsKey<PullRequestLinkDestination>(
+        id: "sidebar.pullRequestLinkDestination",
+        defaultValue: PullRequestLinkConfiguration.defaultDestination,
+        userDefaultsKey: "sidebarPullRequestLinkDestination"
+    )
+
+    public let customPullRequestLinkURLTemplate = DefaultsKey<String>(
+        id: "sidebar.customPullRequestLinkURLTemplate",
+        defaultValue: PullRequestLinkConfiguration.defaultCustomURLTemplate,
+        userDefaultsKey: "sidebarCustomPullRequestLinkURLTemplate"
+    )
+
     public let openPortLinksInCmuxBrowser = DefaultsKey<Bool>(
         id: "sidebar.openPortLinksInCmuxBrowser",
         defaultValue: true,
