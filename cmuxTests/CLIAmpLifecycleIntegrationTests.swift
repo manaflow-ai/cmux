@@ -169,7 +169,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Amp idle-after-error was misclassified as completion: \(idleErrorCommands)"
         )
-        let settledErrorRecord = try readClaudeHookSession(sessionID, context: context)
+        let settledErrorRecord = try readAmpHookSession(sessionID, context: context)
         XCTAssertNil(settledErrorRecord["activePromptDepth"])
         XCTAssertEqual(settledErrorRecord["lastPromptTurnId"] as? String, errorTurnID)
         XCTAssertEqual(settledErrorRecord["title"] as? String, "Amp lifecycle thread")
@@ -206,7 +206,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Amp error did not publish generic error status: \(errorCommands)"
         )
 
-        let record = try readClaudeHookSession(sessionID, context: context)
+        let record = try readAmpHookSession(sessionID, context: context)
         XCTAssertEqual(record["runtimeStatus"] as? String, "error")
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
     }
@@ -280,7 +280,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Amp cancellation was misreported as a completed turn: \(cancellationCommands)"
         )
 
-        let record = try readClaudeHookSession(sessionID, context: context)
+        let record = try readAmpHookSession(sessionID, context: context)
         XCTAssertNil(record["activePromptDepth"])
         XCTAssertEqual(record["runtimeStatus"] as? String, "idle")
         XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
@@ -363,5 +363,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: input,
             timeout: 5
         )
+    }
+
+    private func readAmpHookSession(
+        _ sessionID: String,
+        context: ClaudeHookContext
+    ) throws -> [String: Any] {
+        let stateURL = context.root.appendingPathComponent("amp-hook-sessions.json")
+        let state = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any]
+        )
+        let sessions = try XCTUnwrap(state["sessions"] as? [String: Any])
+        return try XCTUnwrap(sessions[sessionID] as? [String: Any])
     }
 }
