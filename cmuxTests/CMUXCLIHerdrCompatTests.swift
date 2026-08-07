@@ -132,7 +132,8 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(result.stdout, "status\n")
     }
 
-    @Test func testHerdrCompatHonorsEmptyPATHComponentAsCurrentDirectory() throws {
+    @Test(arguments: ["", ":/usr/bin"])
+    func testHerdrCompatHonorsEmptyPATHComponentAsCurrentDirectory(searchPath: String) throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-herdr-current-directory-\(UUID().uuidString)", isDirectory: true)
@@ -146,7 +147,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["__herdr-compat", "status"],
-            environment: herdrCompatEnvironment(searchPath: ":/usr/bin", home: root),
+            environment: herdrCompatEnvironment(searchPath: searchPath, home: root),
             currentDirectoryURL: root,
             timeout: 5
         )
