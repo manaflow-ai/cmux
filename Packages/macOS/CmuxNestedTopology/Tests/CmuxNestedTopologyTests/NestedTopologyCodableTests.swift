@@ -128,8 +128,7 @@ struct NestedTopologyCodableTests {
         #expect(decoded.panes[0].association.key == snapshot.panes[0].association.key)
         #expect(decoded.agents[0].sessionID.map(ExactUTF8String.init)
             == snapshot.agents[0].sessionID.map(ExactUTF8String.init))
-        #expect(ExactUTF8String(decoded.agents[0].status.providerRawValue)
-            == ExactUTF8String(snapshot.agents[0].status.providerRawValue))
+        #expect(decoded.agents[0].status == snapshot.agents[0].status)
         #expect(decoded == snapshot)
 
         let propertyListData = try PropertyListEncoder().encode(snapshot)
@@ -144,8 +143,7 @@ struct NestedTopologyCodableTests {
         #expect(propertyListDecoded.panes[0].association.key == snapshot.panes[0].association.key)
         #expect(propertyListDecoded.agents[0].sessionID.map(ExactUTF8String.init)
             == snapshot.agents[0].sessionID.map(ExactUTF8String.init))
-        #expect(ExactUTF8String(propertyListDecoded.agents[0].status.providerRawValue)
-            == ExactUTF8String(snapshot.agents[0].status.providerRawValue))
+        #expect(propertyListDecoded.agents[0].status == snapshot.agents[0].status)
         #expect(propertyListDecoded == snapshot)
     }
 
