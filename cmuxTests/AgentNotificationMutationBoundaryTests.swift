@@ -944,4 +944,166 @@ extension AgentNotificationRegressionTests {
         bus.drainForTesting()
         #expect(fixture.store.notifications.map(\.body) == ["Keep after partial guard"])
     }
+
+    @Test("Policy-delayed notifications revalidate agent ownership before final apply")
+    func policyDelayedNotificationCannotApplyToReplacementOccupant() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-agent-guard-policy-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let ready = root.appendingPathComponent("ready")
+        let proceed = root.appendingPathComponent("proceed")
+        let finished = root.appendingPathComponent("finished")
+        let command = "touch '\(ready.path)'; while [ ! -e '\(proceed.path)' ]; do sleep 0.05; done; cat; touch '\(finished.path)'"
+        let fixture = try makeFixture(
+            policyHookCommand: command,
+            policyHookTimeoutSeconds: 60
+        )
+        defer {
+            fixture.restore()
+            try? FileManager.default.removeItem(at: root)
+        }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        defer { bus.discardPendingNotifications() }
+
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            sessionID: "session-old",
+            startsNewOccupant: true
+        )
+        bus.enqueueNotification(
+            tabId: fixture.source.id,
+            surfaceId: fixture.panelId,
+            title: "Kiro",
+            subtitle: "Waiting",
+            body: "Drop after occupant replacement",
+            coalesces: false,
+            agentMutationGuard: .session(
+                statusKey: "kiro",
+                sessionID: "session-old"
+            )
+        )
+        bus.drainForTesting()
+        #expect(await waitForMarker(at: ready))
+
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            sessionID: "session-new",
+            startsNewOccupant: true
+        )
+        _ = FileManager.default.createFile(atPath: proceed.path, contents: nil)
+        #expect(await waitForMarker(at: finished))
+
+        let deadline = ContinuousClock.now + .seconds(15)
+        while fixture.store.hasPendingNotification(
+            forTabId: fixture.source.id,
+            surfaceId: fixture.panelId
+        ), ContinuousClock.now < deadline {
+            await Task.yield()
+        }
+        #expect(
+            !fixture.store.hasPendingNotification(
+                forTabId: fixture.source.id,
+                surfaceId: fixture.panelId
+            )
+        )
+        #expect(fixture.store.notifications.isEmpty)
+    }
+
+    @Test("A guarded Dock mutation follows its authoritative session back into a Workspace")
+    func guardedDockMutationSurvivesMoveBackToWorkspace() throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let bus = TerminalMutationBus.shared
+        bus.discardPendingNotifications()
+        bus.setDrainsSuspendedForTesting(true)
+        defer {
+            bus.setDrainsSuspendedForTesting(false)
+            bus.discardPendingNotifications()
+        }
+
+        let sessionID = "session-dock"
+        let pidKey = "kiro.\(sessionID)"
+        fixture.source.recordAgentPID(
+            key: pidKey,
+            pid: getpid(),
+            panelId: fixture.panelId,
+            refreshPorts: false
+        )
+        fixture.source.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .running,
+            sessionID: sessionID,
+            startsNewOccupant: true
+        )
+        let intoDock = try #require(
+            fixture.source.detachSurface(panelId: fixture.panelId)
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let dockPaneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(
+            dock.attachDetachedSurface(intoDock, inPane: dockPaneID, focus: false)
+        )
+        dock.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.panelId,
+            lifecycle: .idle,
+            sessionID: sessionID
+        )
+
+        TerminalController.shared.controlSidebarScheduleStatusUpsert(
+            target: .workspace(dock.workspaceId),
+            key: "kiro",
+            value: "Completed in Dock",
+            icon: nil,
+            color: nil,
+            url: nil,
+            priority: 0,
+            format: .plain,
+            panelID: fixture.panelId,
+            pid: nil,
+            agentMutationGuard: .session(
+                statusKey: "kiro",
+                sessionID: sessionID
+            )
+        )
+
+        let outOfDock = try #require(
+            dock.detachSurface(panelId: fixture.panelId)
+        )
+        let destinationPaneID = try #require(
+            fixture.destination.bonsplitController.allPaneIds.first
+        )
+        try #require(
+            fixture.destination.attachDetachedSurface(
+                outOfDock,
+                inPane: destinationPaneID,
+                focus: false
+            )
+        )
+
+        bus.setDrainsSuspendedForTesting(false)
+        bus.drainForTesting()
+
+        #expect(
+            fixture.destination.agentLifecycleRecordsByPanelId[fixture.panelId]?["kiro"]?
+                .sessionID == sessionID
+        )
+        #expect(
+            fixture.destination.agentLifecycleRecordsByPanelId[fixture.panelId]?["kiro"]?
+                .state == .idle
+        )
+        #expect(fixture.destination.statusEntries["kiro"]?.value == "Completed in Dock")
+    }
 }

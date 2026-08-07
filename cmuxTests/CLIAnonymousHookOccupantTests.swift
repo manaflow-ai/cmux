@@ -25,7 +25,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             connectionCount: 80
         )
 
-        func runKiroHook(_ subcommand: String, pid: Int, eventName: String) -> ProcessRunResult {
+        func runKiroHook(
+            _ subcommand: String,
+            pid: Int,
+            eventName: String,
+            rawInput: String? = nil
+        ) -> ProcessRunResult {
             runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "kiro", subcommand],
@@ -40,7 +45,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "CMUX_KIRO_PID": String(pid),
                     "CMUX_CLI_SENTRY_DISABLED": "1",
                 ],
-                standardInput: #"{"cwd":"\#(root.path)","hook_event_name":"\#(eventName)"}"#,
+                standardInput: rawInput
+                    ?? #"{"cwd":"\#(root.path)","hook_event_name":"\#(eventName)"}"#,
                 timeout: 5
             )
         }
@@ -136,6 +142,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Only anonymous session-start may claim PID ownership: \(currentCommands)"
         )
 
+        let notificationCommandStart = state.snapshot().count
+        let statuslessNotification = runKiroHook(
+            "notification",
+            pid: replacementPID,
+            eventName: "Notification",
+            rawInput: #"{"cwd":"\#(root.path)","hook_event_name":"Notification","message":"Review this custom alert"}"#
+        )
+        XCTAssertFalse(statuslessNotification.timedOut, statuslessNotification.stderr)
+        XCTAssertEqual(statuslessNotification.status, 0, statuslessNotification.stderr)
+        XCTAssertEqual(statuslessNotification.stdout, "{}\n")
+        let notificationCommands = Array(
+            state.snapshot().dropFirst(notificationCommandStart)
+        )
+        let ownershipIndex = try XCTUnwrap(
+            notificationCommands.firstIndex {
+                $0.hasPrefix("set_agent_lifecycle kiro ")
+            }
+        )
+        let deliveryIndex = try XCTUnwrap(
+            notificationCommands.firstIndex {
+                $0.hasPrefix("notify_target_async ")
+            }
+        )
+        XCTAssertLessThan(
+            ownershipIndex,
+            deliveryIndex,
+            "An unclassified guarded notification must recover ownership before delivery: \(notificationCommands)"
+        )
+
         let teardownCommandStart = state.snapshot().count
         let currentTeardown = runKiroHook(
             "session-end",
@@ -164,6 +199,176 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Anonymous teardown must compare-and-clear the binding revision it published: \(teardownCommands)"
         )
+    }
+
+    func testAnonymousStoreMutationRejectsReplacementDuringHookExecution() throws {
+        let cliPath = try bundledCLIPath()
+        let normalSocketPath = makeSocketPath("anonymous-cas-normal")
+        let raceSocketPath = makeSocketPath("anonymous-cas-race")
+        let normalListenerFD = try bindUnixSocket(at: normalSocketPath)
+        let raceListenerFD = try bindUnixSocket(at: raceSocketPath)
+        let normalState = MockSocketServerState()
+        let raceState = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-anonymous-cas-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let workspaceID = "51111111-1111-1111-1111-111111111111"
+        let surfaceID = "52222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let currentAgent = Process()
+        currentAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        currentAgent.arguments = ["30"]
+        let replacementAgent = Process()
+        replacementAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        replacementAgent.arguments = ["30"]
+        try currentAgent.run()
+        try replacementAgent.run()
+        defer {
+            for process in [currentAgent, replacementAgent] where process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+            Darwin.close(normalListenerFD)
+            Darwin.close(raceListenerFD)
+            unlink(normalSocketPath)
+            unlink(raceSocketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startDetachedAgentHookMockServer(
+            listenerFD: normalListenerFD,
+            state: normalState,
+            surfaceId: surfaceID,
+            connectionCount: 80
+        )
+        let reachedPostValidationTargetResolution = DispatchSemaphore(value: 0)
+        let allowStaleHookToContinue = DispatchSemaphore(value: 0)
+        startDetachedMockServer(
+            listenerFD: raceListenerFD,
+            state: raceState,
+            connectionCount: 80
+        ) { line in
+            if self.jsonObject(line)?["method"] as? String == "surface.list" {
+                let surfaceListCount = raceState.snapshot().reduce(into: 0) { count, command in
+                    if self.jsonObject(command)?["method"] as? String == "surface.list" {
+                        count += 1
+                    }
+                }
+                if surfaceListCount == 3 {
+                    reachedPostValidationTargetResolution.signal()
+                    _ = allowStaleHookToContinue.wait(timeout: .now() + 15)
+                }
+            }
+            return self.agentHookMockResponse(line: line, surfaceId: surfaceID)
+        }
+
+        func environment(socketPath: String, pid: Int) -> [String: String] {
+            [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_KIRO_PID": String(pid),
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+                "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "0",
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+                "CMUX_AGENT_MANAGED_SUBAGENT": "0",
+            ]
+        }
+        func runSessionStart(pid: Int) -> ProcessRunResult {
+            runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "kiro", "session-start"],
+                environment: environment(socketPath: normalSocketPath, pid: pid),
+                standardInput: #"{"cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+                timeout: 5
+            )
+        }
+        func storedRecord() throws -> [String: Any] {
+            let storeURL = root.appendingPathComponent(
+                "claude-hook-sessions.json",
+                isDirectory: false
+            )
+            let object = try #require(
+                JSONSerialization.jsonObject(with: Data(contentsOf: storeURL))
+                    as? [String: Any]
+            )
+            let sessions = try #require(object["sessions"] as? [String: Any])
+            return try #require(sessions[surfaceID] as? [String: Any])
+        }
+
+        let currentStart = runSessionStart(pid: Int(currentAgent.processIdentifier))
+        XCTAssertFalse(currentStart.timedOut, currentStart.stderr)
+        XCTAssertEqual(currentStart.status, 0, currentStart.stderr)
+
+        let staleHook = Process()
+        let staleInput = Pipe()
+        let staleOutput = Pipe()
+        let staleError = Pipe()
+        let staleHookExited = expectation(description: "stale anonymous hook exited")
+        staleHook.executableURL = URL(fileURLWithPath: cliPath)
+        staleHook.arguments = ["hooks", "kiro", "notification"]
+        staleHook.environment = environment(
+            socketPath: raceSocketPath,
+            pid: Int(currentAgent.processIdentifier)
+        )
+        staleHook.standardInput = staleInput
+        staleHook.standardOutput = staleOutput
+        staleHook.standardError = staleError
+        staleHook.terminationHandler = { _ in staleHookExited.fulfill() }
+        try staleHook.run()
+        try staleInput.fileHandleForWriting.write(
+            contentsOf: Data(
+                #"{"cwd":"\#(root.path)","hook_event_name":"Notification","message":"Review this custom alert"}"#.utf8
+            )
+        )
+        try staleInput.fileHandleForWriting.close()
+
+        guard reachedPostValidationTargetResolution.wait(timeout: .now() + 10) == .success else {
+            allowStaleHookToContinue.signal()
+            if staleHook.isRunning { staleHook.terminate() }
+            XCTFail("The stale hook never reached post-validation target resolution: \(raceState.snapshot())")
+            return
+        }
+
+        let replacementStart = runSessionStart(pid: Int(replacementAgent.processIdentifier))
+        XCTAssertFalse(replacementStart.timedOut, replacementStart.stderr)
+        XCTAssertEqual(replacementStart.status, 0, replacementStart.stderr)
+        let replacementRecord = try storedRecord()
+
+        allowStaleHookToContinue.signal()
+        let exitResult = XCTWaiter().wait(for: [staleHookExited], timeout: 10)
+        if exitResult != .completed, staleHook.isRunning {
+            staleHook.terminate()
+        }
+        XCTAssertEqual(exitResult, .completed)
+        XCTAssertEqual(staleHook.terminationStatus, 0)
+        let staleStderr = String(
+            data: staleError.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertEqual(staleStderr, "")
+
+        let recordAfterStaleHook = try storedRecord()
+        XCTAssertEqual(
+            (recordAfterStaleHook["pid"] as? NSNumber)?.intValue,
+            (replacementRecord["pid"] as? NSNumber)?.intValue
+        )
+        XCTAssertEqual(
+            (recordAfterStaleHook["pidStartSeconds"] as? NSNumber)?.int64Value,
+            (replacementRecord["pidStartSeconds"] as? NSNumber)?.int64Value
+        )
+        XCTAssertEqual(
+            (recordAfterStaleHook["pidStartMicroseconds"] as? NSNumber)?.int64Value,
+            (replacementRecord["pidStartMicroseconds"] as? NSNumber)?.int64Value
+        )
+        XCTAssertNil(recordAfterStaleHook["lastEmittedNotificationFingerprint"])
     }
 
     func testLateRovoDevHookCannotMutateReplacementOccupantSharingInferredSessionID() throws {

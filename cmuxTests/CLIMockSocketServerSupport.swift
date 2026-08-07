@@ -437,7 +437,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    private func agentHookMockResponse(line: String, surfaceId: String) -> String {
+    func agentHookMockResponse(line: String, surfaceId: String) -> String {
         guard let payload = jsonObject(line) else {
             return "OK"
         }
