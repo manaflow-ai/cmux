@@ -451,13 +451,47 @@ jobs:
               open "${DEVELOPER_DIR}/Applications/Simulator.app" \
                 --args -CurrentDeviceUDID "$SIMULATOR_ID"
             fi
+            KEYBOARD_WATCHER_PID=""
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+              # Simulator owns software-keyboard visibility in its macOS host.
+              # Wait until the XCUITest proves MobileComposerField is first
+              # responder, then invoke the host's standard Toggle Software
+              # Keyboard shortcut once. The remaining 12-cycle stress path is
+              # driven entirely by the app's field and input-accessory button.
+              (
+                for _ in {1..900}; do
+                  if grep -q "keyboard-dock-software-keyboard-request" "$LOG_PATH" 2>/dev/null; then
+                    if /usr/bin/osascript \
+                      -e 'tell application "Simulator" to activate' \
+                      -e 'delay 0.2' \
+                      -e 'tell application "System Events" to keystroke "k" using command down'; then
+                      echo "Requested Simulator software keyboard after composer focus"
+                    else
+                      echo "::warning::Could not send Simulator software-keyboard shortcut"
+                    fi
+                    exit 0
+                  fi
+                  sleep 0.1
+                done
+                echo "::warning::Timed out waiting for composer-focus keyboard marker"
+              ) &
+              KEYBOARD_WATCHER_PID="$!"
+            fi
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
+              if [ -n "$KEYBOARD_WATCHER_PID" ]; then
+                kill "$KEYBOARD_WATCHER_PID" >/dev/null 2>&1 || true
+                wait "$KEYBOARD_WATCHER_PID" 2>/dev/null || true
+              fi
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
                 "${TEST_FILTER:-}"
               exit 0
             fi
             status="${PIPESTATUS[0]}"
+            if [ -n "$KEYBOARD_WATCHER_PID" ]; then
+              kill "$KEYBOARD_WATCHER_PID" >/dev/null 2>&1 || true
+              wait "$KEYBOARD_WATCHER_PID" 2>/dev/null || true
+            fi
             if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
               echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
               exit 0

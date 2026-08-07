@@ -6816,9 +6816,19 @@ final class cmuxUITests: XCTestCase {
                 focusComposerField(in: app),
                 "cycle \(cycle): MobileComposerField must acquire keyboard focus"
             )
+            if cycle == 1 {
+                // The hosted simulator's UI process owns the software-keyboard
+                // visibility command. Emit an unbuffered marker only after the
+                // production composer is first responder so the workflow can
+                // request that initial key plane exactly once. Every subsequent
+                // rise is driven by tapping MobileComposerField in this test.
+                FileHandle.standardError.write(
+                    Data("keyboard-dock-software-keyboard-request\n".utf8)
+                )
+            }
             let keyboardUp = waitForDock(
                 in: app,
-                timeout: 4,
+                timeout: cycle == 1 ? 10 : 4,
                 describe: "cycle \(cycle): composer owns raised software keyboard"
             ) {
                 $0["keyboardUp"] == "1"
