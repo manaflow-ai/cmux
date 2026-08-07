@@ -608,10 +608,15 @@ def _reference_match_is_executable(
     return False
 
 
-def _reference_pattern(reference: str) -> re.Pattern[str]:
-    """Pattern for a standalone reference read, including property prefixes."""
+def _reference_pattern(
+    reference: str,
+    *,
+    include_descendants: bool = True,
+) -> re.Pattern[str]:
+    """Pattern for a standalone reference read and optional property access."""
+    trailing_boundary = r"(?![\w$:=])" if include_descendants else r"(?![\w.$:=])"
     return re.compile(
-        rf"(?<![\w.$]){re.escape(reference)}(?![\w$:=])"
+        rf"(?<![\w.$]){re.escape(reference)}{trailing_boundary}"
     )
 
 
@@ -621,6 +626,8 @@ def _range_uses_reference(
     start: int,
     end: int,
     path_suffix: str,
+    *,
+    include_descendants: bool = True,
 ) -> bool:
     """Whether executable code in a source range reads the reference."""
     if path_suffix == ".sh":
@@ -635,8 +642,20 @@ def _range_uses_reference(
 
     return any(
         _reference_match_is_executable(text, match, path_suffix)
-        for match in _reference_pattern(reference).finditer(text, start, end)
+        for match in _reference_pattern(
+            reference,
+            include_descendants=include_descendants,
+        ).finditer(text, start, end)
     )
+
+
+def _containing_references(reference: str) -> list[str]:
+    """Return dotted parents from nearest container to outermost container."""
+    components = reference.split(".")
+    return [
+        ".".join(components[:length])
+        for length in range(len(components) - 1, 0, -1)
+    ]
 
 
 def _network_call_uses_reference(
@@ -645,9 +664,14 @@ def _network_call_uses_reference(
     reference: str,
     segment_end: int,
     path_suffix: str,
+    *,
+    include_descendants: bool = True,
 ) -> bool:
     """Whether a network call directly consumes the assigned reference."""
-    reference_pattern = _reference_pattern(reference)
+    reference_pattern = _reference_pattern(
+        reference,
+        include_descendants=include_descendants,
+    )
     if verb_match.group(0).lower() == "curl":
         shell_arguments = line[verb_match.end():segment_end]
         if path_suffix == ".sh":
@@ -702,6 +726,35 @@ def _network_call_uses_reference(
     )
 
 
+def _network_call_uses_tainted_reference(
+    line: str,
+    verb_match: re.Match[str],
+    reference: str,
+    segment_end: int,
+    path_suffix: str,
+) -> bool:
+    """Whether a network call consumes a tainted path or its container."""
+    if _network_call_uses_reference(
+        line,
+        verb_match,
+        reference,
+        segment_end,
+        path_suffix,
+    ):
+        return True
+    return any(
+        _network_call_uses_reference(
+            line,
+            verb_match,
+            parent,
+            segment_end,
+            path_suffix,
+            include_descendants=False,
+        )
+        for parent in _containing_references(reference)
+    )
+
+
 def _network_call_uses_derived_reference(
     line: str,
     boundaries: list[int],
@@ -737,13 +790,19 @@ def _network_call_uses_derived_reference(
             if derives_from_public_url:
                 active_references.add(assigned_reference)
             else:
-                active_references.discard(assigned_reference)
+                overwritten_references = {
+                    reference
+                    for reference in active_references
+                    if reference == assigned_reference
+                    or reference.startswith(f"{assigned_reference}.")
+                }
+                active_references.difference_update(overwritten_references)
 
         for verb_match, verb_segment in active_verb_matches:
             if verb_segment != segment_index:
                 continue
             if any(
-                _network_call_uses_reference(
+                _network_call_uses_tainted_reference(
                     line,
                     verb_match,
                     reference,
