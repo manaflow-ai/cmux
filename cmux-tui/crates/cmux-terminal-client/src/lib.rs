@@ -17,7 +17,8 @@ use cmux_remote::provider::{
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
 use cmux_terminal_host_protocol::{
-    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
+    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MAX_KITTY_IMAGE_BYTES,
+    MAX_KITTY_IMAGES, MAX_KITTY_INFLIGHT_BYTES, MAX_KITTY_PLACEMENTS, MessageKind,
     RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
 };
 #[cfg(feature = "text-renderer")]
@@ -165,7 +166,14 @@ fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, Stri
         kitty_image_aliases.push((image_id, image_number));
     }
     let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
-    let _kitty_limits = (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?);
+    let kitty_limits = (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?);
+    if kitty_limits.0 > MAX_KITTY_IMAGE_BYTES
+        || kitty_limits.1 > MAX_KITTY_INFLIGHT_BYTES
+        || kitty_limits.2 > MAX_KITTY_IMAGES
+        || kitty_limits.3 > MAX_KITTY_PLACEMENTS
+    {
+        return Err("terminal snapshot exceeds Kitty resource limits".into());
+    }
     let replay_cursor_offset = decoder.u32()?;
     let replay_primary = decoder.u32()?;
     let next_primary = decoder.u32()?;
@@ -188,7 +196,7 @@ fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, Stri
         cell_pixels,
         replay,
         kitty_image_aliases,
-        kitty_limits: _kitty_limits,
+        kitty_limits,
         replay_cursor_offset,
         replay_next_image_ids,
         next_image_ids,
@@ -2291,6 +2299,10 @@ mod tests {
         let first_id = kitty_cursor_offset + 4;
         invalid_id[first_id..first_id + 4].copy_from_slice(&0u32.to_le_bytes());
         assert!(decode_host_snapshot_payload(&invalid_id).is_err());
+
+        let mut invalid_limits = test_snapshot_payload(b"");
+        invalid_limits[21..29].copy_from_slice(&(MAX_KITTY_IMAGE_BYTES + 1).to_le_bytes());
+        assert!(decode_host_snapshot_payload(&invalid_limits).is_err());
     }
 
     #[test]

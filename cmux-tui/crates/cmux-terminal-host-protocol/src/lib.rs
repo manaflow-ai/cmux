@@ -17,6 +17,12 @@ pub const HEADER_LEN: usize = 32;
 pub const PROTOCOL_VERSION: u16 = 3;
 pub const MAX_FRAME_PAYLOAD: usize = 16 * 1024 * 1024;
 pub const MAX_KITTY_IMAGE_ALIASES: usize = 4_096;
+/// Protocol ceilings shared by hosts and renderers. A peer may lower these
+/// values for a session, but never raise them in a snapshot.
+pub const MAX_KITTY_IMAGE_BYTES: u64 = 10_000_000;
+pub const MAX_KITTY_INFLIGHT_BYTES: u64 = 13_595_480;
+pub const MAX_KITTY_IMAGES: u64 = 4_096;
+pub const MAX_KITTY_PLACEMENTS: u64 = 16_384;
 pub const KITTY_IMAGE_ALIAS_COUNT_LEN: usize = size_of::<u16>();
 pub const KITTY_IMAGE_ALIAS_ENCODED_LEN: usize = 2 * size_of::<u32>();
 const EXIT_PAYLOAD_VERSION: u16 = 1;
