@@ -120,6 +120,65 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await Set(recorder.freed) == Set(surfaces.map { UInt(bitPattern: $0) }))
     }
 
+    @Test func stuckCloseFreeDoesNotStrandLaterCloses() async throws {
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
+        let surfaces = (0..<3).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let stuckFreeStarted = AsyncStream<Void>.makeStream()
+        let releaseStuckFree = DispatchSemaphore(value: 0)
+        let freedSurfaceBits = OSAllocatedUnfairLock(initialState: Set<UInt>())
+        defer {
+            releaseStuckFree.signal()
+            stuckFreeStarted.continuation.finish()
+        }
+
+        let stuckTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.stuckClose",
+            surface: surfaces[0],
+            callbackContext: nil,
+            freeSurface: { _ in
+                stuckFreeStarted.continuation.yield()
+                _ = releaseStuckFree.wait(timeout: .distantFuture)
+            }
+        )
+        var stuckFreeIterator = stuckFreeStarted.stream.makeAsyncIterator()
+        _ = await stuckFreeIterator.next()
+
+        let laterTickets = surfaces.dropFirst().map { surface in
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.laterClose",
+                surface: surface,
+                callbackContext: nil,
+                freeSurface: { pointer in
+                    freedSurfaceBits.withLock {
+                        _ = $0.insert(UInt(bitPattern: pointer))
+                    }
+                }
+            )
+        }
+
+        for ticket in laterTickets {
+            try #require(
+                await ticket.wait(timeout: .seconds(5)),
+                "a stuck native free stranded a later close"
+            )
+        }
+        #expect(await stuckTicket.wait(timeout: .zero) == false)
+        #expect(
+            freedSurfaceBits.withLock { $0 } ==
+                Set(surfaces.dropFirst().map { UInt(bitPattern: $0) })
+        )
+
+        releaseStuckFree.signal()
+        #expect(await stuckTicket.wait(timeout: .seconds(5)))
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
