@@ -8,9 +8,10 @@ internal import CMUXDebugLog
 
 /// Coordinates native `ghostty_surface_free` calls off the close/deinit paths.
 ///
-/// Every request first starts Ghostty-owned child-process teardown before it
-/// can wait for a bounded native-free slot. This keeps process lifetime
-/// independent from resource-destruction admission.
+/// Every request synchronously registers Ghostty-owned child-process teardown.
+/// Teardown starts after any already-admitted native read and before waiting
+/// for a bounded native-free slot, keeping process lifetime independent from
+/// resource-destruction admission without invalidating a borrowed pointer.
 ///
 /// Close/deinit frees run on a bounded set of utility slots so stuck native
 /// joins cannot create unbounded worker threads. Each admitted hibernation owns
@@ -40,6 +41,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     private let isolatedHibernationQueues: [DispatchQueue]
     private nonisolated let beginSurfaceTeardown:
         @Sendable (ghostty_surface_t) -> Void
+    private nonisolated let nativeAccessGate =
+        TerminalSurfaceRuntimeNativeAccessGate()
     private nonisolated let isolatedHibernationAdmission =
         TerminalSurfaceRuntimeTeardownAdmission()
 
@@ -87,14 +90,23 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         isolatedHibernationAdmission.release(reservation)
     }
 
-    /// Reads a bounded screen tail away from the main actor and before any
-    /// subsequently enqueued native free for the same surface.
+    /// Admits a bounded screen-tail read before its first suspension.
     ///
-    /// The request performs no suspension while it holds the borrowed pointer;
-    /// actor serialization therefore makes the read and a later free mutually
-    /// exclusive.
-    func readScreenTailVT(_ request: TerminalSurfaceRuntimeScreenTailRequest) -> String? {
-        request.read()
+    /// A close that wins admission first rejects the borrow. A borrow that wins
+    /// first defers both process termination and native free until release.
+    nonisolated func acquireScreenTailBorrow(
+        for request: TerminalSurfaceRuntimeScreenTailRequest
+    ) -> TerminalSurfaceRuntimeNativeAccessGate.Borrow? {
+        nativeAccessGate.acquireBorrow(for: request.surface)
+    }
+
+    /// Reads a bounded screen tail away from the main actor under an admitted borrow.
+    func readScreenTailVT(
+        _ request: TerminalSurfaceRuntimeScreenTailRequest,
+        borrow: TerminalSurfaceRuntimeNativeAccessGate.Borrow
+    ) -> String? {
+        defer { borrow.release() }
+        return request.read()
     }
 
     /// Queues a native-surface free from any isolation (the surface model's
@@ -176,11 +188,6 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             ghostty_surface_free(surface)
         }
     ) -> TerminalSurfaceRuntimeTeardownTicket {
-        // This call is intentionally synchronous and precedes the Task hop:
-        // even when every native-free lane is occupied, the surface's own IO
-        // thread can terminate and reap its process tree independently.
-        beginSurfaceTeardown(surface)
-
         let completion = TerminalSurfaceRuntimeTeardownCompletion()
         let ticket = TerminalSurfaceRuntimeTeardownTicket(completion: completion)
         let request = TerminalSurfaceRuntimeTeardownRequest(
@@ -194,12 +201,19 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             freeSurface: freeSurface,
             completion: completion
         )
-        Task {
-            await self.enqueue(
-                request,
-                executionLane: executionLane,
-                isolatedHibernationReservation: isolatedHibernationReservation
-            )
+        nativeAccessGate.requestTeardown(for: surface) {
+            // When there is no admitted borrow this remains synchronous and
+            // precedes the Task hop. A pending borrow is the only reason to
+            // defer termination, because Ghostty forbids surface API calls
+            // after the termination request.
+            self.beginSurfaceTeardown(request.surface)
+            Task {
+                await self.enqueue(
+                    request,
+                    executionLane: executionLane,
+                    isolatedHibernationReservation: isolatedHibernationReservation
+                )
+            }
         }
         return ticket
     }
@@ -289,6 +303,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
 #endif
         request.freeSurface(request.surface)
+        nativeAccessGate.finishTeardown(for: request.surface)
     }
 
     private nonisolated func finishFree(
