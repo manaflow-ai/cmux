@@ -147,13 +147,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
-         CREATE TRIGGER IF NOT EXISTS resource_agent_projection_terminal_tombstone
-           AFTER UPDATE OF deleted_revision ON resource_terminals
-           WHEN NEW.deleted_revision IS NOT NULL
-         BEGIN
-           DELETE FROM resource_agent_projections
-           WHERE terminal_id = NEW.public_id;
-         END;
+         DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE TABLE IF NOT EXISTS resource_events (
            revision INTEGER PRIMARY KEY NOT NULL,
            previous_revision INTEGER NOT NULL,
@@ -162,7 +156,15 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            deltas_json TEXT NOT NULL
          );
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
-           ON resource_mutations(operation, committed_revision DESC);",
+           ON resource_mutations(operation, committed_revision DESC);
+         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_revision
+           ON resource_agent_projections(committed_revision DESC, terminal_id DESC);
+         CREATE INDEX IF NOT EXISTS resource_agent_projections_by_state_revision
+           ON resource_agent_projections(
+             json_extract(result_json, '$.state'),
+             committed_revision DESC,
+             terminal_id DESC
+           );",
     )?;
     Ok(())
 }
@@ -275,7 +277,6 @@ pub(super) fn migrate_resource_agent_projections(
          FROM ranked
          JOIN resource_terminals AS terminal
            ON terminal.public_id = ranked.terminal_id
-          AND terminal.deleted_revision IS NULL
          WHERE ranked.terminal_rank = 1
          ON CONFLICT(terminal_id) DO UPDATE SET
            result_json = excluded.result_json,
@@ -1186,6 +1187,7 @@ pub enum ResourceChange {
     UpsertTab(RegistryTab),
     TombstoneTab {
         tab_id: TabPublicId,
+        close_content: bool,
     },
     SetTabOrder {
         pane_id: PanePublicId,
@@ -1406,7 +1408,7 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
                 }
                 format!("tab:{}", tab.public_id)
             }
-            ResourceChange::TombstoneTab { tab_id } => format!("tab:{tab_id}"),
+            ResourceChange::TombstoneTab { tab_id, .. } => format!("tab:{tab_id}"),
             ResourceChange::SetTabOrder { pane_id, tab_ids } => {
                 validate_order_ids("tab", tab_ids.iter().map(|id| id.as_str()))?;
                 format!("tab-order:{pane_id}")
@@ -1607,8 +1609,8 @@ pub(super) fn apply_resource_patch(
     // pane can move out of the closing parent without losing its identity.
     for change in &patch.changes {
         match change {
-            ResourceChange::TombstoneTab { tab_id } => {
-                tombstone_resource_tab(transaction, tab_id.as_str(), revision, true)?;
+            ResourceChange::TombstoneTab { tab_id, close_content } => {
+                tombstone_resource_tab(transaction, tab_id.as_str(), revision, *close_content)?;
             }
             ResourceChange::TombstoneTerminal { public_id, expected_incarnation } => {
                 tombstone_resource_terminal(
@@ -1866,7 +1868,7 @@ fn validate_resource_order_coverage(
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 if let Some(pane_id) =
                     resource_field_any(transaction, "resource_tabs", "pane_id", tab_id.as_str())?
                     && !pane_closes_in_patch(
@@ -2530,6 +2532,29 @@ fn tombstone_resource_tab(
         require_known_resource(transaction, tab_id, "tab")?;
         return Ok(());
     };
+    if !close_content {
+        match content_kind.as_str() {
+            "terminal" => {
+                let terminal_id = live_resource_field(
+                    transaction,
+                    "resource_terminals",
+                    "terminal_id",
+                    &content_id,
+                )?
+                .with_context(|| {
+                    format!("tab {tab_id} references unknown terminal {content_id}")
+                })?;
+                let terminal = read_terminal(transaction, &terminal_id)?
+                    .with_context(|| format!("terminal {terminal_id} has no durable placement"))?;
+                anyhow::ensure!(
+                    terminal.lifecycle == TerminalLifecycle::Exited,
+                    "tab {tab_id} can detach only exited terminal content"
+                );
+            }
+            "browser" => anyhow::bail!("tab {tab_id} cannot detach browser content"),
+            other => anyhow::bail!("stored tab {tab_id} has invalid content kind {other:?}"),
+        }
+    }
     transaction.execute(
         "UPDATE resource_tabs
          SET position = NULL, updated_revision = ?1, deleted_revision = ?1
@@ -2885,7 +2910,7 @@ fn validate_touched_resource_invariants(
                     }
                 }
             }
-            ResourceChange::TombstoneTab { tab_id } => {
+            ResourceChange::TombstoneTab { tab_id, .. } => {
                 tabs.insert(tab_id.to_string());
                 collect_stored_tab_scope(
                     transaction,
