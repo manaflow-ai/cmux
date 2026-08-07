@@ -1791,7 +1791,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         configureScrollMechanicsView(syncToAuthoritativeOffset: lastScrollMechanicsOffsetY == nil)
     }
 
-    private func configureScrollMechanicsView(syncToAuthoritativeOffset: Bool) {
+    private func configureScrollMechanicsView(
+        syncToAuthoritativeOffset: Bool,
+        interactionEnded: Bool = false
+    ) {
         guard nativeScrollScreen == .primary,
               let geometry = terminalNativeScrollGeometry else {
             configureUnboundedScrollMechanicsView()
@@ -1801,9 +1804,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let hasPendingScroll = pendingScrollLines != 0
             || pendingLocalScrollLines != 0
             || localScrollApplyInFlight
+        // UIKit still reports isDragging/isDecelerating true INSIDE the
+        // gesture-end delegate callbacks, so those callers assert the end
+        // explicitly; pending-scroll deferral still applies and the drained
+        // pump retries the sync.
         let shouldSync = TerminalNativeScrollGeometry.shouldSynchronize(
             explicitlyRequested: syncToAuthoritativeOffset,
-            isInteracting: isScrollMechanicsInteracting,
+            isInteracting: isScrollMechanicsInteracting && !interactionEnded,
             hasPendingScroll: hasPendingScroll
         )
         scrollMechanicsIsRecentering = true
@@ -1922,12 +1929,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Internal for `GhosttySurfaceView+LocalScrollbackScroll.swift`: a drained
     /// local-apply pump re-runs the idle resync its in-flight flag deferred.
-    func settleBoundedScrollMechanicsIfPossible() {
+    /// Gesture-end callbacks pass `interactionEnded: true` because UIKit's
+    /// isDragging/isDecelerating are still true inside those callbacks.
+    func settleBoundedScrollMechanicsIfPossible(interactionEnded: Bool = false) {
         guard nativeScrollScreen == .primary,
               let geometry = terminalNativeScrollGeometry else { return }
         let rawOffset = scrollMechanicsView.contentOffset.y
         guard rawOffset >= 0, rawOffset <= geometry.maximumContentOffsetY else { return }
-        configureScrollMechanicsView(syncToAuthoritativeOffset: false)
+        configureScrollMechanicsView(
+            syncToAuthoritativeOffset: false,
+            interactionEnded: interactionEnded
+        )
     }
 
     private func recenterScrollMechanicsViewIfNeeded(force: Bool = false) {
@@ -4414,7 +4426,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
         // gesture end; flushing here guarantees the tail deltas reach the
         // terminal so the drained-pump settle can complete the resync.
         flushPendingScrollIfNeeded()
-        settleBoundedScrollMechanicsIfPossible()
+        settleBoundedScrollMechanicsIfPossible(interactionEnded: true)
         if artifactChipScrollRevealed {
             armArtifactChipRevealLinger()
         }
@@ -4423,7 +4435,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView else { return }
         flushPendingScrollIfNeeded()
-        settleBoundedScrollMechanicsIfPossible()
+        settleBoundedScrollMechanicsIfPossible(interactionEnded: true)
         if artifactChipScrollRevealed {
             armArtifactChipRevealLinger()
         }
