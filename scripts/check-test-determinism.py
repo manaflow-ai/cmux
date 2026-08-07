@@ -340,23 +340,6 @@ def detect_assert_on_duration(line: str) -> bool:
     return has_threshold_compare or has_relational_assert
 
 
-def _starts_outside_quoted_string(line: str, index: int) -> bool:
-    """Whether line[index] is outside a single-, double-, or backtick string."""
-    quote: Optional[str] = None
-    escaped = False
-    for char in line[:index]:
-        if escaped:
-            escaped = False
-        elif char == "\\":
-            escaped = True
-        elif quote is None:
-            if char in ("'", '"', "`"):
-                quote = char
-        elif char == quote:
-            quote = None
-    return quote is None
-
-
 def _parenthesis_delta_outside_quoted_strings(line: str) -> int:
     """Net parenthesis depth contributed by executable code on one line."""
     quote: Optional[str] = None
@@ -478,9 +461,9 @@ def _string_literal_interpolates(
 
 def _is_static_text_matcher_literal(
     statement: str,
-    verb_index: int,
+    match_index: int,
 ) -> bool:
-    span = _quoted_string_span_containing(statement, verb_index)
+    span = _quoted_string_span_containing(statement, match_index)
     if span is None:
         return False
     quote_start, quote_end, _quote = span
@@ -497,6 +480,37 @@ def _is_static_text_matcher_literal(
     return False
 
 
+def _statement_segment_boundaries(line: str) -> list[int]:
+    """Indexes of outside-quote separators between executable statements."""
+    boundaries: list[int] = []
+    quote: Optional[str] = None
+    escaped = False
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote is not None:
+            if char == quote:
+                quote = None
+        elif char in ("'", '"', "`"):
+            quote = char
+        elif char == ";":
+            boundaries.append(index)
+        elif line.startswith(("&&", "||"), index):
+            boundaries.append(index)
+            index += 1
+        index += 1
+    return boundaries
+
+
+def _statement_segment_index(boundaries: list[int], match_index: int) -> int:
+    """Return the statement segment containing a source match."""
+    return sum(boundary < match_index for boundary in boundaries)
+
+
 def detect_live_network_host(
     line: str,
     *,
@@ -508,28 +522,33 @@ def detect_live_network_host(
     # canonical-URL assertion, toContain) opens no socket and is not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    verb_matches = list(_NETWORK_VERB.finditer(line))
-    if not verb_matches:
-        return False
     # Exempt only a proven static expected-text literal: the whole first
-    # argument to a known text matcher. Everything else—including arbitrary
-    # command wrappers and language interpolation—remains executable by
-    # default instead of relying on an incomplete executor allowlist.
+    # argument to a known text matcher. Quoted commands passed through arbitrary
+    # wrappers and interpolated strings remain active by default instead of
+    # relying on an incomplete executor allowlist.
     if assertion_context is not None:
         statement, line_offset = assertion_context
     else:
         statement, line_offset = "", 0
-    if all(
-        not _starts_outside_quoted_string(line, match.start())
-        and assertion_context is not None
-        and _is_static_text_matcher_literal(
+
+    def is_static_matcher_literal(match_index: int) -> bool:
+        return assertion_context is not None and _is_static_text_matcher_literal(
             statement,
-            line_offset + match.start(),
+            line_offset + match_index,
         )
-        for match in verb_matches
-    ):
+
+    boundaries = _statement_segment_boundaries(line)
+    active_verb_segments = {
+        _statement_segment_index(boundaries, match.start())
+        for match in _NETWORK_VERB.finditer(line)
+        if not is_static_matcher_literal(match.start())
+    }
+    if not active_verb_segments:
         return False
+
     for match in _URL.finditer(line):
+        if is_static_matcher_literal(match.start()):
+            continue
         host = match.group(1)
         if "." not in host:
             continue  # bare hostname, not a real domain
@@ -537,7 +556,8 @@ def detect_live_network_host(
             continue
         if _looks_like_ipv4(host) and _is_private_ipv4(host):
             continue
-        return True
+        if _statement_segment_index(boundaries, match.start()) in active_verb_segments:
+            return True
     return False
 
 
