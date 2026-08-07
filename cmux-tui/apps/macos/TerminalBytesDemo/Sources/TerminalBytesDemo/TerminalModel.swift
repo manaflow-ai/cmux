@@ -650,7 +650,7 @@ func copyGrowingCString(
                 as: UTF8.self
             )
         }
-        guard actual >= 0, actual < maximumCapacity else { return nil }
+        guard actual < maximumCapacity else { return nil }
         // The producer grew between sizing and copying. Its returned complete
         // length becomes the next capacity, so no truncated UTF-8 is decoded.
         capacity = actual + 1

@@ -647,6 +647,46 @@ struct TerminalBytesLogicTests {
     }
 
     @Test @MainActor
+    func rejectedResizeDoesNotRetryUntilGeometryChanges() async throws {
+        let attempts = LockedCounter()
+        let handle = TerminalClientHandle(
+            rawAddress: 8,
+            attachClient: { _, _, _, _, _ in true },
+            destroyClient: { _ in },
+            detachClient: { _ in },
+            setUpdateCallback: { _, _, _ in },
+            resizeClient: { _, _, _, _ in
+                attempts.increment()
+                return false
+            },
+            resizeAcknowledgementClient: { _, _, _, _, _ in false },
+            copyFrameClient: { _, _, _ in 0 },
+            copyDiagnosticsClient: { _, _, _ in 0 },
+            hasExitedClient: { _ in false }
+        )
+        let model = TerminalModel(
+            configuration: DemoLaunchConfiguration(
+                invitation: "",
+                terminalID: "term_0123456789abcdef0123456789abcdef",
+                autoConnect: false
+            ),
+            retainedClient: handle,
+            initiallyConnected: true
+        )
+        let geometry = TerminalGeometry(cols: 100, rows: 30)
+
+        model.resize(to: geometry)
+        #expect(await waitUntil { attempts.value == 1 })
+        for _ in 0 ..< 10 {
+            model.resize(to: geometry)
+            await Task.yield()
+        }
+        #expect(attempts.value == 1)
+        #expect(model.errorMessage.contains("resize is pending"))
+        model.shutdown()
+    }
+
+    @Test @MainActor
     func clientHandleRetainsEnrollmentAndPropagatesInputFailure() async throws {
         let rawAddress: UInt = 1
         let calls = LockedClientCalls()

@@ -406,12 +406,13 @@ struct TerminalView: NSViewRepresentable {
         if !inputReady {
             terminal.unmarkText()
         }
-        guard terminal.terminalFrameText != text else { return }
         let isComposing = terminal.hasMarkedText()
         let selection = isComposing ? [] : terminal.selectedRanges
         let visible = scroll.documentVisibleRect
         let followedBottom = visible.maxY >= terminal.bounds.maxY - 24
-        let edit = terminal.applyTerminalFrame(text)
+        // applyTerminalFrame computes the cached-frame edit once. Keeping the
+        // equality check there avoids a second full-frame scan on every update.
+        guard let edit = terminal.applyTerminalFrame(text) else { return }
         if !isComposing {
             terminal.selectedRanges = terminalSelections(
                 preserving: selection,
