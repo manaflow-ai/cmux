@@ -1235,7 +1235,9 @@ jobs:
               # hiding the actual unit test summary.
               # The app-host wrapper also serializes GUI XCTest ownership per Mac,
               # while still allowing shards on separate Macs to run in parallel.
-              scripts/ci/run-in-console-session.sh \
+              CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING=1 \
+                CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS=2700 \
+                scripts/ci/run-in-console-session.sh \
                 scripts/ci/run-app-host-xcodebuild.sh \
                 -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
                 -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
