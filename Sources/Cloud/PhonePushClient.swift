@@ -739,7 +739,7 @@ final class PhonePushClient {
 
     nonisolated private static func pushURL() -> URL? {
         guard var components = URLComponents(
-            url: AuthEnvironment.vmAPIBaseURL,
+            url: AuthEnvironment.pushAPIBaseURL,
             resolvingAgainstBaseURL: false
         ), let scheme = components.scheme?.lowercased(),
         ["http", "https"].contains(scheme),
