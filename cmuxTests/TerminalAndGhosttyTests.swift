@@ -3060,12 +3060,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
     }
 
     private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> NSView? {
-        hostedView.subviews
-            .compactMap { $0 as? NSScrollView }
-            .first?
-            .documentView?
-            .subviews
-            .first
+        hostedView.surfaceView
     }
 
     private func waitUntil(timeout: TimeInterval, condition: () -> Bool) -> Bool {
