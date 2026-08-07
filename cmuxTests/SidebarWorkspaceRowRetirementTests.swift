@@ -4,9 +4,41 @@ import Testing
 @testable import cmux_DEV
 
 #if DEBUG
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarWorkspaceRowRetirementTests {
+    @Test
+    func tableRetirementInvalidatesDescriptionLinkAccessibility() async throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel(
+            customDescription: "[cmux](\(url.absoluteString))"
+        )
+        let mounted = try await mount(
+            model: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(model: model)
+        )
+        defer { mounted.window.close() }
+        let textView = try #require(
+            descendants(of: mounted.cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { $0.attributedStringValue.string == "cmux" }
+        )
+        let accessibilityLink = try #require(
+            (textView.accessibilityChildren() ?? [])
+                .compactMap { $0 as? SidebarRowTextAccessibilityLink }
+                .first { $0.accessibilityURL() == url }
+        )
+        #expect(accessibilityLink.accessibilityParent() != nil)
+        #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
+
+        await removeMountedRow(mounted)
+
+        #expect(textView.attributedStringValue.length == 0)
+        #expect(accessibilityLink.accessibilityParent() == nil)
+        #expect(accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!accessibilityLink.accessibilityPerformPress())
+    }
+
     @Test
     func tableRetirementClosesStatusPopover() async throws {
         let model = SidebarWorkspaceRowSuspensionTests.makeModel(manualTaskStatus: .working)

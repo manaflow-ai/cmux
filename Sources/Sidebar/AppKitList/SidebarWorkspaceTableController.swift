@@ -324,6 +324,16 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         return []
     }
 
+    private func retirePresentation(
+        from cell: NSView,
+        commitEdits: Bool
+    ) -> [@MainActor () -> Void] {
+        if let cell = cell as? SidebarWorkspaceRowTableCellView {
+            return cell.retirePresentation(commitEdits: commitEdits)
+        }
+        return detachPresentation(from: cell, commitEdits: commitEdits)
+    }
+
     func apply(
         rows nextRows: [SidebarWorkspaceTableRowConfiguration],
         actions: SidebarWorkspaceTableActions,
@@ -715,7 +725,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Row retirement is the authoritative cleanup signal. A temporary
         // whole-table window reparent leaves its row views installed, while
         // an actual deletion/reload removes them through this callback.
-        let postUpdateActions = detachPresentation(from: cell, commitEdits: true)
+        let postUpdateActions = retirePresentation(from: cell, commitEdits: true)
         mutationScheduler.stagePostUpdateActions(postUpdateActions)
     }
 

@@ -1,18 +1,20 @@
 import AppKit
 import CmuxSidebar
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
 /// Behavior tests for the pure-AppKit workspace row cell: hover enforcement
 /// (authoritative sweep) and optimistic selection paint semantics.
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
-        metadataEntries: [SidebarStatusEntry] = []
+        metadataEntries: [SidebarStatusEntry] = [],
+        metadataBlocks: [SidebarMetadataBlock] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
@@ -30,7 +32,7 @@ struct SidebarAppKitRowCellTests {
             copyableSidebarSSHError: nil,
             latestConversationMessage: nil,
             metadataEntries: metadataEntries,
-            metadataBlocks: [],
+            metadataBlocks: metadataBlocks,
             latestLog: nil,
             progress: nil,
             activeCodingAgentCount: 0,
@@ -61,7 +63,9 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
-        shortcutHintText: String? = nil
+        metadataBlocks: [SidebarMetadataBlock] = [],
+        shortcutHintText: String? = nil,
+        isMarkdownExpanded: Bool = false
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -71,7 +75,8 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
-                metadataEntries: metadataEntries
+                metadataEntries: metadataEntries,
+                metadataBlocks: metadataBlocks
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -97,7 +102,7 @@ struct SidebarAppKitRowCellTests {
             editingChecklistItemId: nil,
             todoControlsEnabled: false,
             isMetadataExpanded: false,
-            isMarkdownExpanded: false
+            isMarkdownExpanded: isMarkdownExpanded
         )
     }
 
@@ -253,7 +258,7 @@ struct SidebarAppKitRowCellTests {
         var location = 0
         while location < attributedString.length {
             var range = NSRange(location: 0, length: 0)
-            let value = attributedString.attribute(.link, at: location, effectiveRange: &range)
+            let value = attributedString.attribute(.sidebarRowLink, at: location, effectiveRange: &range)
             if linkURL(from: value) == url {
                 return true
             }
@@ -275,8 +280,20 @@ struct SidebarAppKitRowCellTests {
         }
     }
 
+    private static func accessibilityLinks(
+        in textView: SidebarRowTextView
+    ) -> [SidebarRowTextAccessibilityLink] {
+        (textView.accessibilityChildren() ?? []).compactMap {
+            $0 as? SidebarRowTextAccessibilityLink
+        }
+    }
+
     @discardableResult
-    private static func layoutCell(_ cell: SidebarWorkspaceRowTableCellView, model: SidebarWorkspaceRowModel, width: CGFloat = 440) -> NSWindow {
+    private static func layoutCell(
+        _ cell: SidebarWorkspaceRowTableCellView,
+        model: SidebarWorkspaceRowModel,
+        width: CGFloat = 440
+    ) -> NSWindow {
         let height = cell.layoutContent(model: model, width: width, apply: false)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
@@ -388,6 +405,33 @@ struct SidebarAppKitRowCellTests {
             y: textView.textContainerOrigin.y + glyphBounds.midY
         )
         return textView.convert(localPoint, to: textView.superview)
+    }
+
+    @Test
+    func cancelingInlineRenameRestoresWorkspaceTitle() throws {
+        let model = Self.makeModel()
+        let cell = Self.configuredCell(model: model)
+        // This test owns the row state transition, not AppKit's field-editor
+        // lifecycle. Keeping the cell detached avoids an unrelated focus-loss
+        // commit when the headless CI process cannot make a test window key.
+        let titleView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+        )
+
+        cell.beginInlineRename()
+
+        #expect(cell.isEditing)
+        #expect(titleView.isHidden)
+        #expect(cell.renameField.stringValue == model.snapshot.title)
+
+        let cancel = try #require(cell.renameField.onCancel)
+        cancel()
+
+        #expect(!cell.isEditing)
+        #expect(!titleView.isHidden)
+        #expect(titleView.stringValue == model.snapshot.title)
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
@@ -517,7 +561,11 @@ struct SidebarAppKitRowCellTests {
             onOpenWorkspaceDescriptionURL: { openedURL = $0 }
         )
         let window = Self.layoutCell(cell, model: model)
-        let textView = try #require(Self.textView(in: cell, linkedTo: url))
+        let textView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { $0.stringValue == "launch" }
+        )
 
         let hitView = try Self.click(
             textView,
@@ -527,6 +575,672 @@ struct SidebarAppKitRowCellTests {
 
         #expect(hitView !== textView)
         #expect(openedURL == nil)
+        #expect(textView.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil) == nil)
+        #expect(textView.attributedStringValue.attribute(.sidebarRowLink, at: 0, effectiveRange: nil) == nil)
+        #expect(textView.attributedStringValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil) == nil)
+        #expect(textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+    }
+
+    /// Rasterizes the link over the row's own selection background. AppKit used
+    /// to paint `.link` runs in `NSColor.linkColor`, which is the same blue as
+    /// the sidebar selection fill, so the URL was unreadable on the active row.
+    @Test(arguments: [nil, "#8A2BE2", "#F2C14E"] as [String?])
+    func activeRowLinkRastersInTheRowForegroundNotSystemLinkColor(_ selectionHex: String?) throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let defaults = Self.makeDefaults()
+        if let selectionHex {
+            defaults.set(selectionHex, forKey: "sidebarSelectionColorHex")
+        }
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        #expect(settings.selectionColorHex == selectionHex)
+        let model = Self.makeModel(isActive: true, settings: settings, customDescription: url.absoluteString)
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+
+        let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+            for: .dark,
+            sidebarSelectionColorHex: settings.selectionColorHex
+        )
+        let expected = try #require(
+            sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
+                .usingColorSpace(.sRGB)
+        )
+        let rendered = try #require(
+            textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        )
+        let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+        #expect(renderedSRGB == expected)
+        #expect(
+            textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+        let accessibilityValue = try #require(
+            textView.cell?.accessibilityAttributedString(
+                for: NSRange(location: 0, length: textView.attributedStringValue.length)
+            )
+        )
+        let attributedAccessibilityLink = try #require(
+            accessibilityValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil)
+                as? SidebarRowTextAccessibilityLink
+        )
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(accessibilityLink === attributedAccessibilityLink)
+        #expect(accessibilityLink.accessibilityRole() == .link)
+        #expect(accessibilityLink.accessibilityURL() == url)
+        #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
+
+        let raster = try Self.raster(of: textView, background: selectionBackground)
+        let systemLink = try #require(
+            NSColor.linkColor.usingColorSpace(.sRGB),
+            "linkColor must resolve in sRGB"
+        )
+        let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: selectionBackground)
+        #expect(Self.distance(glyphColor, expected) < 0.05)
+        #expect(Self.distance(glyphColor, systemLink) > 0.15)
+    }
+
+    @Test
+    func inactiveRowLinkKeepsSystemLinkColorAndUnderline() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let model = Self.makeModel(isActive: false, customDescription: url.absoluteString)
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+
+        let rendered = try #require(
+            textView.attributedStringValue.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        )
+        #expect(rendered == NSColor.linkColor)
+        #expect(
+            textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+    }
+
+    @Test
+    func accessibilityLinkIdentitySurvivesSelectedRowReconfigurationWithoutResizing() throws {
+        let workspaceID = UUID()
+        let url = try #require(URL(string: "https://cmux.com"))
+        let initialModel = Self.makeModel(
+            workspaceId: workspaceID,
+            isActive: false,
+            customDescription: url.absoluteString
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: initialModel,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: initialModel)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: url.absoluteString))
+        let initialTextFrame = textView.frame
+        let originalLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(!originalLink.accessibilityFrameInParentSpace().isEmpty)
+
+        let selectedModel = Self.makeModel(
+            workspaceId: workspaceID,
+            isActive: true,
+            settings: initialModel.settings,
+            customDescription: url.absoluteString
+        )
+        cell.configure(
+            model: selectedModel,
+            actions: Self.makeActions(
+                model: selectedModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(textView.frame == initialTextFrame)
+        cell.layoutSubtreeIfNeeded()
+
+        let reconfiguredTextView = try #require(
+            Self.descriptionTextView(in: cell, showing: url.absoluteString)
+        )
+        #expect(reconfiguredTextView === textView)
+        #expect(reconfiguredTextView.frame == initialTextFrame)
+        let currentLink = try #require(
+            Self.accessibilityLinks(in: reconfiguredTextView).first {
+                $0.accessibilityURL() == url
+            }
+        )
+        #expect(currentLink === originalLink)
+        #expect(!currentLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(openedURL == nil)
+        #expect(currentLink.accessibilityPerformPress())
+        #expect(openedURL == url)
+        _ = window
+    }
+
+    @Test
+    func workspaceIdentityChangeAndReuseInvalidateMatchingLinkProxy() throws {
+        let firstWorkspaceID = UUID()
+        let secondWorkspaceID = UUID()
+        let url = try #require(URL(string: "https://cmux.com"))
+        let initialModel = Self.makeModel(
+            workspaceId: firstWorkspaceID,
+            customDescription: url.absoluteString
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: initialModel,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: initialModel)
+        let textView = try #require(
+            Self.descriptionTextView(in: cell, showing: url.absoluteString)
+        )
+        let firstWorkspaceLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+
+        let secondModel = Self.makeModel(
+            workspaceId: secondWorkspaceID,
+            settings: initialModel.settings,
+            customDescription: url.absoluteString
+        )
+        cell.configure(
+            model: secondModel,
+            actions: Self.makeActions(
+                model: secondModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        cell.layoutSubtreeIfNeeded()
+
+        let secondWorkspaceLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(secondWorkspaceLink !== firstWorkspaceLink)
+        #expect(!firstWorkspaceLink.accessibilityPerformPress())
+        #expect(secondWorkspaceLink.accessibilityPerformPress())
+        #expect(openedURL == url)
+
+        cell.prepareForReuse()
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+        #expect(!secondWorkspaceLink.accessibilityPerformPress())
+        _ = window
+    }
+
+    @Test
+    func rightAlignedAccessibilityLinkFrameMatchesPointerHitRegion() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        let source = NSAttributedString(
+            string: "cmux",
+            attributes: [
+                .link: url,
+                .paragraphStyle: paragraph,
+            ]
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let textView = SidebarRowTextView(lines: 1)
+        textView.frame = host.bounds
+        textView.onOpenLink = { _ in }
+        host.addSubview(textView)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+        host.layoutSubtreeIfNeeded()
+
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        let linkFrame = accessibilityLink.accessibilityFrameInParentSpace()
+        #expect(textView.bounds.contains(linkFrame))
+        #expect(linkFrame.midX > textView.bounds.midX)
+        let linkPointInHost = textView.convert(
+            NSPoint(x: linkFrame.midX, y: linkFrame.midY),
+            to: host
+        )
+        #expect(textView.hitTest(linkPointInHost) === textView)
+    }
+
+    @Test
+    func accessibilityLinkFrameResolvesOnDemandBeforeViewLayout() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let source = NSAttributedString(
+            string: "cmux",
+            attributes: [.link: url]
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let textView = SidebarRowTextView(lines: 1)
+        textView.frame = NSRect(x: 0, y: 0, width: 240, height: 30)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        let frame = accessibilityLink.accessibilityFrameInParentSpace()
+
+        #expect(!frame.isEmpty)
+        #expect(textView.bounds.contains(frame))
+    }
+
+    @Test
+    func detachedRowDefersAccessibilityLinkProxyUntilAccessibilityQuery() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let source = NSAttributedString(
+            string: "cmux",
+            attributes: [.link: url]
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let textView = SidebarRowTextView(lines: 1)
+        textView.frame = NSRect(x: 0, y: 0, width: 240, height: 30)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+        let linkLocation = try #require(Self.firstRowLinkLocation(in: textView.attributedStringValue))
+
+        #expect(textView.window == nil)
+        #expect(
+            Self.linkURL(
+                from: textView.attributedStringValue.attribute(
+                    .sidebarRowLink,
+                    at: linkLocation,
+                    effectiveRange: nil
+                )
+            ) == url
+        )
+        #expect(
+            textView.attributedStringValue.attribute(
+                .accessibilityLink,
+                at: linkLocation,
+                effectiveRange: nil
+            ) == nil
+        )
+
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        let attributedAccessibilityLink = try #require(
+            textView.attributedStringValue.attribute(
+                .accessibilityLink,
+                at: linkLocation,
+                effectiveRange: nil
+            ) as? SidebarRowTextAccessibilityLink
+        )
+
+        #expect(accessibilityLink === attributedAccessibilityLink)
+    }
+
+    @Test
+    func truncatedLinkIsRemovedFromAccessibilityAndCannotActivate() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let prefix = "A long visible prefix that pushes the link away "
+        let source = NSMutableAttributedString(string: prefix + "cmux")
+        source.addAttribute(
+            .link,
+            value: url,
+            range: NSRange(location: (prefix as NSString).length, length: 4)
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
+        let textView = SidebarRowTextView(lines: 1)
+        textView.frame = host.bounds
+        var openedURL: URL?
+        textView.onOpenLink = { openedURL = $0 }
+        host.addSubview(textView)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+        host.layoutSubtreeIfNeeded()
+
+        let formerlyVisibleLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(!formerlyVisibleLink.accessibilityFrameInParentSpace().isEmpty)
+
+        textView.frame.size.width = 40
+        textView.needsLayout = true
+        textView.layoutSubtreeIfNeeded()
+
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+        #expect(formerlyVisibleLink.accessibilityParent() == nil)
+        #expect(formerlyVisibleLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!formerlyVisibleLink.accessibilityPerformPress())
+        #expect(openedURL == nil)
+    }
+
+    @Test
+    func changedThenClearedAccessibilityLinkReplacesAndInvalidatesProxy() throws {
+        let workspaceID = UUID()
+        let initialURL = try #require(URL(string: "https://one.example"))
+        let replacementURL = try #require(URL(string: "https://two.example"))
+        let initialModel = Self.makeModel(
+            workspaceId: workspaceID,
+            customDescription: "[cmux](\(initialURL.absoluteString))"
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: initialModel,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: initialModel)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "cmux"))
+        let initialTextFrame = textView.frame
+        let initialLink = try #require(Self.accessibilityLinks(in: textView).first)
+
+        let replacementModel = Self.makeModel(
+            workspaceId: workspaceID,
+            settings: initialModel.settings,
+            customDescription: "[cmux](\(replacementURL.absoluteString))"
+        )
+        cell.configure(
+            model: replacementModel,
+            actions: Self.makeActions(
+                model: replacementModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(textView.frame == initialTextFrame)
+        cell.layoutSubtreeIfNeeded()
+
+        let replacementLink = try #require(
+            Self.accessibilityLinks(in: textView).first {
+                $0.accessibilityURL() == replacementURL
+            }
+        )
+        #expect(replacementLink !== initialLink)
+        #expect(!replacementLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!initialLink.accessibilityPerformPress())
+        #expect(initialLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(replacementLink.accessibilityPerformPress())
+        #expect(openedURL == replacementURL)
+
+        let clearedModel = Self.makeModel(
+            workspaceId: workspaceID,
+            settings: initialModel.settings,
+            customDescription: nil
+        )
+        cell.configure(
+            model: clearedModel,
+            actions: Self.makeActions(
+                model: clearedModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        #expect(textView.isHidden)
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+        #expect(!replacementLink.accessibilityPerformPress())
+        #expect(replacementLink.accessibilityFrameInParentSpace().isEmpty)
+        _ = window
+    }
+
+    private static func metadataBlock(_ markdown: String, key: String = "notes") -> SidebarMetadataBlock {
+        SidebarMetadataBlock(
+            key: key,
+            markdown: markdown,
+            priority: 0,
+            timestamp: Date(timeIntervalSince1970: 0)
+        )
+    }
+
+    @Test
+    func pooledMetadataLinkInvalidatesWhenItsBlockIsHidden() throws {
+        let workspaceID = UUID()
+        let firstBlock = Self.metadataBlock(
+            "[first](https://one.example)",
+            key: "first"
+        )
+        let secondURL = try #require(URL(string: "https://two.example"))
+        let secondBlock = Self.metadataBlock(
+            "[second](\(secondURL.absoluteString))",
+            key: "second"
+        )
+        let expandedModel = Self.makeModel(
+            workspaceId: workspaceID,
+            metadataBlocks: [firstBlock, secondBlock],
+            isMarkdownExpanded: true
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: expandedModel,
+            onOpenStatusURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: expandedModel)
+        let pooledTextView = try #require(
+            Self.descriptionTextView(in: cell, showing: "second")
+        )
+        let pooledLink = try #require(
+            Self.accessibilityLinks(in: pooledTextView).first {
+                $0.accessibilityURL() == secondURL
+            }
+        )
+
+        let shrunkModel = Self.makeModel(
+            workspaceId: workspaceID,
+            settings: expandedModel.settings,
+            metadataBlocks: [firstBlock],
+            isMarkdownExpanded: true
+        )
+        cell.configure(
+            model: shrunkModel,
+            actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+
+        #expect(pooledTextView.isHidden)
+        #expect(Self.accessibilityLinks(in: pooledTextView).isEmpty)
+        #expect(pooledTextView.attributedStringValue.length == 0)
+        #expect(!pooledLink.accessibilityPerformPress())
+        #expect(pooledLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(pooledLink.accessibilityParent() == nil)
+        #expect(openedURL == nil)
+        _ = window
+    }
+
+    /// The metadata markdown blocks render through the same row-owned text
+    /// configuration as the description, so they carried the same AppKit
+    /// link-color override.
+    @Test(arguments: [true, false])
+    func metadataMarkdownBlockLinkIsRowOwnedInBothSelectionStates(_ isActive: Bool) throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let model = Self.makeModel(
+            isActive: isActive,
+            metadataBlocks: [Self.metadataBlock("Docs [cmux](\(url.absoluteString))")]
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(model: model, onOpenStatusURL: { openedURL = $0 })
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "Docs cmux"))
+        let attributed = textView.attributedStringValue
+        let linkLocation = try #require(Self.firstRowLinkLocation(in: attributed))
+
+        #expect(Self.linkURL(from: attributed.attribute(.sidebarRowLink, at: linkLocation, effectiveRange: nil)) == url)
+        #expect(attributed.attribute(.link, at: linkLocation, effectiveRange: nil) == nil)
+        let accessibilityValue = try #require(
+            textView.cell?.accessibilityAttributedString(
+                for: NSRange(location: 0, length: attributed.length)
+            )
+        )
+        let attributedAccessibilityLink = try #require(
+            accessibilityValue.attribute(.accessibilityLink, at: linkLocation, effectiveRange: nil)
+                as? SidebarRowTextAccessibilityLink
+        )
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(accessibilityLink === attributedAccessibilityLink)
+        #expect(accessibilityLink.accessibilityRole() == .link)
+        #expect(accessibilityLink.accessibilityURL() == url)
+        #expect(!accessibilityLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(accessibilityLink.accessibilityPerformPress())
+        #expect(openedURL == url)
+        #expect(
+            attributed.attribute(.underlineStyle, at: linkLocation, effectiveRange: nil) as? Int
+                == NSUnderlineStyle.single.rawValue
+        )
+
+        let rendered = try #require(
+            attributed.attribute(.foregroundColor, at: linkLocation, effectiveRange: nil) as? NSColor
+        )
+        if isActive {
+            let selectionBackground = sidebarSelectedWorkspaceBackgroundNSColor(
+                for: .dark,
+                sidebarSelectionColorHex: model.settings.selectionColorHex
+            )
+            let expected = try #require(
+                sidebarSelectedWorkspaceForegroundNSColor(on: selectionBackground, opacity: 1.0)
+                    .usingColorSpace(.sRGB)
+            )
+            let renderedSRGB = try #require(rendered.usingColorSpace(.sRGB))
+            #expect(renderedSRGB == expected)
+            let raster = try Self.raster(of: textView, background: selectionBackground)
+            let systemLink = try #require(NSColor.linkColor.usingColorSpace(.sRGB))
+            let glyphColor = try Self.mostVisibleGlyphColor(in: raster, excluding: selectionBackground)
+            #expect(Self.distance(glyphColor, expected) < 0.05)
+            #expect(Self.distance(glyphColor, systemLink) > 0.15)
+        } else {
+            #expect(rendered == NSColor.linkColor)
+        }
+    }
+
+    @Test
+    func metadataMarkdownBlockDropsUnsafeSchemeLinks() throws {
+        let model = Self.makeModel(
+            isActive: true,
+            metadataBlocks: [Self.metadataBlock("[launch](file:///tmp/not-ok.command)")]
+        )
+        let cell = Self.configuredCell(model: model)
+        Self.layoutCell(cell, model: model)
+        let textView = try #require(Self.descriptionTextView(in: cell, showing: "launch"))
+        let attributed = textView.attributedStringValue
+
+        #expect(Self.firstRowLinkLocation(in: attributed) == nil)
+        #expect(attributed.attribute(.link, at: 0, effectiveRange: nil) == nil)
+        #expect(attributed.attribute(.accessibilityLink, at: 0, effectiveRange: nil) == nil)
+        #expect(attributed.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+    }
+
+    private static func firstRowLinkLocation(in attributed: NSAttributedString) -> Int? {
+        var location: Int?
+        attributed.enumerateAttribute(
+            .sidebarRowLink,
+            in: NSRange(location: 0, length: attributed.length)
+        ) { value, range, stop in
+            guard value != nil else { return }
+            location = range.location
+            stop.pointee = true
+        }
+        return location
+    }
+
+    private static func descriptionTextView(
+        in cell: SidebarWorkspaceRowTableCellView,
+        showing text: String
+    ) -> SidebarRowTextView? {
+        descendants(of: cell)
+            .compactMap { $0 as? SidebarRowTextView }
+            .first { !$0.isHidden && $0.stringValue == text }
+    }
+
+    /// Composites the text field over `background` so glyph pixels can be
+    /// compared against a concrete color instead of a transparent bitmap.
+    private static func raster(of view: NSView, background: NSColor) throws -> NSBitmapImageRep {
+        let size = view.bounds.size
+        #expect(size.width > 0 && size.height > 0)
+        let rep = try #require(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(ceil(size.width)),
+                pixelsHigh: Int(ceil(size.height)),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+        let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        background.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        view.displayIgnoringOpacity(view.bounds, in: context)
+        NSGraphicsContext.restoreGraphicsState()
+        return rep
+    }
+
+    /// Highest-coverage glyph pixel, selected as the pixel farthest from the
+    /// row background. Comparing this one pixel to both candidate colors keeps
+    /// antialiased edge blends from masquerading as a system-link-color glyph.
+    private static func mostVisibleGlyphColor(
+        in raster: NSBitmapImageRep,
+        excluding background: NSColor
+    ) throws -> NSColor {
+        let ignored = try #require(background.usingColorSpace(.sRGB))
+        var mostVisible: NSColor?
+        var greatestDistance = CGFloat.zero
+        for y in 0 ..< raster.pixelsHigh {
+            for x in 0 ..< raster.pixelsWide {
+                guard let pixel = raster.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let backgroundDistance = distance(pixel, ignored)
+                if backgroundDistance > greatestDistance {
+                    greatestDistance = backgroundDistance
+                    mostVisible = pixel
+                }
+            }
+        }
+        #expect(greatestDistance > 0.02, "raster contained no visible text pixels")
+        return try #require(mostVisible)
+    }
+
+    private static func distance(_ lhs: NSColor, _ rhs: NSColor) -> CGFloat {
+        let dr = lhs.redComponent - rhs.redComponent
+        let dg = lhs.greenComponent - rhs.greenComponent
+        let db = lhs.blueComponent - rhs.blueComponent
+        return sqrt(dr * dr + dg * dg + db * db)
     }
 
     @Test
@@ -855,7 +1569,10 @@ struct SidebarAppKitRowCellTests {
         pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
         CATransaction.commit()
 
-        #expect(!(pill.layer?.animationKeys() ?? []).isEmpty)
+        let hasOpacityAnimation = (pill.layer?.animationKeys() ?? []).contains { key in
+            (pill.layer?.animation(forKey: key) as? CABasicAnimation)?.keyPath == "opacity"
+        }
+        #expect(hasOpacityAnimation)
     }
 
     @Test
