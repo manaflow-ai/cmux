@@ -2691,14 +2691,34 @@ pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
 fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
     let mut theme_mode = None;
     let mut theme_selected = false;
-    parse_ghostty_config_text(text, theme_dirs, &mut theme_mode, &mut theme_selected).defaults
+    let mut theme_defaults = DefaultColors::default();
+    let parsed = parse_ghostty_config_text(
+        text,
+        theme_dirs,
+        &mut theme_mode,
+        &mut theme_selected,
+        &mut theme_defaults,
+    );
+    let mut defaults = theme_defaults;
+    overlay_ghostty_defaults(&mut defaults, parsed.overrides);
+    defaults
 }
 
 fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
     let mut loaded = HashSet::new();
     let mut theme_mode = None;
     let mut theme_selected = false;
-    parse_ghostty_config_file(path, theme_dirs, &mut loaded, &mut theme_mode, &mut theme_selected)
+    let mut theme_defaults = DefaultColors::default();
+    let overrides = parse_ghostty_config_file(
+        path,
+        theme_dirs,
+        &mut loaded,
+        &mut theme_mode,
+        &mut theme_selected,
+        &mut theme_defaults,
+    )?;
+    overlay_ghostty_defaults(&mut theme_defaults, overrides);
+    Some(theme_defaults)
 }
 
 fn parse_ghostty_config_file(
@@ -2707,6 +2727,7 @@ fn parse_ghostty_config_file(
     loaded: &mut HashSet<PathBuf>,
     theme_mode: &mut Option<GhosttyThemeMode>,
     theme_selected: &mut bool,
+    theme_defaults: &mut DefaultColors,
 ) -> Option<DefaultColors> {
     let text = std::fs::read_to_string(path).ok()?;
     let identity = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -2714,21 +2735,27 @@ fn parse_ghostty_config_file(
         return Some(DefaultColors::default());
     }
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let parsed = parse_ghostty_config_text(&text, theme_dirs, theme_mode, theme_selected);
+    let parsed =
+        parse_ghostty_config_text(&text, theme_dirs, theme_mode, theme_selected, theme_defaults);
     *theme_mode = parsed.theme_mode;
-    let mut defaults = parsed.defaults;
+    let mut overrides = parsed.overrides;
     for include in parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir)) {
-        if let Some(included) =
-            parse_ghostty_config_file(&include, theme_dirs, loaded, theme_mode, theme_selected)
-        {
-            overlay_ghostty_defaults(&mut defaults, included);
+        if let Some(included) = parse_ghostty_config_file(
+            &include,
+            theme_dirs,
+            loaded,
+            theme_mode,
+            theme_selected,
+            theme_defaults,
+        ) {
+            overlay_ghostty_defaults(&mut overrides, included);
         }
     }
-    Some(defaults)
+    Some(overrides)
 }
 
 struct ParsedGhosttyConfig {
-    defaults: DefaultColors,
+    overrides: DefaultColors,
     config_files: Vec<GhosttyConfigFile>,
     theme_mode: Option<GhosttyThemeMode>,
 }
@@ -2877,6 +2904,7 @@ fn parse_ghostty_config_text(
     theme_dirs: &[PathBuf],
     theme_mode: &mut Option<GhosttyThemeMode>,
     theme_selected: &mut bool,
+    theme_defaults: &mut DefaultColors,
 ) -> ParsedGhosttyConfig {
     let mut overrides = DefaultColors::default();
     let mut theme_candidates = Vec::new();
@@ -2902,18 +2930,16 @@ fn parse_ghostty_config_text(
         }
     }
 
-    let mut defaults = DefaultColors::default();
     if !*theme_selected {
         for theme in theme_candidates {
-            if let Some(theme_defaults) = load_ghostty_theme(&theme, theme_dirs, *theme_mode) {
-                defaults = theme_defaults;
+            if let Some(defaults) = load_ghostty_theme(&theme, theme_dirs, *theme_mode) {
+                *theme_defaults = defaults;
                 *theme_selected = true;
                 break;
             }
         }
     }
-    overlay_ghostty_defaults(&mut defaults, overrides);
-    ParsedGhosttyConfig { defaults, config_files, theme_mode: *theme_mode }
+    ParsedGhosttyConfig { overrides, config_files, theme_mode: *theme_mode }
 }
 
 fn parse_ghostty_window_theme(value: &str) -> Option<GhosttyThemeMode> {
@@ -3663,7 +3689,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         assert!(!resolver_ran, "config load must not run ghostty +show-config at startup");
-        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 0xaa, g: 0xaa, b: 0xaa }));
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 0x01, g: 0x01, b: 0x01 }));
         assert_eq!(config.terminal_defaults.bg, Some(Rgb { r: 0x44, g: 0x44, b: 0x44 }));
         assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0xcc, g: 0xcc, b: 0xcc }));
     }
@@ -3740,6 +3766,42 @@ mod tests {
         assert_eq!(defaults.bg, Some(Rgb { r: 0x20, g: 0x21, b: 0x22 }));
         assert_eq!(defaults.fg, Some(Rgb { r: 0x30, g: 0x31, b: 0x32 }));
         assert_eq!(defaults.palette[1], Some(Rgb { r: 0x26, g: 0x27, b: 0x28 }));
+    }
+
+    #[test]
+    fn ghostty_parent_explicit_color_wins_over_theme_loaded_by_include() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-include-overrides-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        let themes = dir.join("themes");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "window-theme = dark\n\
+             foreground = #010203\n\
+             config-file = colors.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("colors.conf"), "theme = Include Theme\n").unwrap();
+        std::fs::write(
+            themes.join("Include Theme"),
+            "background = #202122\nforeground = #a0a1a2\npalette = 1=#232425\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[themes])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x20, g: 0x21, b: 0x22 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x23, g: 0x24, b: 0x25 }));
     }
 
     #[test]
