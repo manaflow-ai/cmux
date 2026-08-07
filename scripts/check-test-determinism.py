@@ -1246,6 +1246,12 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/backtick_url_then_fetch.ts",
+            "const docs = `https://cmux.com`;\n"
+            'const result = await fetch("https://api.openai.com/v1/items");\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/fstring_network.py",
             'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1460,6 +1466,16 @@ def _self_test() -> int:
         (
             "tests/n18k.py",
             'subprocess.run(["printf", "bash", "-c", "curl https://api.openai.com/v1/items"])\n',
+        ),
+        # A later quoted argv element is not the executable when argv[0] is a
+        # dynamic expression.
+        (
+            "tests/n18k_dynamic_command.py",
+            "subprocess.run([\n"
+            "    helper,\n"
+            '    "curl",\n'
+            '    "https://api.openai.com/v1/items",\n'
+            "])\n",
         ),
         # Multiline literal contents are fixture text in every scanned language,
         # even when a middle physical line looks like executable source.
