@@ -1063,6 +1063,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var secondaryAggregationTask: Task<Void, Never>?
     private var secondaryAggregationTaskGeneration = UUID()
     private var secondaryAggregationPending = false
+    /// A foreground connection or explicit refresh requested one fresh broker
+    /// discovery pass. Kept separate from ordinary store aggregation so
+    /// presence churn never turns same-account discovery into polling.
+    private var secondaryIrohDiscoveryPending = false
     /// Incremental presence edges are reconciled only for their affected Macs.
     /// One coalesced task drains the pending id set without widening each edge
     /// into a pool-wide workspace refresh.
@@ -2343,7 +2347,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 // operation has handed ownership back to this shared entry.
                 // This preserves foreground-first ordering even though the
                 // deadline race executes the awaited phase in a child task.
-                scheduleSecondaryAggregation()
+                scheduleSecondaryAggregation(discoverLivePeers: true)
             }
             return outcome
         }
@@ -4511,7 +4515,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// write). Presence can publish several rows for one heartbeat; coalesce those
     /// triggers into one in-flight pass plus one trailing pass so a valid connect
     /// is never starved by cancel/restart churn.
-    func scheduleSecondaryAggregation() {
+    func scheduleSecondaryAggregation(discoverLivePeers: Bool = false) {
+        if discoverLivePeers {
+            secondaryIrohDiscoveryPending = true
+        }
         guard secondaryAggregationTask == nil else {
             secondaryAggregationPending = true
             return
@@ -4522,8 +4529,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             guard let self else { return }
             repeat {
                 self.secondaryAggregationPending = false
+                let discoverLivePeers = self.secondaryIrohDiscoveryPending
+                self.secondaryIrohDiscoveryPending = false
                 await self.refreshSecondaryMacWorkspaces(
-                    allowsNewConnections: self.secondaryAggregationRetryTask == nil
+                    allowsNewConnections: self.secondaryAggregationRetryTask == nil,
+                    discoverLivePeers: discoverLivePeers
                 )
             } while self.secondaryAggregationTaskGeneration == taskGeneration
                 && self.secondaryAggregationPending
@@ -4562,7 +4572,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     func refreshSecondaryMacWorkspaces(
         onlyMacDeviceIDs: Set<String>? = nil,
-        allowsNewConnections: Bool = true
+        allowsNewConnections: Bool = true,
+        discoverLivePeers: Bool = false
     ) async {
         guard let pairedMacStore, multiMacAggregationEnabled else { return }
         let retryEvidenceGenerationAtStart =
@@ -4867,6 +4878,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // compatibility check. A future presence/backup/account edge can
             // attempt it again; no background timer should poll it.
             secondaryAggregationRetryState.reset()
+        }
+        if discoverLivePeers, onlyMacDeviceIDs == nil {
+            if allowsNewConnections {
+                await establishDiscoveredSecondaryIrohMacs(
+                    scope: scope,
+                    excluding: loadedMacs
+                )
+            } else {
+                // Preserve the explicit foreground/refresh discovery request
+                // until the shared connection cooldown permits new dials.
+                secondaryIrohDiscoveryPending = true
+            }
         }
     }
     func readSecondaryStoredAuthority(
@@ -5208,10 +5231,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// each change. Fully best-effort: on any failure the entry is torn down and
     /// the pull-to-refresh / foreground re-aggregate path remains the fallback, so
     /// a secondary subscription can never crash or block the foreground.
-    private func establishSecondaryMacSubscription(
+    func establishSecondaryMacSubscription(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        authorityValidation: SecondaryStoredAuthorityValidation
+        authorityValidation: SecondaryStoredAuthorityValidation,
+        persistAuthenticatedDiscovery: Bool = false
     ) async -> SecondaryMacEstablishmentOutcome {
         let flightKey = MacPairingKey(mac)
         if let existing = secondaryMacEstablishmentFlights[flightKey] {
@@ -5225,7 +5249,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return await self.performSecondaryMacSubscriptionEstablishment(
                 for: mac,
                 scope: scope,
-                authorityValidation: authorityValidation
+                authorityValidation: authorityValidation,
+                persistAuthenticatedDiscovery: persistAuthenticatedDiscovery
             )
         }
         secondaryMacEstablishmentFlights[flightKey] =
@@ -5244,7 +5269,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func performSecondaryMacSubscriptionEstablishment(
         for mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot,
-        authorityValidation: SecondaryStoredAuthorityValidation
+        authorityValidation: SecondaryStoredAuthorityValidation,
+        persistAuthenticatedDiscovery: Bool
     ) async -> SecondaryMacEstablishmentOutcome {
         let macID = mac.macDeviceID
         let pairingKey = MacPairingKey(mac)
@@ -5297,6 +5323,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await client.disconnect()
             return .superseded
         }
+        if persistAuthenticatedDiscovery {
+            let accepted = await persistPairedMacFromTicket(
+                handle.ticket,
+                instanceTagUpdate: .replace(
+                    handle.authenticatedInstanceTag
+                        ?? handle.storedInstanceTag
+                ),
+                displayNameOverride: mac.displayName,
+                markActive: false,
+                requiredScope: scope
+            )
+            guard accepted,
+                  !Task.isCancelled,
+                  await isAggregationScopeValid(scope) else {
+                await client.disconnect()
+                return .superseded
+            }
+        }
         // Targeted presence passes use the scoped cache to select a bounded
         // candidate set, but a dial crosses several suspension points. Read the
         // current store immediately before publication so a removed or replaced
@@ -5348,14 +5392,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Presence reconciliation may run while the client is dialing.
         // Revalidate synchronously at publication so an offline edge that
         // observed no owner cannot be overwritten by the old pass.
-        guard isSecondaryMacOrPhysicalAliasOnlineInCurrentPresence(
-            macID,
-            instanceTag: handle.storedInstanceTag,
-            scope: scope
-        ) else {
-            markSecondaryMacUnavailableIfUnowned(ownerKey)
-            await client.disconnect()
-            return .superseded
+        if !persistAuthenticatedDiscovery {
+            guard isSecondaryMacOrPhysicalAliasOnlineInCurrentPresence(
+                macID,
+                instanceTag: handle.storedInstanceTag,
+                scope: scope
+            ) else {
+                markSecondaryMacUnavailableIfUnowned(ownerKey)
+                await client.disconnect()
+                return .superseded
+            }
         }
         let subscription = SecondaryMacSubscription(
             macDeviceID: macID,
@@ -6374,6 +6420,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryAggregationTask = nil
         secondaryAggregationTaskGeneration = UUID()
         secondaryAggregationPending = false
+        secondaryIrohDiscoveryPending = false
         secondaryPresenceAggregationTask?.cancel()
         secondaryPresenceAggregationTask = nil
         secondaryPresenceAggregationTaskGeneration = UUID()
@@ -8413,7 +8460,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // Aggregate the user's other Macs' workspaces in the background.
                     // Best-effort; never blocks the foreground connect.
                     if multiMacAggregationEnabled, !isReconnectingStoredMac {
-                        self.scheduleSecondaryAggregation()
+                        self.scheduleSecondaryAggregation(
+                            discoverLivePeers: true
+                        )
                     }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
@@ -12035,7 +12084,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // workspaces created on a secondary Mac since the last fetch (the
             // read-only secondary list is a snapshot, not a live subscription).
             if self?.multiMacAggregationEnabled == true {
-                await self?.refreshSecondaryMacWorkspaces()
+                await self?.refreshSecondaryMacWorkspaces(
+                    discoverLivePeers: true
+                )
             }
         }
         pullToRefreshTask = task

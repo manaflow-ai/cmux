@@ -147,7 +147,7 @@ struct IrohZeroTouchDiscoveryTests {
             fixture.shell.connectionState == .connected
                 && fixture.shell.foregroundMacDeviceID == "mac-a"
         })
-        #expect(discovery.callCount() == 2)
+        #expect(try await pollUntil { discovery.callCount() == 3 })
     }
 
     @Test
@@ -222,9 +222,10 @@ struct IrohZeroTouchDiscoveryTests {
             dialed,
             "a saved authenticated route must not wait behind broker discovery"
         )
-        discovery.resume()
         #expect(await reconnect.value)
-        #expect(discovery.requestCount() == 0)
+        await discovery.waitUntilRequested()
+        #expect(discovery.requestCount() == 1)
+        discovery.resume()
     }
 
     @Test

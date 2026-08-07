@@ -328,7 +328,7 @@ extension MobileShellComposite {
         if multiMacAggregationEnabled,
            connectionState == .connected,
            remoteClient != nil {
-            self.scheduleSecondaryAggregation()
+            self.scheduleSecondaryAggregation(discoverLivePeers: true)
         }
     }
 
