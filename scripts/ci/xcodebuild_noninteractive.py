@@ -18,6 +18,7 @@ SWIFT_TESTING_FAILED_EXIT_CODE = 123
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
+TOTAL_TIMEOUT_EXIT_CODE = 127
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 SWIFT_TESTING_STARTED_MARKER = b"Test run started."
 SWIFT_TESTING_DONE_RE = re.compile(
@@ -63,6 +64,23 @@ def post_test_timeout_seconds() -> float | None:
     except ValueError:
         print(
             "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS must be numeric",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    if seconds <= 0:
+        return None
+    return seconds
+
+
+def total_timeout_seconds() -> float | None:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS")
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        print(
+            "CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS must be numeric",
             file=sys.stderr,
         )
         raise SystemExit(2)
@@ -175,8 +193,11 @@ def main() -> int:
 
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
+    total_timeout = total_timeout_seconds()
     swift_testing_expected = expects_swift_testing()
-    deadline = time.monotonic() + timeout if timeout else None
+    started_at = time.monotonic()
+    deadline = started_at + timeout if timeout else None
+    total_deadline = started_at + total_timeout if total_timeout else None
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
     swift_testing_result: str | None = None
@@ -219,14 +240,25 @@ def main() -> int:
     test_output_buffer = b""
     timed_out = False
     post_test_timed_out = False
+    total_timed_out = False
     while True:
         select_timeout = None
+        if total_deadline is not None:
+            remaining = total_deadline - time.monotonic()
+            if remaining <= 0:
+                total_timed_out = True
+                break
+            select_timeout = min(1, remaining)
         if deadline is not None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 timed_out = True
                 break
-            select_timeout = min(1, remaining)
+            select_timeout = min(
+                select_timeout if select_timeout is not None else remaining,
+                remaining,
+                1,
+            )
         if post_test_deadline is not None:
             remaining = post_test_deadline - time.monotonic()
             if remaining <= 0:
@@ -287,6 +319,19 @@ def main() -> int:
             # noninteractive quit path and let xcodebuild continue reporting.
             os.write(fd, b"q")
             prompt_window = b""
+
+    if total_timed_out:
+        assert total_timeout is not None
+        message = (
+            f"Total timed out after {total_timeout:g}s: "
+            f"{' '.join(sys.argv[1:])}"
+        )
+        print(message, file=sys.stderr)
+        if log_file is not None:
+            log_file.write(f"{message}\n".encode())
+            log_file.close()
+        terminate_child(pid)
+        return TOTAL_TIMEOUT_EXIT_CODE
 
     if timed_out:
         assert timeout is not None

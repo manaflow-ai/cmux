@@ -945,6 +945,7 @@ jobs:
             # The app-host wrapper also serializes GUI XCTest ownership per Mac,
             # while still allowing shards on separate Macs to run in parallel.
             CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING=1 \
+              CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS=2700 \
               scripts/ci/run-in-console-session.sh \
               scripts/ci/run-app-host-xcodebuild.sh \
               -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
@@ -954,22 +955,7 @@ jobs:
               -destination "platform=macOS" \
               "${ONLY_TESTING_ARGS[@]}" \
               CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
-            local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
-                sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                wait "$xcodebuild_pid" 2>/dev/null || true
-                return 124
-              fi
-              sleep 5
-            done
-            wait "$xcodebuild_pid"
+              test 2>&1
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
