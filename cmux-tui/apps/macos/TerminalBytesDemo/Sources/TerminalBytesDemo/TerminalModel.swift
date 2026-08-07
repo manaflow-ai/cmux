@@ -1011,7 +1011,7 @@ final class TerminalModel {
                 continue
             }
             if accepted {
-                if case .inputRejected = errorKind {
+                if errorKind?.isInputRelated == true {
                     errorKind = nil
                 }
             } else {
@@ -1043,8 +1043,8 @@ final class TerminalModel {
                 generation == rendererGeneration,
                 !isShuttingDown
             else {
-                resizeTask = nil
-                sendPendingGeometry()
+                // Lifecycle teardown already cleared the obsolete task slot.
+                // Do not let an old operation erase a replacement task.
                 return
             }
             geometryDelivery.submit(submission)

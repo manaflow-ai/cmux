@@ -32,7 +32,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                TextField(
+                SecureField(
                     L10n.text("field.invitation", "Enrollment invitation"),
                     text: $model.invitation
                 )
