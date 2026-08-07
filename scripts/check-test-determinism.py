@@ -444,30 +444,43 @@ def _string_literal_interpolates(
     text: str,
     start: int,
     end: int,
+    quote: str,
+    path_suffix: str,
 ) -> bool:
     prefix_start = start
     while prefix_start > 0 and text[prefix_start - 1] in "rRbBuUfF":
         prefix_start -= 1
     prefix = text[prefix_start:start]
     content = text[start + 1:end]
-    return (
-        "f" in prefix.lower()
-        or "${" in content
-        or "$(" in content
-        or "\\(" in content
-        or "#{" in content
-    )
+    if path_suffix == ".py":
+        return "f" in prefix.lower()
+    if path_suffix in (".js", ".mjs", ".ts", ".tsx"):
+        return quote == "`" and "${" in content
+    if path_suffix == ".swift":
+        return quote == '"' and "\\(" in content
+    if path_suffix == ".sh":
+        return quote == "`" or (
+            quote == '"' and ("$(" in content or "${" in content)
+        )
+    return False
 
 
 def _is_static_text_matcher_literal(
     statement: str,
     match_index: int,
+    path_suffix: str,
 ) -> bool:
     span = _quoted_string_span_containing(statement, match_index)
     if span is None:
         return False
-    quote_start, quote_end, _quote = span
-    if _string_literal_interpolates(statement, quote_start, quote_end):
+    quote_start, quote_end, quote = span
+    if _string_literal_interpolates(
+        statement,
+        quote_start,
+        quote_end,
+        quote,
+        path_suffix,
+    ):
         return False
 
     for matcher in _INERT_TEXT_MATCHER.finditer(statement):
@@ -481,10 +494,11 @@ def _is_static_text_matcher_literal(
 
 
 def _statement_segment_boundaries(line: str) -> list[int]:
-    """Indexes of outside-quote separators between executable statements."""
+    """Indexes of top-level, outside-quote executable statement separators."""
     boundaries: list[int] = []
     quote: Optional[str] = None
     escaped = False
+    parenthesis_depth = 0
     index = 0
     while index < len(line):
         char = line[index]
@@ -497,9 +511,13 @@ def _statement_segment_boundaries(line: str) -> list[int]:
                 quote = None
         elif char in ("'", '"', "`"):
             quote = char
-        elif char == ";":
+        elif char == "(":
+            parenthesis_depth += 1
+        elif char == ")":
+            parenthesis_depth = max(0, parenthesis_depth - 1)
+        elif parenthesis_depth == 0 and char == ";":
             boundaries.append(index)
-        elif line.startswith(("&&", "||"), index):
+        elif parenthesis_depth == 0 and line.startswith(("&&", "||"), index):
             boundaries.append(index)
             index += 1
         index += 1
@@ -514,6 +532,7 @@ def _statement_segment_index(boundaries: list[int], match_index: int) -> int:
 def detect_live_network_host(
     line: str,
     *,
+    path_suffix: str,
     assertion_context: Optional[tuple[str, int]] = None,
 ) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
@@ -535,6 +554,7 @@ def detect_live_network_host(
         return assertion_context is not None and _is_static_text_matcher_literal(
             statement,
             line_offset + match_index,
+            path_suffix,
         )
 
     boundaries = _statement_segment_boundaries(line)
@@ -705,7 +725,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
         if detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code, assertion_context=assertion_contexts.get(i)):
+        if detect_live_network_host(
+            code,
+            path_suffix=suffix,
+            assertion_context=assertion_contexts.get(i),
+        ):
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
