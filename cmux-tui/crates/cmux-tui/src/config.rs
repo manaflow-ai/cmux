@@ -2776,7 +2776,7 @@ fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
 }
 
 fn load_ghostty_theme(value: &str, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
-    let theme = value.trim_matches('"');
+    let theme = selected_ghostty_theme(value.trim_matches('"'));
     let path = if Path::new(theme).is_absolute() {
         PathBuf::from(theme)
     } else if Path::new(theme).file_name().is_some_and(|name| name == theme) {
@@ -2786,6 +2786,27 @@ fn load_ghostty_theme(value: &str, theme_dirs: &[PathBuf]) -> Option<DefaultColo
     };
     let text = std::fs::read_to_string(path).ok()?;
     Some(parse_resolved_ghostty_defaults(&text))
+}
+
+fn selected_ghostty_theme(value: &str) -> &str {
+    // Match Ghostty's static conditional default without running its resolver
+    // during startup; the GUI can switch later, but cmux-tui needs one frame now.
+    selected_conditional_ghostty_theme(value).unwrap_or(value)
+}
+
+fn selected_conditional_ghostty_theme(value: &str) -> Option<&str> {
+    let mut light = None;
+    let mut dark = None;
+    for part in value.split(',') {
+        let (key, theme) = part.split_once(':').or_else(|| part.split_once('='))?;
+        let theme = theme.trim();
+        match key.trim() {
+            "light" if !theme.is_empty() => light = Some(theme),
+            "dark" if !theme.is_empty() => dark = Some(theme),
+            _ => return None,
+        }
+    }
+    if light.is_some() && dark.is_some() { light } else { None }
 }
 
 fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColors) {
@@ -3268,6 +3289,80 @@ mod tests {
         assert!(!resolver_ran, "config load must not run ghostty +show-config at startup");
         assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
         assert_eq!(config.terminal_defaults.bg, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_resolves_ghostty_resource_theme_without_invoking_external_resolver() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
+        let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-ghostty-startup-resource-theme-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        let resources = dir.join("resources");
+        let themes = resources.join("themes");
+        let marker = dir.join("resolver-ran");
+        let resolver = dir.join("ghostty-resolver");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "theme = dark:Dark Resource Theme, light:Light Resource Theme\n\
+             background = #444444\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Light Resource Theme"),
+            "foreground = #111111\nbackground = #222222\npalette = 1=#333333\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Dark Resource Theme"),
+            "foreground = #aaaaaa\nbackground = #bbbbbb\npalette = 1=#cccccc\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &resolver,
+            format!(
+                "#!/bin/sh\n\
+                 printf marker > '{}'\n\
+                 printf 'foreground = #ddeeff\\nbackground = #000000\\n'\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_RESOURCES_DIR", &resources) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_TUI_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+
+        let config = load();
+
+        restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
+        restore_env_var("GHOSTTY_RESOURCES_DIR", old_ghostty_resources);
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let resolver_ran = marker.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(!resolver_ran, "config load must not run ghostty +show-config at startup");
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 0x11, g: 0x11, b: 0x11 }));
+        assert_eq!(config.terminal_defaults.bg, Some(Rgb { r: 0x44, g: 0x44, b: 0x44 }));
+        assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0x33, g: 0x33, b: 0x33 }));
     }
 
     #[test]
