@@ -15,16 +15,7 @@ extension SurfaceResumeBindingSnapshot {
               hasCompleteManagedSessionIdentity,
               let authoritativelyConnectedContext,
               shellActivityState == .commandRunning,
-              let kindValue = kind?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let agentKind = RestorableAgentKind(rawValue: kindValue),
-              let checkpointID = checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines),
-              agentPIDKeys.contains(where: {
-                  Self.runtimeAgentKey(
-                      $0,
-                      matches: agentKind,
-                      checkpointID: checkpointID
-                  )
-              }),
+              agentPIDKeys.contains(where: matchesExactAgentRuntimeKey),
               case .persistentSSH(let storedContext) = launchFlavor else {
             return false
         }
@@ -33,6 +24,40 @@ extension SurfaceResumeBindingSnapshot {
             surfaceID: authoritativelyConnectedContext.surfaceID,
             persistentPTYSessionID: authoritativelyConnectedContext.persistentPTYSessionID
         )
+    }
+
+    /// Matches the exact session-scoped runtime ownership key for this binding.
+    func matchesExactAgentRuntimeKey(_ key: String) -> Bool {
+        guard let identity = managedAgentRuntimeIdentity else { return false }
+        return Self.runtimeAgentKey(
+            key,
+            matches: identity.kind,
+            checkpointID: identity.checkpointID
+        )
+    }
+
+    /// Matches runtime state this binding owns, including its legacy kind slot.
+    ///
+    /// The kind-only representation cannot prove liveness, but prompt/end
+    /// cleanup still consumes it so mixed-version hooks do not leave status or
+    /// lifecycle state behind.
+    func matchesAgentRuntimeKeyForCleanup(_ key: String) -> Bool {
+        guard let identity = managedAgentRuntimeIdentity else { return false }
+        return key == identity.kind.lifecycleStatusKey || matchesExactAgentRuntimeKey(key)
+    }
+
+    private var managedAgentRuntimeIdentity: (
+        kind: RestorableAgentKind,
+        checkpointID: String
+    )? {
+        guard isAgentHookBinding,
+              hasCompleteManagedSessionIdentity,
+              let kindValue = kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let agentKind = RestorableAgentKind(rawValue: kindValue),
+              let checkpointID = checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return nil
+        }
+        return (agentKind, checkpointID)
     }
 
     /// Runtime agent keys are session-scoped (`<status-key>.<session-id>`).

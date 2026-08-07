@@ -267,8 +267,9 @@ extension Workspace {
     /// Consumes structured remote-agent runtime after its prompt or terminal
     /// lifecycle ends, without touching unrelated panel runtime state.
     func clearRemoteAgentRuntime(panelId: UUID) {
+        guard let binding = surfaceResumeBindingsByPanelId[panelId] else { return }
         let keys = (agentPIDKeysByPanelId[panelId] ?? []).filter {
-            isStructuredAgentHookPIDKey($0)
+            binding.matchesAgentRuntimeKeyForCleanup($0)
         }
         var didChange = false
         for key in keys {

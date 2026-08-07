@@ -60,9 +60,13 @@ extension DockSplitStore {
         guard detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true else {
             return
         }
+        guard let binding = managedAgentResumeBinding(panelId: panelId)
+            ?? detachedSurfaceTransfersByPanelId[panelId]?.resolvedManagedAgentResumeBinding else {
+            return
+        }
         mutateAgentRuntime(panelId: panelId) { runtime in
             let keys = runtime.agentPIDKeys.filter {
-                Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
+                binding.matchesAgentRuntimeKeyForCleanup($0)
             }
             for key in keys {
                 Self.clearAgentPID(
