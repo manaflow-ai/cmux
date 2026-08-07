@@ -249,6 +249,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        invalidateLinkAccessibility()
         suspendPresentation()
         model = nil
         hintPill.resetForReuse()
@@ -293,8 +294,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     func configurePresentation(model: SidebarWorkspaceRowModel) {
+        let previous = self.model
         suspendPresentation()
-        guard self.model != model else { return }
+        guard previous != model else { return }
+        if previous?.workspaceId != model.workspaceId {
+            invalidateLinkAccessibility()
+        }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -325,6 +330,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
         if previous?.workspaceId != model.workspaceId {
+            invalidateLinkAccessibility()
             endInlineRename(commit: false)
             if statusPopoverPresenter.isShown {
                 statusPopoverPresenter.close()
@@ -335,6 +341,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         self.model = model
         applyModel(model)
         needsLayout = true
+    }
+
+    /// Invalidates the only text views that vend row-owned web-link proxies.
+    private func invalidateLinkAccessibility() {
+        descriptionView.invalidateLinkAccessibility()
+        for view in markdownBlocks {
+            view.invalidateLinkAccessibility()
+        }
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {

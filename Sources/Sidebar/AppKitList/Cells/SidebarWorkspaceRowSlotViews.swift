@@ -381,15 +381,8 @@ final class SidebarRowTextView: NSTextField {
         layoutManager.ensureLayout(for: textContainer)
 
         let usedRect = layoutManager.usedRect(for: textContainer)
-        let textPoint = NSPoint(
-            x: point.x - textRect.minX - usedRect.minX,
-            y: point.y - textRect.minY - usedRect.minY
-        )
-        guard textPoint.x >= 0, textPoint.y >= 0,
-              textPoint.x <= usedRect.width, textPoint.y <= usedRect.height
-        else {
-            return nil
-        }
+        let textPoint = NSPoint(x: point.x - textRect.minX, y: point.y - textRect.minY)
+        guard usedRect.contains(textPoint) else { return nil }
 
         let glyphIndex = layoutManager.glyphIndex(for: textPoint, in: textContainer)
         guard glyphIndex < layoutManager.numberOfGlyphs else { return nil }
@@ -480,10 +473,15 @@ final class SidebarRowTextView: NSTextField {
                 actualCharacterRange: nil
             )
             var frame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
-            frame.origin.x += textRect.minX + usedRect.minX
-            frame.origin.y += textRect.minY + usedRect.minY
+            frame.origin.x += textRect.minX
+            frame.origin.y += textRect.minY
             accessibilityLink.setAccessibilityFrameInParentSpace(frame)
         }
+    }
+
+    /// Severs link proxies before the owning row takes on a new semantic identity.
+    func invalidateLinkAccessibility() {
+        replaceAccessibilityLinks(with: [])
     }
 
     private func replaceAccessibilityLinks(
