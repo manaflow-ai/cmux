@@ -7,6 +7,14 @@ extension TerminalSurface {
     /// Adding an agent to ``TerminalSurfaceAgentCommandShimDefinition/bundled``
     /// automatically gives it the same lifecycle, permissions, `PATH`, bundle-
     /// replacement fallback, and environment behavior as existing agents.
+    ///
+    /// - Parameters:
+    ///   - wrapperDirectoryURL: The app bundle directory containing cmux's launch wrappers.
+    ///   - surfaceId: The terminal surface that owns the generated shim directory.
+    ///   - temporaryDirectory: The root under which the isolated shim directory is created.
+    ///   - hermesProfileAliasDirectoryURL: The Hermes-owned wrapper directory to inspect for profile aliases.
+    ///   - fileManager: The filesystem implementation used for discovery and installation.
+    /// - Returns: The installed shim set, or `nil` when no bundled wrapper can be installed.
     public static func installAgentCommandShimsIfPossible(
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
@@ -47,6 +55,29 @@ extension TerminalSurface {
         }
 
         var shims: [TerminalSurfaceAgentCommandShim] = []
+        if let aliasDirectoryURL = hermesProfileAliasDirectoryURL,
+           let hermesDefinition = availableDefinitions.first(where: {
+               $0.definition.commandName == "hermes"
+           }) {
+            let reservedCommandNames = Set(
+                TerminalSurfaceAgentCommandShimDefinition.bundled.map(\.commandName)
+            )
+            let aliases = HermesProfileAliasResolver(
+                wrapperDirectoryURL: aliasDirectoryURL,
+                fileManager: fileManager
+            ).resolve(excluding: reservedCommandNames)
+            for alias in aliases {
+                guard let shim = installAgentCommandShim(
+                    definition: hermesDefinition.definition,
+                    commandName: alias.commandName,
+                    wrapperArguments: ["-p", alias.profileName],
+                    wrapperURL: hermesDefinition.wrapperURL,
+                    shimDirectory: shimDirectory,
+                    fileManager: fileManager
+                ) else { continue }
+                shims.append(shim)
+            }
+        }
         for (definition, wrapperURL) in availableDefinitions {
             guard let shim = installAgentCommandShim(
                 definition: definition,
@@ -65,11 +96,20 @@ extension TerminalSurface {
 
     private static func installAgentCommandShim(
         definition: TerminalSurfaceAgentCommandShimDefinition,
+        commandName: String? = nil,
+        wrapperArguments: [String] = [],
         wrapperURL: URL,
         shimDirectory: URL,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShim? {
-        let shimURL = shimDirectory.appendingPathComponent(definition.commandName, isDirectory: false)
+        let commandName = commandName ?? definition.commandName
+        let shimURL = shimDirectory.appendingPathComponent(commandName, isDirectory: false)
+        let wrapperArgumentPrefix = wrapperArguments
+            .map(shellSingleQuoted)
+            .joined(separator: " ")
+        let wrapperInvocation = wrapperArgumentPrefix.isEmpty
+            ? "exec \"$cmux_wrapper\" \"$@\""
+            : "exec \"$cmux_wrapper\" \(wrapperArgumentPrefix) \"$@\""
         let script = """
         #!/usr/bin/env bash
         cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
@@ -92,7 +132,7 @@ extension TerminalSurface {
         export \(definition.environmentVariablePrefix)_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
         export \(definition.environmentVariablePrefix)_WRAPPER_SHIM_ROOT="$cmux_shim_root"
         if [[ -x "$cmux_wrapper" ]]; then
-            exec "$cmux_wrapper" "$@"
+            \(wrapperInvocation)
         fi
         cmux_path_without_shim=""
         cmux_old_ifs="$IFS"
@@ -117,14 +157,14 @@ extension TerminalSurface {
             set +f
         fi
         export PATH="$cmux_path_without_shim"
-        exec \(shellSingleQuoted(definition.commandName)) "$@"
+        exec \(shellSingleQuoted(commandName)) "$@"
         """
 
         do {
             try script.write(to: shimURL, atomically: true, encoding: .utf8)
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
             return TerminalSurfaceAgentCommandShim(
-                commandName: definition.commandName,
+                commandName: commandName,
                 wrapperName: definition.wrapperName,
                 environmentVariablePrefix: definition.environmentVariablePrefix,
                 directoryPath: shimDirectory.path,

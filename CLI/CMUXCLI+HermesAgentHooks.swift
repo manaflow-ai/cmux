@@ -1,7 +1,39 @@
-import Foundation
 import CMUXAgentLaunch
+import Darwin
+import Foundation
 
 extension CMUXCLI {
+    private func updateHermesAgentAllowlist(
+        atPath allowlistPath: String,
+        transform: (Data?) throws -> Data
+    ) throws -> Bool {
+        let lockPath = "\(allowlistPath).lock"
+        let descriptor = Darwin.open(
+            lockPath,
+            O_RDWR | O_CREAT | O_CLOEXEC,
+            S_IRUSR | S_IWUSR
+        )
+        guard descriptor >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { _ = Darwin.close(descriptor) }
+
+        var result: Int32
+        repeat {
+            result = flock(descriptor, LOCK_EX)
+        } while result != 0 && errno == EINTR
+        guard result == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+        defer { _ = flock(descriptor, LOCK_UN) }
+
+        let oldAllowlist = FileManager.default.contents(atPath: allowlistPath)
+        let newAllowlist = try transform(oldAllowlist)
+        guard oldAllowlist != newAllowlist else { return false }
+        try newAllowlist.write(to: URL(fileURLWithPath: allowlistPath), options: .atomic)
+        return true
+    }
+
     private func hermesAgentApprovalPayload(
         def: AgentHookDef,
         input: ClaudeHookParsedInput
@@ -117,10 +149,10 @@ extension CMUXCLI {
             print("\(def.displayName) hooks already up to date at \(filePath)")
         }
 
-        let oldAllowlist = fm.contents(atPath: allowlistPath)
-        let newAllowlist = try HermesAgentHookAllowlist.installing(events: events, in: oldAllowlist)
-        if oldAllowlist != newAllowlist {
-            try newAllowlist.write(to: URL(fileURLWithPath: allowlistPath), options: .atomic)
+        let updatedAllowlist = try updateHermesAgentAllowlist(atPath: allowlistPath) { oldAllowlist in
+            try HermesAgentHookAllowlist.installing(events: events, in: oldAllowlist)
+        }
+        if updatedAllowlist {
             print("Approved \(def.displayName) cmux shell hooks in \(allowlistPath)")
         }
     }
@@ -146,10 +178,10 @@ extension CMUXCLI {
         }
 
         guard fm.fileExists(atPath: allowlistPath) else { return }
-        let oldAllowlist = fm.contents(atPath: allowlistPath)
-        let newAllowlist = try HermesAgentHookAllowlist.uninstalling(events: events, from: oldAllowlist)
-        if oldAllowlist != newAllowlist {
-            try newAllowlist.write(to: URL(fileURLWithPath: allowlistPath), options: .atomic)
+        let updatedAllowlist = try updateHermesAgentAllowlist(atPath: allowlistPath) { oldAllowlist in
+            try HermesAgentHookAllowlist.uninstalling(events: events, from: oldAllowlist)
+        }
+        if updatedAllowlist {
             print("Removed Hermes Agent cmux shell hook approvals from \(allowlistPath)")
         }
     }

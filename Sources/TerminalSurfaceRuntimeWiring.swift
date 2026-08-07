@@ -144,11 +144,14 @@ extension TerminalSurfaceRuntimeFilesystem {
         TerminalSurfaceRuntimeFilesystem(
             agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
             installAgentCommandShims: {
-                TerminalSurface.installAgentCommandShimsIfPossible(
+                let fileManager = FileManager.default
+                return TerminalSurface.installAgentCommandShimsIfPossible(
                     wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
-                    fileManager: .default
+                    hermesProfileAliasDirectoryURL: fileManager.homeDirectoryForCurrentUser
+                        .appendingPathComponent(".local/bin", isDirectory: true),
+                    fileManager: fileManager
                 )
             },
             isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }

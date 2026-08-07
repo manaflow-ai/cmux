@@ -255,18 +255,26 @@ struct AgentExecutableResolver {
     }
 
     private func isKnownCmuxAgentWrapper(_ url: URL, provider: AgentSessionProviderID) -> Bool {
-        guard let data = fileManager.contents(atPath: url.path),
-              let prefix = String(data: data.prefix(512), encoding: .utf8) else {
-            return false
-        }
+        let marker: String
         switch provider {
         case .claude:
-            return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
+            marker = "cmux claude wrapper - injects hooks and session tracking"
         case .codex:
-            return prefix.contains("cmux codex wrapper - per-invocation Codex hook injection")
+            marker = "cmux codex wrapper - per-invocation Codex hook injection"
         case .opencode:
             return false
         }
+
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        let data: Data
+        do {
+            data = try handle.read(upToCount: 512) ?? Data()
+        } catch {
+            return false
+        }
+        let prefix = String(decoding: data, as: UTF8.self)
+        return prefix.contains(marker)
     }
 
     private static func isCmuxAppBundleResourceBinDirectory(_ path: String) -> Bool {

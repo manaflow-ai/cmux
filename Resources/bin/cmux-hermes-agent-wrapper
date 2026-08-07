@@ -49,9 +49,11 @@ find_real_hermes() {
 
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local path_entries=()
     local IFS=:
+    read -r -a path_entries <<< "${PATH:-}"
     local directory candidate
-    for directory in ${PATH:-}; do
+    for directory in "${path_entries[@]}"; do
         [[ -n "$directory" && "$directory" != "$self_dir" ]] || continue
         candidate="$directory/hermes"
         cmux_hermes_wrapper_is_self_or_shim "$candidate" && continue
@@ -151,6 +153,132 @@ hermes_option_consumes_value() {
     return 1
 }
 
+hermes_explicit_profile() {
+    local argument
+    while (( $# > 0 )); do
+        argument="$1"
+        shift
+        case "$argument" in
+            -p|--profile)
+                (( $# > 0 )) || return 1
+                [[ "$1" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || return 1
+                printf '%s' "$1"
+                return 0
+                ;;
+            --profile=*)
+                argument="${argument#*=}"
+                [[ "$argument" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || return 1
+                printf '%s' "$argument"
+                return 0
+                ;;
+            -z|--oneshot|-m|--model|--provider|--reasoning|-t|--toolsets|\
+            -r|--resume|-s|--skills|--usage-file)
+                (( $# > 0 )) && shift
+                ;;
+            -c|--continue)
+                if (( $# > 0 )) && [[ "$1" != -* ]]; then
+                    shift
+                fi
+                ;;
+            --)
+                break
+                ;;
+        esac
+    done
+    return 1
+}
+
+hermes_canonical_directory() {
+    local directory="$1"
+    if [[ -d "$directory" ]]; then
+        (cd "$directory" 2>/dev/null && pwd -P) || printf '%s' "$directory"
+    else
+        printf '%s' "$directory"
+    fi
+}
+
+# Mirrors Hermes's get_default_hermes_root(): profile selection is anchored to
+# ~/.hermes for standard installs and to HERMES_HOME for custom deployments.
+hermes_default_root() {
+    local configured="${HERMES_HOME:-}"
+    configured="${configured#"${configured%%[![:space:]]*}"}"
+    configured="${configured%"${configured##*[![:space:]]}"}"
+
+    local native=""
+    if [[ -n "${HOME:-}" ]]; then
+        native="${HOME%/}/.hermes"
+    fi
+    if [[ -z "$configured" ]]; then
+        [[ -n "$native" ]] || return 1
+        printf '%s' "$native"
+        return 0
+    fi
+
+    if [[ -n "$native" ]]; then
+        local canonical_native canonical_configured
+        canonical_native="$(hermes_canonical_directory "$native")"
+        canonical_configured="$(hermes_canonical_directory "$configured")"
+        case "$canonical_configured" in
+            "$canonical_native"|"$canonical_native"/*)
+                printf '%s' "$native"
+                return 0
+                ;;
+        esac
+    fi
+
+    local parent
+    parent="$(dirname "$configured")"
+    if [[ "${parent##*/}" == "profiles" ]]; then
+        dirname "$parent"
+    else
+        printf '%s' "$configured"
+    fi
+}
+
+# Resolve only the installer target. The original environment and argv still
+# reach Hermes unchanged, and Hermes remains authoritative for invalid profiles.
+effective_hermes_home() {
+    local root profile candidate configured parent active
+    root="$(hermes_default_root)" || return 1
+
+    if profile="$(hermes_explicit_profile "$@")"; then
+        if [[ "$profile" == "default" ]]; then
+            printf '%s' "$root"
+            return 0
+        fi
+        candidate="${root%/}/profiles/$profile"
+        [[ -d "$candidate" ]] || return 1
+        printf '%s' "$candidate"
+        return 0
+    fi
+
+    configured="${HERMES_HOME:-}"
+    configured="${configured#"${configured%%[![:space:]]*}"}"
+    configured="${configured%"${configured##*[![:space:]]}"}"
+    if [[ -n "$configured" ]]; then
+        parent="$(dirname "$configured")"
+        if [[ "${parent##*/}" == "profiles" ]]; then
+            printf '%s' "$configured"
+            return 0
+        fi
+    fi
+
+    active=""
+    if [[ -f "${root%/}/active_profile" ]]; then
+        active="$(<"${root%/}/active_profile")"
+        active="${active#"${active%%[![:space:]]*}"}"
+        active="${active%"${active##*[![:space:]]}"}"
+    fi
+    if [[ -z "$active" || "$active" == "default" ]]; then
+        printf '%s' "$root"
+        return 0
+    fi
+    [[ "$active" =~ ^[a-z0-9][a-z0-9_-]{0,63}$ ]] || return 1
+    candidate="${root%/}/profiles/$active"
+    [[ -d "$candidate" ]] || return 1
+    printf '%s' "$candidate"
+}
+
 # Returns success for entrypoints that create or resume an agent session. A
 # known administrative subcommand passes through without touching config.
 should_activate_hermes_hooks() {
@@ -158,12 +286,9 @@ should_activate_hermes_hooks() {
 
     local argument
     local command=""
-    local skip_next=0
-    for argument in "$@"; do
-        if (( skip_next == 1 )); then
-            skip_next=0
-            continue
-        fi
+    while (( $# > 0 )); do
+        argument="$1"
+        shift
         if [[ "$command" == "chat" ]]; then
             case "$argument" in
                 -q|--query|-q?*|--query=*)
@@ -183,10 +308,16 @@ should_activate_hermes_hooks() {
                 return 1
                 ;;
             -r|--resume)
-                skip_next=1
+                (( $# > 0 )) && shift
                 continue
                 ;;
-            -r?*|-c?*|--resume=*|--continue=*|--continue|--tui|--cli)
+            -c|--continue)
+                if (( $# > 0 )) && [[ "$1" != -* ]]; then
+                    shift
+                fi
+                continue
+                ;;
+            -r?*|-c?*|--resume=*|--continue=*|--tui|--cli)
                 continue
                 ;;
             --)
@@ -197,7 +328,7 @@ should_activate_hermes_hooks() {
                 ;;
             -*)
                 if hermes_option_consumes_value "$argument"; then
-                    skip_next=1
+                    (( $# > 0 )) && shift
                 fi
                 continue
                 ;;
@@ -250,16 +381,20 @@ fi
 # Installation is idempotent, merges rather than replaces user configuration,
 # and records approvals in Hermes's own consent allowlist. Suppress all output
 # and ignore every failure so this integration can never break Hermes startup.
-if CMUX_HERMES_INSTALL_CLI="$(resolve_cmux_cli)"; then
+if CMUX_HERMES_INSTALL_CLI="$(resolve_cmux_cli)" &&
+   CMUX_HERMES_INSTALL_HOME="$(effective_hermes_home "$@")"; then
     if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
+        HERMES_HOME="$CMUX_HERMES_INSTALL_HOME" \
+            run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
             hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
     else
-        run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" \
+        HERMES_HOME="$CMUX_HERMES_INSTALL_HOME" \
+            run_hermes_hook_installer "$CMUX_HERMES_INSTALL_CLI" \
             hooks hermes-agent install --yes </dev/null >/dev/null 2>&1 || true
     fi
 fi
 unset CMUX_HERMES_INSTALL_CLI
+unset CMUX_HERMES_INSTALL_HOME
 
 export CMUX_HERMES_AGENT_PID=$$
 export CMUX_AGENT_LAUNCH_KIND="hermes-agent"
