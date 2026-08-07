@@ -265,6 +265,47 @@ struct HermesFirstClassSupportTests {
         #expect(revalidated.agentProcessIDs.isEmpty)
     }
 
+    @Test("Fresh quit-time load discovers a Hermes hook session missing from the cache")
+    func freshQuitTimeLoadDiscoversNewHermesSession() async throws {
+        let fixture = try makeFixture { [StateRow("new-hook-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let processID = Int(Int32.max) - 9_531
+        let identity = AgentPIDProcessIdentity(pid: pid_t(processID), startSeconds: 500, startMicroseconds: 600)
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessionID: "new-hook-session",
+            processID: processID,
+            identity: identity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--resume", "new-hook-session"]
+        )
+
+        let staleResumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+            homeDirectory: fixture.root.path,
+            fileManager: .default,
+            cachedRestorableAgentIndex: .empty
+        )
+        #expect(
+            staleResumeIndexes.restorableAgentIndex.entry(
+                workspaceId: fixture.workspaceID,
+                panelId: fixture.panelID
+            ) == nil
+        )
+
+        let freshResumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
+            homeDirectory: fixture.root.path,
+            fileManager: .default
+        )
+        let discovered = try #require(
+            freshResumeIndexes.restorableAgentIndex.entry(
+                workspaceId: fixture.workspaceID,
+                panelId: fixture.panelID
+            )
+        )
+        #expect(discovered.snapshot.kind == .hermesAgent)
+        #expect(discovered.snapshot.sessionId == "new-hook-session")
+    }
+
     @Test(
         "Explicit Hermes resume flags win over ambiguous cwd lookup",
         arguments: [

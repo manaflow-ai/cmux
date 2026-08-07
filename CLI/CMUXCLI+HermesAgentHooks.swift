@@ -7,7 +7,7 @@ extension CMUXCLI {
         input: ClaudeHookParsedInput
     ) -> (event: String, extra: [String: Any])? {
         guard def.name == "hermes-agent",
-              let object = input.object ?? input.rawObject,
+              let object = input.rawObject ?? input.object,
               let event = firstString(
                   in: object,
                   keys: ["hook_event_name", "hookEventName", "event", "event_name"]

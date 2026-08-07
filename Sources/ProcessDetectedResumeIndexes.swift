@@ -13,6 +13,16 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }.value
     }
 
+    /// Loads current hook stores and captures an uncached process snapshot off-main.
+    static func loadFresh(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default
+    ) async -> ProcessDetectedResumeIndexes {
+        await Task.detached(priority: .utility) {
+            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+        }.value
+    }
+
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
