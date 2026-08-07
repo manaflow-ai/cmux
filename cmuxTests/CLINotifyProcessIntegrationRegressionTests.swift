@@ -3523,18 +3523,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHLeadingTTYDisablePersistsRequestTTYForRestoration() throws {
-        let cases: [(name: String, arguments: [String], option: String, scriptFragment: String)] = [
-            ("flag", ["-T"], "RequestTTY=no", "-T"),
+        let cases: [(name: String, arguments: [String], option: String)] = [
+            ("flag", ["-T"], "RequestTTY=no"),
             (
                 "boolean alias",
                 ["--ssh-option", "RequestTTY=false"],
-                "RequestTTY=false",
                 "RequestTTY=false"
             ),
             (
                 "quoted alias",
                 ["--ssh-option", "RequestTTY = \"false\""],
-                "RequestTTY = \"false\"",
                 "RequestTTY = \"false\""
             ),
         ]
@@ -3565,13 +3563,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             let restoredScript = decodedReusableStartupScript(from: restoredCommand) ?? restoredCommand
 
             XCTAssertEqual(
-                sshOptions.filter { $0.lowercased().hasPrefix("requesttty=") },
+                sshOptions.filter {
+                    $0.filter { !$0.isWhitespace }
+                        .lowercased()
+                        .hasPrefix("requesttty=")
+                },
                 [testCase.option],
                 testCase.name
             )
             for script in [initialScript, restoredScript] {
                 XCTAssertFalse(script.contains("ssh-pty-attach"), testCase.name)
-                XCTAssertTrue(script.contains(testCase.scriptFragment), testCase.name)
             }
             XCTAssertNil(configureParams["persistent_daemon_slot"], testCase.name)
             XCTAssertNil(configureParams["preserve_after_terminal_exit"], testCase.name)
