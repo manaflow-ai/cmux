@@ -2240,6 +2240,57 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func replacementCleanupPreservesStopJournalWhenRecoveryFails(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-stop-journal-failure-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let started = "Thu_Jan_1_00:00:00_1970"
+        try "101|888|\(started)\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "101 1 888 \(started) T\n".write(
+            to: groupDirectory.appendingPathComponent("frozen"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "101 1 888 \(started)\n".write(
+            to: groupDirectory.appendingPathComponent("signaled.pids"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() { printf '1|888|Thu_Jan_1_00:00:00_1970\n'; }
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_run_cleanup_transactions() { return 0; }
+        cmux_ssh_auth_resume_signaled_processes() { return 1; }
+        cmux_ssh_terminate_owned_auth_group 999
+        /usr/bin/grep -Fqx '101 1 888 Thu_Jan_1_00:00:00_1970 T' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/frozen" || exit 99
+        /usr/bin/grep -Fqx '101 1 888 Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/signaled.pids" || exit 98
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: ["CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
