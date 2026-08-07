@@ -5,7 +5,6 @@ import SwiftUI
 struct NotificationsPage: View {
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var tabManager: TabManager
-    @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State private var phonePushConfigurationState =
@@ -56,9 +55,6 @@ struct NotificationsPage: View {
                             // isolated; hop to the main actor for window focus + tab selection.
                             Task { @MainActor in
                                 _ = AppDelegate.shared?.openTerminalNotification(notification)
-                                if notification.clickAction == nil {
-                                    selection = .tabs
-                                }
                             }
                         },
                         onClear: {
@@ -81,7 +77,6 @@ struct NotificationsPage: View {
     private func setInitialFocus() {
         // Only set focus when the notifications page is visible
         // to avoid stealing focus from the terminal when notifications arrive
-        guard selection == .notifications else { return }
         guard let firstId = notificationStore.notifications.first?.id else {
             focusedNotificationId = nil
             return

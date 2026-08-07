@@ -1814,19 +1814,6 @@ struct ContentView: View {
         return max(titlebarLeadingInset, visibleSidebarTitleInset)
     }
 
-    nonisolated static func workspaceContentIsVisible(
-        mountedWorkspaceIsVisible: Bool,
-        sidebarSelection: SidebarSelection
-    ) -> Bool {
-        guard mountedWorkspaceIsVisible else { return false }
-        switch sidebarSelection {
-        case .tabs:
-            return true
-        case .notifications:
-            return false
-        }
-    }
-
     /// Where the always-visible fullscreen titlebar controls (sidebar toggle,
     /// history, new tab, notifications) are anchored inside the titlebar band.
     struct FullscreenControlsPlacement: Equatable {
@@ -1865,19 +1852,15 @@ struct ContentView: View {
                         isSelectedWorkspace: isSelectedWorkspace,
                         isRetiringWorkspace: isRetiringWorkspace
                     )
-                    let isWorkspaceVisible = Self.workspaceContentIsVisible(
-                        mountedWorkspaceIsVisible: presentation.isPanelVisible,
-                        sidebarSelection: sidebarSelectionState.selection
-                    )
                     // Keep the retiring workspace visible during handoff, but never input-active.
                     // Allowing both selected+retiring workspaces to be input-active lets the
                     // old workspace steal first responder (notably with WKWebView), which can
                     // delay handoff completion and make browser returns feel laggy.
-                    let isInputActive = isSelectedWorkspace && isWorkspaceVisible
+                    let isInputActive = isSelectedWorkspace
                     let portalPriority = isSelectedWorkspace ? 2 : (isRetiringWorkspace ? 1 : 0)
                     WorkspaceContentView(
                         workspace: tab,
-                        isWorkspaceVisible: isWorkspaceVisible,
+                        isWorkspaceVisible: presentation.isPanelVisible,
                         isWorkspaceInputActive: isInputActive,
                         rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
                         isFullScreen: isFullScreen,
@@ -1902,11 +1885,6 @@ struct ContentView: View {
             .opacity(sidebarSelectionState.selection == .tabs ? 1 : 0)
             .allowsHitTesting(sidebarSelectionState.selection == .tabs)
             .accessibilityHidden(sidebarSelectionState.selection != .tabs)
-
-            NotificationsPage(selection: $sidebarSelectionState.selection)
-                .opacity(sidebarSelectionState.selection == .notifications ? 1 : 0)
-                .allowsHitTesting(sidebarSelectionState.selection == .notifications)
-                .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .modifier(WorkspacePresentationModeContentTopPaddingModifier(
             isFullScreen: isFullScreen,

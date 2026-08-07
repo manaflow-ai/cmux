@@ -607,29 +607,6 @@ final class WorkspaceContentViewVisibilityTests {
     }
 
     @Test
-    func notificationsPageHidesPortalHostedWorkspaceContent() {
-        #expect(
-            ContentView.workspaceContentIsVisible(
-                mountedWorkspaceIsVisible: true,
-                sidebarSelection: .tabs
-            )
-        )
-        #expect(
-            !ContentView.workspaceContentIsVisible(
-                mountedWorkspaceIsVisible: true,
-                sidebarSelection: .notifications
-            ),
-            "The notifications page must hide portal-hosted terminals and browsers"
-        )
-        #expect(
-            !ContentView.workspaceContentIsVisible(
-                mountedWorkspaceIsVisible: false,
-                sidebarSelection: .tabs
-            )
-        )
-    }
-
-    @Test
     func testRenderedVisiblePanelPolicyPrefersSelectedTabOverStaleFocusedPanel() {
         let paneId = UUID()
         let selectedPanelId = UUID()

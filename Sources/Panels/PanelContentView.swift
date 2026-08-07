@@ -184,6 +184,12 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .notifications:
+            if panel is NotificationsPanel {
+                NotificationsPage()
+                    .contentShape(Rectangle())
+                    .onTapGesture { onRequestPanelFocus() }
+            }
         case .cloudVMLoading:
             if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
@@ -221,7 +227,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading, .mobilePairing, .accountSignIn:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .simulator, .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             return true
         case .terminal, .browser:
             return false
