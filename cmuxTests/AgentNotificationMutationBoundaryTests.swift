@@ -260,6 +260,120 @@ extension AgentNotificationRegressionTests {
         )
     }
 
+    @Test("Workspace rejects delayed PID registration before replacing runtime")
+    func workspaceRejectsDelayedOlderPIDRegistration() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let newerGeneration = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let olderGeneration = AgentPIDProcessIdentity(
+            pid: newerGeneration.pid,
+            startSeconds: newerGeneration.startSeconds - 1,
+            startMicroseconds: newerGeneration.startMicroseconds
+        )
+        let key = "cursor.delayed-registration"
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+
+        #expect(
+            workspace.recordAgentPIDResult(
+                key: key,
+                pid: newerGeneration.pid,
+                panelId: panelID,
+                processIdentity: newerGeneration,
+                refreshPorts: false
+            ).accepted
+        )
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "cursor",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: newerGeneration
+            )
+        )
+
+        let delayedResult = workspace.recordAgentPIDResult(
+            key: key,
+            pid: olderGeneration.pid,
+            panelId: panelID,
+            processIdentity: olderGeneration,
+            refreshPorts: false
+        )
+
+        #expect(!delayedResult.accepted)
+        #expect(workspace.agentPIDs[key] == newerGeneration.pid)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey[key]
+                == newerGeneration
+        )
+        #expect(workspace.agentPIDPanelIdsByKey[key] == panelID)
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["cursor"]
+                == .running
+        )
+    }
+
+    @Test("Dock rejects delayed PID registration before replacing runtime")
+    func dockRejectsDelayedOlderPIDRegistration() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let newerGeneration = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let olderGeneration = AgentPIDProcessIdentity(
+            pid: newerGeneration.pid,
+            startSeconds: newerGeneration.startSeconds - 1,
+            startMicroseconds: newerGeneration.startMicroseconds
+        )
+        let key = "cursor.delayed-registration"
+
+        #expect(
+            dock.recordAgentPIDResult(
+                key: key,
+                pid: newerGeneration.pid,
+                panelId: panelID,
+                processIdentity: newerGeneration
+            ).accepted
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "cursor",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: newerGeneration
+            )
+        )
+
+        let delayedResult = dock.recordAgentPIDResult(
+            key: key,
+            pid: olderGeneration.pid,
+            panelId: panelID,
+            processIdentity: olderGeneration
+        )
+
+        #expect(!delayedResult.accepted)
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?.agentPIDs[key]
+                == newerGeneration.pid
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentPIDProcessIdentities[key] == newerGeneration
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentLifecycleStates["cursor"] == .running
+        )
+    }
+
     @Test("Live PID routing and runtime mutations include a Dock-owned terminal")
     func liveTTYBindingsAndRuntimeMutationsIncludeDockOwnedTerminal() throws {
         let fixture = try makeFixture()
