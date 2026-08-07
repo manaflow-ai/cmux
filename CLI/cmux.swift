@@ -32346,14 +32346,16 @@ export default CMUXSessionRestore;
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the
             // summarization subprocess never blocks this short sync hook.
             // Gate the fork on the live setting (one cheap socket probe) so a
-            // disabled feature spawns nothing extra on turn end; the detached
-            // process re-probes to honor a toggle that lands mid-pass.
+            // disabled feature or a manual workspace without prior auto-name
+            // state spawns nothing extra on turn end. A stored title keeps the
+            // reconciliation path available for an independently auto-owned
+            // panel. The detached process re-probes to honor a mid-pass toggle.
             if autoNamingSource(for: def) != nil, !suppressVisibleMutations, !sessionId.isEmpty,
                let autoNameProbe = try? client.sendV2(
                    method: "workspace.set_auto_title",
                    params: ["probe": true, "workspace_id": workspaceId]
                ),
-               autoNameProbe["enabled"] as? Bool == true {
+               shouldSpawnDetachedAgentAutoName(probe: autoNameProbe, session: mapped) {
                 spawnDetachedAgentAutoName(
                     def: def,
                     sessionId: sessionId,

@@ -24,6 +24,18 @@ extension CMUXCLI {
         autoNamingSource(for: def) == .hookMessageCache
     }
 
+    /// A manual workspace suppresses new title generation, but a stored auto
+    /// title still needs the detached pass for transcript-shrink reconciliation
+    /// and independently auto-owned panel repair.
+    func shouldSpawnDetachedAgentAutoName(
+        probe: [String: Any],
+        session: ClaudeHookSessionRecord?
+    ) -> Bool {
+        guard probe["enabled"] as? Bool == true else { return false }
+        guard probe["workspace_user_owned"] as? Bool == true else { return true }
+        return session?.autoNameLastTitle != nil
+    }
+
     func autoNamingMessages(
         for def: AgentHookDef,
         parsedInput: ClaudeHookParsedInput,
