@@ -1,13 +1,17 @@
 import AppKit
 import CmuxFoundation
+import CoreGraphics
 import SwiftUI
 
 /// Immutable presentation environment shared by hosted and pure-AppKit table cells.
+/// The initializer projects the supplied SwiftUI environment immediately; it
+/// never retains environment objects across the sidebar's lazy-list boundary.
 @MainActor
 struct SidebarWorkspaceTableEnvironmentSnapshot {
     let colorScheme: ColorScheme
+    let colorSchemeContrast: ColorSchemeContrast
     let globalFontMagnificationPercent: Int
-    /// Concrete semantic colors resolved from the table's explicit scheme.
+    /// Concrete semantic colors resolved from the table's SwiftUI environment.
     /// Pure-AppKit rows consume these instead of re-reading their backing
     /// view's effective appearance during focus or reparenting churn.
     let primaryTextColor: NSColor
@@ -18,12 +22,13 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
 
 #if DEBUG
     init(
-        colorScheme: ColorScheme,
+        environment: EnvironmentValues,
         globalFontMagnificationPercent: Int,
         lazyContractProbe: SidebarLazyContractProbe
     ) {
-        let colors = Self.resolvedTextColors(for: colorScheme)
-        self.colorScheme = colorScheme
+        let colors = Self.resolvedTextColors(in: environment)
+        self.colorScheme = environment.colorScheme
+        self.colorSchemeContrast = environment.colorSchemeContrast
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
         self.primaryTextColor = colors.primary
         self.secondaryTextColor = colors.secondary
@@ -31,11 +36,12 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     }
 #else
     init(
-        colorScheme: ColorScheme,
+        environment: EnvironmentValues,
         globalFontMagnificationPercent: Int
     ) {
-        let colors = Self.resolvedTextColors(for: colorScheme)
-        self.colorScheme = colorScheme
+        let colors = Self.resolvedTextColors(in: environment)
+        self.colorScheme = environment.colorScheme
+        self.colorSchemeContrast = environment.colorSchemeContrast
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
         self.primaryTextColor = colors.primary
         self.secondaryTextColor = colors.secondary
@@ -44,11 +50,17 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
 
     func hasEquivalentPresentation(to other: Self) -> Bool {
         colorScheme == other.colorScheme
+            && colorSchemeContrast == other.colorSchemeContrast
             && globalFontMagnificationPercent == other.globalFontMagnificationPercent
+            && primaryTextColor == other.primaryTextColor
+            && secondaryTextColor == other.secondaryTextColor
     }
 
     @ViewBuilder
     func apply<Content: View>(to content: Content) -> some View {
+        // SwiftUI exposes contrast as read-only. Independent NSHostingViews
+        // inherit the same system contrast directly; the stored value and
+        // concrete palette invalidate and repaint the pure-AppKit cells.
 #if DEBUG
         content
             .environment(\.colorScheme, colorScheme)
@@ -62,25 +74,41 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     }
 
     private static func resolvedTextColors(
-        for colorScheme: ColorScheme
+        in environment: EnvironmentValues
     ) -> (primary: NSColor, secondary: NSColor) {
-        let appearanceName: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
-        let fallbackPrimary = colorScheme == .dark
+        let fallbackPrimary = environment.colorScheme == .dark
             ? NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
             : NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
-        let fallbackSecondary = fallbackPrimary.withAlphaComponent(0.55)
-        // Aqua and Dark Aqua are built-in AppKit appearances. Resolve while
-        // the requested one is current so the returned sRGB colors are no
-        // longer dynamic and cannot follow a transient backing view later.
-        guard let appearance = NSAppearance(named: appearanceName) else {
-            return (fallbackPrimary, fallbackSecondary)
+        let fallbackSecondaryAlpha: CGFloat = environment.colorSchemeContrast == .increased ? 0.75 : 0.55
+        return (
+            appKitColor(
+                from: Color.primary.resolve(in: environment),
+                fallback: fallbackPrimary
+            ),
+            appKitColor(
+                from: Color.secondary.resolve(in: environment),
+                fallback: fallbackPrimary.withAlphaComponent(fallbackSecondaryAlpha)
+            )
+        )
+    }
+
+    private static func appKitColor(
+        from resolved: Color.Resolved,
+        fallback: NSColor
+    ) -> NSColor {
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearSRGB),
+              let cgColor = CGColor(
+                  colorSpace: colorSpace,
+                  components: [
+                      CGFloat(resolved.linearRed),
+                      CGFloat(resolved.linearGreen),
+                      CGFloat(resolved.linearBlue),
+                      CGFloat(resolved.opacity),
+                  ]
+              ),
+              let color = NSColor(cgColor: cgColor) else {
+            return fallback
         }
-        var primary = fallbackPrimary
-        var secondary = fallbackSecondary
-        appearance.performAsCurrentDrawingAppearance {
-            primary = NSColor.labelColor.usingColorSpace(.sRGB) ?? primary
-            secondary = NSColor.secondaryLabelColor.usingColorSpace(.sRGB) ?? secondary
-        }
-        return (primary, secondary)
+        return color
     }
 }

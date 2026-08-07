@@ -4,6 +4,20 @@ import SwiftUI
 import Testing
 @testable import cmux_DEV
 
+extension EnvironmentValues {
+    static func sidebarTableTestValues(
+        colorScheme: ColorScheme,
+        colorSchemeContrast: ColorSchemeContrast = .standard
+    ) -> Self {
+        var values = Self()
+        values.colorScheme = colorScheme
+        // `colorSchemeContrast` is read-only in production. Its writable mirror
+        // is used only by tests that need to simulate the accessibility setting.
+        values._colorSchemeContrast = colorSchemeContrast
+        return values
+    }
+}
+
 /// Behavior tests for the pure-AppKit sidebar cells: hover enforcement,
 /// palette parity, and optimistic selection paint semantics.
 @Suite
@@ -11,7 +25,7 @@ import Testing
 struct SidebarAppKitRowCellTests {
     fileprivate static var tableEnvironment: SidebarWorkspaceTableEnvironmentSnapshot {
         SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .dark,
+            environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
@@ -244,6 +258,7 @@ struct SidebarAppKitRowCellTests {
 
     fileprivate static func configuredCell(
         model: SidebarWorkspaceRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot? = nil,
         tab: Workspace? = nil,
         tabManager: TabManager? = nil,
         onOpenWorkspaceDescriptionURL: @escaping (URL) -> Void = { _ in },
@@ -252,7 +267,7 @@ struct SidebarAppKitRowCellTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
-            environment: tableEnvironment,
+            environment: environment ?? tableEnvironment,
             actions: makeActions(
                 model: model,
                 tab: tab,
@@ -1095,15 +1110,18 @@ struct SidebarAppKitRowCellTests {
 
     @Test
     func tablePaletteMatchesIncreasedContrastSwiftUISemantics() throws {
-        var swiftUIEnvironment = EnvironmentValues()
-        swiftUIEnvironment.colorScheme = .dark
-        // `colorSchemeContrast` is intentionally read-only. Its writable mirror
-        // lets this test simulate the system accessibility setting without
-        // changing the user's Mac configuration.
-        swiftUIEnvironment._colorSchemeContrast = .increased
+        let swiftUIEnvironment = EnvironmentValues.sidebarTableTestValues(
+            colorScheme: .dark,
+            colorSchemeContrast: .increased
+        )
 
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: swiftUIEnvironment.colorScheme,
+            environment: swiftUIEnvironment,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let standardTableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
@@ -1116,8 +1134,42 @@ struct SidebarAppKitRowCellTests {
         let actualPrimary = try #require(tableEnvironment.primaryTextColor.usingColorSpace(.sRGB))
         let actualSecondary = try #require(tableEnvironment.secondaryTextColor.usingColorSpace(.sRGB))
 
+        #expect(tableEnvironment.colorSchemeContrast == .increased)
+        #expect(!tableEnvironment.hasEquivalentPresentation(to: standardTableEnvironment))
         #expect(actualPrimary == expectedPrimary)
         #expect(actualSecondary == expectedSecondary)
+
+        let headerModel = Self.makeGroupHeaderModel(
+            groupId: UUID(),
+            anchorWorkspaceId: UUID(),
+            isAnchorActive: false
+        )
+        let workspaceCell = Self.configuredCell(
+            model: Self.makeModel(),
+            environment: tableEnvironment
+        )
+        let headerCell = SidebarGroupHeaderTableCellView()
+        headerCell.configurePresentation(model: headerModel, environment: tableEnvironment)
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        root.addSubview(workspaceCell)
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = try #require(NSAppearance(named: .aqua))
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let workspaceTitleColor = try Self.resolvedTextColor(in: workspaceCell, matching: "Workspace")
+        let headerTitleColor = try Self.resolvedTextColor(in: headerCell, matching: headerModel.name)
+        #expect(workspaceTitleColor == expectedPrimary)
+        #expect(headerTitleColor == expectedPrimary)
     }
 
     @Test

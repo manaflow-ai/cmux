@@ -122,7 +122,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -203,7 +203,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -333,7 +333,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -416,7 +416,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -505,7 +505,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             groupHeaderModel: model,
             actions: makeGroupHeaderActions {},
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
@@ -651,7 +651,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         fixedHeight: CGFloat? = nil
     ) -> SidebarWorkspaceTableRowConfiguration {
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .light,
+            environment: .sidebarTableTestValues(colorScheme: .light),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
@@ -672,7 +672,7 @@ struct SidebarWorkspaceTableSuspensionTests {
         colorScheme: ColorScheme = .light
     ) -> SidebarWorkspaceTableEnvironmentSnapshot {
         SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: colorScheme,
+            environment: .sidebarTableTestValues(colorScheme: colorScheme),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )

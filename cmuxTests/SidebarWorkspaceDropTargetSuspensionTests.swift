@@ -71,7 +71,7 @@ struct SidebarWorkspaceDropTargetSuspensionTests {
             isGroupHeader: false,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             ),

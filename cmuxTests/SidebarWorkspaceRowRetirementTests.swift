@@ -1,5 +1,6 @@
 import AppKit
 import CmuxWorkspaces
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -159,7 +160,7 @@ struct SidebarWorkspaceRowRetirementTests {
             groupId: nil,
             isPinned: false,
             environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                colorScheme: .light,
+                environment: .sidebarTableTestValues(colorScheme: .light),
                 globalFontMagnificationPercent: 100,
                 lazyContractProbe: SidebarLazyContractProbe()
             )
