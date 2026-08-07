@@ -853,6 +853,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/exec_file_curl.ts",
+            'execFile("curl", ["https://api.openai.com/v1/items"], callback)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_shell_curl.py",
+            'subprocess.run("curl https://api.openai.com/v1/items", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/template_interpolation_fetch.ts",
             'const result = `${await fetch("https://api.openai.com/v1/items")}`;\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1028,6 +1038,21 @@ def _self_test() -> int:
         (
             "web/tests/n18g.ts",
             'expect(help).toContain(\'bash -c "curl https://api.openai.com/v1/items"\')\n',
+        ),
+        # A network-looking later argv element is data passed to a different
+        # executable, not a command of its own.
+        (
+            "tests/n18h.py",
+            'subprocess.run(["printf", "curl https://api.openai.com/v1/items"])\n',
+        ),
+        (
+            "web/tests/n18i.ts",
+            'spawn("echo", ["curl https://api.openai.com/v1/items"])\n',
+        ),
+        # Python does not split a string command unless shell=True is explicit.
+        (
+            "tests/n18j.py",
+            'subprocess.run("curl https://api.openai.com/v1/items")\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
