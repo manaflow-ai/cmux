@@ -682,6 +682,13 @@ final class CmuxWebView: WKWebView {
                     return finish(true)
                 }
                 let result = super.performKeyEquivalent(with: event)
+                // WebKit declining an undo/redo chord means the page already
+                // saw it and left it unhandled (WebKit resends such keys), so
+                // run the web view's own editing undo/redo before the blanket
+                // focus-mode consume below would swallow it (issue #9677).
+                if !result, performWebContentUndoRedo(for: event) {
+                    return finish(true)
+                }
                 // While focus mode is active, the page gets the shortcut once and cmux/main-menu
                 // fallback must not see unhandled command equivalents.
                 return finish(result || normalizedFlags.contains(.command))
