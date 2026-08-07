@@ -654,6 +654,12 @@ enum FilePreviewKindResolver {
         case needsSniff
     }
 
+    /// Bytes read from the head of a file when neither the filename nor the
+    /// UTType decides between text and binary.
+    static let sniffPrefixByteCount = 4096
+
+    private static let maximumUTF8SequenceLength = 4
+
     private static let textFilenames: Set<String> = [
         ".env",
         ".gitignore",
@@ -883,7 +889,28 @@ enum FilePreviewKindResolver {
     private static func sniffLooksLikeText(url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        // One byte past the window, so a truncated tail is observed rather than
+        // inferred from the prefix length.
+        let probe = (try? handle.read(upToCount: sniffPrefixByteCount + 1)) ?? Data()
+        return prefixLooksLikeText(
+            probe.prefix(sniffPrefixByteCount),
+            hasMoreBytes: probe.count > sniffPrefixByteCount
+        )
+    }
+
+    /// Classifies the head of a file that neither its name nor its UTType could
+    /// resolve. The prefix is a fixed-size read, so a failed decode is not on
+    /// its own evidence of binary content.
+    ///
+    /// A successful UTF-8 decode is accepted as is, control bytes included:
+    /// bundled JavaScript and captured terminal output carry C0 bytes and are
+    /// still source. The control-byte gate applies only to the single-byte
+    /// fallback below, where a successful decode proves nothing because
+    /// ISO Latin-1 maps every byte.
+    /// - Parameter hasMoreBytes: whether the file continues past this prefix.
+    ///   Only then can the tail have been cut mid-scalar; otherwise a malformed
+    ///   tail is a defect in the file rather than an artifact of the read.
+    static func prefixLooksLikeText(_ data: Data, hasMoreBytes: Bool = false) -> Bool {
         guard !data.isEmpty else { return true }
         if hasUTF16ByteOrderMark(data), String(data: data, encoding: .utf16) != nil {
             return true
@@ -891,7 +918,86 @@ enum FilePreviewKindResolver {
         if data.contains(0) {
             return false
         }
-        return String(data: data, encoding: .utf8) != nil
+        if String(data: data, encoding: .utf8) != nil {
+            return true
+        }
+        if hasMoreBytes,
+           let completedSequences = droppingTrailingPartialUTF8Sequence(data),
+           String(data: completedSequences, encoding: .utf8) != nil {
+            return true
+        }
+        // FilePreviewTextLoader falls back to ISO Latin-1 once UTF-8 and UTF-16
+        // fail, so classification has to accept the same files.
+        return isSingleByteEncodedText(data)
+    }
+
+    /// Drops the trailing UTF-8 sequence that the fixed-size read cut in half.
+    /// Returns nil when the tail is malformed rather than truncated, so the
+    /// caller keeps classifying the bytes it actually has.
+    private static func droppingTrailingPartialUTF8Sequence(_ data: Data) -> Data? {
+        var continuations: [UInt8] = []
+        for byte in Array(data.suffix(maximumUTF8SequenceLength)).reversed() {
+            if byte & 0b1100_0000 == 0b1000_0000 {
+                continuations.append(byte)
+                continue
+            }
+            guard let sequenceLength = utf8SequenceLength(leadByte: byte),
+                  sequenceLength > continuations.count + 1,
+                  isTruncatedSequence(leadByte: byte, continuations: continuations) else { return nil }
+            return data.dropLast(continuations.count + 1)
+        }
+        return nil
+    }
+
+    /// The byte after the lead carries a lead-specific range: it rules out
+    /// overlong forms after 0xE0 and 0xF0, surrogates after 0xED, and scalars
+    /// past U+10FFFF after 0xF4. A sequence that violates it was never valid,
+    /// so it cannot be the start of a scalar the read cut in half.
+    ///
+    /// - Parameter continuations: the trailing continuation bytes in reverse
+    ///   order, so the byte right after the lead is the last element.
+    private static func isTruncatedSequence(leadByte: UInt8, continuations: [UInt8]) -> Bool {
+        guard let byteAfterLead = continuations.last else { return true }
+        let allowed: ClosedRange<UInt8>
+        switch leadByte {
+        case 0xE0: allowed = 0xA0...0xBF
+        case 0xED: allowed = 0x80...0x9F
+        case 0xF0: allowed = 0x90...0xBF
+        case 0xF4: allowed = 0x80...0x8F
+        default: allowed = 0x80...0xBF
+        }
+        return allowed.contains(byteAfterLead)
+    }
+
+    /// Valid UTF-8 lead bytes only. 0xC0 and 0xC1 encode overlong forms and
+    /// 0xF5 through 0xFF exceed U+10FFFF, so a prefix ending in one of those is
+    /// malformed rather than truncated.
+    private static func utf8SequenceLength(leadByte: UInt8) -> Int? {
+        switch leadByte {
+        case 0x00...0x7F: return 1
+        case 0xC2...0xDF: return 2
+        case 0xE0...0xEF: return 3
+        case 0xF0...0xF4: return 4
+        default: return nil
+        }
+    }
+
+    /// Matches the ISO-8859 test in `file(1)`: printable bytes plus the usual
+    /// whitespace and escape controls. NUL is rejected before this runs.
+    private static func isSingleByteEncodedText(_ data: Data) -> Bool {
+        for byte in data {
+            switch byte {
+            case 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1B:
+                continue
+            case 0x20...0x7E:
+                continue
+            case 0x80...0xFF:
+                continue
+            default:
+                return false
+            }
+        }
+        return true
     }
 
     private static func hasUTF16ByteOrderMark(_ data: Data) -> Bool {
