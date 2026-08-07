@@ -40,14 +40,20 @@ const paidCheckoutSession = {
 };
 let retrievedCheckoutSession: Record<string, unknown> = paidCheckoutSession;
 const retrieveSession = mock(async () => retrievedCheckoutSession);
-const retrieveSubscription = mock(async () => ({
+let retrievedSubscription: Record<string, unknown> = {
   id: "sub_1",
   customer: "cus_1",
   status: "active",
   metadata: { stackUserId: "user_1", app: "cmux" },
   cancel_at_period_end: false,
   items: { data: [{ current_period_end: 1_800_000_000, price: { id: "price_1" } }] },
-}));
+};
+const retrieveSubscription = mock(async () => retrievedSubscription);
+let retrievedInvoice: Record<string, unknown> = {
+  id: "in_1",
+  subscription: "sub_1",
+};
+const retrieveInvoice = mock(async () => retrievedInvoice);
 
 const POST = makeStripeWebhookHandler({
   webhookSecret: () => "whsec_test",
@@ -67,6 +73,9 @@ const POST = makeStripeWebhookHandler({
       },
       subscriptions: {
         retrieve: retrieveSubscription,
+      },
+      invoices: {
+        retrieve: retrieveInvoice,
       },
     }) as never,
   db: () =>
@@ -132,6 +141,20 @@ describe("Stripe billing webhook route", () => {
       isActive: true,
     };
     retrievedCheckoutSession = paidCheckoutSession;
+    retrievedSubscription = {
+      id: "sub_1",
+      customer: "cus_1",
+      status: "active",
+      metadata: { stackUserId: "user_1", app: "cmux" },
+      cancel_at_period_end: false,
+      items: {
+        data: [{
+          current_period_end: 1_800_000_000,
+          price: { id: "price_1" },
+        }],
+      },
+    };
+    retrievedInvoice = { id: "in_1", subscription: "sub_1" };
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
     revokeCoderouterRouteTokens.mockClear();
@@ -140,6 +163,7 @@ describe("Stripe billing webhook route", () => {
     sendProSignupWelcome.mockClear();
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
+    retrieveInvoice.mockClear();
   });
 
   test("rejects invalid Stripe signatures", async () => {
@@ -348,12 +372,17 @@ describe("Stripe billing webhook route", () => {
         },
       },
     };
+    retrievedSubscription = {
+      ...(currentEvent.data as { object: Record<string, unknown> }).object,
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
 
     const response = await POST(webhookRequest());
 
     expect(response.status).toBe(200);
     expect(applySubscriptionUpdate).toHaveBeenCalledWith(
-      (currentEvent.data as { object: unknown }).object,
+      retrievedSubscription,
     );
     expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
     expect(captureStripeBillingEvent).not.toHaveBeenCalled();
@@ -368,6 +397,47 @@ describe("Stripe billing webhook route", () => {
         status: "canceled",
       },
     );
+  });
+
+  test("repairs delayed subscription events from Stripe's current state", async () => {
+    currentEvent = {
+      id: "evt_stale_deleted",
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_1",
+          status: "canceled",
+          metadata: { stackUserId: "user_1", app: "cmux" },
+        },
+      },
+    };
+    retrievedSubscription = {
+      id: "sub_1",
+      customer: "cus_1",
+      status: "active",
+      metadata: { stackUserId: "user_1", app: "cmux" },
+      cancel_at_period_end: false,
+      items: { data: [] },
+    };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(applySubscriptionUpdate).toHaveBeenCalledWith(retrievedSubscription);
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
+    await deferredTasks[0]();
+    expect(captureStripeBillingEvent).toHaveBeenCalledWith(currentEvent, {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+      status: "active",
+    });
   });
 
   test("revokes coderouter tokens for an inactive invoice subscription update", async () => {
@@ -439,6 +509,42 @@ describe("Stripe billing webhook route", () => {
       skipped: "invoice_subscription_unmapped",
     });
     expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
+  });
+
+  test("records refunds without revoking an otherwise active subscription", async () => {
+    currentEvent = {
+      id: "evt_refunded",
+      type: "charge.refunded",
+      data: {
+        object: {
+          id: "ch_1",
+          invoice: "in_1",
+          amount: 3000,
+          amount_refunded: 3000,
+          currency: "usd",
+          refunded: true,
+        },
+      },
+    };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(retrieveInvoice).toHaveBeenCalledWith("in_1");
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
+    await deferredTasks[0]();
+    expect(captureStripeBillingEvent).toHaveBeenCalledWith(currentEvent, {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+      status: "active",
+    });
   });
 
   test("marks the event and returns 500 when processing fails", async () => {
