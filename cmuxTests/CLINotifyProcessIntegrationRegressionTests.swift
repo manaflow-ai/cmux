@@ -781,6 +781,148 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["autoNameLastLineCount"] as? Int, 500)
     }
 
+    func testClaudeConcurrentObservationDoesNotLeaveReconciledHighWaterStale() throws {
+        let context = try makeClaudeHookContext(name: "claude-concurrent-observation")
+        defer { context.cleanup() }
+
+        let sessionId = "concurrent-observation-session"
+        let transcriptURL = context.root.appendingPathComponent("compacted.jsonl")
+        try #"{"type":"user","message":{"content":"Keep the existing topic"}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let claimedLineCount = try autoNamingGrowthMetric(transcriptURL)
+        let now = Date().timeIntervalSince1970
+        try seedClaudeAutoNamingStore(
+            context: context,
+            sessionId: sessionId,
+            transcriptURL: transcriptURL,
+            baselineLineCount: 500,
+            lastTitle: "Fix auth bug",
+            lastNamedAt: now - 60,
+            lastAttemptAt: now - 30,
+            inFlightAt: nil
+        )
+        try updateClaudeHookSession(sessionId, context: context) { session in
+            session["autoNameLastObservedLineCount"] = 500
+        }
+
+        let firstApplyReceived = DispatchSemaphore(value: 0)
+        let allowFirstApplyResponse = DispatchSemaphore(value: 0)
+        startDetachedMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line),
+                  payload["method"] as? String == "workspace.set_auto_title",
+                  let params = payload["params"] as? [String: Any],
+                  params["probe"] as? Bool != true else {
+                return self.autoNamingMockResponse(
+                    line: line,
+                    context: context,
+                    workspaceApplied: true,
+                    panelApplySkipped: true
+                )
+            }
+            if self.autoNamingApplyRequests(in: context).count == 1 {
+                firstApplyReceived.signal()
+                if allowFirstApplyResponse.wait(timeout: .now() + self.processTimeout(5)) == .timedOut {
+                    XCTFail("Timed out waiting to release the first reconciliation")
+                }
+            }
+            return self.autoNamingMockResponse(
+                line: line,
+                context: context,
+                workspaceApplied: true,
+                panelApplySkipped: true
+            )
+        }
+
+        let firstStop = Process()
+        let firstStopStandardInput = Pipe()
+        let firstStopStandardOutput = Pipe()
+        let firstStopStandardError = Pipe()
+        let firstStopExited = DispatchSemaphore(value: 0)
+        firstStop.executableURL = URL(fileURLWithPath: context.cliPath)
+        firstStop.arguments = ["hooks", "claude", "auto-name"]
+        firstStop.environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        firstStop.standardInput = firstStopStandardInput
+        firstStop.standardOutput = firstStopStandardOutput
+        firstStop.standardError = firstStopStandardError
+        firstStop.terminationHandler = { _ in firstStopExited.signal() }
+        try firstStop.run()
+        firstStopStandardInput.fileHandleForWriting.write(
+            Data(#"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#.utf8)
+        )
+        try firstStopStandardInput.fileHandleForWriting.close()
+        defer {
+            allowFirstApplyResponse.signal()
+            if firstStop.isRunning {
+                firstStop.terminate()
+            }
+        }
+
+        XCTAssertEqual(
+            firstApplyReceived.wait(timeout: .now() + processTimeout(5)),
+            .success,
+            "The first Stop never claimed transcript reconciliation"
+        )
+        try [
+            #"{"type":"user","message":{"content":"Keep the existing topic"}}"#,
+            #"{"type":"assistant","message":{"content":"Continue after compaction"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+        let overlappingLineCount = try autoNamingGrowthMetric(transcriptURL)
+        XCTAssertGreaterThan(overlappingLineCount, claimedLineCount)
+        XCTAssertLessThan(overlappingLineCount, 500)
+
+        let overlappingStop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(overlappingStop.timedOut, overlappingStop.stderr)
+        XCTAssertEqual(overlappingStop.status, 0, overlappingStop.stderr)
+        XCTAssertEqual(autoNamingApplyRequests(in: context).count, 1)
+
+        allowFirstApplyResponse.signal()
+        XCTAssertEqual(firstStopExited.wait(timeout: .now() + processTimeout(5)), .success)
+        let firstStopStdout = String(
+            data: firstStopStandardOutput.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let firstStopStderr = String(
+            data: firstStopStandardError.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertEqual(firstStop.terminationStatus, 0, firstStopStderr)
+        XCTAssertEqual(firstStopStdout, "{}\n")
+
+        var record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertNil(record["autoNameInFlightAt"])
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, overlappingLineCount)
+        XCTAssertEqual(record["autoNameLastObservedLineCount"] as? Int, overlappingLineCount)
+
+        let laterStop = runClaudeHookWithoutServer(
+            context: context,
+            arguments: ["hooks", "claude", "auto-name"],
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop"}"#
+        )
+        XCTAssertFalse(laterStop.timedOut, laterStop.stderr)
+        XCTAssertEqual(laterStop.status, 0, laterStop.stderr)
+        XCTAssertEqual(
+            autoNamingApplyRequests(in: context).count,
+            1,
+            "The overlapping observation must be consumed by the active reconciliation"
+        )
+        record = try readClaudeHookSession(sessionId, context: context)
+        XCTAssertEqual(record["autoNameLastLineCount"] as? Int, overlappingLineCount)
+        XCTAssertEqual(record["autoNameLastObservedLineCount"] as? Int, overlappingLineCount)
+    }
+
     func testClaudeAutoNameCompactionRetriesUntilReconciliationIsConfirmed() throws {
         let context = try makeClaudeHookContext(name: "claude-auto-name-retry")
         defer { context.cleanup() }
