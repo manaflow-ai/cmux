@@ -75,6 +75,7 @@ raise SystemExit(0)
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
+    input-alias-success) config_home="${CMUX_APP_HOST_HOME}" ;;
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     xdg-config-leak)
@@ -104,6 +105,7 @@ raise SystemExit(0)
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "input-alias-success" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
@@ -386,6 +388,31 @@ distinct_attempt_lease_count="$(awk -F '|' '{ print $10 }' \
 if [ "$distinct_attempt_lease_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-home-env.log"
   echo "FAIL: every xcodebuild retry must use a distinct attempt lease"
+  exit 1
+fi
+
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/input-alias-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/input-alias-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/input-alias-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/input-alias-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=input-alias-success \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/input-alias-output.log" 2>&1
+input_alias_status=$?
+set -e
+
+if [ "$input_alias_status" -ne 0 ]; then
+  cat "$TMP_DIR/input-alias-output.log"
+  echo "FAIL: wrapper must accept the authenticated /tmp app-host alias"
   exit 1
 fi
 
