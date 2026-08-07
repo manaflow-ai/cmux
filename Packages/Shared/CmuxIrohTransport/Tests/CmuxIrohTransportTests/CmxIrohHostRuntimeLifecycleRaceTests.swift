@@ -107,16 +107,20 @@ extension CmxIrohHostRuntimeTests {
             ),
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
+            // The in-start readiness pass may wait this long for the relay,
+            // but a hung credential installation must never block activation
+            // or binding publication beyond it.
+            automaticRelayReadinessTimeout: .milliseconds(20),
             handleTransport: { session, _ in await session.close() },
             handleBinding: { _, _, _ in await bindings.record() }
         )
         let start = Task { try await runtime.start() }
         await gate.waitUntilSuspended()
 
+        try await start.value
         #expect(await bindings.count() == 1)
 
         await gate.resume()
-        try await start.value
         await runtime.stop()
     }
 

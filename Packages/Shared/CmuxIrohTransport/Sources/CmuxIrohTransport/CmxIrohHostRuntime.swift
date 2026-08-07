@@ -74,6 +74,10 @@ public actor CmxIrohHostRuntime {
     let registrationClock: any CmxIrohRelayClock
     let registrationRetrySchedule: CmxIrohRetrySchedule
     let registrationRetryJitter: @Sendable () -> Double
+    /// How long automatic-mode startup waits for relay attachment before
+    /// publishing the bootstrap binding anyway. Correctness over liveness only
+    /// within this bound; a timeout never fails activation.
+    let automaticRelayReadinessTimeout: Duration
     let handleTransport: TransportHandler
     let handleBinding: BindingHandler
     let handleRoute: RouteHandler
@@ -129,6 +133,7 @@ public actor CmxIrohHostRuntime {
         registrationRetryJitter: @escaping @Sendable () -> Double = {
             Double.random(in: 0 ... 1)
         },
+        automaticRelayReadinessTimeout: Duration = .seconds(5),
         handleTransport: @escaping TransportHandler,
         handleBinding: @escaping BindingHandler = { _, _, _ in },
         handleRoute: @escaping RouteHandler = { _, _ in },
@@ -147,6 +152,7 @@ public actor CmxIrohHostRuntime {
         self.registrationClock = registrationClock
         self.registrationRetrySchedule = registrationRetrySchedule
         self.registrationRetryJitter = registrationRetryJitter
+        self.automaticRelayReadinessTimeout = automaticRelayReadinessTimeout
         self.handleTransport = handleTransport
         self.handleBinding = handleBinding
         self.handleRoute = handleRoute
@@ -275,6 +281,7 @@ public actor CmxIrohHostRuntime {
                 bindingID: policy.binding.bindingID
             )
             var publishedPolicy = policy
+            var relayActivatedDuringStart = false
             let requiresRelayReadiness = !protocolConfiguration
                 .allowsNATTraversalAfterAdmission
             if requiresRelayReadiness {
@@ -314,6 +321,58 @@ public actor CmxIrohHostRuntime {
                 // The online event that released the barrier is already folded
                 // into `readyPolicy`; do not immediately publish a third copy.
                 registrationRefreshPending = false
+            } else if let relayCoordinator {
+                // Register-when-ready for automatic mode: the bootstrap
+                // registration above happens before relay attachment, so its
+                // advertised hints describe a half-ready endpoint that phones
+                // dial and lose against (issue 9724). Start relay activation
+                // now (async, its coordinator owns retries exactly as in the
+                // scheduled path below) and give the relay a bounded window
+                // to become usable so the first published binding carries
+                // dialable hints. Unlike the strict relay-only barrier,
+                // nothing here may fail or stall activation: on timeout or
+                // broker error the bootstrap policy stands and the standard
+                // refresh-on-online path repairs the registration.
+                scheduleRelayActivation(
+                    relayCoordinator,
+                    binding: policy.binding,
+                    endpointID: endpointID,
+                    bootstrap: policy.relayBootstrap,
+                    revision: revision
+                )
+                relayActivatedDuringStart = true
+                do {
+                    try await connectivityEngine.waitForUsableHomeRelay(
+                        timeout: automaticRelayReadinessTimeout
+                    )
+                    try requireCurrent(revision)
+                    let readyPolicy = try await resolvePolicy(
+                        engine: connectivityEngine,
+                        expectedEndpointID: endpointID,
+                        revision: revision,
+                        allowCachedFallback: false
+                    )
+                    try requireCurrent(revision)
+                    if readyPolicy.binding.bindingID == policy.binding.bindingID {
+                        await admissionController.update(
+                            keys: readyPolicy.grantVerificationKeys,
+                            acceptor: grantPeer(for: readyPolicy.binding),
+                            pairingEnabled: readyPolicy.pairingEnabled
+                        )
+                        try requireCurrent(revision)
+                        localBinding = readyPolicy.binding
+                        endpointAttestation = readyPolicy.attestation
+                            ?? endpointAttestation
+                        lanRendezvous = readyPolicy.lanRendezvous
+                        publishedPolicy = readyPolicy
+                        registrationRefreshPending = false
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    // Supersession still aborts; readiness failures do not.
+                    try requireCurrent(revision)
+                }
             }
             let publishedFreshBinding: Bool
             if let registration = publishedPolicy.registration,
@@ -355,7 +414,8 @@ public actor CmxIrohHostRuntime {
                 registrationRefreshPending = false
                 scheduleRegistrationRefresh(revision: revision)
             }
-            if let relayCoordinator, !requiresRelayReadiness {
+            if let relayCoordinator, !requiresRelayReadiness,
+               !relayActivatedDuringStart {
                 scheduleRelayActivation(
                     relayCoordinator,
                     binding: policy.binding,

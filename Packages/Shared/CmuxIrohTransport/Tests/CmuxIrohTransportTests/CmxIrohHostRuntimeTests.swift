@@ -85,8 +85,7 @@ struct CmxIrohHostRuntimeTests {
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
             subsequentRegistrationBindings: [readyBinding],
-            subsequentDiscoveries: [readyDiscovery],
-            relayIssueHook: { await endpoint.emit(.online) }
+            subsequentDiscoveries: [readyDiscovery]
         )
         let routes = HostRuntimeRouteRecorder()
         let runtime = CmxIrohHostRuntime(
@@ -97,11 +96,13 @@ struct CmxIrohHostRuntimeTests {
             handleTransport: { session, _ in await session.close() },
             handleRoute: { binding, pathHints in
                 await routes.record(binding: binding, pathHints: pathHints)
-            }
+            },
+            handleRelayCredential: { _, _ in await endpoint.emit(.online) }
         )
 
         try await runtime.start()
 
+        #expect(await broker.observedRelayIssueCount() == 1)
         let published = await routes.values()
         let firstHints = try #require(published.first?.pathHints)
         #expect(
