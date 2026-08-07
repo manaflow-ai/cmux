@@ -956,6 +956,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n102 1 777 Thu_Jan_1_00:00:00_1970 S\n' \
           > "$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_group=777
+        cmux_ssh_auth_group_anchor=101
         : > "$CMUX_TEST_GROUPS"
         : > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALED_GROUPS"
@@ -1019,6 +1021,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n' > "$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_group=777
+        cmux_ssh_auth_group_anchor=101
         : > "$CMUX_TEST_GROUPS"
         : > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALED_GROUPS"
@@ -1957,6 +1961,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-reaper-generation-\(UUID().uuidString)", isDirectory: true)
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
         let firstLauncherScript = root.appendingPathComponent("first-launcher.sh")
+        let firstIdentityCallerPIDFile = root.appendingPathComponent("first-identity-caller.pid")
         let firstReaperPIDFile = root.appendingPathComponent("first-reaper.pid")
         let firstPublisherReady = root.appendingPathComponent("first-publisher-ready")
         let firstReaperRan = root.appendingPathComponent("first-reaper-ran")
@@ -1983,6 +1988,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           if [ "$1" != "$$" ] && \\
             /bin/mkdir "$CMUX_TEST_FIRST_IDENTITY_GATE" 2>/dev/null; then
             printf '%s\n' "$1" > "$CMUX_TEST_FIRST_REAPER_PID" || exit 99
+            /bin/sh -c 'printf "%s\\n" "$PPID" > "$1"' \
+              cmux-test-owner "$CMUX_TEST_FIRST_IDENTITY_CALLER_PID" || exit 98
             : > "$CMUX_TEST_FIRST_PUBLISHER_READY"
             while :; do /bin/sleep 1; done
           fi
@@ -1997,11 +2004,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         """
         try firstLauncher.write(to: firstLauncherScript, atomically: true, encoding: .utf8)
         defer {
-            if let firstReaperPID = try? Int32(
-                String(contentsOf: firstReaperPIDFile, encoding: .utf8)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            ) {
-                Darwin.kill(firstReaperPID, SIGKILL)
+            for pidFile in [firstReaperPIDFile, firstIdentityCallerPIDFile] {
+                if let processID = try? Int32(
+                    String(contentsOf: pidFile, encoding: .utf8)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                ) {
+                    Darwin.kill(processID, SIGKILL)
+                }
             }
             try? fileManager.removeItem(at: root)
         }
@@ -2057,6 +2066,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             command,
             environment: [
                 "CMUX_TEST_FIRST_IDENTITY_GATE": root.appendingPathComponent("identity-gate").path,
+                "CMUX_TEST_FIRST_IDENTITY_CALLER_PID": firstIdentityCallerPIDFile.path,
                 "CMUX_TEST_FIRST_LAUNCHER": firstLauncherScript.path,
                 "CMUX_TEST_FIRST_PUBLISHER_READY": firstPublisherReady.path,
                 "CMUX_TEST_FIRST_REAPER_PID": firstReaperPIDFile.path,
@@ -3466,6 +3476,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let pidLog = root.appendingPathComponent("pids")
         let cleanupTimingFile = root.appendingPathComponent("cleanup-timing")
         let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let groupRecord = root.appendingPathComponent("group-record")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         try createSecureGroupDirectory(at: groupDirectory)
         defer { try? fileManager.removeItem(at: root) }
@@ -3484,6 +3495,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         """.write(to: chainScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: chainScript.path)
         defer {
+            if let groupID = processGroupID(in: groupRecord) {
+                Darwin.kill(-groupID, SIGKILL)
+            }
             let processIDs = (try? String(contentsOf: pidLog, encoding: .utf8))?
                 .split(separator: "\n")
                 .compactMap { Int32($0) } ?? []
@@ -3506,6 +3520,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 95
+        /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" \
+          "$CMUX_TEST_GROUP_RECORD" || exit 94
         /usr/bin/perl -MTime::HiRes=time -e 'printf "%.9f\\n", time' \
           > "$CMUX_TEST_CLEANUP_TIMING" || exit 97
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
@@ -3520,6 +3537,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
             "CMUX_TEST_CLEANUP_TIMING": cleanupTimingFile.path,
+            "CMUX_TEST_GROUP_RECORD": groupRecord.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
@@ -3546,6 +3564,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         while processIDs.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
             Thread.sleep(forTimeInterval: 0.01)
         }
+        let groupID = try #require(processGroupID(in: groupRecord))
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
@@ -3557,6 +3576,10 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(
             survivingProcessIDs.isEmpty,
             "Foreground authentication cleanup left descendants alive: \(survivingProcessIDs)"
+        )
+        #expect(
+            Darwin.kill(-groupID, 0) != 0,
+            "Foreground authentication cleanup left process group \(groupID) alive"
         )
     }
 
