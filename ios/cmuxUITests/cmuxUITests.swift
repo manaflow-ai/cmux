@@ -2820,6 +2820,34 @@ final class cmuxUITests: XCTestCase {
         XCTAssertEqual(field.value as? String, "Preserve this prompt")
     }
 
+    /// A successful acknowledgement removes the in-flight treatment instead of
+    /// replacing Send with a persistent success glyph.
+    @MainActor
+    func testTerminalComposerReturnsToSendAfterAcknowledgement() async throws {
+        let server = try MobileSyncMockHostServer(holdsTerminalPasteResponse: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let field = app.textFields[Composer.field]
+        XCTAssertTrue(field.waitForExistence(timeout: 4))
+        field.tap()
+        field.typeText("Acknowledge this prompt")
+
+        let send = app.buttons["MobileComposerSend"]
+        XCTAssertTrue(send.waitForExistence(timeout: 3))
+        send.tap()
+        await server.awaitTerminalPasteRequestReached()
+        XCTAssertEqual(send.label, "Sending")
+
+        server.releaseTerminalPasteResponse()
+        let normalSend = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "Send"),
+            object: send
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [normalSend], timeout: 4), .completed)
+    }
+
     /// Freeze fuzzing for the keyboard + layout interactions, modeled on
     /// `testFastPinchZoomDoesNotHangOrCorrupt`. The user report: "Sometimes the
     /// terminal on iOS freezes; we should do some fuzzing around here." The
