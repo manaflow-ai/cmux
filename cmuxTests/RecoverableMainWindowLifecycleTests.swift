@@ -76,6 +76,7 @@ struct RecoverableMainWindowLifecycleTests {
             // Drive the production predicate: both the weak context reference
             // and AppKit identifier lookup fail before prune transitions the
             // already-registered lifecycle record.
+            window.orderOut(nil)
             context.window = nil
             window.identifier = NSUserInterfaceItemIdentifier(
                 "cmux.orphaned.\(windowId.uuidString)"
