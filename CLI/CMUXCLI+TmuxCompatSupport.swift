@@ -2,8 +2,6 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
-    static let claudeTeamsRespawnEnvironmentTransportKey = "CMUX_CLAUDE_TEAMS_RESPAWN_ENV_B64"
-
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
@@ -121,52 +119,13 @@ extension CMUXCLI {
         return tmuxShellInvokedStartCommand("\(exports); \(trimmed)")
     }
 
-    /// Encodes the launcher's non-secret environment for same-launch teammate respawns.
-    ///
-    /// ``AgentLaunchEnvironmentPolicy`` is the repository's shared replay-safe
-    /// allowlist. `PATH` is added explicitly because executable discovery is the
-    /// capability teammate panes lose when the app's GUI environment owns the
-    /// respawn. The consumer applies the same allowlist again, so a forged marker
-    /// cannot promote arbitrary variables or credentials into the pane command.
-    func claudeTeamsRespawnEnvironmentTransportValue(
-        from launcherEnvironment: [String: String]
-    ) -> String? {
-        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
-            from: launcherEnvironment,
-            kind: "claude"
-        )
-        if let path = launcherEnvironment["PATH"] {
-            selected["PATH"] = path
-        }
-        guard let data = try? JSONEncoder().encode(selected) else { return nil }
-        return data.base64EncodedString()
-    }
-
-    /// Decodes and revalidates the same-launch teammate environment transport.
-    func tmuxClaudeTeamsTransportedRespawnEnvironment(
-        processEnvironment: [String: String]
-    ) -> [String: String] {
-        guard let encoded = processEnvironment[Self.claudeTeamsRespawnEnvironmentTransportKey],
-              let data = Data(base64Encoded: encoded),
-              let transported = try? JSONDecoder().decode([String: String].self, from: data) else {
-            return [:]
-        }
-        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
-            from: transported,
-            kind: "claude"
-        )
-        if let path = transported["PATH"] {
-            selected["PATH"] = path
-        }
-        return selected
-    }
-
     /// Environment that a claude-teams teammate pane must start with.
     ///
     /// Teammate panes are respawned by cmux's surface layer, not by `cmux
     /// claude-teams`, so they do NOT inherit the launcher environment the lead
     /// got from `configureClaudeTeamsEnvironment`. The launcher records a
-    /// replay-safe snapshot in ``claudeTeamsRespawnEnvironmentTransportKey``;
+    /// replay-safe snapshot in
+    /// ``ClaudeTeamsRespawnEnvironmentTransport/environmentKey``;
     /// re-supply that snapshot so PATH-based tools and allowlisted Claude
     /// configuration match the lead without copying secrets or surface identity.
     /// `CLAUDE_CODE_SANDBOXED` is handled alongside it: Claude Code short-circuits
@@ -192,8 +151,9 @@ extension CMUXCLI {
     /// the trust boundary outside an explicit opt-in.
     func tmuxClaudeTeamsRespawnEnvironment() -> [(key: String, value: String)] {
         let processEnvironment = ProcessInfo.processInfo.environment
-        var environment = tmuxClaudeTeamsTransportedRespawnEnvironment(
-            processEnvironment: processEnvironment
+        let transport = ClaudeTeamsRespawnEnvironmentTransport()
+        var environment = transport.decodedEnvironment(
+            from: processEnvironment[ClaudeTeamsRespawnEnvironmentTransport.environmentKey]
         )
         if processEnvironment["CMUX_CLAUDE_TEAMS_SANDBOXED"] == "1" {
             environment["CLAUDE_CODE_SANDBOXED"] = "1"
