@@ -958,6 +958,52 @@ fn session_reset_state_rejects_preview_for_recreated_registry() {
 
 #[cfg(unix)]
 #[test]
+fn session_reset_state_rejects_preview_when_session_sidecar_appears() {
+    let dir = unique_temp_dir("session-reset-new-sidecar");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-new-sidecar";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let session_dir = database.parent().unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let sidecar = session_dir.join("workspace-registry.sqlite3-wal");
+    fs::write(&sidecar, b"new-sidecar-state").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token before a new sidecar existed");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(sidecar.exists(), "reset removed a sidecar that was not previewed");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn session_reset_state_bad_token_does_not_mutate_state_root() {
     let dir = unique_temp_dir("session-reset-bad-token-no-mutation");
     fs::create_dir_all(&dir).unwrap();

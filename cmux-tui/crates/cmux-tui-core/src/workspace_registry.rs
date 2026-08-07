@@ -569,8 +569,7 @@ fn canonical_reset_path(path: &Path) -> String {
 }
 
 fn session_reset_target_fingerprint(session_dir: &Path) -> String {
-    let mut fingerprint =
-        format!("session:{}", reset_path_stable_metadata_fingerprint(session_dir));
+    let mut fingerprint = reset_dir_fingerprint("session", session_dir);
     let database_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
     fingerprint.push_str(";registry_file=");
     fingerprint.push_str(&reset_path_metadata_fingerprint(&database_path));
@@ -629,24 +628,6 @@ fn reset_path_metadata_fingerprint(path: &Path) -> String {
     format!("{kind}:{}", metadata_identity(&metadata))
 }
 
-fn reset_path_stable_metadata_fingerprint(path: &Path) -> String {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return "missing".into(),
-        Err(error) => return format!("error:{}", error.kind()),
-    };
-    let kind = if metadata.file_type().is_dir() {
-        "dir"
-    } else if metadata.file_type().is_file() {
-        "file"
-    } else if metadata.file_type().is_symlink() {
-        "symlink"
-    } else {
-        "other"
-    };
-    format!("{kind}:{}", stable_metadata_identity(&metadata))
-}
-
 #[cfg(unix)]
 fn metadata_identity(metadata: &fs::Metadata) -> String {
     use std::os::unix::fs::MetadataExt;
@@ -662,13 +643,6 @@ fn metadata_identity(metadata: &fs::Metadata) -> String {
     )
 }
 
-#[cfg(unix)]
-fn stable_metadata_identity(metadata: &fs::Metadata) -> String {
-    use std::os::unix::fs::MetadataExt;
-
-    format!("dev={},ino={},mode={}", metadata.dev(), metadata.ino(), metadata.mode())
-}
-
 #[cfg(not(unix))]
 fn metadata_identity(metadata: &fs::Metadata) -> String {
     let modified = metadata
@@ -682,11 +656,6 @@ fn metadata_identity(metadata: &fs::Metadata) -> String {
         metadata.permissions().readonly(),
         metadata.len()
     )
-}
-
-#[cfg(not(unix))]
-fn stable_metadata_identity(metadata: &fs::Metadata) -> String {
-    metadata_identity(metadata)
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {
@@ -3097,6 +3066,9 @@ const MACHINE_ID_FILE: &str = "machine-id";
 const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
 const SESSION_GUARD_DIR: &str = "session-locks";
 const SESSION_GUARD_COORDINATOR_FILE: &str = ".coordinator.lock";
+const SESSION_GUARD_COORDINATOR_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(250);
+const SESSION_GUARD_COORDINATOR_RETRY: std::time::Duration = std::time::Duration::from_millis(5);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
@@ -3519,9 +3491,25 @@ impl SessionLease {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
         validate_session_lock_file(path, &file)?;
-        FileExt::try_lock(&file).with_context(|| {
-            format!("workspace session coordinator is busy: {}", path.display())
-        })?;
+        let deadline = std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT;
+        loop {
+            match FileExt::try_lock(&file) {
+                Ok(()) => break,
+                Err(fs4::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(SESSION_GUARD_COORDINATOR_RETRY);
+                }
+                Err(fs4::TryLockError::WouldBlock) => {
+                    return Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)).with_context(
+                        || format!("workspace session coordinator is busy: {}", path.display()),
+                    );
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("lock workspace session coordinator: {}", path.display())
+                    });
+                }
+            }
+        }
         Ok(Self { file, path: path.to_path_buf() })
     }
 }
