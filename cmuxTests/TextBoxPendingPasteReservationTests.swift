@@ -295,6 +295,33 @@ struct TextBoxPendingPasteReservationTests {
         #expect(probe.changeCount == 1)
     }
 
+    @Test("commit clears and publishes a reservation whose marker disappeared")
+    func commitClearsReservationAfterMarkerDisappears() throws {
+        let (window, textView) = makeTextView()
+        defer { close(window) }
+        selectMiddleWord(in: textView)
+        let pasteID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: pasteID)
+        let markerRange = try #require(
+            textView.pendingAttachmentUploadPlaceholderRange(id: pasteID)
+        )
+        textView.textStorage?.removeAttribute(
+            TextBoxInputTextView.pendingAttachmentUploadPlaceholderAttribute,
+            range: markerRange
+        )
+        let probe = TextChangeProbe(publishedText: textView.string)
+        textView.delegate = probe
+
+        #expect(
+            !textView.replacePendingAttachmentUploadPlaceholder(
+                id: pasteID,
+                withText: "prepared"
+            )
+        )
+        #expect(textView.pendingPasteReservations[pasteID] == nil)
+        #expect(probe.changeCount == 1)
+    }
+
     @Test("backspace over a pending paste restores selected content")
     func backspaceOverPendingPasteRestoresSelectedContent() {
         let (window, textView) = makeTextView()
