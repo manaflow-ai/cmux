@@ -435,7 +435,7 @@ impl PersistentSessionStateResetter {
             &initial_pending_reset_dirs,
             confirm_reset,
         )?;
-        let session_guard = acquire_existing_session_guard(root, session_name)?;
+        let session_guard = acquire_existing_session_reset_guard(root, session_name)?;
         let lock_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let lock_session_dir_exists = validate_session_reset_dir(&session_dir)?;
         let lock_terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
@@ -452,8 +452,7 @@ impl PersistentSessionStateResetter {
             }
         }
         let lease = if lock_session_dir_exists {
-            platform::restrict_directory(&session_dir)?;
-            Some(SessionLease::acquire(&session_dir.join("writer.lock"))?)
+            SessionLease::acquire_existing(&session_dir.join("writer.lock"))?
         } else {
             None
         };
@@ -472,9 +471,6 @@ impl PersistentSessionStateResetter {
         let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
         if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
             return Ok(reset);
-        }
-        if session_dir_exists && lease.is_none() {
-            anyhow::bail!("reset path changed during reset: {}", session_dir.display());
         }
         let confirmation = require_reset_confirmation(
             root,
@@ -3486,6 +3482,20 @@ fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<Sess
 
 fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     platform::restrict_directory(root)?;
+    acquire_session_guard_from_private_dir(root, session_name)
+}
+
+fn acquire_existing_session_reset_guard(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionLease> {
+    acquire_session_guard_from_private_dir(root, session_name)
+}
+
+fn acquire_session_guard_from_private_dir(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<SessionLease> {
     let lock_dir = prepare_session_guard_dir(root)?;
     let _coordinator =
         SessionLease::acquire_coordinator(&session_guard_coordinator_path(&lock_dir))
@@ -3919,6 +3929,17 @@ impl SessionLease {
         Ok(Self { file, path: path.to_path_buf() })
     }
 
+    fn acquire_existing(path: &Path) -> anyhow::Result<Option<Self>> {
+        let Some(file) = open_existing_session_lock_file(path)? else {
+            return Ok(None);
+        };
+        validate_session_lock_file(path, &file)?;
+        FileExt::try_lock(&file).with_context(|| {
+            format!("workspace session is already owned by another daemon: {}", path.display())
+        })?;
+        Ok(Some(Self { file, path: path.to_path_buf() }))
+    }
+
     fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
         let file = open_session_lock_file(path)?;
         restrict_session_lock_file(path, &file)?;
@@ -3957,6 +3978,24 @@ fn open_session_lock_file(path: &Path) -> anyhow::Result<File> {
     let file = options.open(path)?;
     validate_session_lock_file(path, &file)?;
     Ok(file)
+}
+
+fn open_existing_session_lock_file(path: &Path) -> anyhow::Result<Option<File>> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    match options.open(path) {
+        Ok(file) => {
+            validate_session_lock_file(path, &file)?;
+            Ok(Some(file))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn validate_session_lock_file(path: &Path, file: &File) -> anyhow::Result<()> {

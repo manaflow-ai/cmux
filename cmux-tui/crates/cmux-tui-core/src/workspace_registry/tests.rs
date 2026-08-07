@@ -130,6 +130,50 @@ fn reset_removes_selected_session_guard_file() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn reset_does_not_restrict_supplied_state_root() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-preserves-state-root-mode");
+    let session = "reset-preserves-state-root-mode";
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(session_dir.join("writer.lock"), b"").unwrap();
+    let before_mode = fs::metadata(&root).unwrap().permissions().mode() & 0o777;
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert_eq!(before_mode, 0o755);
+    assert_eq!(fs::metadata(&root).unwrap().permissions().mode() & 0o777, before_mode);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_accepts_restored_session_without_writer_lock() {
+    let root = temp_root("reset-restored-without-writer-lock");
+    let session = "reset-restored-without-writer-lock";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let writer_lock = session_dir.join("writer.lock");
+    assert!(!writer_lock.exists());
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(!session_dir.exists(), "reset left restored session state behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn reset_retries_previous_private_deletion_dir() {
     let root = temp_root("reset-retries-private-delete");
