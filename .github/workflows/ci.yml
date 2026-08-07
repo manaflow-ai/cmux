@@ -1173,13 +1173,12 @@ jobs:
   swift-package-tests:
     needs:
       - changes
-      - linux-preflight
     # !cancelled() disables the implicit success() gate, which GitHub evaluates
     # over the transitive needs chain: linux-preflight runs behind routed linux
     # jobs that legitimately skip (web/go/agent-session paths), and that
     # transitive skip otherwise marks every macOS job skipped even when
     # linux-preflight itself succeeds. Require the direct needs explicitly.
-    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.macos == 'true' }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
     runs-on: macos-26
     timeout-minutes: 40
