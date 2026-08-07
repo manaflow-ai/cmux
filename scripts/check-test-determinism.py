@@ -814,7 +814,7 @@ _ARGUMENT_LABEL = re.compile(
     (?:
         (?P<bare>[A-Za-z_][A-Za-z0-9_]*)\s*(?:=|:)
       | (?P<quote>["'])(?P<quoted>[A-Za-z_][A-Za-z0-9_]*)(?P=quote)\s*:
-      | \[\s*(?P<computed_quote>["'])
+      | \[\s*(?P<computed_quote>["'`])
         (?P<computed>[A-Za-z_][A-Za-z0-9_]*)
         (?P=computed_quote)\s*\]\s*:
     )
@@ -1243,7 +1243,8 @@ def _shell_eval_source_ranges(
     argument_start: int,
 ) -> list[tuple[int, int]]:
     statement_end = _shell_statement_end(line, argument_start)
-    return _quoted_literals_in_range(line, argument_start, statement_end)
+    bounds = _trim_bounds(line, argument_start, statement_end)
+    return [bounds] if bounds[0] < bounds[1] else []
 
 
 def _call_uses_explicit_shell(
@@ -1459,7 +1460,11 @@ def _launcher_target_ranges(
         for launcher in _SHELL_EVAL_LAUNCHER.finditer(line):
             if launcher.start() >= verb_start:
                 break
-            if _is_inside_string_literal(line, launcher.start(), path_suffix):
+            command_word = _shell_command_word_bounds(line, launcher.start())
+            if command_word is None or not _bounds_contain_offset(
+                command_word,
+                launcher.start(),
+            ):
                 continue
             ranges = _shell_eval_source_ranges(line, launcher.end())
             if any(_bounds_contain_offset(bounds, verb_start) for bounds in ranges):
@@ -1528,6 +1533,7 @@ def _network_target_ranges(
         direct_ranges = _direct_network_target_ranges(line, match, path_suffix)
         if direct_ranges:
             return direct_ranges
+        return _launcher_target_ranges(line, verb_start, path_suffix)
     if _is_inside_string_literal(line, verb_start, path_suffix):
         return _launcher_target_ranges(line, verb_start, path_suffix)
     return _direct_network_target_ranges(line, match, path_suffix)
@@ -2482,6 +2488,11 @@ def _self_test() -> int:
         (
             "tests/n18i_shell_argument.sh",
             "printf curl https://api.openai.com/v1/items\n",
+        ),
+        # Merely passing eval and curl as arguments does not execute either one.
+        (
+            "tests/n18i_shell_eval_argument.sh",
+            "printf eval curl https://api.openai.com/v1/items\n",
         ),
         # Python does not split a string command unless shell=True is explicit.
         (
