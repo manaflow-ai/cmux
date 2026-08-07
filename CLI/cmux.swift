@@ -32771,27 +32771,16 @@ export default CMUXSessionRestore;
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        // Shared side-effect path with `runFeedHook`: the wrapper-injected
-        // hooks route tool telemetry here (`hooks codex post-tool-use`), so
-        // the native-approval-prompt clear must ride this lane too — or
-        // wrapper-launched seats would post the permission notification via
-        // `hooks codex notification` and never clear it on tool completion.
-        // The clear precedes the (larger, nonessential) feed frame so a
-        // failed telemetry write cannot swallow it.
-        var lines: [String] = []
-        if FeedEventClassifier.classify(
-            source: source,
-            event: hookEventName,
-            toolName: toolName ?? ""
-        ).clearsNativeApprovalPrompt,
-           let clearLine = nativeApprovalPromptClearCommand(
-                eventDict: event,
-                env: ProcessInfo.processInfo.environment
-           ) {
-            lines.append(clearLine)
-        }
-        lines.append(line)
-        sendBestEffortFeedTelemetry(socketPath: client.socketPath, lines: lines, socketPassword: socketPassword)
+        // Deliberately NO native-approval-prompt clear on this lane: the
+        // wrapper-injected codex hooks that reach it (`hooks codex
+        // post-tool-use`) run as fire-and-forget nohup workers with no
+        // ordering guarantee, so a delayed completion worker's clear could
+        // erase a NEWER request's live permission notification — silencing a
+        // blocked agent (#9592). Only the synchronous feed-hook path
+        // (`runFeedHook`), whose events arrive in codex's own order, emits
+        // the clear; wrapper-path staleness self-heals at the next
+        // `prompt-submit`, which already clears the pane.
+        sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
     }
 
     private func feedContextForEvent(
