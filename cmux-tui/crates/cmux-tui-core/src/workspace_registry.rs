@@ -435,17 +435,26 @@ pub fn reset_persistent_session_state(
     if !session_dir_exists && !terminal_host_root_exists {
         return Ok(reset);
     }
+    require_reset_confirmation(
+        root,
+        session_name,
+        &session_dir,
+        &terminal_host_root,
+        confirm_reset,
+    )?;
     let _session_guard = acquire_existing_session_guard(root, session_name)?;
     let session_dir_exists = validate_session_reset_dir(&session_dir)?;
     let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
     if !session_dir_exists && !terminal_host_root_exists {
         return Ok(reset);
     }
-    let confirmation =
-        reset_confirmation_token(root, session_name, &session_dir, &terminal_host_root);
-    if confirm_reset != Some(confirmation.as_str()) {
-        anyhow::bail!("reset confirmation is required");
-    }
+    require_reset_confirmation(
+        root,
+        session_name,
+        &session_dir,
+        &terminal_host_root,
+        confirm_reset,
+    )?;
     if session_dir_exists {
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         if !db_path.is_file() {
@@ -458,6 +467,18 @@ pub fn reset_persistent_session_state(
     } else {
         None
     };
+    let session_dir_exists = validate_session_reset_dir(&session_dir)?;
+    let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
+    if !session_dir_exists && !terminal_host_root_exists {
+        return Ok(reset);
+    }
+    require_reset_confirmation(
+        root,
+        session_name,
+        &session_dir,
+        &terminal_host_root,
+        confirm_reset,
+    )?;
     if terminal_host_root_exists {
         prepare_terminal_host_root_for_reset(&terminal_host_root)?;
     }
@@ -499,6 +520,21 @@ fn validate_reset_child_dir(path: &Path, label: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+fn require_reset_confirmation(
+    state_root: &Path,
+    session_name: &str,
+    session_dir: &Path,
+    terminal_host_root: &Path,
+    confirm_reset: Option<&str>,
+) -> anyhow::Result<()> {
+    let confirmation =
+        reset_confirmation_token(state_root, session_name, session_dir, terminal_host_root);
+    if confirm_reset == Some(confirmation.as_str()) {
+        return Ok(());
+    }
+    anyhow::bail!("reset confirmation is required");
+}
+
 fn reset_confirmation_token(
     state_root: &Path,
     session_name: &str,
@@ -535,8 +571,6 @@ fn session_reset_target_fingerprint(session_dir: &Path) -> String {
     let database_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
     fingerprint.push_str(";registry_file=");
     fingerprint.push_str(&reset_path_metadata_fingerprint(&database_path));
-    fingerprint.push_str(";registry_meta=");
-    fingerprint.push_str(&registry_meta_fingerprint(&database_path));
     fingerprint
 }
 
@@ -650,31 +684,6 @@ fn metadata_identity(metadata: &fs::Metadata) -> String {
 #[cfg(not(unix))]
 fn stable_metadata_identity(metadata: &fs::Metadata) -> String {
     metadata_identity(metadata)
-}
-
-fn registry_meta_fingerprint(database_path: &Path) -> String {
-    let connection =
-        match Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
-            Ok(connection) => connection,
-            Err(error) => return format!("open-error:{error}"),
-        };
-    let _ = connection.busy_timeout(std::time::Duration::from_millis(500));
-    let keys = [
-        "registry_id",
-        "schema_version",
-        "revision",
-        "terminal_revision",
-        "resource_revision",
-        "session_public_id",
-    ];
-    let mut values = Vec::with_capacity(keys.len());
-    for key in keys {
-        values.push(format!(
-            "{key}={}",
-            meta_value(&connection, key).ok().flatten().unwrap_or_else(|| "missing".into())
-        ));
-    }
-    values.join(",")
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {
@@ -3102,7 +3111,10 @@ fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Re
 
 #[cfg(unix)]
 fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
     let records = crate::terminal_host_runtime::load_terminal_host_records(root)?;
+    let expected_uid = fs::metadata(root)?.uid();
     let expected_live_markers = records
         .iter()
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
@@ -3113,6 +3125,7 @@ fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
         let path = entry?.path();
         if path.extension().and_then(|value| value.to_str()) == Some("live")
             && !expected_live_markers.contains(&path)
+            && !remove_verified_dead_orphan_live_marker(&path, expected_uid)?
         {
             anyhow::bail!("terminal host state still has live or unverified hosts");
         }
@@ -3140,6 +3153,50 @@ fn terminal_host_live_marker_path(
     record: &crate::terminal_host_runtime::TerminalHostRecord,
 ) -> PathBuf {
     record_path.with_extension(format!("{}-{}.live", record.incarnation, record.host_start_nonce))
+}
+
+#[cfg(unix)]
+fn remove_verified_dead_orphan_live_marker(path: &Path, expected_uid: u32) -> anyhow::Result<bool> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+        Err(_) => return Ok(false),
+    };
+    let metadata = file.metadata()?;
+    if !metadata.file_type().is_file()
+        || metadata.uid() != expected_uid
+        || metadata.nlink() != 1
+        || metadata.mode() & 0o077 != 0
+    {
+        return Ok(false);
+    }
+    loop {
+        // SAFETY: flock only observes/changes the advisory lock on this valid file descriptor.
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result == 0 {
+            // SAFETY: same valid descriptor as above. Unlock before closing the probe descriptor.
+            let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+            drop(file);
+            match fs::remove_file(path) {
+                Ok(()) => return Ok(true),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Ok(false);
+    }
 }
 
 #[cfg(not(unix))]

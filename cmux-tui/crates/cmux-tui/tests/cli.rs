@@ -812,6 +812,58 @@ fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
 
 #[cfg(unix)]
 #[test]
+fn session_reset_state_removes_dead_orphan_terminal_host_live_marker() {
+    let dir = unique_temp_dir("session-reset-dead-orphan-host-marker");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-dead-orphan-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let live_marker = host_root.join("orphan.live");
+    fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_marker)
+        .unwrap();
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    assert!(!database.exists(), "reset left the registry after removing a dead live marker");
+    assert!(!host_root.exists(), "reset left terminal-host state after removing a dead marker");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn session_reset_state_rejects_stale_preview_when_targets_change() {
     let dir = unique_temp_dir("session-reset-stale-preview");
     fs::create_dir_all(&dir).unwrap();
@@ -900,6 +952,39 @@ fn session_reset_state_rejects_preview_for_recreated_registry() {
         .unwrap();
     assert!(!reset.status.success(), "reset accepted a token from a replaced registry");
     assert!(recreated_database.exists(), "reset removed the recreated registry");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_bad_token_does_not_mutate_state_root() {
+    let dir = unique_temp_dir("session-reset-bad-token-no-mutation");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    fs::create_dir_all(&state).unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
+    let session = "schema-reset-bad-token";
+    let session_dir = cmux_tui_core::persistent_session_state_dir(&state, session);
+    fs::create_dir_all(&session_dir).unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            "wrong-token",
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a wrong confirmation token");
+    assert!(!state.join("session-locks").exists(), "wrong-token reset created session locks");
+    assert_eq!(fs::metadata(&state).unwrap().permissions().mode() & 0o777, 0o755);
 
     fs::remove_dir_all(dir).unwrap();
 }
