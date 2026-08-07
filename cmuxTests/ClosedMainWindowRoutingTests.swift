@@ -161,6 +161,70 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowCId })
         #expect(app.focusMainWindow(windowId: windowCId))
     }
+
+    @Test("Recovered visible window stays in the session snapshot")
+    func recoveredVisibleWindowStaysInSessionSnapshot() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let registeredWindowId = UUID()
+        let recoveredWindowId = UUID()
+        let registeredWindow = makeMainWindow(id: registeredWindowId)
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: registeredWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            registeredWindow.orderOut(nil)
+            recoveredWindow.orderOut(nil)
+        }
+
+        let registeredManager = TabManager()
+        let recoveredManager = TabManager()
+        app.registerMainWindow(
+            registeredWindow,
+            windowId: registeredWindowId,
+            tabManager: registeredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            recoveredWindow,
+            windowId: recoveredWindowId,
+            tabManager: recoveredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        registeredWindow.makeKeyAndOrderFront(nil)
+        recoveredWindow.makeKeyAndOrderFront(nil)
+
+        let registeredWorkspace = try #require(registeredManager.selectedWorkspace)
+        let recoveredWorkspace = try #require(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try #require(recoveredWorkspace.focusedTerminalPanel)
+        #expect(
+            GhosttyApp.terminalSurfaceRegistry.surface(id: recoveredTerminal.id)
+                === recoveredTerminal.surface
+        )
+
+        app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+
+        #expect(app.listMainWindowSummaries().contains { $0.windowId == recoveredWindowId })
+        let snapshot = try #require(app.sessionSnapshotForTesting())
+        #expect(
+            Set(snapshot.windows.compactMap(\.windowId))
+                == Set([registeredWindowId, recoveredWindowId])
+        )
+        #expect(
+            Set(snapshot.windows.flatMap(\.tabManager.workspaces).compactMap(\.workspaceId))
+                == Set([registeredWorkspace.id, recoveredWorkspace.id])
+        )
+    }
 }
 
 @MainActor
