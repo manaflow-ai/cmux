@@ -27,6 +27,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         window.isReleasedWhenClosed = false
         let container = NSView(frame: NSRect(origin: .zero, size: size))
         window.contentView = container
+        window.orderFront(nil)
 
         let currentHost = NSHostingView(rootView: AnyView(
             GhosttyTerminalView(
@@ -40,8 +41,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         ))
         currentHost.frame = container.bounds
         container.addSubview(currentHost)
-        container.layoutSubtreeIfNeeded()
-        currentHost.layoutSubtreeIfNeeded()
+        settleHostingView(currentHost, in: window)
 
         #expect(attentionStrokeHexes(in: panel.hostedView).filter { $0 == "#FF69B4" }.count >= 2)
 
@@ -57,8 +57,7 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
         ))
         staleHost.frame = container.bounds
         container.addSubview(staleHost)
-        container.layoutSubtreeIfNeeded()
-        staleHost.layoutSubtreeIfNeeded()
+        settleHostingView(staleHost, in: window)
 
         let strokeHexes = attentionStrokeHexes(in: panel.hostedView)
         #expect(strokeHexes.filter { $0 == "#FF69B4" }.count >= 2)
@@ -226,6 +225,15 @@ struct GhosttyTerminalViewVisibilityPolicyTests {
             guard let strokeColor = layer.strokeColor,
                   let color = NSColor(cgColor: strokeColor) else { return nil }
             return color.hexString()
+        }
+    }
+
+    private func settleHostingView(_ hostingView: NSView, in window: NSWindow) {
+        for _ in 0..<4 {
+            window.displayIfNeeded()
+            window.contentView?.layoutSubtreeIfNeeded()
+            hostingView.layoutSubtreeIfNeeded()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
         }
     }
 
