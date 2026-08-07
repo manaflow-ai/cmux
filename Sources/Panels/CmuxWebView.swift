@@ -13,6 +13,12 @@ final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
+    // WebKit registers web-content edit commands on the view's `undoManager`;
+    // owning one per web view keeps every page's undo stack scoped to this
+    // view's lifetime instead of the window's shared undo manager.
+    // See CmuxWebViewWebContentUndo.swift.
+    let webContentUndoManager = UndoManager()
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -801,6 +807,17 @@ final class CmuxWebView: WKWebView {
 #endif
                 return
             }
+        }
+
+        // An undo/redo chord reaching keyDown has already been offered to the
+        // page through performKeyEquivalent and declined (WebKit resends
+        // unhandled keys). Perform the web view's own editing undo/redo here;
+        // re-forwarding the chord into WebKit drops it (issue #9677).
+        if performWebContentUndoRedo(for: event) {
+#if DEBUG
+            route = "webContentUndoRedo"
+#endif
+            return
         }
 
         if Self.isPasteAsPlainTextCommandEquivalent(event) {

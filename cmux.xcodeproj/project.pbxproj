@@ -866,6 +866,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE58990000000000000004 /* CmuxWebViewKeyDownReentryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */; };
 		7D5DA4DC51454ECDBF9AC978 /* CmuxWebViewMouseNavigationButtonTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */; };
 		A28B087F0000000000000007 /* CmuxWebViewSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A28B087F0000000000000008 /* CmuxWebViewSupport.swift */; };
+		C0DE58990000000000000024 /* CmuxWebViewWebContentUndo.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000022 /* CmuxWebViewWebContentUndo.swift */; };
 		C0DE58990000000000000014 /* CmuxWebViewWebContentUndoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE58990000000000000012 /* CmuxWebViewWebContentUndoTests.swift */; };
 		5E55200000000000000000B3 /* CmuxWindowing in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55200000000000000000B2 /* CmuxWindowing */; };
 		730600040000000000000001 /* CmuxWindowing in Frameworks */ = {isa = PBXBuildFile; productRef = 5E55200000000000000000B2 /* CmuxWindowing */; };
@@ -3523,6 +3524,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE58990000000000000002 /* CmuxWebViewKeyDownReentryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewKeyDownReentryTests.swift; sourceTree = "<group>"; };
 		43F90FAF3FD44F11BF547BE9 /* CmuxWebViewMouseNavigationButtonTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewMouseNavigationButtonTests.swift; sourceTree = "<group>"; };
 		A28B087F0000000000000008 /* CmuxWebViewSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebViewSupport.swift; sourceTree = "<group>"; };
+		C0DE58990000000000000022 /* CmuxWebViewWebContentUndo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxWebViewWebContentUndo.swift; sourceTree = "<group>"; };
 		C0DE58990000000000000012 /* CmuxWebViewWebContentUndoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWebViewWebContentUndoTests.swift; sourceTree = "<group>"; };
 		C51A73000000000000000014 /* CmuxWorkerEntrypoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkerEntrypoint.swift; sourceTree = "<group>"; };
 		E30750000000000000000003 /* CmuxWorkspaceDefinition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxWorkspaceDefinition.swift; sourceTree = "<group>"; };
@@ -6934,6 +6936,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001426 /* FilePreviewPDFSizing.swift */,
 				C0DE86520000000000000008 /* FilePreviewPDFZoomChromeView.swift */,
 				A5001510 /* CmuxWebView.swift */,
+				C0DE58990000000000000022 /* CmuxWebViewWebContentUndo.swift */,
 				A28B087F0000000000000008 /* CmuxWebViewSupport.swift */,
 				A28B087F0000000000000010 /* BrowserImageCopyPasteboardPayload.swift */,
 				A28B087F0000000000000012 /* BrowserFocusModeKeyDecision.swift */,
@@ -9024,6 +9027,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C67540030000000000000001 /* CmuxWebView+SubframeDownloadIntentScript.swift in Sources */,
 				A5001500 /* CmuxWebView.swift in Sources */,
 				A28B087F0000000000000007 /* CmuxWebViewSupport.swift in Sources */,
+				C0DE58990000000000000024 /* CmuxWebViewWebContentUndo.swift in Sources */,
 				C51A73000000000000000013 /* CmuxWorkerEntrypoint.swift in Sources */,
 				E30750000000000000000004 /* CmuxWorkspaceDefinition.swift in Sources */,
 				C0A1E5CE01C0A1E5CE01A001 /* CoalesceLatestPublisher.swift in Sources */,
