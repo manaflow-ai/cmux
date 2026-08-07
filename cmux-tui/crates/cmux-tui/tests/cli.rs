@@ -1134,6 +1134,62 @@ fn session_reset_state_rejects_symlinked_terminal_host_state() {
     fs::remove_dir_all(dir).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn session_reset_state_accepts_symlinked_state_root() {
+    let dir = unique_temp_dir("session-reset-symlink-root");
+    fs::create_dir_all(&dir).unwrap();
+    let actual_state = dir.join("actual-state");
+    let state = dir.join("state-link");
+    let session = "schema-reset-symlink-root";
+    fs::create_dir_all(&actual_state).unwrap();
+    fs::write(actual_state.join("root-sentinel"), b"keep").unwrap();
+    symlink(&actual_state, &state).unwrap();
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&actual_state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::write(host_root.join("orphaned-sidecar"), b"stale").unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    assert_eq!(preview["state_root"], state.display().to_string());
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "--json",
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    let reset: serde_json::Value = serde_json::from_slice(&reset.stdout).unwrap();
+    assert_eq!(reset["removed_session_state"], true);
+    assert_eq!(reset["removed_terminal_hosts"], true);
+    assert!(!database.exists(), "reset left stale database");
+    assert!(!host_root.exists(), "reset left stale terminal-host state");
+    assert!(fs::symlink_metadata(&state).unwrap().file_type().is_symlink());
+    assert!(actual_state.join("root-sentinel").exists(), "reset removed root sibling data");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn session_reset_state_missing_target_does_not_mutate_state_root() {
     let dir = unique_temp_dir("session-reset-missing-target");

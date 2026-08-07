@@ -414,16 +414,8 @@ impl PersistentSessionStateResetter {
             removed_session_state: false,
             removed_terminal_hosts: false,
         };
-        let root_metadata = match fs::symlink_metadata(root) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(reset),
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("inspect workspace state root {}", root.display()));
-            }
-        };
-        if !root_metadata.file_type().is_dir() {
-            anyhow::bail!("workspace state root is not a directory: {}", root.display());
+        if !workspace_state_root_exists(root)? {
+            return Ok(reset);
         }
         let initial_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let initial_session_dir_exists = validate_session_reset_dir(&session_dir)?;
@@ -612,16 +604,8 @@ fn pending_session_reset_dirs(
     root: &Path,
     session_name: &str,
 ) -> anyhow::Result<Vec<PendingSessionResetDir>> {
-    let metadata = match fs::symlink_metadata(root) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("inspect workspace state root {}", root.display()));
-        }
-    };
-    if !metadata.file_type().is_dir() {
-        anyhow::bail!("workspace state root is not a directory: {}", root.display());
+    if !workspace_state_root_exists(root)? {
+        return Ok(Vec::new());
     }
 
     let storage_component = session_storage_component(session_name);
@@ -655,6 +639,21 @@ fn pending_session_reset_dirs(
     }
     reset_dirs.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(reset_dirs)
+}
+
+fn workspace_state_root_exists(root: &Path) -> anyhow::Result<bool> {
+    let metadata = match fs::metadata(root) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect workspace state root {}", root.display()));
+        }
+    };
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("workspace state root is not a directory: {}", root.display());
+    }
+    Ok(true)
 }
 
 fn validate_session_reset_dir(path: &Path) -> anyhow::Result<bool> {
