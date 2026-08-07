@@ -120,19 +120,19 @@ final class FilePreviewQuickLookSession {
             let nextItem = FilePreviewQLItem(url: url, title: title)
             item = nextItem
             itemRevision = revision
-            for previewView in livePreviewViews() {
-                previewView.previewItem = nextItem
+            for container in livePreviewContainers() {
+                container.setPreviewItem(nextItem)
             }
             return
         }
 
         guard let item else { return }
-        let previewViews = livePreviewViews()
-        for previewView in previewViews where previewView.previewItem !== item {
-            previewView.previewItem = item
+        let containers = livePreviewContainers()
+        for container in containers where container.previewItem !== item {
+            container.setPreviewItem(item)
         }
         guard itemRevision != revision else { return }
-        for previewView in previewViews {
+        for previewView in containers.compactMap({ $0.livePreviewView() }) {
             Self.refreshPreservingDisplayState(previewView)
         }
         itemRevision = revision
@@ -146,9 +146,9 @@ final class FilePreviewQuickLookSession {
         }
     }
 
-    private func livePreviewViews() -> [QLPreviewView] {
+    private func livePreviewContainers() -> [FilePreviewQuickLookContainerView] {
         liveViews.allObjects.compactMap {
-            ($0 as? FilePreviewQuickLookContainerView)?.livePreviewView()
+            $0 as? FilePreviewQuickLookContainerView
         }
     }
 }
