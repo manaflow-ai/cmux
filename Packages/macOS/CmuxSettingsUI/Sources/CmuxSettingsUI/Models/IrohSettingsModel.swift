@@ -11,6 +11,8 @@ final class IrohSettingsModel {
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
+    private(set) var connectionCheck: CmxIrohConnectionCheckReport?
+    private(set) var isRunningConnectionCheck = false
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
     private var diagnosticReloadGeneration: UInt64 = 0
@@ -23,6 +25,10 @@ final class IrohSettingsModel {
         guard let controller else { return }
         snapshot = await controller.irohSettingsSnapshot()
         await reloadDiagnostics(using: controller)
+        if snapshot.runtimeStatus == .degraded,
+           diagnosticReport.lastFailureKind != nil {
+            await runConnectionCheckAndWait(using: controller)
+        }
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
             snapshot = next
@@ -79,6 +85,11 @@ final class IrohSettingsModel {
         }
     }
 
+    func runConnectionCheck() {
+        guard let controller, !isRunningConnectionCheck else { return }
+        Task { await runConnectionCheckAndWait(using: controller) }
+    }
+
     func clearSaveError() {
         showsSaveError = false
     }
@@ -119,5 +130,16 @@ final class IrohSettingsModel {
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
         diagnosticExportText = exportText
+    }
+
+    private func runConnectionCheckAndWait(
+        using controller: any CmxIrohSettingsControlling
+    ) async {
+        guard !isRunningConnectionCheck else { return }
+        isRunningConnectionCheck = true
+        defer { isRunningConnectionCheck = false }
+        connectionCheck = await controller.runIrohConnectionCheck()
+        snapshot = await controller.irohSettingsSnapshot()
+        await reloadDiagnostics(using: controller)
     }
 }

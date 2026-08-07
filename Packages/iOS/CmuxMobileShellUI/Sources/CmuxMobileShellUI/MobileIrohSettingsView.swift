@@ -144,6 +144,12 @@ struct MobileIrohSettingsView: View {
             }
             #endif
 
+            MobileIrohConnectionCheckSection(
+                report: model.connectionCheck,
+                isRunning: model.isRunningConnectionCheck,
+                run: model.runConnectionCheck
+            )
+
             MobileIrohDiagnosticsSection(
                 connectionStatus: runtimeStatusText,
                 policyStatus: policyStatusText,

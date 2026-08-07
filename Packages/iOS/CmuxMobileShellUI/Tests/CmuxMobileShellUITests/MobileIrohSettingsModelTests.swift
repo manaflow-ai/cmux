@@ -99,6 +99,23 @@ struct MobileIrohSettingsModelTests {
         #expect(!model.showsSaveError)
     }
 
+    @Test func connectionCheckPublishesTheStagedResultAndClearsProgress() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
+        controller.connectionCheck = CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: .unavailable,
+            diagnostics: .empty,
+            relayReachability: .unreachable
+        )
+        let model = MobileIrohSettingsModel(controller: controller)
+
+        model.runConnectionCheck()
+        await waitUntil { model.connectionCheck == controller.connectionCheck }
+
+        #expect(controller.connectionCheckRunCount == 1)
+        #expect(!model.isRunningConnectionCheck)
+    }
+
     @Test func customPrivatePathMutationsForwardExactMacScopedDraft() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let model = MobileIrohSettingsModel(controller: controller)
@@ -267,6 +284,8 @@ private final class MobileIrohSettingsControllerDouble:
     var debugTransportModeMutations: [CmxIrohTransportVerificationMode] = []
     var customPrivatePathUpserts: [CmxIrohCustomPrivatePathDraft] = []
     var customPrivatePathRemovals: [String] = []
+    var connectionCheck: CmxIrohConnectionCheckReport?
+    var connectionCheckRunCount = 0
     var holdsDiagnosticReportReads = false
     private(set) var nextDiagnosticReportRequestID = 0
     private var pendingDiagnosticReportReads: [
@@ -306,6 +325,15 @@ private final class MobileIrohSettingsControllerDouble:
     }
     func removeIrohCustomRelay(id: String) async throws {}
     func testIrohCustomRelay(id: String) async -> CmxIrohRelayTestResult { .failed }
+    func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        connectionCheckRunCount += 1
+        return connectionCheck ?? CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: report,
+            relayReachability: .unavailable
+        )
+    }
 
     func upsertIrohCustomPrivatePath(
         _ path: CmxIrohCustomPrivatePathDraft

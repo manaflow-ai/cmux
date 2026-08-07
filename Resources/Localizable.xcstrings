@@ -265134,6 +265134,86 @@
         }
       }
     },
+    "settings.networking.check.title": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続チェック" } }
+    } },
+    "settings.networking.check.subtitle": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Checks encrypted transport, relay policy, and relay reachability from this Mac." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac から暗号化トランスポート、リレーポリシー、リレーへの到達性を確認します。" } }
+    } },
+    "settings.networking.check.run": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Run Check" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "チェックを実行" } }
+    } },
+    "settings.networking.check.note": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux automatically uses direct internet, LAN, or any VPN route available to macOS, then falls back to an allowed relay. Every route remains end-to-end encrypted." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux は macOS で利用可能なインターネット、LAN、または任意の VPN 経路を自動的に使用し、必要に応じて許可されたリレーへ切り替えます。すべての経路でエンドツーエンド暗号化が維持されます。" } }
+    } },
+    "settings.networking.check.transport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Encrypted Transport" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "暗号化トランスポート" } }
+    } },
+    "settings.networking.check.policy": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Policy" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーポリシー" } }
+    } },
+    "settings.networking.check.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Relay Reachability" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレーへの到達性" } }
+    } },
+    "settings.networking.check.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Mac Available" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "Mac の利用可否" } }
+    } },
+    "settings.networking.check.session": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Secure Session" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "安全なセッション" } }
+    } },
+    "settings.networking.check.passed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Passed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "正常" } }
+    } },
+    "settings.networking.check.warning": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Needs Attention" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "確認が必要" } }
+    } },
+    "settings.networking.check.failed": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Failed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "失敗" } }
+    } },
+    "settings.networking.check.notApplicable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Not Needed" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "不要" } }
+    } },
+    "settings.networking.check.action.retry": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Retry. If this continues, share the safe report with cmux support." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "再試行してください。問題が続く場合は、安全なレポートを cmux サポートと共有してください。" } }
+    } },
+    "settings.networking.check.action.internet": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connect this Mac to the internet, then run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "この Mac をインターネットに接続してから、もう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.mac": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Keep cmux open and confirm both apps use the same account." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux を開いたままにし、両方のアプリが同じアカウントを使用していることを確認してください。" } }
+    } },
+    "settings.networking.check.action.relay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Your network may block relay traffic. Ask IT to allow HTTPS and WebSocket access to your configured cmux relay domains, or add an approved custom relay." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ネットワークがリレートラフィックを遮断している可能性があります。設定済みの cmux リレードメインへの HTTPS と WebSocket アクセスを許可するよう IT 部門に依頼するか、承認済みのカスタムリレーを追加してください。" } }
+    } },
+    "settings.networking.check.action.account": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Confirm you are signed in, then reopen cmux and run the check again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "サインインを確認し、cmux を開き直してからもう一度確認してください。" } }
+    } },
+    "settings.networking.check.action.settings": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Choose Automatic relay selection, or fix the selected custom relay and its device secret." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "リレー選択を「自動」にするか、選択したカスタムリレーとデバイスシークレットを修正してください。" } }
+    } },
+    "settings.networking.check.action.repair": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Update cmux on both devices. If needed, pair them again." } },
+      "ja": { "stringUnit": { "state": "translated", "value": "両方のデバイスで cmux を更新してください。必要に応じて再度ペアリングしてください。" } }
+    } },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

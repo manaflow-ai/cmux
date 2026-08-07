@@ -13,6 +13,8 @@ final class MobileIrohSettingsModel {
     private(set) var isMutating = false
     private(set) var showsSaveError = false
     private(set) var testResults: [String: CmxIrohRelayTestResult] = [:]
+    private(set) var connectionCheck: CmxIrohConnectionCheckReport?
+    private(set) var isRunningConnectionCheck = false
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
     private(set) var verboseLogEnabled = UserDefaults.standard.bool(
@@ -42,6 +44,10 @@ final class MobileIrohSettingsModel {
     func observe() async {
         snapshot = await controller.irohSettingsSnapshot()
         await reloadDiagnostics()
+        if snapshot.runtimeStatus == .degraded,
+           diagnosticReport.lastFailureKind != nil {
+            await runConnectionCheckAndWait()
+        }
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
             snapshot = next
@@ -98,6 +104,11 @@ final class MobileIrohSettingsModel {
 
     func testCustomRelay(id: String) {
         Task { testResults[id] = await controller.testIrohCustomRelay(id: id) }
+    }
+
+    func runConnectionCheck() {
+        guard !isRunningConnectionCheck else { return }
+        Task { await runConnectionCheckAndWait() }
     }
 
     func upsertCustomPrivatePath(
@@ -158,6 +169,15 @@ final class MobileIrohSettingsModel {
         guard generation == diagnosticReloadGeneration else { return }
         diagnosticReport = report
         diagnosticExportText = blocks.joined(separator: "\n")
+    }
+
+    private func runConnectionCheckAndWait() async {
+        guard !isRunningConnectionCheck else { return }
+        isRunningConnectionCheck = true
+        defer { isRunningConnectionCheck = false }
+        connectionCheck = await controller.runIrohConnectionCheck()
+        snapshot = await controller.irohSettingsSnapshot()
+        await reloadDiagnostics()
     }
 }
 #endif

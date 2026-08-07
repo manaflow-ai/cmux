@@ -2478,6 +2478,28 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         }
     }
 
+    public func runIrohConnectionCheck() async -> CmxIrohConnectionCheckReport {
+        await refreshIrohSettings()
+        let snapshot = await irohSettingsSnapshot()
+        let diagnostics = await irohDiagnosticReport()
+        let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+           !profile.allowedRelayURLs.isEmpty,
+           let isReachable = await runtime?.hasReachableRelay(
+               in: profile.allowedRelayURLs
+           ) {
+            relayReachability = isReachable ? .reachable : .unreachable
+        } else {
+            relayReachability = .unavailable
+        }
+        return CmxIrohConnectionCheckReport(
+            role: .mobileClient,
+            snapshot: snapshot,
+            diagnostics: diagnostics,
+            relayReachability: relayReachability
+        )
+    }
+
     public func upsertIrohCustomPrivatePath(
         _ path: CmxIrohCustomPrivatePathDraft
     ) async throws {

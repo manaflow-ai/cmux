@@ -22,6 +22,7 @@ public struct IrohNetworkingSection: View {
             relayPolicyCard
             customRelayCard
             privateNetworkCard
+            connectionCheckCard
             diagnosticsCard
         }
         .task { await model.observe() }
@@ -242,6 +243,132 @@ public struct IrohNetworkingSection: View {
                     defaultValue: "Your saved relay choice needs attention. Direct Iroh remains available, but cmux will not substitute an unselected relay."
                 ))
             }
+        }
+    }
+
+    private var connectionCheckCard: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                searchAnchorID: "setting:networking:connectionCheck",
+                String(localized: "settings.networking.check.title", defaultValue: "Connection Check"),
+                subtitle: String(
+                    localized: "settings.networking.check.subtitle",
+                    defaultValue: "Checks encrypted transport, relay policy, and relay reachability from this Mac."
+                )
+            ) {
+                Button(String(localized: "settings.networking.check.run", defaultValue: "Run Check")) {
+                    model.runConnectionCheck()
+                }
+                .disabled(model.isRunningConnectionCheck)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsIrohRunConnectionCheck")
+            }
+
+            if model.isRunningConnectionCheck {
+                SettingsCardDivider()
+                ProgressView()
+                    .controlSize(.small)
+                    .padding(.vertical, 8)
+            }
+
+            if let report = model.connectionCheck {
+                ForEach(report.stages.filter { $0.status != .notApplicable }) { stage in
+                    SettingsCardDivider()
+                    SettingsCardRow(
+                        configurationReview: .settingsOnly,
+                        searchAnchorID: "setting:networking:connectionCheck:\(stage.id)",
+                        connectionCheckStageTitle(stage.kind)
+                    ) {
+                        Label(
+                            connectionCheckStatus(stage.status),
+                            systemImage: connectionCheckSymbol(stage.status)
+                        )
+                        .foregroundStyle(connectionCheckColor(stage.status))
+                    }
+                }
+                if report.recommendation != .none {
+                    SettingsCardNote(connectionCheckRecommendation(report.recommendation))
+                }
+            }
+
+            SettingsCardNote(String(
+                localized: "settings.networking.check.note",
+                defaultValue: "cmux automatically uses direct internet, LAN, or any VPN route available to macOS, then falls back to an allowed relay. Every route remains end-to-end encrypted."
+            ))
+        }
+    }
+
+    private func connectionCheckStageTitle(
+        _ kind: CmxIrohConnectionCheckReport.StageKind
+    ) -> String {
+        switch kind {
+        case .encryptedTransport:
+            String(localized: "settings.networking.check.transport", defaultValue: "Encrypted Transport")
+        case .relayPolicy:
+            String(localized: "settings.networking.check.policy", defaultValue: "Relay Policy")
+        case .relayReachability:
+            String(localized: "settings.networking.check.relay", defaultValue: "Relay Reachability")
+        case .macDiscovery:
+            String(localized: "settings.networking.check.mac", defaultValue: "Mac Available")
+        case .secureSession:
+            String(localized: "settings.networking.check.session", defaultValue: "Secure Session")
+        }
+    }
+
+    private func connectionCheckStatus(
+        _ status: CmxIrohConnectionCheckReport.StageStatus
+    ) -> String {
+        switch status {
+        case .passed: String(localized: "settings.networking.check.passed", defaultValue: "Passed")
+        case .warning: String(localized: "settings.networking.check.warning", defaultValue: "Needs Attention")
+        case .failed: String(localized: "settings.networking.check.failed", defaultValue: "Failed")
+        case .notApplicable: String(localized: "settings.networking.check.notApplicable", defaultValue: "Not Needed")
+        }
+    }
+
+    private func connectionCheckSymbol(
+        _ status: CmxIrohConnectionCheckReport.StageStatus
+    ) -> String {
+        switch status {
+        case .passed: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .failed: "xmark.circle.fill"
+        case .notApplicable: "minus.circle"
+        }
+    }
+
+    private func connectionCheckColor(
+        _ status: CmxIrohConnectionCheckReport.StageStatus
+    ) -> Color {
+        switch status {
+        case .passed: .green
+        case .warning: .orange
+        case .failed: .red
+        case .notApplicable: .secondary
+        }
+    }
+
+    private func connectionCheckRecommendation(
+        _ value: CmxIrohConnectionCheckReport.Recommendation
+    ) -> String {
+        switch value {
+        case .none: ""
+        case .retry:
+            String(localized: "settings.networking.check.action.retry", defaultValue: "Retry. If this continues, share the safe report with cmux support.")
+        case .checkInternet:
+            String(localized: "settings.networking.check.action.internet", defaultValue: "Connect this Mac to the internet, then run the check again.")
+        case .openMacApp:
+            String(localized: "settings.networking.check.action.mac", defaultValue: "Keep cmux open and confirm both apps use the same account.")
+        case .allowRelayTraffic:
+            String(localized: "settings.networking.check.action.relay", defaultValue: "Your network may block relay traffic. Ask IT to allow HTTPS and WebSocket access to your configured cmux relay domains, or add an approved custom relay.")
+        case .refreshAccount:
+            String(localized: "settings.networking.check.action.account", defaultValue: "Confirm you are signed in, then reopen cmux and run the check again.")
+        case .reviewRelaySettings:
+            String(localized: "settings.networking.check.action.settings", defaultValue: "Choose Automatic relay selection, or fix the selected custom relay and its device secret.")
+        case .updateOrRepair:
+            String(localized: "settings.networking.check.action.repair", defaultValue: "Update cmux on both devices. If needed, pair them again.")
         }
     }
 
