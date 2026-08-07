@@ -1032,6 +1032,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_signaled_groups="$cmux_ssh_auth_group_dir/signaled.groups"
           cmux_ssh_auth_signaled_processes="$cmux_ssh_auth_group_dir/signaled.pids"
           cmux_ssh_auth_remove_cancel=0
+          cmux_ssh_auth_cancel_published=0
           cmux_ssh_auth_cleanup_started=0
           cmux_ssh_auth_cleanup_complete=0
           cmux_ssh_auth_preserve_group_state=1
@@ -1050,6 +1051,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             if [ "$cmux_ssh_auth_cleanup_complete" = 1 ]; then
               cmux_ssh_auth_preserve_group_state=0
             fi
+            # An unpublished wrapper removes cancel only after observing it
+            # and committing to exit. That acknowledgement makes its remaining
+            # empty state safe for this still-current owner to reclaim.
+            if [ "$cmux_ssh_auth_preserve_group_state" = 1 ] && \
+              [ "$cmux_ssh_auth_cancel_published" = 1 ] && \
+              [ ! -s "$cmux_ssh_auth_group_file" ] && \
+              [ ! -e "$cmux_ssh_auth_group_cancel_file" ]; then
+              cmux_ssh_auth_preserve_group_state=0
+            fi
             if [ "$cmux_ssh_auth_preserve_group_state" = 1 ]; then
               cmux_ssh_auth_cleanup_claim_release
               return
@@ -1065,7 +1075,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
           trap 'cmux_ssh_auth_group_state_cleanup' EXIT
           if [ ! -d "$cmux_ssh_auth_group_dir" ]; then exit 0; fi
+          # Own cancellation before publishing it. If this worker dies after
+          # creating cancel, recovery can prove the owner is stale and adopt
+          # the durable group even while its authentication publisher is live.
+          cmux_ssh_auth_cleanup_claim || exit 0
+          cmux_ssh_auth_cleanup_claim_is_current || exit 0
           : > "$cmux_ssh_auth_group_cancel_file" 2>/dev/null || exit 0
+          cmux_ssh_auth_cancel_published=1
 
           cmux_ssh_auth_group_attempt=0
           while [ -d "$cmux_ssh_auth_group_dir" ] && [ ! -s "$cmux_ssh_auth_group_file" ] && \
@@ -1102,7 +1118,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exit 0
           fi
 
-          cmux_ssh_auth_cleanup_claim || exit 0
           cmux_ssh_auth_cleanup_claim_is_current || exit 0
           cmux_ssh_auth_claimed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
             "$cmux_ssh_auth_group_dir" 2>/dev/null || true)
