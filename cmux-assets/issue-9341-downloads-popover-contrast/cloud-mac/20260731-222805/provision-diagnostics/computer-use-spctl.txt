@@ -1,0 +1,2 @@
+/Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules/@oai/sky/Codex Computer Use.app: accepted
+source=Notarized Developer ID

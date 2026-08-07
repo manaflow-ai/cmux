@@ -1,0 +1,8 @@
+== suppress macOS setup assistant prompts ==
+2026-08-01T05:52:16Z
+profiles tool no longer supports installs.  Use System Settings Profiles to add configuration profiles.
+profiles tool no longer supports installs.  Use System Settings Profiles to add configuration profiles.
+/Library/Managed Preferences/com.apple.SetupAssistant.managed.plist: OK
+/Library/Managed Preferences/runner/com.apple.SetupAssistant.managed.plist: OK
+Automatic checking for updates is turned on
+== done ==

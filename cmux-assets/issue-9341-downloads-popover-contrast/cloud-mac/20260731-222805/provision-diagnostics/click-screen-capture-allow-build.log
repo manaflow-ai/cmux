@@ -1,0 +1,2 @@
+click-screen-capture-allow: trusted=false timeout=0s setupAssistantAction=hide setupAssistantDialogFallback=false fileVaultConfirmationFallback=false privatePickerFallback=true idleExitSeconds=0s idleExitRequireInteraction=true
+click-screen-capture-allow: done

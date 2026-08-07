@@ -1,0 +1,5 @@
+ai.manaflow.CuaSshScreenCapture
+com.apple.screencapture
+com.apple.sshd-keygen-wrapper
+com.apple.sshd-session
+com.trycua.driver

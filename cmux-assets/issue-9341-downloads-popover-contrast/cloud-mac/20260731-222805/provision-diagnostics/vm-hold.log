@@ -1,0 +1,1407 @@
+holding vm for 14400s
+2026-08-01T05:53:41Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 7m ago   
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:54:11Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 7m ago   
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:54:41Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 8m ago   
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:55:11Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 8m ago   
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:55:41Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 9m ago   
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:56:11Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 9m ago   
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:56:41Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 10m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:57:11Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 10m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:57:41Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 11m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:58:11Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 11m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:58:41Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 12m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:59:12Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 12m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T05:59:42Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 13m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:00:12Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 13m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:00:42Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 14m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:01:12Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 14m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:01:42Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 15m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:02:12Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 15m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:02:42Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 16m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:03:12Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 16m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:03:42Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 17m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:04:12Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 17m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:04:42Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 18m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:05:12Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 18m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:05:43Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 19m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:06:13Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 19m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:06:43Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 20m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:07:13Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 20m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:07:43Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 21m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:08:13Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 21m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:08:43Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 22m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:09:13Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 22m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:09:43Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 23m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:10:13Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 23m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:10:43Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 24m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:11:13Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 24m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:11:44Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 25m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available
+2026-08-01T06:12:14Z
+100.73.161.117
+100.73.161.117   cmux-loader-30686556288  cmux-loader-30686556288.tail137216.ts.net  macOS  -                           
+100.102.202.34   cloudbox-usw1            tagged-devices                             linux  -                           
+100.103.189.6    cmux-app-review-mac      tagged-devices                             macOS  -                           
+100.100.104.74   cmux-austin-mini-0       tagged-devices                             macOS  -                           
+100.90.90.74     cmux-austin-mini-1       tagged-devices                             macOS  -                           
+100.89.225.106   cmux-lawrences-mac-mini  tagged-devices                             macOS  -                           
+100.82.143.58    cmux-mac-mini            tagged-devices                             macOS  -                           
+100.104.44.46    cmux-relay-monitor       tagged-devices                             linux  -                           
+100.117.5.45     cmux10s-mac-mini         tagged-devices                             macOS  -                           
+100.64.88.54     cmux11s-mac-mini         tagged-devices                             macOS  -                           
+100.81.126.110   cmux12s-mac-mini         tagged-devices                             macOS  -                           
+100.81.172.62    cmux13s-mac-mini         tagged-devices                             macOS  -                           
+100.89.140.13    cmux7s-mac-mini          tagged-devices                             macOS  -                           
+100.88.58.16     cmux8s-mac-mini          tagged-devices                             macOS  -                           
+100.94.149.34    cmux9s-mac-mini          tagged-devices                             macOS  -                           
+100.103.250.111  iphone171                lawrence@                                  iOS    offline, last seen 23h ago  
+100.82.214.112   lawrences-macbook-pro-2  lawrence@                                  macOS  offline, last seen 25m ago  
+100.69.28.29     mac4-1-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.90.111.127   mac4-2-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.247.93    mac4-3-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.121.242.62   mac4-4-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.67.106.23    mac4-5-1                 tagged-devices                             macOS  offline, last seen 42d ago  
+100.65.250.118   mac4                     tagged-devices                             macOS  offline, last seen 42d ago  
+100.95.139.104   studio1-1-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.92.80.54     studio1-2-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.106.14.3     studio1-3-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.80.235.76    studio1-4-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.85.113.83    studio1-5-1              tagged-devices                             macOS  offline, last seen 42d ago  
+100.119.67.47    studio1                  tagged-devices                             macOS  offline, last seen 42d ago  
+100.125.191.40   subrouter-staging        tagged-devices                             linux  -                           
+100.108.24.124   subrouter-team           tagged-devices                             linux  -                           
+
+# Health check:
+#     - Tailscale can't reach the configured DNS servers. Internet connectivity may be affected.
+sshd=available

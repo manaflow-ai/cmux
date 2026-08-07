@@ -1,0 +1,51 @@
+{
+  "app" : "Calculator",
+  "appWindows" : 1,
+  "frontmostApp" : "loginwindow",
+  "guiReady" : false,
+  "loginWindowOverlayWindows" : 2,
+  "loginWindowWindows" : 0,
+  "openOutput" : "",
+  "openRC" : 0,
+  "setupAssistantRunning" : false,
+  "setupAssistantWindows" : 0,
+  "status" : "loginwindow",
+  "windows" : [
+    {
+      "height" : 1200,
+      "layer" : 2147483646,
+      "name" : "Display 1 Shield",
+      "owner" : "Window Server",
+      "width" : 1920,
+      "x" : 0,
+      "y" : 0
+    },
+    {
+      "height" : 1200,
+      "layer" : 2004,
+      "name" : "",
+      "owner" : "loginwindow",
+      "width" : 1920,
+      "x" : 0,
+      "y" : 0
+    },
+    {
+      "height" : 30000,
+      "layer" : 2001,
+      "name" : "",
+      "owner" : "loginwindow",
+      "width" : 30000,
+      "x" : -15000,
+      "y" : -15000
+    },
+    {
+      "height" : 408,
+      "layer" : 0,
+      "name" : "Calculator",
+      "owner" : "Calculator",
+      "width" : 230,
+      "x" : 510,
+      "y" : 600
+    }
+  ]
+}

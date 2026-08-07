@@ -1,0 +1,10 @@
+Computer Use app: /Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules/@oai/sky/Codex Computer Use.app
+Computer Use client: /Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient
+Computer Use source: /Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules/@oai/sky
+Codex binary source: /Applications/Codex.app/Contents/Resources/codex
+Bundled marketplace: /Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules
+CUA SSH bundle: /Users/runner/codex-cli
+
+config.toml:
+[plugins."computer-use@openai-bundled"]
+enabled = true

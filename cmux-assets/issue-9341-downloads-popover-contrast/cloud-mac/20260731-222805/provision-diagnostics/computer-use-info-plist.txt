@@ -1,0 +1,36 @@
+{
+  "BuildMachineOSBuild" => "25E246"
+  "CFBundleDevelopmentRegion" => "en"
+  "CFBundleDisplayName" => "ChatGPT Computer Use"
+  "CFBundleExecutable" => "SkyComputerUseService"
+  "CFBundleIconFile" => "CUAAppIcon"
+  "CFBundleIconName" => "CUAAppIcon"
+  "CFBundleIdentifier" => "com.openai.sky.CUAService"
+  "CFBundleInfoDictionaryVersion" => "6.0"
+  "CFBundleName" => "Codex Computer Use"
+  "CFBundlePackageType" => "APPL"
+  "CFBundleShortVersionString" => "26.727.1000550"
+  "CFBundleSupportedPlatforms" => [
+    0 => "MacOSX"
+  ]
+  "CFBundleVersion" => "1000550"
+  "DTCompiler" => "com.apple.compilers.llvm.clang.1_0"
+  "DTPlatformBuild" => "25B74"
+  "DTPlatformName" => "macosx"
+  "DTPlatformVersion" => "26.1"
+  "DTSDKBuild" => "25B74"
+  "DTSDKName" => "macosx26.1"
+  "DTXcode" => "2611"
+  "DTXcodeBuild" => "17B100"
+  "LSMinimumSystemVersion" => "14.4"
+  "LSUIElement" => true
+  "NSAppleEventsUsageDescription" => "Access to Messages is used to send messages only after you approve the recipient and message text."
+  "NSContactsUsageDescription" => "Access to Contacts is used to show names and find phone numbers or email addresses for people you ask to message."
+  "NSHumanReadableCopyright" => "Copyright © 2026 OpenAI. All rights reserved."
+  "SUAllowsAutomaticUpdates" => true
+  "SUAutomaticallyUpdate" => true
+  "SUEnableAutomaticChecks" => true
+  "SUFeedURL" => "https://oaisidekickupdates.blob.core.windows.net/mac/cua/alpha/appcast.xml"
+  "SUPublicEDKey" => "5Yw9jMXMH6O3mJZmpFuQT6ECfC3ZKBfVjWUVMNrElRo="
+  "SUVerifyUpdateBeforeExtraction" => true
+}

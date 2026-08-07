@@ -1,0 +1,11 @@
+com.apple.calculator
+com.apple.finder
+com.apple.Preview
+com.apple.Safari
+com.apple.systempreferences
+com.apple.systemsettings
+com.apple.Terminal
+com.apple.TextEdit
+com.openai.codex
+com.openai.sky.CUAService
+com.openai.sky.CUAService.cli
