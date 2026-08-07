@@ -18,6 +18,11 @@ What we leave alone:
     rewrite identifiers.
   - The objectVersion field, build settings, and every other section.
 
+What we validate:
+  - Every PBX object identifier has exactly one definition. Reusing an ID for
+    different object types can pass textual normalization but makes Xcode load
+    the wrong runtime object and reject the project as damaged.
+
 Idempotent: running twice produces zero diff.
 Designed for the OpenStep-pbxproj flavor that Xcode writes by default.
 """
@@ -31,6 +36,9 @@ from pathlib import Path
 DEFAULT_PATH = Path("cmux.xcodeproj/project.pbxproj")
 
 ENTRY_COMMENT_RE = re.compile(r"/\*\s*(?P<label>.+?)\s*\*/")
+OBJECT_DEFINITION_RE = re.compile(
+    r"^\t\t(?P<identifier>[A-Z0-9]{8,24})(?: /\*.*\*/)? = \{$"
+)
 
 # Sections we sort flat. Every entry is a single line of the form
 #   <UUID> /* <label> */ = { ... };
@@ -119,6 +127,22 @@ def normalize(text: str) -> str:
     return "".join(lines)
 
 
+def duplicate_object_definitions(text: str) -> dict[str, list[int]]:
+    """Return PBX object identifiers mapped to their duplicate line numbers."""
+    definition_lines: dict[str, list[int]] = {}
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        match = OBJECT_DEFINITION_RE.match(line)
+        if match is None:
+            continue
+        identifier = match.group("identifier")
+        definition_lines.setdefault(identifier, []).append(line_number)
+    return {
+        identifier: line_numbers
+        for identifier, line_numbers in definition_lines.items()
+        if len(line_numbers) > 1
+    }
+
+
 def main(argv: list[str]) -> int:
     check_only = "--check" in argv
     positional = [a for a in argv[1:] if not a.startswith("--")]
@@ -129,6 +153,17 @@ def main(argv: list[str]) -> int:
         return 2
 
     original = path.read_text()
+    duplicates = duplicate_object_definitions(original)
+    if duplicates:
+        for identifier, line_numbers in sorted(duplicates.items()):
+            joined_lines = ", ".join(str(line) for line in line_numbers)
+            print(
+                f"error: {path}: duplicate PBX object identifier {identifier} "
+                f"defined on lines {joined_lines}.",
+                file=sys.stderr,
+            )
+        return 1
+
     normalized = normalize(original)
 
     if check_only:

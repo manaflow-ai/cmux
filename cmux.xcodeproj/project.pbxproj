@@ -608,9 +608,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
 		A5B00005A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */ = {isa = PBXBuildFile; productRef = A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */; };
-		A95230000000000000000003 /* CmuxAgentLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = A95230000000000000000002 /* CmuxAgentLifecycle */; };
-		A95230000000000000000004 /* CmuxAgentLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = A95230000000000000000002 /* CmuxAgentLifecycle */; };
-		A95230000000000000000005 /* CmuxAgentLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = A95230000000000000000002 /* CmuxAgentLifecycle */; };
+		A9523E000000000000000003 /* CmuxAgentLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = A9523E000000000000000002 /* CmuxAgentLifecycle */; };
+		A9523E000000000000000004 /* CmuxAgentLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = A9523E000000000000000002 /* CmuxAgentLifecycle */; };
+		A9523E000000000000000005 /* CmuxAgentLifecycle in Frameworks */ = {isa = PBXBuildFile; productRef = A9523E000000000000000002 /* CmuxAgentLifecycle */; };
 		8295A0018295A0018295A001 /* CmuxAlertContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8295A0028295A0028295A002 /* CmuxAlertContent.swift */; };
 		8295A0058295A0058295A005 /* CmuxAlertContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8295A0068295A0068295A006 /* CmuxAlertContentTests.swift */; };
 		8295A0038295A0038295A003 /* CmuxAlertScrollableDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8295A0048295A0048295A004 /* CmuxAlertScrollableDetailsView.swift */; };
@@ -5303,7 +5303,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				AC4A6E7C4A700001AC4A0001 /* CmuxAgentChat in Frameworks */,
 				A5B00003A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
-				A95230000000000000000003 /* CmuxAgentLifecycle in Frameworks */,
+				A9523E000000000000000003 /* CmuxAgentLifecycle in Frameworks */,
 				C9A2B00000000000000000B3 /* CmuxAppKitSupportUI in Frameworks */,
 				5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */,
 				53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */,
@@ -5370,7 +5370,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildActionMask = 2147483647;
 			files = (
 				A5B00004A1B2C3D4E5F60718 /* CMUXAgentLaunch in Frameworks */,
-				A95230000000000000000004 /* CmuxAgentLifecycle in Frameworks */,
+				A9523E000000000000000004 /* CmuxAgentLifecycle in Frameworks */,
 				C79470010000000000000005 /* CmuxControlSocket in Frameworks */,
 				CF00F00000000000000000A4 /* CmuxFoundation in Frameworks */,
 				CE57E10000000000000000B4 /* CmuxSentryReporting in Frameworks */,
@@ -5397,7 +5397,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			buildActionMask = 2147483647;
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
-				A95230000000000000000005 /* CmuxAgentLifecycle in Frameworks */,
+				A9523E000000000000000005 /* CmuxAgentLifecycle in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
@@ -8117,7 +8117,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			name = cmux;
 			packageProductDependencies = (
-				A95230000000000000000002 /* CmuxAgentLifecycle */,
+				A9523E000000000000000002 /* CmuxAgentLifecycle */,
 				A5001231 /* Sparkle */,
 				A5001251 /* Sentry */,
 				A5001271 /* PostHog */,
@@ -8185,7 +8185,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			name = "cmux-cli";
 			packageProductDependencies = (
-				A95230000000000000000002 /* CmuxAgentLifecycle */,
+				A9523E000000000000000002 /* CmuxAgentLifecycle */,
 				A5001251 /* Sentry */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
@@ -8252,7 +8252,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			name = cmuxTests;
 			packageProductDependencies = (
-				A95230000000000000000002 /* CmuxAgentLifecycle */,
+				A9523E000000000000000002 /* CmuxAgentLifecycle */,
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
@@ -8318,7 +8318,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			);
 			mainGroup = A5001040;
 			packageReferences = (
-				A95230000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentLifecycle" */,
+				A9523E000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentLifecycle" */,
 				A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */,
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
@@ -11554,7 +11554,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		A95230000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentLifecycle" */ = {
+		A9523E000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentLifecycle" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxAgentLifecycle;
 		};
@@ -11784,9 +11784,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		A95230000000000000000002 /* CmuxAgentLifecycle */ = {
+		A9523E000000000000000002 /* CmuxAgentLifecycle */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = A95230000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentLifecycle" */;
+			package = A9523E000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentLifecycle" */;
 			productName = CmuxAgentLifecycle;
 		};
 		29813FE5A6CBC1019289A251 /* CMUXAuthCore */ = {
