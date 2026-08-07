@@ -2752,7 +2752,7 @@ impl GhosttyConfigFile {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum GhosttyThemeMode {
     Light,
     Dark,
@@ -2760,15 +2760,7 @@ enum GhosttyThemeMode {
 
 impl GhosttyThemeMode {
     fn detect() -> Self {
-        if let Some(mode) = std::env::var_os("AppleInterfaceStyle").as_deref().and_then(Self::parse)
-        {
-            return mode;
-        }
-        #[cfg(target_os = "macos")]
-        if macos_prefers_dark_appearance() {
-            return Self::Dark;
-        }
-        terminal_background_theme_mode().unwrap_or(Self::Light)
+        detected_ghostty_theme_mode(platform_appearance_theme_mode())
     }
 
     fn parse(value: &std::ffi::OsStr) -> Option<Self> {
@@ -2779,6 +2771,28 @@ impl GhosttyThemeMode {
             _ => None,
         }
     }
+}
+
+fn detected_ghostty_theme_mode(platform_appearance: Option<GhosttyThemeMode>) -> GhosttyThemeMode {
+    if let Some(mode) =
+        std::env::var_os("AppleInterfaceStyle").as_deref().and_then(GhosttyThemeMode::parse)
+    {
+        return mode;
+    }
+    if let Some(mode) = platform_appearance {
+        return mode;
+    }
+    terminal_background_theme_mode().unwrap_or(GhosttyThemeMode::Light)
+}
+
+#[cfg(target_os = "macos")]
+fn platform_appearance_theme_mode() -> Option<GhosttyThemeMode> {
+    macos_appearance_theme_mode()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_appearance_theme_mode() -> Option<GhosttyThemeMode> {
+    None
 }
 
 fn terminal_background_theme_mode() -> Option<GhosttyThemeMode> {
@@ -2792,7 +2806,7 @@ fn terminal_background_theme_mode() -> Option<GhosttyThemeMode> {
 }
 
 #[cfg(target_os = "macos")]
-fn macos_prefers_dark_appearance() -> bool {
+fn macos_appearance_theme_mode() -> Option<GhosttyThemeMode> {
     use std::ffi::CString;
     use std::os::raw::{c_char, c_void};
     use std::ptr;
@@ -2824,23 +2838,19 @@ fn macos_prefers_dark_appearance() -> bool {
         fn CFRelease(cf: CfTypeRef);
     }
 
-    let Some(key) = CString::new("AppleInterfaceStyle").ok() else {
-        return false;
-    };
-    let Some(dark) = CString::new("Dark").ok() else {
-        return false;
-    };
+    let key = CString::new("AppleInterfaceStyle").ok()?;
+    let dark = CString::new("Dark").ok()?;
     unsafe {
         let key_ref =
             CFStringCreateWithCString(ptr::null(), key.as_ptr(), K_CF_STRING_ENCODING_UTF8);
         if key_ref.is_null() {
-            return false;
+            return None;
         }
         let dark_ref =
             CFStringCreateWithCString(ptr::null(), dark.as_ptr(), K_CF_STRING_ENCODING_UTF8);
         if dark_ref.is_null() {
             CFRelease(key_ref);
-            return false;
+            return None;
         }
         let value = CFPreferencesCopyValue(
             key_ref,
@@ -2848,13 +2858,17 @@ fn macos_prefers_dark_appearance() -> bool {
             kCFPreferencesCurrentUser,
             kCFPreferencesAnyHost,
         );
-        let is_dark = !value.is_null() && CFEqual(value, dark_ref) != 0;
+        let mode = if !value.is_null() && CFEqual(value, dark_ref) != 0 {
+            GhosttyThemeMode::Dark
+        } else {
+            GhosttyThemeMode::Light
+        };
         if !value.is_null() {
             CFRelease(value);
         }
         CFRelease(dark_ref);
         CFRelease(key_ref);
-        is_dark
+        Some(mode)
     }
 }
 
@@ -3763,6 +3777,25 @@ mod tests {
         assert_eq!(defaults.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
         assert_eq!(defaults.fg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
         assert_eq!(defaults.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+    }
+
+    #[test]
+    fn ghostty_platform_light_mode_wins_over_dark_terminal_background_hint() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let old_colorfgbg = std::env::var_os("COLORFGBG");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe {
+            std::env::remove_var("AppleInterfaceStyle");
+            std::env::set_var("COLORFGBG", "15;0");
+        }
+
+        let mode = detected_ghostty_theme_mode(Some(GhosttyThemeMode::Light));
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        restore_env_var("COLORFGBG", old_colorfgbg);
+
+        assert_eq!(mode, GhosttyThemeMode::Light);
     }
 
     #[test]
