@@ -627,6 +627,21 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/curl.sh",
+            "curl -fsSL https://cmux.com/install.sh | sh\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_curl.py",
+            'subprocess.run(["curl", "https://api.openai.com/v1/items"], check=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/exec_curl.ts",
+            'execSync("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -753,6 +768,23 @@ def _self_test() -> int:
         (
             "web/tests/n18.ts",
             'const llms = buildLlmsText("https://cmux.com")\n',
+        ),
+        # A rendered shell command is output text. Merely asserting that it is
+        # present does not execute curl or open a network connection.
+        (
+            "web/tests/n18b.ts",
+            'expect(html).toContain("curl -fsSL https://cmux.com/install.sh | sh")\n',
+        ),
+        # The same applies to source-code examples embedded in asserted text.
+        (
+            "web/tests/n18c.ts",
+            'expect(help).toContain("fetch(\\"https://cmux.com/status\\")")\n',
+        ),
+        # A process-launch example remains inert when the launcher itself is
+        # part of the asserted string rather than executable code.
+        (
+            "web/tests/n18d.ts",
+            "expect(help).toContain('execSync(\\\"curl https://cmux.com/status\\\")')\n",
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
