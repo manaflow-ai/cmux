@@ -857,6 +857,7 @@ struct SidebarAppKitRowCellTests {
             including: AttributeScopes.AppKitAttributes.self
         )
         let textView = SidebarRowTextView(lines: 1)
+        textView.frame = NSRect(x: 0, y: 0, width: 240, height: 30)
         textView.configureAttributedText(
             attributed,
             font: .systemFont(ofSize: 12),
@@ -895,6 +896,50 @@ struct SidebarAppKitRowCellTests {
         )
 
         #expect(accessibilityLink === attributedAccessibilityLink)
+    }
+
+    @Test
+    func truncatedLinkIsRemovedFromAccessibilityAndCannotActivate() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let prefix = "A long visible prefix that pushes the link away "
+        let source = NSMutableAttributedString(string: prefix + "cmux")
+        source.addAttribute(
+            .link,
+            value: url,
+            range: NSRange(location: (prefix as NSString).length, length: 4)
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
+        let textView = SidebarRowTextView(lines: 1)
+        textView.frame = host.bounds
+        var openedURL: URL?
+        textView.onOpenLink = { openedURL = $0 }
+        host.addSubview(textView)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+        host.layoutSubtreeIfNeeded()
+
+        let formerlyVisibleLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(!formerlyVisibleLink.accessibilityFrameInParentSpace().isEmpty)
+
+        textView.frame.size.width = 40
+        textView.needsLayout = true
+        textView.layoutSubtreeIfNeeded()
+
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+        #expect(formerlyVisibleLink.accessibilityParent() == nil)
+        #expect(formerlyVisibleLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(!formerlyVisibleLink.accessibilityPerformPress())
+        #expect(openedURL == nil)
     }
 
     @Test
