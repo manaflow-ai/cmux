@@ -59,7 +59,7 @@ final class TerminalOSCBackgroundUITests: XCTestCase {
         selectedTab.click()
 
         let window = app.windows.firstMatch
-        let terminal = app.textAreas.firstMatch
+        let terminal = app.textViews.firstMatch
         let sidebar = app.otherElements["Sidebar"].firstMatch
         XCTAssertTrue(window.waitForExistence(timeout: 5), "Expected main window")
         XCTAssertTrue(terminal.waitForExistence(timeout: 5), "Expected terminal accessibility surface")
