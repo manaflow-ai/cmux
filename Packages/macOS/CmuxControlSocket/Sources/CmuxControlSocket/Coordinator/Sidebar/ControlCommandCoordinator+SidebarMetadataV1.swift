@@ -383,6 +383,15 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let sessionID: String?
+        if parsed.options["session-id"] != nil {
+            guard let normalizedSessionID = sidebarNormalizedOptionValue(parsed.options["session-id"]) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            sessionID = normalizedSessionID
+        } else {
+            sessionID = nil
+        }
         let expectedPIDKey = sidebarNormalizedOptionValue(parsed.options["expected-pid-key"])
         let expectedPIDRaw = sidebarNormalizedOptionValue(parsed.options["expected-pid"])
         let expectedPID: Int32?
@@ -409,7 +418,7 @@ extension ControlCommandCoordinator {
             key: key,
             lifecycleRawValue: lifecycleRawValue,
             panelID: panelResolution.panelId,
-            sessionID: sidebarNormalizedOptionValue(parsed.options["session-id"]),
+            sessionID: sessionID,
             startsNewOccupant: parsed.options["new-occupant"] != nil,
             expectedPIDKey: expectedPIDKey,
             expectedPID: expectedPID
