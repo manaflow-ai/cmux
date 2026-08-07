@@ -426,7 +426,8 @@ pub fn reset_persistent_session_state(
             .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
         reset.removed_session_state = true;
     }
-    let _ = platform::sync_directory(root);
+    platform::sync_directory(root)
+        .with_context(|| format!("sync workspace state root {}", root.display()))?;
     Ok(reset)
 }
 
