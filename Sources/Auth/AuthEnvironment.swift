@@ -237,9 +237,11 @@ enum AuthEnvironment {
     /// Dev iPhones register their APNs tokens with the shared staging
     /// deployment (the device rig's default origin), so a Debug Mac must post
     /// pushes there too — a tag-local localhost port has no token registry and
-    /// every forward would die queued. Mirrors `irohBrokerBaseURL`: explicit
-    /// overrides win (`CMUX_PUSH_API_BASE_URL`, then the VM-API override in
-    /// env or `~/.cmux-dev.env`), Debug defaults to shared staging, Release
+    /// every forward would die queued. The tag rig BAKES a localhost
+    /// `CMUX_VM_API_BASE_URL` into every Debug bundle, so that knob must not
+    /// steer the push lane; a deliberately local push rig sets
+    /// `CMUX_PUSH_API_BASE_URL` (env or `~/.cmux-dev.env`) instead. Debug
+    /// defaults to shared staging (mirroring `irohBrokerBaseURL`); Release
     /// keeps the production VM-API origin.
     static var pushAPIBaseURL: URL {
         let environment = ProcessInfo.processInfo.environment
@@ -250,13 +252,9 @@ enum AuthEnvironment {
             return canonicalizedLoopbackURL(url)
         }
         #if DEBUG
-        if let explicit = environment["CMUX_VM_API_BASE_URL"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !explicit.isEmpty {
-            return vmAPIBaseURL
-        }
-        if devOverride(key: "CMUX_VM_API_BASE_URL") != nil {
-            return vmAPIBaseURL
+        if let override = devOverride(key: "CMUX_PUSH_API_BASE_URL"),
+           let url = URL(string: override) {
+            return canonicalizedLoopbackURL(url)
         }
         return URL(string: "https://cmux-staging.vercel.app")!
         #else
