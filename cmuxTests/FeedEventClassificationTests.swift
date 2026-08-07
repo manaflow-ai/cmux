@@ -162,23 +162,33 @@ struct FeedEventClassificationTests {
         #expect(classify("totally-new-agent", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
     }
 
-    /// Codex's tool lifecycle progress proves any pending native approval
-    /// prompt resolved (approved by the user or by Codex's own auto-review),
-    /// so those events clear the pane's stale permission notification —
-    /// mirroring Claude's `pre-tool-use` `clear_notifications` contract. The
-    /// clear stays scoped: agents that never raise native approval prompts
-    /// must not have their tool telemetry touch the notification queue, and
-    /// the prompt event itself notifies rather than clears.
-    @Test func codexToolLifecycleClearsNativeApprovalPrompt() {
-        #expect(classify("codex", "PreToolUse", tool: "shell").clearsNativeApprovalPrompt == true)
-        #expect(classify("codex", "pre_tool_use", tool: "shell").clearsNativeApprovalPrompt == true)
+    /// A COMPLETED codex tool proves any pending native approval prompt
+    /// resolved — execution strictly follows approval (by the user or by
+    /// Codex's own auto-review) — so PostToolUse clears the pane's stale
+    /// permission notification, mirroring the pane-wide clears Claude's
+    /// lifecycle hooks and Hermes' approval-response hook already perform.
+    @Test func codexToolCompletionClearsNativeApprovalPrompt() {
         #expect(classify("codex", "PostToolUse", tool: "shell").clearsNativeApprovalPrompt == true)
         #expect(classify("codex", "post_tool_use", tool: "shell").clearsNativeApprovalPrompt == true)
+    }
+
+    /// Pre-tool events must NOT clear: codex fires them when it INTENDS to
+    /// run a tool, with no ordering guarantee against the PermissionRequest
+    /// hook, so a start-time clear could erase the just-raised prompt while
+    /// the agent is still blocked — reintroducing #9592's silence. The clear
+    /// also stays scoped: the prompt event itself notifies rather than
+    /// clears, and agents that never raise native approval prompts must not
+    /// have their tool telemetry touch the notification queue.
+    @Test func nativeApprovalPromptClearStaysScopedToCodexToolCompletion() {
+        #expect(classify("codex", "PreToolUse", tool: "shell").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "pre_tool_use", tool: "shell").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "beforeShellExecution", tool: "shell").clearsNativeApprovalPrompt == false)
         #expect(classify("codex", "PermissionRequest", tool: "shell").clearsNativeApprovalPrompt == false)
         #expect(classify("codex", "Stop", tool: "").clearsNativeApprovalPrompt == false)
         #expect(classify("claude", "PreToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
+        #expect(classify("claude", "PostToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
         #expect(classify("gemini", "PreToolUse", tool: "Read").clearsNativeApprovalPrompt == false)
-        #expect(classify("totally-new-agent", "PreToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
+        #expect(classify("totally-new-agent", "PostToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {

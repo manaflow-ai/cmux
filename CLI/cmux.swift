@@ -32674,6 +32674,14 @@ export default CMUXSessionRestore;
     /// "All" view even when no permission/plan/question event fires.
     /// Failures are swallowed.
     func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
+        sendBestEffortFeedTelemetry(socketPath: socketPath, lines: [line], socketPassword: socketPassword)
+    }
+
+    /// One connect + auth for the whole batch: feed hooks that emit a
+    /// second line (the native-approval-prompt notify/clear) must not pay a
+    /// second connection and Keychain/password lookup per tool event.
+    func sendBestEffortFeedTelemetry(socketPath: String, lines: [String], socketPassword: String?) {
+        guard !lines.isEmpty else { return }
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
         do {
@@ -32684,7 +32692,9 @@ export default CMUXSessionRestore;
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
-            try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
+            for line in lines {
+                try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
+            }
         } catch {
             return
         }
@@ -34961,16 +34971,9 @@ export default CMUXSessionRestore;
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
                     socketPath: socketPath,
-                    line: line,
+                    lines: [line] + (promptLine.map { [$0] } ?? []),
                     socketPassword: socketPassword
                 )
-                if let promptLine {
-                    sendBestEffortFeedTelemetry(
-                        socketPath: socketPath,
-                        line: promptLine,
-                        socketPassword: socketPassword
-                    )
-                }
             }
             print("{}")
             return

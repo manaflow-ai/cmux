@@ -32,11 +32,14 @@ struct FeedEventClassification: Equatable {
     /// agent is silent indefinitely.
     /// https://github.com/manaflow-ai/cmux/issues/9592
     let notifiesNativeApprovalPrompt: Bool
-    /// Execution proceeded for an agent whose approval prompts notify via
-    /// ``notifiesNativeApprovalPrompt`` — the approval resolved (user or
-    /// auto-reviewer), so the bridge clears the pane's stale notifications.
-    /// Also the self-heal path for a prompt the agent's auto-reviewer
-    /// approved without user input.
+    /// A tool COMPLETED for an agent whose approval prompts notify via
+    /// ``notifiesNativeApprovalPrompt`` — execution strictly follows any
+    /// approval, so the prompt resolved (approved by the user or by the
+    /// agent's own auto-reviewer) and the bridge clears the pane's stale
+    /// notifications. Only tool COMPLETION qualifies: pre-tool events fire
+    /// when the agent intends to run a tool, with no ordering guarantee
+    /// against the approval-prompt hook, so clearing there could erase a
+    /// just-raised prompt while the agent is still blocked.
     ///
     /// The clear is deliberately pane-wide and uncorrelated with any single
     /// request: notifications carry no request identity anywhere in cmux,
@@ -70,23 +73,7 @@ struct FeedEventClassifier {
         toolName: String
     ) -> FeedEventClassification {
         let semantic = feedEventSemantic(source: source, event: event)
-        let wire = wireMapping(for: semantic, source: source, toolName: toolName)
-        // Tool lifecycle progress proves any pending native approval prompt
-        // resolved; scoped to sources that actually raise those prompts so
-        // other agents' tool telemetry never touches the notification queue.
-        let clearsPrompt: Bool
-        switch semantic {
-        case .toolStart, .toolEnd:
-            clearsPrompt = sourceRaisesNativeApprovalPrompts(source)
-        default:
-            clearsPrompt = false
-        }
-        return FeedEventClassification(
-            hookEventName: wire.hookEventName,
-            isActionable: wire.isActionable,
-            notifiesNativeApprovalPrompt: wire.notifiesNativeApprovalPrompt,
-            clearsNativeApprovalPrompt: clearsPrompt
-        )
+        return wireMapping(for: semantic, source: source, toolName: toolName)
     }
 
     /// Whether any of `source`'s registered events carry the
@@ -192,6 +179,11 @@ struct FeedEventClassifier {
             }
             return telemetry("PreToolUse")
         case .toolStart:
+            // Never clears the native approval prompt: agents fire their
+            // pre-tool hooks when they INTEND to run a tool, with no ordering
+            // guarantee against the approval-prompt hook, so a start-time
+            // clear could erase a just-raised prompt while the agent is still
+            // blocked — reintroducing the silence behind #9592.
             return telemetry("PreToolUse")
         case .nativeApprovalPrompt:
             // Same telemetry wire mapping as .toolStart (no blocking, no
@@ -203,7 +195,18 @@ struct FeedEventClassifier {
                 clearsNativeApprovalPrompt: false
             )
         case .toolEnd:
-            return telemetry("PostToolUse")
+            // A completed tool ran, and execution strictly follows any
+            // approval — so this is the earliest progress signal that can
+            // safely clear a resolved native approval prompt (approved by
+            // the user or by the agent's own auto-reviewer). Scoped to
+            // sources that raise those prompts so other agents' tool
+            // telemetry never touches the notification queue.
+            return FeedEventClassification(
+                hookEventName: "PostToolUse",
+                isActionable: false,
+                notifiesNativeApprovalPrompt: false,
+                clearsNativeApprovalPrompt: sourceRaisesNativeApprovalPrompts(source)
+            )
         case .preCompact:
             return telemetry("PreCompact")
         case .postCompact:
