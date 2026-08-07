@@ -442,7 +442,7 @@ pub fn reset_persistent_session_state(
         &terminal_host_root,
         confirm_reset,
     )?;
-    let _session_guard = acquire_existing_session_guard(root, session_name)?;
+    let session_guard = acquire_existing_session_guard(root, session_name)?;
     let session_dir_exists = validate_session_reset_dir(&session_dir)?;
     let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
     if !session_dir_exists && !terminal_host_root_exists {
@@ -495,6 +495,7 @@ pub fn reset_persistent_session_state(
             .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
         reset.removed_session_state = true;
     }
+    cleanup_session_guard_after_reset(root, session_name, &session_guard);
     platform::sync_directory(root)
         .with_context(|| format!("sync workspace state root {}", root.display()))?;
     Ok(reset)
@@ -3095,7 +3096,7 @@ fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Resul
 const MACHINE_ID_FILE: &str = "machine-id";
 const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
 const SESSION_GUARD_DIR: &str = "session-locks";
-const SESSION_GUARD_BUCKETS: u64 = 4096;
+const SESSION_GUARD_COORDINATOR_FILE: &str = ".coordinator.lock";
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
@@ -3108,20 +3109,43 @@ fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Re
     fs::create_dir_all(&lock_dir)
         .with_context(|| format!("create session lock directory {}", lock_dir.display()))?;
     platform::restrict_directory(&lock_dir)?;
+    let _coordinator =
+        SessionLease::acquire_blocking(&session_guard_coordinator_path(&lock_dir))
+            .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
     let lock_path = session_guard_lock_path(&lock_dir, session_name);
     SessionLease::acquire(&lock_path)
 }
 
 fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
-    let mut hash = Sha256::new();
-    hash.update(b"cmux-session-guard-v1");
-    hash.update(session_name.len().to_le_bytes());
-    hash.update(session_name.as_bytes());
-    let digest = hash.finalize();
-    let mut bytes = [0_u8; 8];
-    bytes.copy_from_slice(&digest[..8]);
-    let bucket = u64::from_le_bytes(bytes) % SESSION_GUARD_BUCKETS;
-    lock_dir.join(format!("{bucket:03x}.lock"))
+    lock_dir.join(format!("{}.lock", session_storage_component(session_name)))
+}
+
+fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
+    lock_dir.join(SESSION_GUARD_COORDINATOR_FILE)
+}
+
+fn cleanup_session_guard_after_reset(
+    root: &Path,
+    session_name: &str,
+    session_guard: &SessionLease,
+) {
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    let expected = session_guard_lock_path(&lock_dir, session_name);
+    if session_guard.path != expected {
+        return;
+    }
+    let Ok(_coordinator) =
+        SessionLease::acquire_blocking(&session_guard_coordinator_path(&lock_dir))
+    else {
+        return;
+    };
+    match fs::remove_file(&expected) {
+        Ok(()) => {
+            let _ = platform::sync_directory(&lock_dir);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(_) => {}
+    }
 }
 
 #[cfg(unix)]
@@ -3465,6 +3489,15 @@ impl SessionLease {
         FileExt::try_lock(&file).with_context(|| {
             format!("workspace session is already owned by another daemon: {}", path.display())
         })?;
+        Ok(Self { file, path: path.to_path_buf() })
+    }
+
+    fn acquire_blocking(path: &Path) -> anyhow::Result<Self> {
+        let file =
+            OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?;
+        platform::restrict_file(path)?;
+        FileExt::lock(&file)
+            .with_context(|| format!("lock workspace session coordinator: {}", path.display()))?;
         Ok(Self { file, path: path.to_path_buf() })
     }
 }

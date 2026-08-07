@@ -35,18 +35,6 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
 }
 
 #[test]
-fn session_guard_lock_paths_are_bounded() {
-    let root = temp_root("session-guard-bounds");
-    let lock_dir = root.join(SESSION_GUARD_DIR);
-    let paths = (0..10_000)
-        .map(|index| session_guard_lock_path(&lock_dir, &format!("ephemeral-session-{index}")))
-        .collect::<HashSet<_>>();
-
-    assert!(paths.len() <= SESSION_GUARD_BUCKETS as usize);
-    assert!(paths.iter().all(|path| path.parent() == Some(lock_dir.as_path())));
-}
-
-#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";
@@ -119,6 +107,23 @@ fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publicati
     assert!(public.active_screens.is_empty());
     assert_eq!(public.active_workspace, None);
     drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_removes_selected_session_guard_file() {
+    let root = temp_root("reset-removes-session-guard");
+    let session = "reset-removes-session-guard";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let guard_path = session_guard_lock_path(&root.join(SESSION_GUARD_DIR), session);
+    assert!(guard_path.exists(), "open did not create a session guard");
+
+    let preview = preview_persistent_session_state_reset(&root, session);
+    let reset =
+        reset_persistent_session_state(&root, session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(!guard_path.exists(), "reset left the selected session guard behind");
     fs::remove_dir_all(root).unwrap();
 }
 
