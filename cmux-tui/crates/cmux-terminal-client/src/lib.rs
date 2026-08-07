@@ -804,71 +804,18 @@ async fn connect_client(
     ),
     String,
 > {
-    let invitation = EnrollmentInvitation::from_uri(invitation_uri)
-        .map_err(|error| format!("invitation: {error}"))?;
-    let route = invitation
-        .route_hints
-        .iter()
-        .find(|route| route.starts_with("iroh://"))
-        .ok_or_else(|| "invitation has no Iroh route".to_string())?;
-    let (endpoint, routing) = resolve_iroh_route(route)?;
-    let mut session_bytes = [0u8; 16];
-    getrandom::fill(&mut session_bytes).map_err(|error| error.to_string())?;
-    let session = SessionId(session_bytes);
-    let provider = Arc::new(
-        IrohProvider::new(IrohProviderConfig {
-            discovery_n0: true,
-            ..IrohProviderConfig::default()
-        })
-        .map_err(|error| error.to_string())?,
-    );
-    let group = provider
-        .connect(ConnectRequest { endpoint, session, lane_policy: LanePolicy::Isolated, routing })
-        .await
-        .map_err(|error| format!("Iroh connect: {error}"))?;
-    let daemon_key = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(&invitation.daemon_public_key)
-        .map_err(|error| format!("daemon key: {error}"))?
-        .try_into()
-        .map_err(|bytes: Vec<u8>| format!("daemon key is {} bytes", bytes.len()))?;
-    let invitation_secret = invitation.secret_bytes().map_err(|error| error.to_string())?;
-    let connection = ClientConnection::connect(
-        group,
-        ClientConnectionConfig {
-            identity: StaticIdentity::generate().map_err(|error| error.to_string())?,
-            expected_daemon: Some(daemon_key),
-            auth: ClientAuthMode::Invitation {
-                id: invitation.id,
-                secret: Zeroizing::new(invitation_secret),
-            },
-            device_name: "TerminalBytes Demo".into(),
-            session,
-            lane_policy: LanePolicy::Isolated,
-            limits: Default::default(),
-            reconnect: ReconnectPolicy::default(),
-        },
-    )
-    .await
-    .map_err(|error| format!("Noise enrollment: {error}"))?;
-    let snapshot = connection.snapshot().await;
-    let path = snapshot
-        .transport
-        .selected_path
-        .as_ref()
-        .map(|path| format!("{:?}", path.kind).to_lowercase())
-        .unwrap_or_else(|| snapshot.transport.route.clone());
+    let transport = connect_transport(invitation_uri, "TerminalBytes Demo").await?;
     let state = Arc::new(Mutex::new(
         ClientState::new(
-            snapshot.transport.provider,
-            path,
-            snapshot.generation,
+            transport.provider_name.clone(),
+            transport.path.clone(),
+            transport.generation,
             terminal_id.clone(),
         )
         .map_err(|error| format!("libghostty: {error}"))?,
     ));
-    let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
-    let stream = open_terminal_stream(&multiplexer, &terminal_id).await?;
-    Ok((stream, connection, provider, multiplexer, state))
+    let stream = open_terminal_stream(&transport.multiplexer, &terminal_id).await?;
+    Ok((stream, transport.connection, transport.provider, transport.multiplexer, state))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
