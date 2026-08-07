@@ -155,7 +155,7 @@ cmux::Client client_for(
 std::string response(
     std::string id,
     std::string result = "{}") {
-    return "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\",\"id\":\"" +
+    return "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\",\"id\":\"" +
            id + "\",\"ok\":true,\"result\":" + result + "}";
 }
 
@@ -187,7 +187,7 @@ std::string error_response(
     std::string id,
     std::string code,
     std::string details = "{}") {
-    return "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\",\"id\":\"" +
+    return "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\",\"id\":\"" +
            id + "\",\"ok\":false,\"error\":{\"code\":\"" + code +
            "\",\"message\":\"test error\",\"details\":" + details +
            ",\"retryable\":false}}";
@@ -720,7 +720,7 @@ TEST("structured protocol errors retain code details and retryability") {
     auto client = client_for(state);
     enqueue(
         state,
-        R"({"protocol":"cmux.protocol/1","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"selector.ambiguous","message":"two matches","details":{"token":"must-not-log","candidates":["ws_0123456789abcdef0123456789abcdef"]},"retryable":false}})");
+        R"({"protocol":"cmux.protocol/2","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"selector.ambiguous","message":"two matches","details":{"token":"must-not-log","candidates":["ws_0123456789abcdef0123456789abcdef"]},"retryable":false}})");
     auto result = client.read(cmux::Operation::workspace_get);
     CHECK(!result);
     CHECK_EQ(
@@ -735,13 +735,13 @@ TEST("structured protocol errors retain code details and retryability") {
     CHECK(!result.error().retryable);
 }
 
-TEST("responses require exact v1 success and error variants") {
+TEST("responses require exact v2 success and error variants") {
     const auto run = [](std::string fields) {
         auto state = std::make_shared<FakeState>();
         auto client = client_for(state);
         enqueue(
             state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\","
             "\"id\":\"cpp-request-1\"," +
                 fields + "}");
 
@@ -836,7 +836,7 @@ TEST("indeterminate mutations retain outcome details and never retry") {
     auto client = client_for(state);
     enqueue(
         state,
-        R"({"protocol":"cmux.protocol/1","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"mutation.indeterminate","message":"external effect may have committed","details":{"idempotency_key":"indeterminate-test-key","operation":"workspace.rename","recovery":"inspect_state_then_retry_with_new_key"},"retryable":false}})");
+        R"({"protocol":"cmux.protocol/2","type":"response","id":"cpp-request-1","ok":false,"error":{"code":"mutation.indeterminate","message":"external effect may have committed","details":{"idempotency_key":"indeterminate-test-key","operation":"workspace.rename","recovery":"inspect_state_then_retry_with_new_key"},"retryable":false}})");
     auto key = cmux::MutationOptions::with_key("indeterminate-test-key");
     CHECK(key);
     auto result = client.mutate(
@@ -1420,7 +1420,7 @@ TEST("malformed wait cleanup preserves timeout and fail closes once") {
 TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto running = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
             .value());
     CHECK(running);
     CHECK_EQ(
@@ -1428,9 +1428,48 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
         cmux::TerminalLifecycle::running);
     CHECK(!running.value().exit.has_value());
 
+    auto projected = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"shell","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(projected);
+    CHECK_EQ(projected.value().tab_ids.size(), 2U);
+
+    auto legacy_attached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(legacy_attached);
+    CHECK_EQ(legacy_attached.value().tab_ids.size(), 1U);
+    CHECK_EQ(
+        legacy_attached.value().tab_ids.front(),
+        legacy_attached.value().tab_id.value());
+
+    auto legacy_detached = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"title":"legacy","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(legacy_detached);
+    CHECK(!legacy_detached.value().tab_id.has_value());
+    CHECK(legacy_detached.value().tab_ids.empty());
+
+    auto nonnull_empty = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":[],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(!nonnull_empty);
+    CHECK_EQ(nonnull_empty.error().code, cmux::ErrorCode::decode);
+
+    auto mismatched_primary = cmux::detail::decode_value<cmux::TerminalSnapshot>(
+        cmux::Json::parse(
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_11111111111111111111111111111111","tab_ids":["tab_0123456789abcdef0123456789abcdef","tab_11111111111111111111111111111111"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"running"})")
+            .value());
+    CHECK(!mismatched_primary);
+    CHECK_EQ(mismatched_primary.error().code, cmux::ErrorCode::decode);
+
     auto exited = cmux::detail::decode_value<cmux::TerminalSnapshot>(
         cmux::Json::parse(
-            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
+            R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":null,"tab_ids":[],"title":"done","cols":80,"rows":24,"running":false,"lifecycle":"exited","exit":{"outcome":{"kind":"exit","code":0},"exited_at":"123","revision":"9"}})")
             .value());
     CHECK(exited);
     CHECK(exited.value().exit.has_value());
@@ -1440,7 +1479,7 @@ TEST("terminal lifecycle and wait-exit unions decode strictly") {
     auto inconsistent =
         cmux::detail::decode_value<cmux::TerminalSnapshot>(
             cmux::Json::parse(
-                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
+                R"({"id":"term_0123456789abcdef0123456789abcdef","tab_id":"tab_0123456789abcdef0123456789abcdef","tab_ids":["tab_0123456789abcdef0123456789abcdef"],"title":"bad","cols":80,"rows":24,"running":true,"lifecycle":"launching"})")
                 .value());
     CHECK(!inconsistent);
     CHECK_EQ(inconsistent.error().code, cmux::ErrorCode::decode);
@@ -1887,7 +1926,7 @@ TEST("acknowledged stream has no implicit idle deadline") {
         wait_for_receive_timeouts(stream_state, idle_timeouts);
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{"
@@ -2028,7 +2067,7 @@ TEST("failed stream opens close the dedicated transport without cancellation") {
                 params->at("stream_id").as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\","
                 "\"id\":\"" +
                     request_id +
                     "\",\"ok\":true,\"result\":{\"stream_id\":\"" +
@@ -2105,7 +2144,7 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
             std::memory_order_release);
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
@@ -2135,7 +2174,7 @@ TEST("typed streams preserve unknown items and cancel deterministically") {
             std::memory_order_release);
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"reason\":\"canceled\",\"cursor\":{\"generation\":\"g\","
@@ -2364,7 +2403,7 @@ TEST("stream cancellation rejects malformed response envelopes once") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\","
                 "\"id\":\"" +
                     cancel_id + "\"," + fields + "}");
         });
@@ -2438,7 +2477,7 @@ TEST("stream cancellation validates typed stale items before discard") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id +
                     "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
@@ -2449,7 +2488,7 @@ TEST("stream cancellation validates typed stale items before discard") {
             enqueue(stream_state, response(cancel_id));
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"reason\":\"canceled\"}");
         });
@@ -2508,12 +2547,12 @@ TEST("stream cancellation validates typed stale items before discard") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"reason\":\"canceled\"}");
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id +
                     "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
@@ -2578,12 +2617,12 @@ TEST("stream cancellation validates typed stale items before discard") {
                 std::string(cancel.find("id")->as_string().value());
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"reason\":\"canceled\"}");
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id +
                     "\",\"sequence\":\"0\",\"cursor\":{\"generation\":\"g\","
@@ -2658,7 +2697,7 @@ TEST("stream cancellation has one total deadline across stale item drip") {
     for (std::uint64_t sequence = 1; sequence <= 20; ++sequence) {
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id + "\",\"sequence\":\"" +
                 std::to_string(sequence) +
@@ -2730,7 +2769,7 @@ TEST("stream cancellation rejects wrong or malformed terminal ends once") {
             enqueue(stream_state, response(cancel_id));
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
                 "\"stream_id\":\"" +
                     (wrong_stream_id
                          ? "stream_ffffffffffffffffffffffffffffffff"
@@ -2817,7 +2856,7 @@ TEST("stream items require exact canonical envelopes") {
                 stream_open_response(request_id, stream_id));
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"" + type +
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"" + type +
                     "\",\"stream_id\":\"" +
                     (wrong_stream_id
                          ? "stream_ffffffffffffffffffffffffffffffff"
@@ -3037,7 +3076,7 @@ TEST("connection-control overflow closes the stream without a second cleanup") {
         for (std::uint64_t sequence = 1; sequence <= 257; ++sequence) {
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"sequence\":\"" +
                     std::to_string(sequence) +
@@ -3087,7 +3126,7 @@ TEST("stream open rejects a locally overflowing pre-ack queue") {
         for (std::uint64_t sequence = 1; sequence <= 257; ++sequence) {
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" +
                     stream_id + "\",\"sequence\":\"" +
                     std::to_string(sequence) +
@@ -3135,7 +3174,7 @@ TEST("stream open enforces the local buffered byte limit") {
         for (std::uint64_t sequence = 1; sequence <= 3; ++sequence) {
             enqueue(
                 stream_state,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
                 "\"stream_id\":\"" + stream_id + "\",\"sequence\":\"" +
                     std::to_string(sequence) +
                     "\",\"item\":{\"kind\":\"future\",\"payload\":\"" +
@@ -3180,7 +3219,7 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
             std::string(params->at("stream_id").as_string().value());
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","
@@ -3190,7 +3229,7 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
                 resource_snapshot(1) + "}}");
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"2\",\"cursor\":{\"generation\":\"g\","
@@ -3200,7 +3239,7 @@ TEST("session stream events discriminate snapshot and delta at compile time") {
                 "\"changes\":[]}}");
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_end\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_end\","
             "\"stream_id\":\"" +
                 stream_id + "\",\"reason\":\"completed\"}");
         enqueue(
@@ -3264,7 +3303,7 @@ TEST("malformed known session events never downgrade to Unknown") {
             std::string(params->at("stream_id").as_string().value());
         enqueue(
             stream_state,
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"stream_item\","
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"stream_item\","
             "\"stream_id\":\"" +
                 stream_id +
                 "\",\"sequence\":\"1\",\"cursor\":{\"generation\":\"g\","

@@ -705,7 +705,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     lazy var notificationDeliverySeams = NotificationDeliverySeamAdapter(owner: self)
 
     lazy var notificationDelivery = NotificationDeliveryCoordinator(
-        center: UNUserNotificationCenter.current(),
+        center: TerminalNotificationStore.shared.userNotificationCenter,
         terminalNavigation: notificationNavigation,
         feedReplying: notificationDeliverySeams,
         applicationActivation: notificationDeliverySeams,

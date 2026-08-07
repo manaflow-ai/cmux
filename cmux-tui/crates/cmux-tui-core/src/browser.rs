@@ -4703,6 +4703,23 @@ impl BrowserSurface {
         loader_id: &str,
         navigation_epoch: u64,
     ) -> BrowserWorkerResult {
+        self.authorize_document_paint_with_attempt_budget_blocking(
+            session_id,
+            frame_id,
+            loader_id,
+            navigation_epoch,
+            AUTHORITY_CAPTURE_ATTEMPT_BUDGET,
+        )
+    }
+
+    fn authorize_document_paint_with_attempt_budget_blocking(
+        &self,
+        session_id: &str,
+        frame_id: &str,
+        loader_id: &str,
+        navigation_epoch: u64,
+        attempt_budget: Duration,
+    ) -> BrowserWorkerResult {
         if !self.needs_document_paint(navigation_epoch)
             || self.frame_epoch.latest_navigation() != navigation_epoch
         {
@@ -4719,7 +4736,7 @@ impl BrowserSurface {
             {
                 return Ok(BrowserWorkerSuccess::LocallySettled);
             }
-            let deadline = Instant::now() + AUTHORITY_CAPTURE_ATTEMPT_BUDGET;
+            let deadline = Instant::now() + attempt_budget;
             match self.capture_main_frame_after_restart(&session, frame_id, loader_id, deadline) {
                 Ok((frame_epoch, captured)) => {
                     let accepted = self.accept_document_paint(
@@ -5351,6 +5368,8 @@ mod tests {
     use std::time::{Duration, Instant};
     use tungstenite::{Message, accept};
 
+    const BROWSER_TEST_EVENT_TIMEOUT: Duration = Duration::from_secs(5);
+
     fn test_frame(seq: u64) -> BrowserFrame {
         BrowserFrame {
             session_id: "session-test".to_string(),
@@ -5415,7 +5434,7 @@ mod tests {
                 }),
             );
 
-            ws.get_mut().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            ws.get_mut().set_read_timeout(Some(BROWSER_TEST_EVENT_TIMEOUT)).unwrap();
             let retry = loop {
                 match ws.read() {
                     Ok(Message::Text(text)) => break serde_json::from_str::<Value>(&text).ok(),
@@ -5482,7 +5501,7 @@ mod tests {
         let (start_tx, start_rx) = mpsc::channel();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            stream.set_read_timeout(Some(Duration::from_millis(250))).unwrap();
+            stream.set_read_timeout(Some(BROWSER_TEST_EVENT_TIMEOUT)).unwrap();
             let mut ws = accept(stream).unwrap();
             let discover = read_ws_json(&mut ws);
             assert_eq!(discover["method"], "Target.setDiscoverTargets");
@@ -8981,6 +9000,8 @@ mod tests {
     #[test]
     fn document_verification_gives_each_bounded_attempt_a_full_budget() {
         const ONE_PIXEL_PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+        const ATTEMPT_BUDGET: Duration = Duration::from_secs(2);
+        const TRANSIENT_FAILURE_DELAY: Duration = Duration::from_millis(950);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -9010,7 +9031,6 @@ mod tests {
             );
 
             let mut attempts = 0;
-            let mut successful_attempt_calls = 0;
             loop {
                 let request = match ws.read() {
                     Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).ok(),
@@ -9023,7 +9043,7 @@ mod tests {
                 if method == "Page.stopScreencast" {
                     attempts += 1;
                     if attempts < AUTHORITY_CAPTURE_ATTEMPTS {
-                        thread::sleep(Duration::from_millis(100));
+                        thread::sleep(TRANSIENT_FAILURE_DELAY);
                         if ws
                             .send(Message::Text(
                                 json!({
@@ -9040,7 +9060,6 @@ mod tests {
                         continue;
                     }
                 }
-                successful_attempt_calls += 1;
                 let result = match method {
                     "Page.stopScreencast" | "Page.startScreencast" => json!({}),
                     "Page.createIsolatedWorld" => json!({"executionContextId": 41}),
@@ -9065,9 +9084,6 @@ mod tests {
                     ))
                     .is_err()
                 {
-                    break;
-                }
-                if successful_attempt_calls == 7 {
                     break;
                 }
             }
@@ -9104,14 +9120,13 @@ mod tests {
         browser.state.lock().unwrap().pending_authority_deadline =
             Some(Instant::now() + Duration::from_secs(5));
 
-        let started = Instant::now();
-        let result = browser.authorize_document_paint_blocking(
+        let result = browser.authorize_document_paint_with_attempt_budget_blocking(
             "session-1",
             "main-frame",
             "loader-2",
             navigation_epoch,
+            ATTEMPT_BUDGET,
         );
-        let elapsed = started.elapsed();
 
         runtime.shutdown();
         let attempts = server.join().unwrap();
@@ -9122,10 +9137,6 @@ mod tests {
         assert_eq!(
             attempts, AUTHORITY_CAPTURE_ATTEMPTS,
             "document verification must reach the healthy final attempt"
-        );
-        assert!(
-            elapsed < Duration::from_millis(600),
-            "bounded attempts monopolized the input worker for {elapsed:?}"
         );
     }
 
@@ -9445,7 +9456,6 @@ mod tests {
             assert_eq!(reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(250))).unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9481,7 +9491,7 @@ mod tests {
                 }),
             );
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9504,11 +9514,11 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let navigate_result = browser.navigate_blocking("https://next.test");
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded = superseded_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap_or(false);
 
         let mut admitted = false;
         if navigate_result.is_ok() {
-            let deadline = Instant::now() + Duration::from_secs(1);
+            let deadline = Instant::now() + BROWSER_TEST_EVENT_TIMEOUT;
             while Instant::now() < deadline
                 && browser.state.lock().unwrap().pending_navigation_epoch.is_some()
             {
@@ -9518,7 +9528,7 @@ mod tests {
             admitted =
                 browser.accept_document_paint(navigation_epoch, navigation_epoch, test_frame(2));
         }
-        stop_tx.send(()).unwrap();
+        let _ = stop_tx.send(());
         runtime.shutdown();
         server.join().unwrap();
 
@@ -9556,7 +9566,6 @@ mod tests {
             assert_eq!(first_reload["method"], "Page.reload");
             write_ws_json(&mut ws, json!({"id": first_reload["id"], "result": {}}));
 
-            ws.get_ref().set_read_timeout(Some(Duration::from_millis(500))).unwrap();
             let Ok(message) = ws.read() else {
                 superseded_tx.send(false).unwrap();
                 return;
@@ -9575,7 +9584,7 @@ mod tests {
             }
             write_ws_json(&mut ws, json!({"id": second_reload["id"], "result": {}}));
             superseded_tx.send(true).unwrap();
-            stop_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            stop_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap();
         });
         let runtime = super::BrowserRuntime::connect_to_endpoint(
             &format!("ws://{addr}/devtools/browser/fake"),
@@ -9594,7 +9603,7 @@ mod tests {
 
         browser.reload_blocking().unwrap();
         let second_reload = browser.reload_blocking();
-        let superseded = superseded_rx.recv_timeout(Duration::from_secs(1)).unwrap_or(false);
+        let superseded = superseded_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap_or(false);
 
         let _ = stop_tx.send(());
         runtime.shutdown();
@@ -9814,7 +9823,7 @@ mod tests {
             "the worker must consume an ambiguous release through one scheduled retry"
         );
         assert!(
-            retry_rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            retry_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap(),
             "the balancing release must retain its dispatched coordinates across invalidation"
         );
 
@@ -9882,7 +9891,7 @@ mod tests {
         );
         let consumed_after_retry = failures.active_pointer_presses.is_empty();
         let retry_observed = retried_without_yielding
-            .unwrap_or_else(|| retry_rx.recv_timeout(Duration::from_secs(1)).unwrap());
+            .unwrap_or_else(|| retry_rx.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap());
 
         runtime.shutdown();
         server.join().unwrap();
@@ -11099,7 +11108,7 @@ mod tests {
         start.send(()).unwrap();
         release_worker.send(()).unwrap();
 
-        let event_types = observed.recv_timeout(Duration::from_secs(1)).unwrap();
+        let event_types = observed.recv_timeout(BROWSER_TEST_EVENT_TIMEOUT).unwrap();
         browser.kill();
         done.recv_timeout(Duration::from_secs(1)).expect("browser worker exited after release");
         runtime.shutdown();

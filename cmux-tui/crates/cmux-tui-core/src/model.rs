@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::resource::{
     ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, TabPublicId,
-    WorkspacePublicId,
+    TerminalPublicId, WorkspacePublicId,
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
@@ -865,7 +865,12 @@ pub struct State {
     pub(crate) focus_sequence: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
+    /// View placements keyed by daemon-local placement identity.
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    /// Stable terminal content kept alive independently of view placement.
+    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
+    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
@@ -973,8 +978,11 @@ impl State {
                             let old = indexes.tabs.insert(tab_id.clone(), *surface_id);
                             debug_assert!(old.is_none(), "duplicate tab public id");
                             indexes.tab_ids.insert(*surface_id, tab_id);
-                            let old = indexes.content.insert(content_id.clone(), *surface_id);
-                            debug_assert!(old.is_none(), "duplicate content public id");
+                            indexes
+                                .content_placements
+                                .entry(content_id.clone())
+                                .or_default()
+                                .push(*surface_id);
                             indexes.content_ids.insert(*surface_id, content_id);
                             indexes.tab_pane.insert(*surface_id, pane.id);
                         }
@@ -1010,7 +1018,30 @@ impl State {
     }
 
     pub fn surface_by_content_public_id(&self, id: &ContentPublicId) -> Option<&Arc<Surface>> {
-        self.resource_indexes.content.get(id).and_then(|slot| self.surfaces.get(slot))
+        if let ContentPublicId::Terminal(terminal_id) = id
+            && let Some(surface) = self.terminal_catalog.get(terminal_id)
+        {
+            return Some(surface);
+        }
+        self.single_placement_of_content(id).and_then(|slot| self.surfaces.get(&slot))
+    }
+
+    pub fn placements_of_content(&self, id: &ContentPublicId) -> &[SurfaceId] {
+        self.resource_indexes.content_placements.get(id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// Return the placement for content whose model requires exactly one live
+    /// view. Zero or multiple placements fail closed instead of selecting an
+    /// arbitrary traversal-order winner.
+    pub fn single_placement_of_content(&self, id: &ContentPublicId) -> Option<SurfaceId> {
+        let [placement] = self.placements_of_content(id) else { return None };
+        Some(*placement)
+    }
+
+    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
+        self.terminal_catalog_by_runtime
+            .get(&id)
+            .and_then(|terminal| self.terminal_catalog.get(terminal))
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {
@@ -1034,7 +1065,12 @@ impl State {
 
     /// The pane a surface currently lives in.
     pub fn pane_of(&self, surface: SurfaceId) -> Option<PaneId> {
-        self.panes.values().find(|p| p.tabs.contains(&surface)).map(|p| p.id)
+        self.resource_indexes.tab_pane.get(&surface).copied().or_else(|| {
+            // A resource mutation can temporarily stage a local placement
+            // before its public indexes are committed. Preserve lookup for
+            // that bounded transient state without penalizing steady state.
+            self.panes.values().find(|pane| pane.tabs.contains(&surface)).map(|pane| pane.id)
+        })
     }
 
     pub fn active_pane(&self) -> Option<PaneId> {
