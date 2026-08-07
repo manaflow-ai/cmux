@@ -167,6 +167,7 @@ import Testing
         )
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("retry"))
         #expect(message.localizedCaseInsensitiveContains("restart"))
         #expect(message.localizedCaseInsensitiveContains("download"))
         #expect(!message.localizedCaseInsensitiveContains("Applications"))
@@ -244,6 +245,9 @@ import Testing
         ])
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
         #expect(message.localizedCaseInsensitiveContains("security software"))
+        #expect(message.localizedCaseInsensitiveContains("retry"))
+        #expect(message.localizedCaseInsensitiveContains("restart"))
+        #expect(message.localizedCaseInsensitiveContains("download"))
         #expect(!message.localizedCaseInsensitiveContains("Applications"))
     }
 
