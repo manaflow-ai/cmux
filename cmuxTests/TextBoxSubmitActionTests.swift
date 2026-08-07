@@ -146,14 +146,14 @@ struct TextBoxSubmitActionTests {
         )
         XCTAssertEqual(
             try #require(actionsByID["pi"]).command(forPrompt: prompt),
-            "pi -- \(quotedPrompt)"
+            "pi \(quotedPrompt)"
         )
         XCTAssertEqual(
             try #require(actionsByID["pi"]).command(
                 forPrompt: prompt,
                 surfaceId: UUID(uuidString: "12345678-1234-1234-1234-123456789ABC")
             ),
-            "sh -c 'case \"$(pi --version 2>/dev/null)\" in 0.8[4-9].*|0.9[0-9].*|[1-9]*.*) exec pi --session-id \"$1\" -- \"$2\" ;; *) exec pi -- \"$2\" ;; esac' sh 'cmux-12345678-1234-1234-1234-123456789ABC' \(quotedPrompt)"
+            "sh -c 'case \"$(pi --version 2>/dev/null)\" in 0.8[4-9].*|0.9[0-9].*|[1-9]*.*) exec pi --session-id \"$1\" \"$2\" ;; *) exec pi \"$2\" ;; esac' sh 'cmux-12345678-1234-1234-1234-123456789ABC' \(quotedPrompt)"
         )
         XCTAssertTrue(launchCommandsByID.isEmpty)
     }
