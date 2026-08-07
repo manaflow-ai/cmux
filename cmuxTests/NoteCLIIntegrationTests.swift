@@ -93,6 +93,40 @@ struct NoteCLIIntegrationTests {
             == "\(sessionRoot)/notes/organized/renamed.md")
     }
 
+    @Test("Note writes require exactly one input source")
+    func writesRejectMissingOrConflictingInputSources() throws {
+        let fileManager = FileManager.default
+        let projectRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-note-input-cli-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: projectRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: projectRoot) }
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(
+            for: BundledCLILinkageTests.self
+        )
+        let environment = [
+            "CMUX_AGENT_NAME": "codex",
+            "CMUX_AGENT_SESSION_ID": "session:input",
+        ]
+        let invalidArguments = [
+            ["note", "write", "missing", "--project", projectRoot.path],
+            [
+                "note", "write", "conflicting", "--text", "text", "--stdin",
+                "--project", projectRoot.path,
+            ],
+        ]
+
+        for arguments in invalidArguments {
+            let result = try runCLI(
+                cliPath,
+                arguments,
+                environment: environment
+            )
+
+            #expect(result.status == 2)
+        }
+        #expect(!fileManager.fileExists(atPath: projectRoot.appendingPathComponent(".cmux").path))
+    }
+
     @Test("Note removal requires an exact name")
     func removalDoesNotUseFuzzyMatches() throws {
         let fileManager = FileManager.default
