@@ -247,7 +247,7 @@ _SHELL_CALL_LAUNCHER = re.compile(
     r"""(?x)
     \bos\.(?:system|popen)\s*\(
   | \bsubprocess\.get(?:status)?output\s*\(
-  | \b(?:exec|execSync|execaCommand|execaCommandSync)\s*\(
+  | \b(?:eval|exec|execSync|execaCommand|execaCommandSync)\s*\(
     """
 )
 
@@ -280,6 +280,10 @@ _SHELL_COMMAND_LAUNCHER = re.compile(
     (?:-[A-Za-z]*c[A-Za-z]*|--command)
     \s+
     """
+)
+
+_SHELL_EVAL_LAUNCHER = re.compile(
+    r"(?x)(?<![A-Za-z0-9_.-])eval\s+(?:--\s+)?"
 )
 
 # Private / loopback hostnames and IPs that are NOT live network.
@@ -766,6 +770,28 @@ def _quoted_argument_contains_offset(line: str, argument_start: int, offset: int
     return bounds is not None and bounds[0] <= offset < bounds[1]
 
 
+def _shell_eval_source_contains_offset(
+    line: str,
+    argument_start: int,
+    offset: int,
+) -> bool:
+    """Whether a quoted eval argument in the current shell statement owns offset."""
+    executable = _executable_code_positions(line, ".sh")
+    statement_end = len(line)
+    for index in range(argument_start, len(line)):
+        if executable[index] and line[index] in ";|&\n":
+            statement_end = index
+            break
+    return any(
+        start <= offset < end
+        for start, end in _quoted_literals_in_range(
+            line,
+            argument_start,
+            statement_end,
+        )
+    )
+
+
 def _call_uses_explicit_shell(
     line: str,
     opening_paren: int,
@@ -899,6 +925,19 @@ def _is_executable_network_verb(
             continue
         if _quoted_argument_contains_offset(line, launcher.end(), verb_start):
             return True
+
+    if path_suffix == ".sh":
+        for launcher in _SHELL_EVAL_LAUNCHER.finditer(line):
+            if launcher.start() >= verb_start:
+                break
+            if _is_inside_string_literal(line, launcher.start(), path_suffix):
+                continue
+            if _shell_eval_source_contains_offset(
+                line,
+                launcher.end(),
+                verb_start,
+            ):
+                return True
     return False
 
 
@@ -1134,6 +1173,7 @@ def _logical_network_chunks(
                 _SHELL_CALL_LAUNCHER,
                 _ARGV_CALL_LAUNCHER,
                 _SHELL_COMMAND_LAUNCHER,
+                _SHELL_EVAL_LAUNCHER,
             )
         )
         previous = index - 1
