@@ -119,6 +119,7 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case debug
 }
 
+/// The built-in attention color used when no configured override is valid.
 enum WorkspaceAttentionFlashAccent: Equatable, Sendable {
     case notificationBlue
 
