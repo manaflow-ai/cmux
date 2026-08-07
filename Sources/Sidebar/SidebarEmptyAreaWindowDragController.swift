@@ -74,6 +74,8 @@ struct SidebarEmptyAreaWindowDragController {
                 guard distance >= dragThreshold else { continue }
 
                 withTemporaryWindowMovableEnabled(window: window) {
+                    // AppKit requires the original mouse-down event; the
+                    // tracked location only decides when to hand off.
                     window.performDrag(with: event)
                 }
                 return .dragged
