@@ -8269,8 +8269,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
 				A5001262 /* Bonsplit */,
-				C51A700000000000000000B2 /* CmuxSimulatorUI */,
-				C51A700000000000000000C2 /* CmuxSimulatorWorker */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */,
 			);
