@@ -114,6 +114,22 @@ import Testing
         #expect(panel.surface.debugInitialCommand() == nil)
     }
 
+    @Test func initialInputRunsInsideInteractiveShellWithoutWaitAfterCommand() throws {
+        let manager = TabManager()
+        let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
+        let initialInput = " printf '  preserved  '\t\r"
+
+        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+            "initial_input": initialInput,
+        ], tabManager: manager)
+
+        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        #expect(panel.surface.debugInitialInputForTesting() == initialInput)
+        #expect(panel.surface.debugInitialCommand() == nil)
+        #expect(panel.surface.debugWaitAfterCommand() == false)
+    }
+
     @Test func workspaceInitialCommandWrapsZshExactly() {
         let actual = WorkspaceInitialCommandLoginShell.wrap("echo zsh", userShell: "/bin/zsh")
         let expected = """

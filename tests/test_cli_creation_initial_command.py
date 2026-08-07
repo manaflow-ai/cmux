@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: terminal creation commands pass --command at spawn time."""
+"""Regression: terminal creation commands inject --command into a new shell."""
 
 from __future__ import annotations
 
@@ -21,6 +21,16 @@ PANE_REF = "pane:2"
 SURFACE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_REF = "surface:3"
 COMMAND_TEXT = r'''printf '%s\n' "spaces 'single' \"double\" $CMUX_VALUE $(printf nested) \\tail 日本語'''
+
+
+def legacy_initial_input(command: str) -> str:
+    """Match the established new-workspace text+Enter escape contract."""
+    return (
+        (command + r"\n")
+        .replace(r"\n", "\r")
+        .replace(r"\r", "\r")
+        .replace(r"\t", "\t")
+    )
 
 
 class FakeCmuxState:
@@ -185,7 +195,7 @@ def assert_creation_request(
     label: str,
     requests: list[tuple[str, dict[str, object]]],
     expected_method: str,
-    expected_command: str | None,
+    expected_input: str | None,
 ) -> None:
     if len(requests) != 1:
         raise AssertionError(
@@ -196,15 +206,19 @@ def assert_creation_request(
         raise AssertionError(
             f"{label} expected method={expected_method!r}, got {method!r}"
         )
-    if expected_command is None:
-        if "initial_command" in params:
-            raise AssertionError(
-                f"{label} without --command should omit initial_command; params={params!r}"
-            )
-    elif params.get("initial_command") != expected_command:
+    if "initial_command" in params:
         raise AssertionError(
-            f"{label} did not preserve --command bytes: "
-            f"expected={expected_command!r} actual={params.get('initial_command')!r} "
+            f"{label} should preserve an interactive shell; params={params!r}"
+        )
+    if expected_input is None:
+        if "initial_input" in params:
+            raise AssertionError(
+                f"{label} without --command should omit initial_input; params={params!r}"
+            )
+    elif params.get("initial_input") != expected_input:
+        raise AssertionError(
+            f"{label} did not preserve the --command input contract: "
+            f"expected={expected_input!r} actual={params.get('initial_input')!r} "
             f"params={params!r}"
         )
 
@@ -236,7 +250,7 @@ def main() -> int:
                     label,
                     requests,
                     expected_method=method,
-                    expected_command=COMMAND_TEXT,
+                    expected_input=legacy_initial_input(COMMAND_TEXT),
                 )
 
             for label, args, method in creation_cases(None):
@@ -251,7 +265,7 @@ def main() -> int:
                     label,
                     requests,
                     expected_method=method,
-                    expected_command=None,
+                    expected_input=None,
                 )
 
             for label, args, method in creation_cases(" \n\t "):
@@ -266,7 +280,7 @@ def main() -> int:
                     label,
                     requests,
                     expected_method=method,
-                    expected_command=None,
+                    expected_input=None,
                 )
         except (AssertionError, subprocess.TimeoutExpired) as exc:
             print(f"FAIL: {exc}")
@@ -277,7 +291,7 @@ def main() -> int:
             thread.join(timeout=2)
 
     print(
-        "PASS: terminal creation --command uses one spawn-time initial_command request"
+        "PASS: terminal creation --command uses one spawn-time initial_input request"
     )
     return 0
 
