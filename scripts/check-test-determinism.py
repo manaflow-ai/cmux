@@ -380,6 +380,9 @@ def _quote_delimiter_at(line: str, quote_index: int) -> str:
 # Whole-file network candidates are one-shot inputs whose source keys dominate
 # cache memory. Cache only small repeated launcher/chunk inputs.
 _LEXER_CACHE_SOURCE_LIMIT = 16 * 1024
+_C_STYLE_BLOCK_COMMENT_SUFFIXES = frozenset(
+    {".swift", ".ts", ".tsx", ".js", ".mjs"}
+)
 
 
 def _line_comment_marker_length(
@@ -427,6 +430,25 @@ def _lexical_positions(
     while index < len(line):
         kind, brace_depth, delimiter = contexts[-1]
         character = line[index]
+
+        if kind == "block-comment":
+            if path_suffix == ".swift" and line.startswith("/*", index):
+                comments[index : index + 2] = b"\x01\x01"
+                contexts[-1] = (kind, brace_depth + 1, delimiter)
+                index += 2
+                continue
+            if line.startswith("*/", index):
+                comments[index : index + 2] = b"\x01\x01"
+                if brace_depth == 1:
+                    contexts.pop()
+                else:
+                    contexts[-1] = (kind, brace_depth - 1, delimiter)
+                index += 2
+                continue
+            if character != "\n":
+                comments[index] = True
+            index += 1
+            continue
 
         if kind == "string-text":
             if character == "\\":
@@ -499,6 +521,15 @@ def _lexical_positions(
             executable[index] = True
             contexts.pop()
             index += 1
+            continue
+
+        if (
+            path_suffix in _C_STYLE_BLOCK_COMMENT_SUFFIXES
+            and line.startswith("/*", index)
+        ):
+            comments[index : index + 2] = b"\x01\x01"
+            contexts.append(("block-comment", 1, ""))
+            index += 2
             continue
 
         comment_marker_length = _line_comment_marker_length(
@@ -1349,6 +1380,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/block_comment_then_fetch.ts",
+            (
+                "/* Don't call production from fixture helpers. */\n"
+                'const result = await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/fstring_network.py",
             'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1604,6 +1643,26 @@ def _self_test() -> int:
                 'let fixture = """\n'
                 'fetch("https://api.openai.com/v1/items")\n'
                 '"""\n'
+            ),
+        ),
+        # Network examples inside C-style block comments remain inert.
+        (
+            "web/tests/n18o.ts",
+            (
+                "/*\n"
+                'fetch("https://api.openai.com/v1/items");\n'
+                "*/\n"
+            ),
+        ),
+        # Swift block comments nest, so the outer comment still owns source
+        # after the inner close delimiter.
+        (
+            "cmuxTests/n18p.swift",
+            (
+                "/* outer\n"
+                "/* inner */\n"
+                'fetch("https://api.openai.com/v1/items")\n'
+                "*/\n"
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
