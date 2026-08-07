@@ -193,9 +193,15 @@ struct GhosttySurfaceKeyboardDockFloorTests {
 
         deliverKeyboardTransition(coveringBottom: Self.keyboardHeight, to: harness)
 
-        // The view fills the window, so the window-space overlap converts 1:1.
+        // UIKit's keyboard end frame includes the input accessory. The grid
+        // reserves that dock separately, so its keyboard model is the tracked
+        // overlap minus the accessory content height.
+        let accessory = try #require(
+            harness.view.inputAccessoryView as? KeyboardDockAccessoryView
+        )
+        let expectedKeyboardOnlyHeight = Self.keyboardHeight - accessory.contentHeight
         let modelKeyboardHeight = try #require(probeValue(of: harness.view, key: "keyboardHeight"))
-        #expect(abs(modelKeyboardHeight - Self.keyboardHeight) <= 1)
+        #expect(abs(modelKeyboardHeight - expectedKeyboardOnlyHeight) <= 1)
 
         // Dismissal releases the model back to zero.
         deliverKeyboardTransition(coveringBottom: 0, to: harness)
@@ -214,9 +220,13 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         harness.center.post(keyboardNotification(coveringBottom: Self.keyboardHeight))
         attach(harness.view, to: harness.window)
 
+        let accessory = try #require(
+            harness.view.inputAccessoryView as? KeyboardDockAccessoryView
+        )
+        let expectedKeyboardOnlyHeight = Self.keyboardHeight - accessory.contentHeight
         let modelKeyboardHeight = try #require(probeValue(of: harness.view, key: "keyboardHeight"))
         let keyboardUp = try #require(probeValue(of: harness.view, key: "keyboardUp"))
-        #expect(abs(modelKeyboardHeight - Self.keyboardHeight) <= 1)
+        #expect(abs(modelKeyboardHeight - expectedKeyboardOnlyHeight) <= 1)
         // The visibility bit catches up too: the toggle must read hide-keyboard.
         #expect(keyboardUp == 1)
     }

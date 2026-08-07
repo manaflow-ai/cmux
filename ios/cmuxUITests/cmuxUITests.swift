@@ -7279,11 +7279,13 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// Rapid, app-driven keyboard reversals exercise the real responder path
-    /// without XCUI waiting for each animation to become idle. The surface's
-    /// DEBUG display-link probe compares its live viewport edge with an
-    /// independent presentation-layer measurement on every rendered frame.
+    /// without XCUI waiting for each animation to become idle, so transitions
+    /// INTERRUPT each other mid-flight — the wedge the settled-cycle test
+    /// above cannot create. The surface's DEBUG display-link probe compares
+    /// its live viewport edge with an independent presentation-layer
+    /// measurement on every rendered frame.
     @MainActor
-    func testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame() async throws {
+    func testTerminalKeyboardDockInterruptedTogglesStayPixelAttachedEveryFrame() async throws {
         let server = try MobileSyncMockHostServer()
         let port = try await server.start()
         defer { server.stop() }

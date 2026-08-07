@@ -549,6 +549,26 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             "composeWinX=\(composeWinX)",
         ].joined(separator: ";")
     }
+
+    /// Per-frame responder/accessory ownership witness used by the keyboard-dock
+    /// trace. Keep this here, beside the responder that vends the accessory, so
+    /// a trace distinguishes a geometry error from UIKit switching owners or
+    /// temporarily unhosting the dock during an interrupted transition.
+    var keyboardDockFrameDiagnostics: String {
+        let accessory = keyboardAccessoryProvider?()
+        let host = accessory?.superview
+        let accessoryPresentationY = accessory?.layer.presentation()?.frame.minY ?? -1
+        let hostPresentationY = host?.layer.presentation()?.frame.minY ?? -1
+        let point: (CGFloat) -> String = { String(format: "%.3f", Double($0)) }
+        let hostName = host.map { NSStringFromClass(type(of: $0)) } ?? "none"
+        return [
+            "proxyFR=\(isFirstResponder ? 1 : 0)",
+            "accessoryHosted=\(host == nil ? 0 : 1)",
+            "accessoryLocalPresentationY=\(point(accessoryPresentationY))",
+            "host=\(hostName)",
+            "hostLocalPresentationY=\(point(hostPresentationY))",
+        ].joined(separator: " ")
+    }
     #endif
 
     func updateAccessoryLayoutInsets() {

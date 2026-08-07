@@ -370,7 +370,7 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
-          if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+          if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDock"* ]]; then
             # This lane verifies the real software-keyboard key plane and the
             # system inputAccessoryView on every display-link frame. An attached
             # hardware keyboard suppresses that UI and would turn the run into a
@@ -421,7 +421,7 @@ jobs:
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"
-            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDock"* ]]; then
               # Simulator may materialize a per-device hardware-keyboard default
               # after an erase, overriding the domain-level setting above. Pin
               # this freshly erased device too so focusing MobileComposerField
@@ -442,7 +442,7 @@ jobs:
             fi
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
-            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDock"* ]]; then
               # A freshly erased device presents the one-time QuickPath (slide
               # to type) introduction where its first software keyboard would
               # render, so no key plane and no keyboard frame ever appear and
@@ -464,7 +464,7 @@ jobs:
               exit 0
             fi
             status="${PIPESTATUS[0]}"
-            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDock"* ]]; then
               # The stress lane keeps timing out with zero keyboard frames and
               # the log alone cannot show what the headless device displayed
               # (education card, permission alert, or a real key plane). Capture
