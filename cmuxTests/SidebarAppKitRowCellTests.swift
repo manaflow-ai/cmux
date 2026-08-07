@@ -413,6 +413,8 @@ struct SidebarAppKitRowCellTests {
                 .compactMap { $0 as? SidebarRowTextView }
                 .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
         )
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
 
         cell.beginInlineRename()
 
@@ -426,7 +428,6 @@ struct SidebarAppKitRowCellTests {
         #expect(!cell.isEditing)
         #expect(!titleView.isHidden)
         #expect(titleView.stringValue == model.snapshot.title)
-        _ = window
     }
 
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
@@ -997,12 +998,11 @@ struct SidebarAppKitRowCellTests {
         let pooledTextView = try #require(
             Self.descriptionTextView(in: cell, showing: "second")
         )
-        var pooledLink: SidebarRowTextAccessibilityLink? = try #require(
+        let pooledLink = try #require(
             Self.accessibilityLinks(in: pooledTextView).first {
                 $0.accessibilityURL() == secondURL
             }
         )
-        weak var releasedPooledLink = pooledLink
 
         let shrunkModel = Self.makeModel(
             workspaceId: workspaceID,
@@ -1010,24 +1010,21 @@ struct SidebarAppKitRowCellTests {
             metadataBlocks: [firstBlock],
             isMarkdownExpanded: true
         )
-        autoreleasepool {
-            cell.configure(
-                model: shrunkModel,
-                actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
-                isPointerHovering: false,
-                contextMenuDidOpen: {},
-                contextMenuDidClose: {}
-            )
+        cell.configure(
+            model: shrunkModel,
+            actions: Self.makeActions(model: shrunkModel, onOpenStatusURL: { openedURL = $0 }),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
 
-            #expect(pooledTextView.isHidden)
-            #expect(Self.accessibilityLinks(in: pooledTextView).isEmpty)
-            #expect(pooledTextView.attributedStringValue.length == 0)
-            #expect(pooledLink?.accessibilityPerformPress() == false)
-            #expect(pooledLink?.accessibilityFrameInParentSpace().isEmpty == true)
-            #expect(openedURL == nil)
-            pooledLink = nil
-        }
-        #expect(releasedPooledLink == nil)
+        #expect(pooledTextView.isHidden)
+        #expect(Self.accessibilityLinks(in: pooledTextView).isEmpty)
+        #expect(pooledTextView.attributedStringValue.length == 0)
+        #expect(!pooledLink.accessibilityPerformPress())
+        #expect(pooledLink.accessibilityFrameInParentSpace().isEmpty)
+        #expect(pooledLink.accessibilityParent() == nil)
+        #expect(openedURL == nil)
         _ = window
     }
 
@@ -1523,7 +1520,10 @@ struct SidebarAppKitRowCellTests {
         pill.configure(text: "⌘1", fontSize: 9, emphasis: 1)
         CATransaction.commit()
 
-        #expect(!(pill.layer?.animationKeys() ?? []).isEmpty)
+        let hasOpacityAnimation = (pill.layer?.animationKeys() ?? []).contains { key in
+            (pill.layer?.animation(forKey: key) as? CABasicAnimation)?.keyPath == "opacity"
+        }
+        #expect(hasOpacityAnimation)
     }
 
     @Test
