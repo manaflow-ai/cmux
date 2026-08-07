@@ -249,8 +249,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        invalidateLinkAccessibility()
-        suspendPresentation()
+        for action in retirePresentation() {
+            action()
+        }
         model = nil
         hintPill.resetForReuse()
     }
@@ -291,6 +292,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         pumpCancellables.removeAll()
         setPresentationActive(false)
         return postUpdateActions
+    }
+
+    /// Ends the row's semantic lifetime and releases link proxies before reuse.
+    func retirePresentation(commitEdits: Bool = false) -> [@MainActor () -> Void] {
+        invalidateLinkAccessibility()
+        return detachPresentation(commitEdits: commitEdits)
     }
 
     func configurePresentation(model: SidebarWorkspaceRowModel) {

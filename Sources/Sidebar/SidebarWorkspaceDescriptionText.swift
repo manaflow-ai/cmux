@@ -22,7 +22,23 @@ struct SidebarWorkspaceDescriptionText: View {
             maxDisplayedLines: Self.maxDisplayedLines,
             maxDisplayedCharacters: Self.maxDisplayedCharacters
         )
-        let renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription
+        guard var renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription else {
+            return RenderedContent(displayMarkdown: displayMarkdown, renderedMarkdown: nil)
+        }
+        let linkRuns = renderedMarkdown.runs.compactMap { run in
+            run.link.map { (range: run.range, url: $0) }
+        }
+        for linkRun in linkRuns {
+            guard let scheme = linkRun.url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https"
+            else {
+                renderedMarkdown[linkRun.range].link = nil
+                continue
+            }
+            if isActive {
+                renderedMarkdown[linkRun.range].foregroundColor = activeForegroundColor
+            }
+        }
         return RenderedContent(displayMarkdown: displayMarkdown, renderedMarkdown: renderedMarkdown)
     }
 
