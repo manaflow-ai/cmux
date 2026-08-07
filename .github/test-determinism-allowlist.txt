@@ -6,3 +6,4 @@ Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainT
 Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/OnboardingMacDiscoveryKeepAliveTests.swift	sleep-then-assert	temporary outage debt owned by #9163; remove when determinized
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
 cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered
+web/tests/install-analytics.test.tsx	live-network-host	static-HTML assertion contains the curl command string; no network is driven (pre-existing on main via #9784)
