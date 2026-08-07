@@ -1,4 +1,5 @@
 import Combine
+import CmuxCore
 import Darwin
 import Foundation
 import Observation
