@@ -37,6 +37,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     ]
 
     static let reaperLockStateFileNames = [
+        "generation",
+        "generation.new",
         "owner",
         "owner.new",
         "publisher",
@@ -197,6 +199,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_record_file="$1"
           if [ ! -s "$cmux_ssh_auth_record_file" ]; then return 1; fi
           cmux_ssh_auth_record=$(/bin/cat -- "$cmux_ssh_auth_record_file" 2>/dev/null || true)
+          CMUX_SSH_AUTH_RECORDED_GENERATION=
+          case "$cmux_ssh_auth_record" in
+            reaper-v1\|*)
+              cmux_ssh_auth_record_payload=${cmux_ssh_auth_record#reaper-v1|}
+              cmux_ssh_auth_record_generation=${cmux_ssh_auth_record_payload%%|*}
+              cmux_ssh_auth_record=${cmux_ssh_auth_record_payload#*|}
+              if [ "$cmux_ssh_auth_record" = "$cmux_ssh_auth_record_payload" ] || \
+                [ "${#cmux_ssh_auth_record_generation}" -ne 32 ]; then return 1; fi
+              case "$cmux_ssh_auth_record_generation" in
+                *[!A-Fa-f0-9]*) return 1 ;;
+              esac
+              CMUX_SSH_AUTH_RECORDED_GENERATION="$cmux_ssh_auth_record_generation"
+              ;;
+          esac
           cmux_ssh_auth_record_pid=${cmux_ssh_auth_record%%|*}
           cmux_ssh_auth_record_identity=${cmux_ssh_auth_record#*|}
           if [ "$cmux_ssh_auth_record_identity" = "$cmux_ssh_auth_record" ]; then return 1; fi
@@ -229,6 +245,26 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_parse_recorded_process "$1" || return 1
           [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" = \
             "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
+        }
+
+        cmux_ssh_auth_reaper_generation_is_current() {
+          cmux_ssh_auth_generation_lock="$1"
+          cmux_ssh_auth_expected_generation="$2"
+          cmux_ssh_auth_observed_generation=$(/bin/cat -- \
+            "$cmux_ssh_auth_generation_lock/generation" 2>/dev/null || true)
+          [ "$cmux_ssh_auth_observed_generation" = \
+            "$cmux_ssh_auth_expected_generation" ]
+        }
+
+        cmux_ssh_auth_reaper_owner_matches_generation() {
+          cmux_ssh_auth_generation_lock="$1"
+          cmux_ssh_auth_expected_generation="$2"
+          cmux_ssh_auth_parse_recorded_process \
+            "$cmux_ssh_auth_generation_lock/owner" || return 1
+          [ "$CMUX_SSH_AUTH_RECORDED_GENERATION" = \
+            "$cmux_ssh_auth_expected_generation" ] && \
+            [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" = \
+              "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
         }
 
         cmux_ssh_auth_group_cleanup_is_abandoned() {
@@ -298,7 +334,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           /bin/rm -f -- "$cmux_ssh_auth_stale_lock/owner" \
             "$cmux_ssh_auth_stale_lock/owner.new" \
             "$cmux_ssh_auth_stale_lock/publisher" \
-            "$cmux_ssh_auth_stale_lock/publisher.new" 2>/dev/null || true
+            "$cmux_ssh_auth_stale_lock/publisher.new" \
+            "$cmux_ssh_auth_stale_lock/generation" \
+            "$cmux_ssh_auth_stale_lock/generation.new" 2>/dev/null || true
           /bin/rmdir "$cmux_ssh_auth_stale_lock" 2>/dev/null
         }
 
@@ -380,6 +418,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         cmux_ssh_launch_owned_auth_group_reaper() {
           CMUX_SSH_AUTH_REAPER_LAUNCHED=0
           cmux_ssh_auth_reaper_group_dir="$1"
+          cmux_ssh_auth_reaper_generation=$(/usr/bin/uuidgen 2>/dev/null | \
+            /usr/bin/awk '{ gsub(/-/, ""); print }')
+          if [ "${#cmux_ssh_auth_reaper_generation}" -ne 32 ]; then return 0; fi
+          case "$cmux_ssh_auth_reaper_generation" in
+            *[!A-Fa-f0-9]*) return 0 ;;
+          esac
           cmux_ssh_auth_reaper_expected_dir_identity="$(/usr/bin/id -u):700"
           cmux_ssh_auth_reaper_observed_dir_identity=$(/usr/bin/stat -f '%u:%Lp' \
             "$cmux_ssh_auth_reaper_group_dir" 2>/dev/null || true)
@@ -404,13 +448,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               return 0
             }
           fi
+          if ! printf '%s\n' "$cmux_ssh_auth_reaper_generation" \
+              > "$cmux_ssh_auth_reaper_lock/generation.new" 2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_reaper_lock/generation.new" \
+              "$cmux_ssh_auth_reaper_lock/generation" 2>/dev/null; then
+            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/generation" \
+              "$cmux_ssh_auth_reaper_lock/generation.new" 2>/dev/null || true
+            /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+            cmux_ssh_auth_recovery_unlock
+            return 0
+          fi
           cmux_ssh_auth_reaper_publisher_identity=$(cmux_ssh_auth_stable_identity "$$")
           if [ -z "$cmux_ssh_auth_reaper_publisher_identity" ] || ! \
             printf '%s|%s\n' "$$" "$cmux_ssh_auth_reaper_publisher_identity" \
               > "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || ! \
             /bin/mv -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" \
               "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null; then
-            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
+            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher.new" \
+              "$cmux_ssh_auth_reaper_lock/generation" \
+              "$cmux_ssh_auth_reaper_lock/generation.new" 2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
             cmux_ssh_auth_recovery_unlock
             return 0
@@ -418,14 +474,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_recovery_unlock
           printf 'cleanup-pending\n' \
             > "$cmux_ssh_auth_reaper_group_dir/reaper.failed.new" 2>/dev/null || {
-              /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true
-              /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+              cmux_ssh_auth_release_reaper_lock_if_current \
+                "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" 0
               return 0
             }
           /bin/mv -f -- "$cmux_ssh_auth_reaper_group_dir/reaper.failed.new" \
             "$cmux_ssh_auth_reaper_group_dir/reaper.failed" 2>/dev/null || {
-              /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" 2>/dev/null || true
-              /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+              cmux_ssh_auth_release_reaper_lock_if_current \
+                "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" 0
               return 0
             }
           (
@@ -439,9 +495,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               cmux_ssh_auth_reaper_owner_attempt=$((cmux_ssh_auth_reaper_owner_attempt + 1))
             done
             if [ ! -s "$cmux_ssh_auth_reaper_lock/owner" ]; then
-              /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
-                "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
-              /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+              exit 0
+            fi
+            if ! cmux_ssh_auth_reaper_generation_is_current \
+                "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" || ! \
+              cmux_ssh_auth_reaper_owner_matches_generation \
+                "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation"; then
               exit 0
             fi
             cmux_ssh_auth_reaper_attempt=0
@@ -468,12 +527,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed" \
                 "$CMUX_SSH_AUTH_GROUP_DIR/reaper.failed.new" 2>/dev/null || true
             fi
-            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/owner" \
-              "$cmux_ssh_auth_reaper_lock/owner.new" \
-              "$cmux_ssh_auth_reaper_lock/publisher" \
-              "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
-            /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
-            if [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
+            CMUX_SSH_AUTH_REAPER_RELEASED=0
+            cmux_ssh_auth_release_reaper_lock_if_current \
+              "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" 1
+            if [ "$CMUX_SSH_AUTH_REAPER_RELEASED" = 1 ] && \
+              [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ]; then
               \#(groupStateFileRemovalShellCommand(includingCancellationMarker: true))
               /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
             fi
@@ -482,16 +540,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_reaper_identity=$(cmux_ssh_auth_stable_identity \
             "$cmux_ssh_auth_reaper_pid")
           if [ -z "$cmux_ssh_auth_reaper_identity" ] || ! \
-            printf '%s|%s\n' "$cmux_ssh_auth_reaper_pid" "$cmux_ssh_auth_reaper_identity" \
+            cmux_ssh_auth_reaper_generation_is_current \
+              "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" || ! \
+            printf 'reaper-v1|%s|%s|%s\n' "$cmux_ssh_auth_reaper_generation" \
+              "$cmux_ssh_auth_reaper_pid" "$cmux_ssh_auth_reaper_identity" \
               > "$cmux_ssh_auth_reaper_lock/owner.new" 2>/dev/null || ! \
             /bin/mv -f -- "$cmux_ssh_auth_reaper_lock/owner.new" \
-              "$cmux_ssh_auth_reaper_lock/owner" 2>/dev/null; then
+              "$cmux_ssh_auth_reaper_lock/owner" 2>/dev/null || ! \
+            cmux_ssh_auth_reaper_owner_matches_generation \
+              "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation"; then
             /bin/kill -KILL "$cmux_ssh_auth_reaper_pid" >/dev/null 2>&1 || true
             wait "$cmux_ssh_auth_reaper_pid" 2>/dev/null || true
-            /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/owner.new" \
-              "$cmux_ssh_auth_reaper_lock/publisher" \
-              "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || true
-            /bin/rmdir "$cmux_ssh_auth_reaper_lock" 2>/dev/null || true
+            cmux_ssh_auth_release_reaper_lock_if_current \
+              "$cmux_ssh_auth_reaper_lock" "$cmux_ssh_auth_reaper_generation" 0
             return 0
           fi
           /bin/rm -f -- "$cmux_ssh_auth_reaper_lock/publisher" \
@@ -550,6 +611,38 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         cmux_ssh_auth_recovery_unlock() {
           exec 9>&-
+        }
+
+        cmux_ssh_auth_release_reaper_lock_if_current() {
+          CMUX_SSH_AUTH_REAPER_RELEASED=0
+          cmux_ssh_auth_release_lock="$1"
+          cmux_ssh_auth_release_generation="$2"
+          cmux_ssh_auth_release_requires_owner="$3"
+          cmux_ssh_auth_recovery_lock || return 1
+          if ! cmux_ssh_auth_reaper_generation_is_current \
+            "$cmux_ssh_auth_release_lock" \
+            "$cmux_ssh_auth_release_generation"; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          if [ "$cmux_ssh_auth_release_requires_owner" = 1 ] && ! \
+            cmux_ssh_auth_reaper_owner_matches_generation \
+              "$cmux_ssh_auth_release_lock" \
+              "$cmux_ssh_auth_release_generation"; then
+            cmux_ssh_auth_recovery_unlock
+            return 1
+          fi
+          /bin/rm -f -- "$cmux_ssh_auth_release_lock/owner" \
+            "$cmux_ssh_auth_release_lock/owner.new" \
+            "$cmux_ssh_auth_release_lock/publisher" \
+            "$cmux_ssh_auth_release_lock/publisher.new" \
+            "$cmux_ssh_auth_release_lock/generation" \
+            "$cmux_ssh_auth_release_lock/generation.new" 2>/dev/null || true
+          if /bin/rmdir "$cmux_ssh_auth_release_lock" 2>/dev/null; then
+            CMUX_SSH_AUTH_REAPER_RELEASED=1
+          fi
+          cmux_ssh_auth_recovery_unlock
+          [ "$CMUX_SSH_AUTH_REAPER_RELEASED" = 1 ]
         }
 
         cmux_ssh_auth_reclaim_stale_cleanup_lock() {
