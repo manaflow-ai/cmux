@@ -35,7 +35,8 @@ struct SidebarAppKitRowCellTests {
     private static func makeGroupHeaderModel(
         groupId: UUID,
         anchorWorkspaceId: UUID,
-        isAnchorActive: Bool
+        isAnchorActive: Bool,
+        shortcutHintText: String? = nil
     ) -> SidebarGroupHeaderRowModel {
         SidebarGroupHeaderRowModel(
             groupId: groupId, anchorWorkspaceId: anchorWorkspaceId,
@@ -47,7 +48,7 @@ struct SidebarAppKitRowCellTests {
             memberCount: 1, anchorUnreadCount: 0,
             canMarkRead: false, canMarkUnread: true, hasLatestNotifications: false,
             canMarkAllRead: false, canMarkAllUnread: true,
-            shortcutHintText: nil, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
+            shortcutHintText: shortcutHintText, shortcutHintXOffset: 0, shortcutHintYOffset: 0,
             fontScale: 1, globalFontMagnificationPercent: 100, cwdContextMenuItems: [],
             rowSpacing: 2, isFirstRow: true, isBeingDragged: false,
             topDropIndicatorVisible: false, bottomDropIndicatorVisible: false
@@ -1115,6 +1116,49 @@ struct SidebarAppKitRowCellTests {
         #expect(optimisticActiveHeaderColor == workspaceTitleColor)
         #expect(activeHeaderColor == workspaceTitleColor)
         #expect(optimisticInactiveHeaderColor == workspaceTitleColor)
+    }
+
+    @Test
+    func shortcutHintMaterialUsesTableAppearanceWhenBackingAppearanceDiffers() throws {
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let headerCell = SidebarGroupHeaderTableCellView()
+        headerCell.configurePresentation(
+            model: Self.makeGroupHeaderModel(
+                groupId: UUID(),
+                anchorWorkspaceId: UUID(),
+                isAnchorActive: false,
+                shortcutHintText: "⌘1"
+            ),
+            environment: tableEnvironment
+        )
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = try #require(NSAppearance(named: .darkAqua))
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let material = try #require(
+            Self.descendants(of: headerCell)
+                .compactMap { $0 as? NSVisualEffectView }
+                .first
+        )
+        #expect(
+            material.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .aqua,
+            "The shortcut material must use the table's light appearance, not its dark backing window."
+        )
     }
 
     @Test

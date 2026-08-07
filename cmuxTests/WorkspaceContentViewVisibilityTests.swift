@@ -258,9 +258,11 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test
+    @Test(arguments: [true, false])
     @MainActor
-    func testUnrelatedEnvironmentChangeDoesNotReevaluateSidebarRenderContext() async throws {
+    func testUnrelatedEnvironmentChangeDoesNotReevaluateSidebarRenderContext(
+        appKitListEnabled: Bool
+    ) async throws {
         _ = NSApplication.shared
 
         let suiteName = "WorkspaceContentViewEnvironmentTests.\(UUID().uuidString)"
@@ -276,6 +278,7 @@ final class WorkspaceContentViewVisibilityTests {
         let counts = MinimalModeBodyProbeCounts()
         let root = SidebarUnrelatedEnvironmentHarness(
             state: state,
+            appKitListEnabled: appKitListEnabled,
             updateViewModel: UpdateStateModel(),
             fileExplorerState: FileExplorerState(),
             sidebarUnread: SidebarUnreadModel(),
@@ -806,6 +809,7 @@ private final class SidebarUnrelatedEnvironmentHarnessState {
 @MainActor
 private struct SidebarUnrelatedEnvironmentHarness: View {
     let state: SidebarUnrelatedEnvironmentHarnessState
+    let appKitListEnabled: Bool
     let updateViewModel: UpdateStateModel
     let fileExplorerState: FileExplorerState
     let sidebarUnread: SidebarUnreadModel
@@ -815,7 +819,7 @@ private struct SidebarUnrelatedEnvironmentHarness: View {
 
     var body: some View {
         SidebarWorkspaceTableEnvironmentReader { tableEnvironment in
-            VerticalTabsSidebar(
+            let sidebar = VerticalTabsSidebar(
                 updateViewModel: updateViewModel,
                 fileExplorerState: fileExplorerState,
                 sidebarUnread: sidebarUnread,
@@ -831,7 +835,13 @@ private struct SidebarUnrelatedEnvironmentHarness: View {
                 lastSidebarSelectionIndex: .constant(nil),
                 sidebarRenderWorkerClient: .constant(nil)
             )
-            .equatable()
+            Group {
+                if appKitListEnabled {
+                    sidebar.equatable()
+                } else {
+                    sidebar
+                }
+            }
         }
         .environment(\.sidebarUnrelatedEnvironmentNoise, state.noise)
     }
