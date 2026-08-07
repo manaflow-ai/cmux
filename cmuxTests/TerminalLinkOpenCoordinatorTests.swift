@@ -24,6 +24,36 @@ struct TerminalLinkOpenCoordinatorTests {
         return defaults
     }
 
+    @Test("Disabled terminal hyperlink activation consumes without opening")
+    @MainActor
+    func disabledActivationDoesNotOpenExternally() throws {
+        let defaults = makeDefaults()
+        defaults.set(false, forKey: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabledKey)
+        let url = try #require(URL(string: "https://example.com/suppressed"))
+        var externallyOpened: [URL] = []
+        let coordinator = TerminalLinkOpenCoordinator(
+            defaults: defaults,
+            containerResolver: { _, _ in nil },
+            externalOpen: { openedURL in
+                externallyOpened.append(openedURL)
+                return true
+            },
+            deferOperation: { operation in operation() }
+        )
+
+        let handled = coordinator.open(
+            TerminalLinkOpenRequest(
+                rawValue: url.absoluteString,
+                sourceWorkspaceId: nil,
+                sourcePanelId: UUID(),
+                workingDirectory: nil
+            )
+        )
+
+        #expect(handled)
+        #expect(externallyOpened.isEmpty)
+    }
+
     @Test("Embedded URL without an owning container falls back externally")
     @MainActor
     func unresolvedSourceFallsBackExternally() throws {

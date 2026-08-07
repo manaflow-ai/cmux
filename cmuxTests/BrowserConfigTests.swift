@@ -5410,6 +5410,16 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
     func testTerminalLinksDefaultToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
+    func testTerminalHyperlinkActivationDefaultsEnabled() {
+        XCTAssertTrue(BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled(defaults: defaults))
+    }
+    func testTerminalHyperlinkActivationUsesStoredValue() {
+        defaults.set(false, forKey: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabledKey)
+        XCTAssertFalse(BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled(defaults: defaults))
+
+        defaults.set(true, forKey: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabledKey)
+        XCTAssertTrue(BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled(defaults: defaults))
+    }
     func testTerminalLinksPreferenceUsesStoredValue() {
         defaults.set(false, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertFalse(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))

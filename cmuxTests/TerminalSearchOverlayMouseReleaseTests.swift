@@ -9,7 +9,7 @@ import CmuxTerminal
 #endif
 
 @MainActor
-@Suite("Terminal search overlay mouse release")
+@Suite("Terminal search overlay mouse release", .serialized)
 struct TerminalSearchOverlayMouseReleaseTests {
     @Test("Search overlay forwards terminal mouse release during selection drag")
     func searchOverlayForwardsTerminalMouseReleaseDuringSelectionDrag() throws {
@@ -79,6 +79,91 @@ struct TerminalSearchOverlayMouseReleaseTests {
         )
     }
 
+    @Test("Focus loss invalidates a terminal mouse gesture before an unrelated release")
+    func focusLossInvalidatesPendingMouseRelease() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            try await exerciseFocusLossInvalidatesPendingMouseRelease()
+        }
+    }
+
+    private func exerciseFocusLossInvalidatesPendingMouseRelease() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let previousTabManager = appDelegate.tabManager
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let surface = try #require(workspace.focusedTerminalPanel?.surface)
+
+        let (hostedView, window) = try attachToWindow(surface: surface)
+        defer { window.orderOut(nil) }
+        hostedView.setVisibleInUI(true)
+        hostedView.setActive(true)
+        let terminalView = try #require(surfaceView(in: hostedView) as? GhosttyNSView)
+        try #require(
+            terminalView.window === window,
+            "The terminal view must be attached to the fixture window"
+        )
+        surface.attachToViewForInputDemand(terminalView)
+        let didAttemptRuntimeSurfaceCreation = try await waitUntil {
+            surface.debugRuntimeSurfaceCreateAttemptCountForTesting() > 0
+        }
+        try #require(
+            didAttemptRuntimeSurfaceCreation,
+            "The fixture must exercise native terminal surface creation"
+        )
+        let didCreateRuntimeSurface = try await waitUntil {
+            surface.surface != nil
+        }
+        try #require(
+            didCreateRuntimeSurface,
+            "The fixture needs a native terminal surface before sending pointer events"
+        )
+
+        try #require(window.makeFirstResponder(terminalView))
+        try #require(window.firstResponder === terminalView)
+        try #require(terminalView.desiredFocus)
+        try #require(surface.owningWorkspace() === workspace)
+        try #require(workspace.isFocusedTerminalInputSurface(surface.id))
+        try #require(terminalView.terminalPointerShouldForwardActivation())
+        let downLocation = terminalView.convert(NSPoint(x: 24, y: 24), to: nil)
+        terminalView.mouseDown(
+            with: makeMouseEvent(
+                type: .leftMouseDown,
+                location: downLocation,
+                window: window
+            )
+        )
+        try #require(hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting())
+        try #require(window.firstResponder === terminalView)
+
+        try #require(window.makeFirstResponder(nil))
+        #expect(
+            !hostedView.debugSurfaceHasPendingLeftMouseReleaseForTesting(),
+            "Losing terminal focus must invalidate the unfinished gesture"
+        )
+
+        let lateCommandRelease = makeMouseEvent(
+            type: .leftMouseUp,
+            location: downLocation,
+            window: window,
+            modifierFlags: [.command]
+        )
+        #expect(
+            !terminalView.completePendingLeftMouseRelease(with: lateCommandRelease),
+            "An unrelated release must not complete a gesture after focus moved"
+        )
+    }
+
     private func makeTerminalSurface() -> TerminalSurface {
         TerminalSurface(
             tabId: UUID(),
@@ -109,11 +194,16 @@ struct TerminalSearchOverlayMouseReleaseTests {
         return (hostedView, window)
     }
 
-    private func makeMouseEvent(type: NSEvent.EventType, location: NSPoint, window: NSWindow) -> NSEvent {
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        modifierFlags: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
         guard let event = NSEvent.mouseEvent(
             with: type,
             location: location,
-            modifierFlags: [],
+            modifierFlags: modifierFlags,
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber,
             context: nil,
@@ -146,6 +236,21 @@ struct TerminalSearchOverlayMouseReleaseTests {
                 return true
             }
             _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return condition()
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(5),
+        _ condition: () -> Bool
+    ) async throws -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if condition() {
+                return true
+            }
+            try await Task.sleep(for: .milliseconds(10))
         }
         return condition()
     }

@@ -340,6 +340,22 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: String(localized: "settings.browser.askWhereToSaveDownloads.subtitle", defaultValue: "When off, browser downloads save directly to Downloads without a save panel."),
                 synonyms: String(localized: "settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail")
             ),
+            .init(
+                section: .browser,
+                id: "terminal-hyperlink-activation",
+                title: String(
+                    localized: "settings.browser.terminalHyperlinkActivation",
+                    defaultValue: "Enable Terminal Hyperlink Activation"
+                ),
+                detailText: String(
+                    localized: "settings.browser.terminalHyperlinkActivation.subtitle",
+                    defaultValue: "When off, clicking OSC 8 and detected links in terminal output does nothing."
+                ),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.browser.terminal-hyperlink-activation",
+                    defaultValue: "browser.terminalHyperlinkActivationEnabled terminal hyperlink OSC 8 detected links disable click URL"
+                )
+            ),
             .init(section: .browser, id: "terminal-links", title: "Open Terminal Links in cmux Browser", synonyms: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
             .init(section: .browser, id: "intercept-open", title: "Intercept open http(s) in Terminal", synonyms: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: "Hosts to Open in Embedded Browser", synonyms: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),

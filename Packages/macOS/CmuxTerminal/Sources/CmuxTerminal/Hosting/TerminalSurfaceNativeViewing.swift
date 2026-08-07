@@ -38,4 +38,8 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// Reconciles view-owned state after a new native Ghostty surface lifetime
     /// is installed.
     func runtimeSurfaceDidBecomeReady()
+
+    /// Invalidates view-owned input state before the native Ghostty surface
+    /// lifetime ends.
+    func runtimeSurfaceWillInvalidate()
 }

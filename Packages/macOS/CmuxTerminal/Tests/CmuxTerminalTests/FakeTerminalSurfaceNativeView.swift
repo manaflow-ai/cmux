@@ -14,6 +14,7 @@ final class FakeTerminalSurfaceNativeView: NSView {
     func applyWindowBackgroundIfActive() {}
     func forceRefreshSurface() -> Bool { true }
     func runtimeSurfaceDidBecomeReady() {}
+    func runtimeSurfaceWillInvalidate() {}
 }
 
 extension FakeTerminalSurfaceNativeView: @preconcurrency TerminalSurfaceHosting {}

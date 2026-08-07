@@ -1402,6 +1402,12 @@
           "descriptionKey": "schemaDescriptions.browser.askWhereToSaveDownloads",
           "description": "Show a save panel for browser downloads instead of saving directly to Downloads."
         },
+        "terminalHyperlinkActivationEnabled": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.browser.terminalHyperlinkActivationEnabled",
+          "description": "Allow intentional clicks to activate OSC 8 and detected links in terminal output."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,

@@ -441,6 +441,9 @@ final class BrowserProfileStore: ObservableObject {
 }
 
 enum BrowserLinkOpenSettings {
+    static let terminalHyperlinkActivationEnabledKey = "browserTerminalHyperlinkActivationEnabled"
+    static let defaultTerminalHyperlinkActivationEnabled: Bool = true
+
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
 
@@ -457,6 +460,13 @@ enum BrowserLinkOpenSettings {
     static let defaultBrowserHostWhitelist: String = ""
     static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
     static let defaultBrowserExternalOpenPatterns: String = ""
+
+    static func terminalHyperlinkActivationEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: terminalHyperlinkActivationEnabledKey) == nil {
+            return defaultTerminalHyperlinkActivationEnabled
+        }
+        return defaults.bool(forKey: terminalHyperlinkActivationEnabledKey)
+    }
 
     static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
         guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }

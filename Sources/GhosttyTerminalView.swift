@@ -22,147 +22,6 @@ import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
 
-enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
-    case realUserConfig
-    case freshInstall
-    case userThemePair
-    case userSingleTheme
-    case userExplicitColors
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .realUserConfig:
-            return String(
-                localized: "debug.startupAppearance.profile.realUserConfig.title",
-                defaultValue: "Real User Config"
-            )
-        case .freshInstall:
-            return String(
-                localized: "debug.startupAppearance.profile.freshInstall.title",
-                defaultValue: "Fresh Install"
-            )
-        case .userThemePair:
-            return String(
-                localized: "debug.startupAppearance.profile.userThemePair.title",
-                defaultValue: "User Light/Dark Theme"
-            )
-        case .userSingleTheme:
-            return String(
-                localized: "debug.startupAppearance.profile.userSingleTheme.title",
-                defaultValue: "User Single Theme"
-            )
-        case .userExplicitColors:
-            return String(
-                localized: "debug.startupAppearance.profile.userExplicitColors.title",
-                defaultValue: "User Explicit Colors"
-            )
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .realUserConfig:
-            return String(
-                localized: "debug.startupAppearance.profile.realUserConfig.detail",
-                defaultValue: "Loads your actual Ghostty and cmux config files."
-            )
-        case .freshInstall:
-            return String(
-                localized: "debug.startupAppearance.profile.freshInstall.detail",
-                defaultValue: "No user theme or terminal colors, so cmux applies its managed default colors."
-            )
-        case .userThemePair:
-            return String(
-                localized: "debug.startupAppearance.profile.userThemePair.detail",
-                defaultValue: "Simulates a user with an explicit light/dark Ghostty theme."
-            )
-        case .userSingleTheme:
-            return String(
-                localized: "debug.startupAppearance.profile.userSingleTheme.detail",
-                defaultValue: "Simulates a user with one Ghostty theme applied in both appearances."
-            )
-        case .userExplicitColors:
-            return String(
-                localized: "debug.startupAppearance.profile.userExplicitColors.detail",
-                defaultValue: "Simulates a user with direct terminal color settings and no theme."
-            )
-        }
-    }
-
-    var loadsRealUserConfig: Bool {
-        self == .realUserConfig
-    }
-
-    func previewConfigContents(
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference = GhosttyConfig.currentColorSchemePreference()
-    ) -> String? {
-        switch self {
-        case .realUserConfig:
-            return nil
-        case .freshInstall:
-            return GhosttyConfig.cmuxDefaultThemeConfigContents(
-                preferredColorScheme: preferredColorScheme
-            )
-        case .userThemePair:
-            return "theme = light:Catppuccin Latte,dark:Catppuccin Mocha"
-        case .userSingleTheme:
-            return "theme = Catppuccin Mocha"
-        case .userExplicitColors:
-            return """
-            background = #101820
-            foreground = #F4F7F7
-            cursor-color = #FEE715
-            cursor-text = #101820
-            selection-background = #28536B
-            selection-foreground = #F4F7F7
-            palette = 0=#101820
-            palette = 1=#C14953
-            palette = 2=#47A025
-            palette = 3=#D9A441
-            palette = 4=#2E86AB
-            palette = 5=#9B5DE5
-            palette = 6=#00A6A6
-            palette = 7=#D6D6D6
-            palette = 8=#5C6672
-            palette = 9=#FF6B6B
-            palette = 10=#7BD88F
-            palette = 11=#FFD166
-            palette = 12=#54C6EB
-            palette = 13=#C77DFF
-            palette = 14=#4ECDC4
-            palette = 15=#FFFFFF
-            """
-        }
-    }
-}
-
-enum GhosttyStartupAppearancePreviewState {
-    #if DEBUG
-    // The selected debug preview profile. Backed by the CmuxTerminalCore seam
-    // (TerminalStartupAppearancePreviewOverride) so GhosttyConfig's loader, now
-    // package-bound, never reaches back up into this app-target settings type.
-    // The app is the sole writer of the override.
-    private nonisolated(unsafe) static var storedProfile: GhosttyStartupAppearancePreviewProfile = .realUserConfig
-
-    static var profile: GhosttyStartupAppearancePreviewProfile {
-        get { storedProfile }
-        set {
-            storedProfile = newValue
-            TerminalStartupAppearancePreviewOverride.installed = TerminalStartupAppearancePreviewOverride(
-                loadsRealUserConfig: newValue.loadsRealUserConfig,
-                previewConfigContents: { colorScheme in
-                    newValue.previewConfigContents(preferredColorScheme: colorScheme)
-                }
-            )
-        }
-    }
-    #else
-    static var profile: GhosttyStartupAppearancePreviewProfile = .realUserConfig
-    #endif
-}
-
 // Window-background policy (cmuxShouldApplyWindowGlass /
 // cmuxShouldUseTransparentBackgroundWindow / cmuxShouldUseClearWindowBackground
 // / cmuxTransparentWindowBaseColor) and the compositor-blur CGS shims
@@ -183,24 +42,6 @@ private func cmuxRuntimeReadClipboardCallback(
 // TerminalClipboardWriting / TerminalImagePasteWriting seams in
 // CmuxTerminalCore). The process-wide instance is the transitional
 // GhosttyApp.terminalPasteboard composition static below.
-
-/// The app-side conformance injected into ``TerminalLinkRouter``: terminal
-/// links validate hosts and resolve bare domains through the same browser
-/// rules the embedded browser uses.
-struct TerminalBrowserHostNormalizer: BrowserHostNormalizing {
-    func normalizedHost(_ rawHost: String) -> String? {
-        BrowserInsecureHTTPSettings.normalizeHost(rawHost)
-    }
-
-    func navigableWebURL(_ input: String) -> URL? {
-        resolveBrowserNavigableURL(input)
-    }
-}
-
-func resolveTerminalOpenURLTarget(_ rawValue: String) -> TerminalOpenURLTarget? {
-    TerminalLinkRouter(hostNormalizer: TerminalBrowserHostNormalizer())
-        .resolveOpenURLTarget(rawValue)
-}
 
 private var terminalKeyboardCopyModeIndicatorText: String {
     String(localized: "ghostty.copy-mode.indicator", defaultValue: "vim")
@@ -3475,7 +3316,10 @@ class GhosttyApp {
                 workingDirectory: surfaceView.currentDirectoryActionDispatcher.directorySnapshot()
             )
             return performOnMain {
-                TerminalLinkOpenCoordinator().open(request)
+                guard surfaceView.consumeTerminalLinkOpenAuthorization() else {
+                    return true
+                }
+                return TerminalLinkOpenCoordinator().open(request)
             }
         default:
             return false
@@ -3872,7 +3716,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
-    private var windowObserver: NSObjectProtocol?
+    private var windowObservers: [NSObjectProtocol] = []
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -3881,7 +3725,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeNonMetalRetryCount = 0
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
-    private var hasPendingLeftMouseRelease = false
+    private var pointerGesture = TerminalPointerGestureState()
+    private var authorizedLinkGesture: TerminalPointerGestureState.Completion?
 #if DEBUG
     private var lastSizeSkipSignature: String?
 #endif
@@ -3913,6 +3758,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     fileprivate var isVisibleInUI: Bool { visibleInUI }
     fileprivate func setVisibleInUI(_ visible: Bool) {
         visibleInUI = visible
+        if !visible {
+            cancelPendingLeftMouseGesture()
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -4098,6 +3946,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     func attachSurface(_ surface: TerminalSurface) {
         let isSameSurface = terminalSurface === surface
         let isAlreadyAttached = surface.isAttached(to: self)
+        if !isSameSurface {
+            cancelPendingLeftMouseGesture()
+        }
         let nextTitleUpdateSurfaceKey = GhosttyTitleUpdateSurfaceKey(
             surfaceId: surface.id,
             sourceSurface: surface
@@ -4130,10 +3981,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if let windowObserver {
-            NotificationCenter.default.removeObserver(windowObserver)
-            self.windowObserver = nil
-        }
+        cancelPendingLeftMouseGesture()
+        windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        windowObservers.removeAll()
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -4161,13 +4011,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             )
         }
 
-        windowObserver = NotificationCenter.default.addObserver(
+        windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didChangeScreenNotification,
             object: window,
             queue: .main
         ) { [weak self] notification in
             self?.windowDidChangeScreen(notification)
-        }
+        })
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.cancelPendingLeftMouseGesture()
+        })
+        windowObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            self?.cancelPendingLeftMouseGesture()
+        })
 
         if let surface = terminalSurface?.surface,
            let displayID = window.screen?.displayID,
@@ -4641,6 +4505,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
+    func runtimeSurfaceWillInvalidate() {
+        cancelPendingLeftMouseGesture(sendBalancingRelease: false)
     }
 
     @discardableResult
@@ -5407,6 +5275,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
         if result {
+            cancelPendingLeftMouseGesture()
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
@@ -6512,20 +6381,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
+        cancelPendingLeftMouseGesture()
         let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
         // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         focusFromPointerDown()
         guard shouldForwardTerminalActivation else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
+        let modifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        pointerGesture.begin(
+            windowNumber: event.windowNumber,
+            timestamp: event.timestamp,
+            modifierFlagsRawValue: modifierFlags.rawValue,
+            permitsLinkActivation: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled()
+                && bounds.contains(eventPoint)
+        )
         trackMousePointIfUsable(eventPoint)
         // Only update mouse position on the first click to prevent unwanted cursor
         // movement during double-click selection (issue #1698)
         if event.clickCount == 1 {
-            ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+            ghostty_surface_mouse_pos(
+                surface,
+                eventPoint.x,
+                bounds.height - eventPoint.y,
+                mouseModsFromFlags(modifierFlags)
+            )
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
-        hasPendingLeftMouseRelease = true
+        _ = ghostty_surface_mouse_button(
+            surface,
+            GHOSTTY_MOUSE_PRESS,
+            GHOSTTY_MOUSE_LEFT,
+            mouseModsFromFlags(modifierFlags)
+        )
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -6537,21 +6424,91 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
-        guard hasPendingLeftMouseRelease, let surface else { return false }
+        guard let modifierFlagsRawValue = pointerGesture.pendingModifierFlagsRawValue,
+              let surface else { return false }
         let eventPoint = convert(event.locationInWindow, from: nil)
+        if !bounds.contains(eventPoint) {
+            pointerGesture.invalidateLinkActivation()
+        }
         trackMousePointIfUsable(eventPoint)
-        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, mouseModsFromEvent(event))
+        let modifierFlags = NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue)
+        ghostty_surface_mouse_pos(
+            surface,
+            eventPoint.x,
+            bounds.height - eventPoint.y,
+            mouseModsFromFlags(modifierFlags)
+        )
         return true
     }
 
     @discardableResult
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
-        guard hasPendingLeftMouseRelease else { return false }
-        hasPendingLeftMouseRelease = false
+        let pendingModifierFlagsRawValue = pointerGesture.pendingModifierFlagsRawValue
+        guard let completion = pointerGesture.complete(
+            windowNumber: event.windowNumber,
+            timestamp: event.timestamp
+        ) else {
+            if let pendingModifierFlagsRawValue {
+                sendBalancingLeftMouseRelease(modifierFlagsRawValue: pendingModifierFlagsRawValue)
+            }
+            return false
+        }
         guard let surface else { return false }
         let point = convert(event.locationInWindow, from: nil)
-        let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mouseModsFromEvent(event))
-        _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
+        let modifierFlags = NSEvent.ModifierFlags(rawValue: completion.modifierFlagsRawValue)
+        let permitsLinkActivation = completion.permitsLinkActivation
+            && bounds.contains(point)
+            && BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled()
+        if permitsLinkActivation {
+            authorizedLinkGesture = completion
+        }
+        defer { authorizedLinkGesture = nil }
+        let consumed = ghostty_surface_mouse_button(
+            surface,
+            GHOSTTY_MOUSE_RELEASE,
+            GHOSTTY_MOUSE_LEFT,
+            mouseModsFromFlags(modifierFlags)
+        )
+        if permitsLinkActivation {
+            _ = handleCommandClickRelease(
+                at: point,
+                modifierFlags: modifierFlags,
+                ghosttyConsumed: consumed
+            )
+        }
+        return true
+    }
+
+    fileprivate func cancelPendingLeftMouseGesture(sendBalancingRelease: Bool = true) {
+        guard let modifierFlagsRawValue = pointerGesture.pendingModifierFlagsRawValue else {
+            authorizedLinkGesture = nil
+            return
+        }
+        pointerGesture.cancel()
+        authorizedLinkGesture = nil
+        if sendBalancingRelease {
+            sendBalancingLeftMouseRelease(modifierFlagsRawValue: modifierFlagsRawValue)
+        }
+    }
+
+    private func sendBalancingLeftMouseRelease(modifierFlagsRawValue: UInt) {
+        guard let surface else { return }
+        let modifierFlags = NSEvent.ModifierFlags(rawValue: modifierFlagsRawValue)
+        _ = ghostty_surface_mouse_button(
+            surface,
+            GHOSTTY_MOUSE_RELEASE,
+            GHOSTTY_MOUSE_LEFT,
+            mouseModsFromFlags(modifierFlags)
+        )
+    }
+
+    fileprivate func consumeTerminalLinkOpenAuthorization() -> Bool {
+        guard authorizedLinkGesture?.permitsLinkActivation == true,
+              BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled() else {
+            authorizedLinkGesture = nil
+            return false
+        }
+        authorizedLinkGesture = nil
         return true
     }
 
@@ -7140,16 +7097,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let clampedPoint = clampedDebugPoint(point)
         let flags: NSEvent.ModifierFlags = [.command]
         let mods = mouseModsFromFlags(flags)
+        let timestamp = ProcessInfo.processInfo.systemUptime
 
         window?.makeFirstResponder(self)
+        pointerGesture.begin(
+            windowNumber: window?.windowNumber ?? 0,
+            timestamp: timestamp,
+            modifierFlagsRawValue: flags.rawValue,
+            permitsLinkActivation: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled()
+        )
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, mods)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
-        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
-        let resolution = handleCommandClickRelease(
-            at: clampedPoint,
-            modifierFlags: flags,
-            ghosttyConsumed: releaseConsumed
+        authorizedLinkGesture = pointerGesture.complete(
+            windowNumber: window?.windowNumber ?? 0,
+            timestamp: timestamp
         )
+        defer { authorizedLinkGesture = nil }
+        let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
+        let resolution = BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled()
+            ? handleCommandClickRelease(
+                at: clampedPoint,
+                modifierFlags: flags,
+                ghosttyConsumed: releaseConsumed
+            )
+            : nil
 
         var payload: [String: Any] = [
             "pressHandled": pressHandled ? "1" : "0",
@@ -7172,6 +7143,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let noMods = GHOSTTY_MODS_NONE
         let flags: NSEvent.ModifierFlags = [.command]
         let commandMods = mouseModsFromFlags(flags)
+        let timestamp = ProcessInfo.processInfo.systemUptime
 
         // Drive the production flagsChanged override for the Cmd press and
         // release so the regression covers the real modifier-transition path:
@@ -7185,9 +7157,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         window?.makeFirstResponder(self)
+        pointerGesture.begin(
+            windowNumber: window?.windowNumber ?? 0,
+            timestamp: timestamp,
+            modifierFlagsRawValue: flags.rawValue,
+            permitsLinkActivation: BrowserLinkOpenSettings.terminalHyperlinkActivationEnabled()
+        )
         ghostty_surface_mouse_pos(surface, clampedPoint.x, bounds.height - clampedPoint.y, noMods)
         flagsChanged(with: cmdDown)
         let pressHandled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, commandMods)
+        authorizedLinkGesture = pointerGesture.complete(
+            windowNumber: window?.windowNumber ?? 0,
+            timestamp: timestamp
+        )
+        defer { authorizedLinkGesture = nil }
         let releaseConsumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, commandMods)
         flagsChanged(with: cmdUp)
 
@@ -7489,6 +7472,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseExited(with event: NSEvent) {
+        pointerGesture.invalidateLinkActivation()
         if wordPathHoverActive {
             wordPathHoverActive = false
             NSCursor.pop()
@@ -7501,7 +7485,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let surface = surface else { return }
+        _ = forwardPendingLeftMouseDrag(with: event)
+    }
+
+    private func forwardMousePosition(with event: NSEvent) {
+        guard let surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
         // Forward the raw drag coordinates, including out-of-bounds positions.
@@ -7517,7 +7505,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // to select) never sees the drag and cannot track hover state. Mirrors
         // mouseDragged and matches upstream Ghostty, which funnels every drag
         // variant to the same position-forwarding path.
-        mouseDragged(with: event)
+        forwardMousePosition(with: event)
     }
 
     override func otherMouseDragged(with event: NSEvent) {
@@ -7527,12 +7515,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDragged(with: event)
             return
         }
-        mouseDragged(with: event)
+        forwardMousePosition(with: event)
     }
 
 #if DEBUG
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
-        hasPendingLeftMouseRelease
+        pointerGesture.hasPendingRelease
     }
 #endif
 
@@ -7600,9 +7588,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let eventMonitor {
             NSEvent.removeMonitor(eventMonitor)
         }
-        if let windowObserver {
-            NotificationCenter.default.removeObserver(windowObserver)
-        }
+        windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -10049,6 +10035,7 @@ final class GhosttySurfaceScrollView: NSView {
         if active && !wasActive {
             scheduleAutomaticFirstResponderApply(reason: "setActive")
         } else if !active {
+            surfaceView.cancelPendingLeftMouseGesture()
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
     }
