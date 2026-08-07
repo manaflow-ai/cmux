@@ -2,9 +2,11 @@
 # cmux codex wrapper - per-invocation Codex hook injection + launch detection.
 #
 # When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
-# makes `codex` carry cmux's hooks for THIS invocation only (nothing is written
-# to ~/.codex), so Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/
-# PostToolUse/PermissionRequest fire back into cmux with Codex's real session_id.
+# makes `codex` carry exactly one cmux hook channel. If ~/.codex/hooks.json has
+# a cmux-owned persistent channel, the emitter reconciles it and emits no
+# overlapping overrides; otherwise it injects hooks for THIS invocation only.
+# Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/PostToolUse/
+# PermissionRequest then fire back into cmux with Codex's real session_id.
 # Those hook payloads are the source of truth for session identity; the wrapper
 # never predicts fresh-vs-resume state from Codex's command-line syntax.
 #
@@ -245,9 +247,11 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
 
-# Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
-# list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
-# command for each event. Fire-and-forget is critical: codex runs hooks
+# Select the launch's cmux hook channel. The cmux CLI first reconciles an
+# installed cmux-owned persistent channel, when present; otherwise it emits the
+# exact arg list (NUL-separated) that enables hooks and injects cmux's
+# FIRE-AND-FORGET hook command for each event. Fire-and-forget is critical:
+# codex runs hooks
 # synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
 # <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
 # command captures codex's stdin payload to a temp file, nohup-backgrounds the
@@ -284,6 +288,7 @@ if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
 fi
 
-# Emit failed or returned nothing: preserve the cmux surface context so native
-# or future hook paths can still bind this session after a transient outage.
+# A reconciled persistent channel intentionally emits no overrides; an emitter
+# failure also returns nothing. In both cases preserve the cmux surface context
+# so persistent, native, or future hooks can still bind this session.
 exec "$REAL_CODEX" "$@"

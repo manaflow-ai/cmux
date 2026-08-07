@@ -108,6 +108,14 @@ pub enum Service {
     MuxControl,
     WorkspaceRpc,
     ProcessStream,
+    /// A dedicated, ordered binary CMTH terminal renderer stream.
+    ///
+    /// Each service stream names exactly one cmux surface. The daemon uses a
+    /// short-lived renderer capability to bridge that surface's terminal host;
+    /// carriers, authentication, reconnect, and replay remain properties of
+    /// the enclosing remote session.
+    #[serde(rename = "terminal-bytes-v1")]
+    TerminalBytes,
     TcpTunnel,
     ComputerUse,
 }
@@ -978,6 +986,13 @@ pub enum ComputerUseOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terminal_bytes_service_uses_the_versioned_wire_name() {
+        let encoded = serde_json::to_value(Service::TerminalBytes).unwrap();
+        assert_eq!(encoded, "terminal-bytes-v1");
+        assert_eq!(serde_json::from_value::<Service>(encoded).unwrap(), Service::TerminalBytes);
+    }
 
     #[test]
     fn arbitrary_file_bytes_round_trip_through_json() {

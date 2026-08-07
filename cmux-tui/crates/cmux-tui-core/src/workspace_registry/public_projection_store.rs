@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::*;
+
 use crate::resource::{
     AgentPublicId, FrontendProjectionPublicId, NotificationPublicId, WireDecimal,
 };
@@ -176,9 +177,8 @@ enum StoredCursorStyle {
 
 impl WorkspaceRegistry {
     /// Reconstruct public auxiliary state while the registry is the sole
-    /// writer. Missing or tombstoned terminals remove live relationships:
-    /// historical notifications remain but lose `terminal_id`, while agents
-    /// disappear because an agent snapshot requires a live terminal.
+    /// writer. Missing or tombstoned terminals remove notification links, while
+    /// agent reports remain durable historical projections keyed by terminal.
     pub fn public_projections(&self) -> anyhow::Result<RegistryPublicProjections> {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
@@ -337,6 +337,7 @@ impl WorkspaceRegistry {
                 source_session: stored.source_session,
             });
         }
+        agents.reverse();
         Ok(agents)
     }
 
@@ -783,7 +784,8 @@ mod tests {
             )
             .unwrap();
 
-        // Neither auxiliary terminal relationship is live in this fixture.
+        // This fixture has no terminal row, so notification links are cleared
+        // and the historical agent mutations never form a valid projection.
         let restored = registry.public_projections().unwrap();
         assert_eq!(restored.notifications.len(), 256);
         assert_eq!(restored.notifications.first().unwrap().title, "title-5");
@@ -842,7 +844,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_relationships_restore_only_while_the_terminal_is_live() {
+    fn agent_projections_survive_terminal_tombstones() {
         let mut registry = WorkspaceRegistry::in_memory("terminal-relationships").unwrap();
         let session = registry.session_id().clone();
         let (terminal, pane, tab) = seed_live_terminal(&mut registry);
@@ -904,9 +906,9 @@ mod tests {
                             active_tab: None,
                             creation_ordinal: 1,
                         }),
-                        ResourceChange::TombstoneTab { tab_id: tab },
+                        ResourceChange::TombstoneTab { tab_id: tab, close_content: true },
                         ResourceChange::TombstoneTerminal {
-                            public_id: terminal,
+                            public_id: terminal.clone(),
                             expected_incarnation: None,
                         },
                         ResourceChange::SetTabOrder { pane_id: pane, tab_ids: Vec::new() },
@@ -918,8 +920,9 @@ mod tests {
             .unwrap();
 
         let tombstoned = registry.public_projections().unwrap();
-        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 0);
-        assert!(tombstoned.agents.is_empty());
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+        assert_eq!(tombstoned.agents.len(), 1);
+        assert_eq!(tombstoned.agents[0].terminal_id, terminal);
         assert_eq!(tombstoned.notifications.len(), 1);
         assert_eq!(tombstoned.notifications[0].terminal_id, None);
     }
