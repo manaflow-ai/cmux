@@ -1114,6 +1114,24 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/assigned-request-wrapper.ts",
+            'const request = new Request("https://api.openai.com/v1/items"); '
+            'await fetch(request)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-request-wrapper.py",
+            'request = Request("https://api.openai.com/v1/items"); '
+            'urlopen(request)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/assigned-request-wrapper.swift",
+            'let request = URLRequest(url: URL(string: '
+            '"https://api.openai.com/v1/items")!); fetch(request)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/assigned-fetch-template.ts",
             'const url = "https://api.openai.com/v1/items"; fetch(`${url}/next`)\n',
             {RULE_LIVE_NETWORK_HOST},
