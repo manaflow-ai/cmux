@@ -30,6 +30,23 @@ struct SSHRemoteCommandTests {
         #expect(command.sshOptionsPersistingTTYRequest(in: []) == ["RequestTTY=yes"])
     }
 
+    @Test("normalizes OpenSSH boolean RequestTTY aliases before applying flags")
+    func evaluatesBooleanRequestTTYAliases() {
+        let enable = SSHRemoteCommand(
+            undelimitedArguments: ["-t", "printf", "ready"]
+        )
+        let disable = SSHRemoteCommand(
+            undelimitedArguments: ["-T"]
+        )
+
+        #expect(enable.sshOptionsPersistingTTYRequest(in: ["RequestTTY=true"]) == [
+            "RequestTTY=force",
+        ])
+        #expect(disable.sshOptionsPersistingTTYRequest(in: ["RequestTTY=false"]) == [
+            "RequestTTY=no",
+        ])
+    }
+
     @Test("treats every argument after the separator as a literal command token")
     func preservesDelimitedLeadingTTYToken() {
         let command = SSHRemoteCommand(

@@ -3523,16 +3523,53 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     func testSSHLeadingTTYDisablePersistsRequestTTYForRestoration() throws {
-        let run = try runMockedSSH(arguments: ["-T"])
-        let configureParams = try XCTUnwrap(
-            params(for: "workspace.remote.configure", in: run.requests)
-        )
-        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+        let cases: [(name: String, arguments: [String], option: String, scriptFragment: String)] = [
+            ("flag", ["-T"], "RequestTTY=no", "-T"),
+            (
+                "boolean alias",
+                ["--ssh-option", "RequestTTY=false"],
+                "RequestTTY=false",
+                "RequestTTY=false"
+            ),
+        ]
 
-        XCTAssertEqual(
-            sshOptions.filter { $0.lowercased().hasPrefix("requesttty=") },
-            ["RequestTTY=no"]
-        )
+        for testCase in cases {
+            let run = try runMockedSSH(arguments: testCase.arguments)
+            let createParams = try XCTUnwrap(
+                params(for: "workspace.create", in: run.requests),
+                testCase.name
+            )
+            let configureParams = try XCTUnwrap(
+                params(for: "workspace.remote.configure", in: run.requests),
+                testCase.name
+            )
+            let sshOptions = try XCTUnwrap(
+                configureParams["ssh_options"] as? [String],
+                testCase.name
+            )
+            let initialCommand = try XCTUnwrap(
+                createParams["initial_command"] as? String,
+                testCase.name
+            )
+            let restoredCommand = try XCTUnwrap(
+                configureParams["terminal_startup_command"] as? String,
+                testCase.name
+            )
+            let initialScript = decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+            let restoredScript = decodedReusableStartupScript(from: restoredCommand) ?? restoredCommand
+
+            XCTAssertEqual(
+                sshOptions.filter { $0.lowercased().hasPrefix("requesttty=") },
+                [testCase.option],
+                testCase.name
+            )
+            for script in [initialScript, restoredScript] {
+                XCTAssertFalse(script.contains("ssh-pty-attach"), testCase.name)
+                XCTAssertTrue(script.contains(testCase.scriptFragment), testCase.name)
+            }
+            XCTAssertNil(configureParams["persistent_daemon_slot"], testCase.name)
+            XCTAssertNil(configureParams["preserve_after_terminal_exit"], testCase.name)
+        }
     }
 
     func testSSHLeadingTTYSequencePersistsEffectiveRequestTTY() throws {
