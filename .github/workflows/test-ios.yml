@@ -439,15 +439,18 @@ jobs:
               defaults import com.apple.iphonesimulator "$SIMULATOR_PREFS"
               plutil -extract "DevicePreferences.${SIMULATOR_ID}.ConnectHardwareKeyboard" \
                 raw -o - "$SIMULATOR_PREFS"
-              # A headless CoreSimulator boot does not attach the Simulator host
-              # that owns the software-keyboard presentation. Open the selected
-              # device in this Xcode's Simulator before XCTest focuses the field.
               defaults write com.apple.iphonesimulator CurrentDeviceUDID "$SIMULATOR_ID"
-              open "${DEVELOPER_DIR}/Applications/Simulator.app" \
-                --args -CurrentDeviceUDID "$SIMULATOR_ID"
             fi
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+              # A headless CoreSimulator boot does not attach the Simulator host
+              # that owns software-keyboard presentation. Open it only after the
+              # selected device is fully booted; opening a shut-down device races
+              # XCTest startup and can leave the app hierarchy unavailable.
+              open "${DEVELOPER_DIR}/Applications/Simulator.app" \
+                --args -CurrentDeviceUDID "$SIMULATOR_ID"
+            fi
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
               ./scripts/ci/require_selected_test_execution.sh \
                 "$LOG_PATH" \
