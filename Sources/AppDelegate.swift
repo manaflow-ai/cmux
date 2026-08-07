@@ -2220,7 +2220,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingFreshProcessDetectedIndexes(
+            includeScrollback: true,
+            removeWhenEmpty: false
+        )
         ClosedItemHistoryStore.shared.flushPendingSaves()
     }
 
@@ -4031,7 +4034,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+                _ = self.saveSessionSnapshotIncludingFreshProcessDetectedIndexes(
+                    includeScrollback: true,
+                    removeWhenEmpty: false
+                )
                 ClosedItemHistoryStore.shared.flushPendingSaves()
             }
         }
@@ -4459,6 +4465,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeScrollback: false,
             persistedAt: now,
             fingerprint: autosaveFingerprint
+        )
+    }
+
+    @discardableResult
+    private func saveSessionSnapshotIncludingFreshProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) -> Bool {
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadFreshSynchronously()
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
     }
 

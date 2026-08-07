@@ -65,6 +65,30 @@ find_real_hermes() {
     return 1
 }
 
+strip_cmux_hermes_shims_from_path() {
+    local path_entries=()
+    local filtered_entries=()
+    local shim_root="${CMUX_HERMES_AGENT_WRAPPER_SHIM_ROOT:-}"
+    local IFS=:
+    read -r -a path_entries <<< "${PATH:-}"
+
+    local directory
+    for directory in "${path_entries[@]}"; do
+        if [[ -n "$shim_root" && "$directory" == "$shim_root" ]]; then
+            continue
+        fi
+        case "$directory" in
+            */cmux-cli-shims/*|*/cmux-cli-shims)
+                continue
+                ;;
+        esac
+        filtered_entries+=("$directory")
+    done
+
+    PATH="${filtered_entries[*]}"
+    export PATH
+}
+
 resolve_cmux_cli() {
     local candidate="${CMUX_BUNDLED_CLI_PATH:-}"
     if [[ -n "$candidate" && -f "$candidate" && -x "$candidate" ]]; then
@@ -344,6 +368,9 @@ REAL_HERMES="$(find_real_hermes)" || {
 }
 
 exec_real_hermes_passthrough() {
+    # Administrative commands can persist command -v hermes into generated
+    # profile aliases. Never let that resolve to a per-surface temporary shim.
+    strip_cmux_hermes_shims_from_path
     unset CMUX_AGENT_RESTORE_LAUNCH
     unset CMUX_AGENT_RESUME_LAUNCH
     if [[ "$IN_CMUX" == "1" ]]; then
