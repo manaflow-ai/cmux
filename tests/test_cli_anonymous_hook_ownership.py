@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import socketserver
@@ -121,6 +122,9 @@ def run_kiro_hook(
             "CMUX_KIRO_PID": str(agent_pid),
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+            "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "0",
+            "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            "CMUX_AGENT_MANAGED_SUBAGENT": "0",
         }
     )
     return subprocess.run(
@@ -168,6 +172,7 @@ def visible_ownership_mutation(command: str) -> bool:
             "set_status ",
             "clear_status ",
             "clear_notifications ",
+            "notify_target_async ",
         )
     ) or ('"method":"surface.resume.clear"' in command.replace(" ", ""))
 
@@ -290,6 +295,47 @@ def main() -> int:
                 failures.append(
                     "a generation-verified post-start hook cannot atomically reclaim missing app ownership: "
                     f"{live_prompt_commands!r}"
+                )
+            expected_guard_tokens = (
+                "--expected-agent-key=",
+                "--expected-agent-pid-key=",
+                f"--expected-agent-pid={agent.pid}",
+                f"--expected-agent-pid-start-seconds={expected_seconds}",
+                f"--expected-agent-pid-start-microseconds={expected_microseconds}",
+            )
+            option_guarded_commands = [
+                command
+                for command in live_prompt_commands
+                if command.startswith(("set_status ", "clear_notifications "))
+            ]
+            if not option_guarded_commands or any(
+                not all(token in command for token in expected_guard_tokens)
+                for command in option_guarded_commands
+            ):
+                failures.append(
+                    "post-start visible mutations were not guarded by the same process generation: "
+                    f"{option_guarded_commands!r}"
+                )
+            expected_notification_guard = "g=" + ":".join(
+                (
+                    "v1",
+                    "p",
+                    base64.b64encode(b"kiro").decode("ascii"),
+                    base64.b64encode(f"kiro.{SURFACE_ID}".encode()).decode("ascii"),
+                    str(agent.pid),
+                    str(expected_seconds),
+                    str(expected_microseconds),
+                )
+            )
+            notification_commands = [
+                command
+                for command in live_prompt_commands
+                if command.startswith("notify_target_async ")
+            ]
+            if any(expected_notification_guard not in command for command in notification_commands):
+                failures.append(
+                    "post-start notifications did not carry the structured process guard: "
+                    f"{notification_commands!r}"
                 )
         finally:
             agent.terminate()

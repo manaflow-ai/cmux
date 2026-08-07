@@ -26,10 +26,15 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
+            if let agentMutationGuard,
+               !owner.acceptsAgentMutationGuard(agentMutationGuard, panelId: panelID) {
+                return
+            }
             guard Self.shouldReplaceStatusEntry(
                 current: owner.statusEntry(key: key, panelId: panelID),
                 key: key,
@@ -78,14 +83,18 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         pid: Int32,
         panelID: UUID?,
-        expectedLifecycleSessionID: String?
+        expectedLifecycleSessionID: String? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) {
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             let didReplaceAgentRuntime = owner.recordAgentPID(
                 key: key,
                 pid: pid,
                 panelId: panelID,
-                expectedLifecycleSessionID: expectedLifecycleSessionID
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
             if didReplaceAgentRuntime, let panelID {
                 TerminalNotificationStore.shared.clearNotifications(
@@ -157,10 +166,12 @@ extension TerminalController: ControlSidebarContext {
         key: String,
         lifecycleRawValue: String,
         panelID: UUID?,
-        sessionID: String?,
-        startsNewOccupant: Bool,
-        expectedPIDKey: String?,
-        expectedPID: Int32?
+        sessionID: String? = nil,
+        startsNewOccupant: Bool = false,
+        expectedPIDKey: String? = nil,
+        expectedPID: Int32? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) {
         guard let lifecycle = AgentHibernationLifecycleState(rawValue: lifecycleRawValue) else {
             // Unreachable: the coordinator only forwards a value this app produced.
@@ -174,7 +185,9 @@ extension TerminalController: ControlSidebarContext {
                 sessionID: sessionID,
                 startsNewOccupant: startsNewOccupant,
                 expectedPIDKey: expectedPIDKey,
-                expectedPID: expectedPID
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
         }
     }

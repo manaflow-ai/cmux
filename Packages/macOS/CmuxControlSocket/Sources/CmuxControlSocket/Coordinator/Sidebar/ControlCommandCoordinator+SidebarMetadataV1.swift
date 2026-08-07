@@ -71,6 +71,13 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let agentMutationGuard = ControlSidebarAgentMutationGuardSocketResolution(
+            parsed.options,
+            requiredStatusKey: key
+        )
+        guard agentMutationGuard.isValid else {
+            return "ERROR: Usage: set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] [--panel=ID]"
+        }
 
         let pidValue: Int32? = {
             if let rawPid = sidebarNormalizedOptionValue(parsed.options["pid"]),
@@ -90,7 +97,8 @@ extension ControlCommandCoordinator {
             priority: priority,
             format: format,
             panelID: panelResolution.panelId,
-            pid: pidValue
+            pid: pidValue,
+            agentMutationGuard: agentMutationGuard.value
         )
         return "OK"
     }
@@ -348,12 +356,38 @@ extension ControlCommandCoordinator {
         } else {
             expectedLifecycleSessionID = nil
         }
+        let expectedPIDStartSeconds: Int64?
+        let expectedPIDStartMicroseconds: Int64?
+        switch (
+            parsed.options["expected-pid-start-seconds"],
+            parsed.options["expected-pid-start-microseconds"]
+        ) {
+        case (nil, nil):
+            expectedPIDStartSeconds = nil
+            expectedPIDStartMicroseconds = nil
+        case (let rawSeconds?, let rawMicroseconds?):
+            guard let normalizedSeconds = sidebarNormalizedOptionValue(rawSeconds),
+                  let normalizedMicroseconds = sidebarNormalizedOptionValue(rawMicroseconds),
+                  let seconds = Int64(normalizedSeconds),
+                  let microseconds = Int64(normalizedMicroseconds),
+                  seconds >= 0,
+                  microseconds >= 0,
+                  microseconds < 1_000_000 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPIDStartSeconds = seconds
+            expectedPIDStartMicroseconds = microseconds
+        case (nil, _?), (_?, nil):
+            return "ERROR: Usage: \(usage)"
+        }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
             panelID: panelResolution.panelId,
-            expectedLifecycleSessionID: expectedLifecycleSessionID
+            expectedLifecycleSessionID: expectedLifecycleSessionID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
         )
         return "OK"
     }
@@ -406,6 +440,31 @@ extension ControlCommandCoordinator {
         case (nil, _?), (_?, nil):
             return "ERROR: Usage: \(usage)"
         }
+        let expectedPIDStartSeconds: Int64?
+        let expectedPIDStartMicroseconds: Int64?
+        switch (
+            parsed.options["expected-pid-start-seconds"],
+            parsed.options["expected-pid-start-microseconds"]
+        ) {
+        case (nil, nil):
+            expectedPIDStartSeconds = nil
+            expectedPIDStartMicroseconds = nil
+        case (let rawSeconds?, let rawMicroseconds?):
+            guard expectedPID != nil,
+                  let normalizedSeconds = sidebarNormalizedOptionValue(rawSeconds),
+                  let normalizedMicroseconds = sidebarNormalizedOptionValue(rawMicroseconds),
+                  let seconds = Int64(normalizedSeconds),
+                  let microseconds = Int64(normalizedMicroseconds),
+                  seconds >= 0,
+                  microseconds >= 0,
+                  microseconds < 1_000_000 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPIDStartSeconds = seconds
+            expectedPIDStartMicroseconds = microseconds
+        case (nil, _?), (_?, nil):
+            return "ERROR: Usage: \(usage)"
+        }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,
@@ -421,7 +480,9 @@ extension ControlCommandCoordinator {
             sessionID: sessionID,
             startsNewOccupant: parsed.options["new-occupant"] != nil,
             expectedPIDKey: expectedPIDKey,
-            expectedPID: expectedPID
+            expectedPID: expectedPID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
         )
         return "OK"
     }

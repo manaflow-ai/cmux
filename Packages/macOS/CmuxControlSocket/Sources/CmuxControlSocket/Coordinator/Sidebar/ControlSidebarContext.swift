@@ -59,7 +59,8 @@ public protocol ControlSidebarContext: AnyObject {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     )
 
     /// Enqueues the `clear_status`/`clear_meta` removal mutation.
@@ -70,12 +71,18 @@ public protocol ControlSidebarContext: AnyObject {
     )
 
     /// Enqueues the `set_agent_pid` record mutation.
+    ///
+    /// The paired process-start fields make an anonymous claim conditional on
+    /// the live Darwin process generation, preventing numeric PID reuse from
+    /// replacing a newer owner.
     nonisolated func controlSidebarScheduleAgentPIDRecord(
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
         panelID: UUID?,
-        expectedLifecycleSessionID: String?
+        expectedLifecycleSessionID: String?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     )
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
@@ -99,8 +106,10 @@ public protocol ControlSidebarContext: AnyObject {
     /// Enqueues the `set_agent_lifecycle` mutation.
     ///
     /// `sessionID` identifies the agent occupant that owns the lifecycle.
-    /// `expectedPIDKey` and `expectedPID` atomically reject a stale anonymous
-    /// hook after a replacement process has claimed the panel.
+    /// `expectedPIDKey`, `expectedPID`, and the paired process-start fields
+    /// atomically reject a stale anonymous hook after a replacement process has
+    /// claimed the panel, while allowing the verified generation to recover a
+    /// missing app-side owner.
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
@@ -109,7 +118,9 @@ public protocol ControlSidebarContext: AnyObject {
         sessionID: String?,
         startsNewOccupant: Bool,
         expectedPIDKey: String?,
-        expectedPID: Int32?
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`

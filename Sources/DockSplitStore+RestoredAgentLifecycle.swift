@@ -213,14 +213,129 @@ extension DockSplitStore {
         key: String,
         pid: pid_t,
         panelId: UUID,
-        expectedLifecycleSessionID: String? = nil
+        expectedLifecycleSessionID: String? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) -> Bool {
         if let expectedLifecycleSessionID {
-            guard key.hasSuffix(".\(expectedLifecycleSessionID)"),
-                  agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) == true else {
+            guard let runtime = agentRuntimeByPanelId[panelId],
+                  runtime.agentPIDKeys.contains(key),
+                  let statusKey = Self.structuredAgentStatusKey(
+                      forAgentPIDKey: key,
+                      runtime: runtime
+                  ),
+                  key == "\(statusKey).\(expectedLifecycleSessionID)",
+                  runtime.agentLifecycleSessionIDs[statusKey] == expectedLifecycleSessionID else {
                 return false
             }
         }
+        let processIdentity = Workspace.agentPIDProcessIdentity(pid: pid)
+        let expectedProcessIdentity: AgentPIDProcessIdentity?
+        switch (expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+        case (nil, nil):
+            expectedProcessIdentity = nil
+        case let (startSeconds?, startMicroseconds?):
+            expectedProcessIdentity = AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: startSeconds,
+                startMicroseconds: startMicroseconds
+            )
+        case (nil, _?), (_?, nil):
+            return false
+        }
+        var didReplaceProcessGeneration = false
+        var matchedExistingProcessGeneration = false
+        if let expectedProcessIdentity {
+            for runtime in agentRuntimeByPanelId.values where
+                runtime.agentPIDKeys.contains(key)
+                    || runtime.agentPIDs[key] != nil
+                    || runtime.agentPIDProcessIdentities[key] != nil {
+                if let previousIdentity = runtime.agentPIDProcessIdentities[key] {
+                    if previousIdentity == expectedProcessIdentity {
+                        matchedExistingProcessGeneration = true
+                        guard runtime.agentPIDs[key] == nil || runtime.agentPIDs[key] == pid else {
+                            return false
+                        }
+                    } else {
+                        guard previousIdentity.startedBefore(expectedProcessIdentity) else {
+                            return false
+                        }
+                        didReplaceProcessGeneration = true
+                    }
+                } else if let previousPID = runtime.agentPIDs[key] {
+                    if previousPID != pid {
+                        guard Workspace.agentPIDProcessIdentity(pid: previousPID) == nil else {
+                            return false
+                        }
+                        didReplaceProcessGeneration = true
+                    }
+                } else {
+                    return false
+                }
+            }
+
+            if let targetRuntime = agentRuntimeByPanelId[panelId] {
+                let structuredKeys = targetRuntime.agentPIDKeys.filter {
+                    $0 != key && Self.isStructuredAgentHookPIDKey($0, runtime: targetRuntime)
+                }
+                for existingKey in structuredKeys {
+                    if let existingIdentity = targetRuntime.agentPIDProcessIdentities[existingKey] {
+                        if existingIdentity == expectedProcessIdentity {
+                            matchedExistingProcessGeneration = true
+                        }
+                        guard existingIdentity == expectedProcessIdentity
+                                || existingIdentity.startedBefore(expectedProcessIdentity) else {
+                            return false
+                        }
+                    } else if let existingPID = targetRuntime.agentPIDs[existingKey] {
+                        if existingPID != pid {
+                            guard Workspace.agentPIDProcessIdentity(pid: existingPID) == nil else {
+                                return false
+                            }
+                        }
+                    } else {
+                        return false
+                    }
+                }
+
+                let incomingStatusKey = Self.agentStatusKey(
+                    forAgentPIDKey: key,
+                    runtime: targetRuntime
+                )
+                for lifecycleKey in targetRuntime.agentLifecycleStates.keys where
+                    lifecycleKey != incomingStatusKey
+                        && AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(lifecycleKey) {
+                    guard structuredKeys.contains(where: {
+                        Self.agentStatusKey(forAgentPIDKey: $0, runtime: targetRuntime)
+                            == lifecycleKey
+                    }) else {
+                        return false
+                    }
+                }
+            }
+
+            // Preserve an exact recorded generation after process exit, while
+            // requiring a live kernel match for every new/replacing claim.
+            guard matchedExistingProcessGeneration
+                    || processIdentity == expectedProcessIdentity else {
+                return false
+            }
+
+            let staleOwnerPanelIDs = agentRuntimeByPanelId.compactMap { ownerPanelID, runtime in
+                ownerPanelID != panelId
+                    && (runtime.agentPIDKeys.contains(key)
+                        || runtime.agentPIDs[key] != nil
+                        || runtime.agentPIDProcessIdentities[key] != nil)
+                    ? ownerPanelID
+                    : nil
+            }
+            for staleOwnerPanelID in staleOwnerPanelIDs {
+                mutateAgentRuntime(panelId: staleOwnerPanelID) { runtime in
+                    _ = Self.clearAgentPID(key: key, clearStatus: true, runtime: &runtime)
+                }
+            }
+        }
+        let recordedProcessIdentity = expectedProcessIdentity ?? processIdentity
         var didReplaceRuntime = false
         mutateAgentRuntime(panelId: panelId) { runtime in
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
@@ -237,14 +352,14 @@ extension DockSplitStore {
                 didReplaceRuntime = !staleKeys.isEmpty
             }
             runtime.agentPIDs[key] = pid
-            if let identity = Workspace.agentPIDProcessIdentity(pid: pid) {
-                runtime.agentPIDProcessIdentities[key] = identity
+            if let recordedProcessIdentity {
+                runtime.agentPIDProcessIdentities[key] = recordedProcessIdentity
             } else {
                 runtime.agentPIDProcessIdentities.removeValue(forKey: key)
             }
             runtime.agentPIDKeys.insert(key)
         }
-        return didReplaceRuntime
+        return didReplaceRuntime || didReplaceProcessGeneration
     }
 
     func setAgentLifecycle(
@@ -254,20 +369,64 @@ extension DockSplitStore {
         sessionID: String? = nil,
         startsNewOccupant: Bool = false,
         expectedPIDKey: String? = nil,
-        expectedPID: pid_t? = nil
+        expectedPID: pid_t? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) {
-        if sessionID != nil || startsNewOccupant || expectedPIDKey != nil || expectedPID != nil {
-            guard let expectedPIDKey,
-                  let expectedPID,
-                  expectedPID > 0,
-                  let runtime = agentRuntimeByPanelId[panelId],
+        let expectedProcessIdentity: AgentPIDProcessIdentity?
+        switch (expectedPID, expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+        case (nil, nil, nil):
+            expectedProcessIdentity = nil
+        case let (pid?, startSeconds?, startMicroseconds?):
+            expectedProcessIdentity = AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: startSeconds,
+                startMicroseconds: startMicroseconds
+            )
+        case _:
+            return
+        }
+        switch (expectedPIDKey, expectedPID) {
+        case let (expectedPIDKey?, expectedPID?):
+            guard expectedPID > 0 else { return }
+            if let expectedProcessIdentity {
+                _ = recordAgentPID(
+                    key: expectedPIDKey,
+                    pid: expectedPID,
+                    panelId: panelId,
+                    expectedPIDStartSeconds: expectedProcessIdentity.startSeconds,
+                    expectedPIDStartMicroseconds: expectedProcessIdentity.startMicroseconds
+                )
+            }
+            guard let runtime = agentRuntimeByPanelId[panelId],
                   runtime.agentPIDs[expectedPIDKey] == expectedPID,
                   Self.agentStatusKey(forAgentPIDKey: expectedPIDKey, runtime: runtime) == key else {
+                return
+            }
+            if let expectedProcessIdentity,
+               runtime.agentPIDProcessIdentities[expectedPIDKey] != expectedProcessIdentity {
+                return
+            }
+        case (nil, nil):
+            guard expectedProcessIdentity == nil else { return }
+        case (nil, _?), (_?, nil):
+            return
+        }
+        if let sessionID {
+            guard let runtime = agentRuntimeByPanelId[panelId],
+                  runtime.agentPIDKeys.contains("\(key).\(sessionID)"),
+                  startsNewOccupant
+                    || runtime.agentLifecycleSessionIDs[key] == sessionID else {
                 return
             }
         }
         mutateAgentRuntime(panelId: panelId) {
             $0.agentLifecycleStates[key] = lifecycle
+            if let sessionID {
+                $0.agentLifecycleSessionIDs[key] = sessionID
+            } else {
+                $0.agentLifecycleSessionIDs.removeValue(forKey: key)
+            }
         }
     }
 
@@ -283,8 +442,14 @@ extension DockSplitStore {
         requireOwnedKey: Bool = false
     ) -> Bool {
         if let expectedLifecycleSessionID {
-            guard key.hasSuffix(".\(expectedLifecycleSessionID)"),
-                  agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) == true else {
+            guard let runtime = agentRuntimeByPanelId[panelId],
+                  runtime.agentPIDKeys.contains(key),
+                  let statusKey = Self.structuredAgentStatusKey(
+                      forAgentPIDKey: key,
+                      runtime: runtime
+                  ),
+                  key == "\(statusKey).\(expectedLifecycleSessionID)",
+                  runtime.agentLifecycleSessionIDs[statusKey] == expectedLifecycleSessionID else {
                 return false
             }
         }
@@ -342,6 +507,7 @@ extension DockSplitStore {
             || !runtime.agentPIDs.isEmpty
             || !runtime.agentPIDKeys.isEmpty
             || !runtime.agentLifecycleStates.isEmpty
+            || !runtime.agentLifecycleSessionIDs.isEmpty
         if shouldKeep {
             agentRuntimeByPanelId[panelId] = runtime
         } else {
@@ -367,6 +533,9 @@ extension DockSplitStore {
         if runtime.agentLifecycleStates.removeValue(forKey: statusKey) != nil {
             didChange = true
         }
+        if runtime.agentLifecycleSessionIDs.removeValue(forKey: statusKey) != nil {
+            didChange = true
+        }
         if clearStatus,
            !runtime.agentPIDKeys.contains(where: {
                agentStatusKey(forAgentPIDKey: $0, runtime: runtime) == statusKey
@@ -386,7 +555,17 @@ extension DockSplitStore {
         )
     }
 
-    private static func agentStatusKey(
+    private static func structuredAgentStatusKey(
+        forAgentPIDKey key: String,
+        runtime: Workspace.DetachedAgentRuntimeState
+    ) -> String? {
+        let statusKey = agentStatusKey(forAgentPIDKey: key, runtime: runtime)
+        return AgentHibernationLifecycleStatusKeys.allowedStatusKeys.contains(statusKey)
+            ? statusKey
+            : nil
+    }
+
+    static func agentStatusKey(
         forAgentPIDKey key: String,
         runtime: Workspace.DetachedAgentRuntimeState
     ) -> String {

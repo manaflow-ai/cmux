@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -72,7 +73,9 @@ extension ControlSidebarContext {
         key: String,
         pid: Int32,
         panelID: UUID?,
-        expectedLifecycleSessionID: String?
+        expectedLifecycleSessionID: String?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     ) {}
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? { nil }
@@ -99,7 +102,9 @@ extension ControlSidebarContext {
         sessionID: String?,
         startsNewOccupant: Bool,
         expectedPIDKey: String?,
-        expectedPID: Int32?
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     ) {}
 
     func controlSidebarSetWorkspaceLoading(

@@ -116,6 +116,7 @@
 		A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110010000000000000003 /* AgentHookNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110010000000000000002 /* AgentHookNotificationPolicy.swift */; };
 		A76110020000000000000001 /* AgentHookNotificationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */; };
+		8950A1B2C3D4E5F607182931 /* AgentHookProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8950A1B2C3D4E5F607182932 /* AgentHookProcessIdentity.swift */; };
 		895000000000000000000008 /* AgentLifecycleEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895000000000000000000018 /* AgentLifecycleEventTests.swift */; };
 		895000000000000000000009 /* AgentLifecyclePublicState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895000000000000000000019 /* AgentLifecyclePublicState.swift */; };
 		895000000000000000000001 /* AgentLifecycleRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = 895000000000000000000011 /* AgentLifecycleRecord.swift */; };
@@ -125,6 +126,7 @@
 		79390003AA11BB22CC33DD03 /* AgentNotificationLiveRetargetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390004AA11BB22CC33DD04 /* AgentNotificationLiveRetargetTests.swift */; };
 		7939000FAA11BB22CC33DD0F /* AgentNotificationMoveRaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390010AA11BB22CC33DD10 /* AgentNotificationMoveRaceTests.swift */; };
 		79460001AA11BB22CC33EE01 /* AgentNotificationMutationBoundaryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79460002AA11BB22CC33EE02 /* AgentNotificationMutationBoundaryTests.swift */; };
+		8950A1B2C3D4E5F607182933 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
 		C3744E030000000000000001 /* AgentPIDProcessIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3744E040000000000000001 /* AgentPIDProcessIdentity.swift */; };
 		B79500130000000000000001 /* AgentPortPublicationHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500130000000000000002 /* AgentPortPublicationHistory.swift */; };
 		B79500120000000000000001 /* AgentPortRootIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79500120000000000000002 /* AgentPortRootIdentity.swift */; };
@@ -2833,6 +2835,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		918100000000000000000100 /* AgentHookFailureStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookFailureStage.swift; sourceTree = "<group>"; };
 		A76110010000000000000002 /* AgentHookNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicy.swift; sourceTree = "<group>"; };
 		A76110020000000000000002 /* AgentHookNotificationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookNotificationPolicyTests.swift; sourceTree = "<group>"; };
+		8950A1B2C3D4E5F607182932 /* AgentHookProcessIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHookProcessIdentity.swift; sourceTree = "<group>"; };
 		895000000000000000000018 /* AgentLifecycleEventTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLifecycleEventTests.swift; sourceTree = "<group>"; };
 		895000000000000000000019 /* AgentLifecyclePublicState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentLifecyclePublicState.swift; sourceTree = "<group>"; };
 		895000000000000000000011 /* AgentLifecycleRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentLifecycleRecord.swift; sourceTree = "<group>"; };
@@ -7246,6 +7249,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		B9000003A1B2C3D4E5F60719 /* CLI */ = {
 			isa = PBXGroup;
 			children = (
+				8950A1B2C3D4E5F607182932 /* AgentHookProcessIdentity.swift */,
 				805500000000000000000003 /* BrowserValueTextFormatter.swift */,
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				895000000000000000000015 /* CMUXCLI+AgentLifecycleReporting.swift */,
@@ -10234,6 +10238,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				D36A00030000000000000003 /* AgentHibernationLifecycleState.swift in Sources */,
 				918100000000000000000101 /* AgentHookFailureStage.swift in Sources */,
 				A76110010000000000000001 /* AgentHookNotificationPolicy.swift in Sources */,
+				8950A1B2C3D4E5F607182931 /* AgentHookProcessIdentity.swift in Sources */,
+				8950A1B2C3D4E5F607182933 /* AgentPIDProcessIdentity.swift in Sources */,
 				89930002AABBCCDDEEFF0002 /* AgentProcessBindingResolution.swift in Sources */,
 				394139F275D94FB49356E9C7 /* AgentSurfaceResumeBindingClearOutcome.swift in Sources */,
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,

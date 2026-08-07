@@ -1,4 +1,5 @@
 import CmuxSettings
+import CmuxControlSocket
 import Foundation
 
 /// Applies agent notification policy and publishes accepted events through the shared mutation bus.
@@ -26,7 +27,8 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
-        coalesces: Bool = false
+        coalesces: Bool = false,
+        agentMutationGuard: ControlSidebarAgentMutationGuard? = nil
     ) -> Bool {
         if let category,
            !agentNotificationShouldDeliver(
@@ -44,7 +46,8 @@ struct AgentNotificationDelivery: Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            coalesces: coalesces
+            coalesces: coalesces,
+            agentMutationGuard: agentMutationGuard
         )
         return true
     }

@@ -139,6 +139,52 @@ extension TerminalController {
         return .workspace(tab)
     }
 
+    /// Final apply-time authorization shared by queued status, notification,
+    /// and clear mutations from one agent hook event.
+    func controlSidebarAgentMutationIsAuthorized(
+        _ guardValue: ControlSidebarAgentMutationGuard,
+        claimedTabID: UUID,
+        panelID: UUID
+    ) -> Bool {
+        guard let owner = controlSidebarResolvePanelOwner(
+            target: .workspace(claimedTabID),
+            panelID: panelID
+        ) else {
+            return false
+        }
+        return owner.acceptsAgentMutationGuard(guardValue, panelId: panelID)
+    }
+
+    /// Enqueues an occupant-guarded notification clear without discarding
+    /// anything until the guard is revalidated against the panel's live owner.
+    nonisolated func controlSidebarScheduleGuardedNotificationClear(
+        target: ControlSidebarTabTarget,
+        panelID: UUID,
+        guardValue: ControlSidebarAgentMutationGuard
+    ) {
+        let mutationBus = TerminalMutationBus.shared
+        mutationBus.enqueueGuardedNotificationClear { [weak self] clearBoundary in
+            guard let self,
+                  let owner = self.controlSidebarResolvePanelOwner(
+                      target: target,
+                      panelID: panelID
+                  ),
+                  owner.acceptsAgentMutationGuard(guardValue, panelId: panelID) else {
+                return
+            }
+            mutationBus.discardPendingNotifications(
+                forSurfaceId: panelID,
+                through: clearBoundary
+            )
+            TerminalNotificationStore.shared.clearNotifications(
+                forTabId: owner.id,
+                surfaceId: panelID,
+                discardQueuedNotifications: false,
+                throughNotificationGeneration: clearBoundary
+            )
+        }
+    }
+
     /// Resolves a UUID-addressed panel's owner inside the deferred mutation so
     /// agent runtime updates follow a pane that moved after the socket request.
     nonisolated func controlSidebarSchedulePanelOwnedMutation(

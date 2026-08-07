@@ -59,12 +59,54 @@ enum ControlSidebarPanelOwner {
         }
     }
 
+    /// Revalidates the occupant at the final main-actor mutation boundary.
+    /// The exact recorded generation or durable session must still own this
+    /// panel. Process liveness is established when ownership is claimed, not
+    /// here: a valid completion hook may outlive its process while queued.
+    func acceptsAgentMutationGuard(
+        _ guardValue: ControlSidebarAgentMutationGuard,
+        panelId: UUID?
+    ) -> Bool {
+        guard let panelId else { return false }
+        switch (self, guardValue) {
+        case let (.workspace(workspace), .session(statusKey, sessionID)):
+            return workspace.agentLifecycleRecordsByPanelId[panelId]?[statusKey]?.sessionID
+                == sessionID
+        case let (.workspace(workspace), .process(statusKey, pidKey, pid, seconds, microseconds)):
+            let identity = AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: seconds,
+                startMicroseconds: microseconds
+            )
+            return workspace.agentStatusKey(forAgentPIDKey: pidKey) == statusKey
+                && workspace.agentPIDPanelIdsByKey[pidKey] == panelId
+                && workspace.agentPIDs[pidKey] == pid
+                && workspace.agentPIDProcessIdentitiesByKey[pidKey] == identity
+        case let (.dock(dock), .session(statusKey, sessionID)):
+            guard let runtime = dock.agentRuntimeByPanelId[panelId] else { return false }
+            return runtime.agentLifecycleSessionIDs[statusKey] == sessionID
+        case let (.dock(dock), .process(statusKey, pidKey, pid, seconds, microseconds)):
+            guard let runtime = dock.agentRuntimeByPanelId[panelId] else { return false }
+            let identity = AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: seconds,
+                startMicroseconds: microseconds
+            )
+            return DockSplitStore.agentStatusKey(forAgentPIDKey: pidKey, runtime: runtime) == statusKey
+                && runtime.agentPIDKeys.contains(pidKey)
+                && runtime.agentPIDs[pidKey] == pid
+                && runtime.agentPIDProcessIdentities[pidKey] == identity
+        }
+    }
+
     @discardableResult
     func recordAgentPID(
         key: String,
         pid: pid_t,
         panelId: UUID?,
-        expectedLifecycleSessionID: String? = nil
+        expectedLifecycleSessionID: String? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) -> Bool {
         switch self {
         case .workspace(let workspace):
@@ -72,7 +114,9 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 pid: pid,
                 panelId: panelId,
-                expectedLifecycleSessionID: expectedLifecycleSessionID
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
         case .dock(let dock):
             guard let panelId else { return false }
@@ -80,7 +124,9 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 pid: pid,
                 panelId: panelId,
-                expectedLifecycleSessionID: expectedLifecycleSessionID
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
         }
     }
@@ -92,7 +138,9 @@ enum ControlSidebarPanelOwner {
         sessionID: String? = nil,
         startsNewOccupant: Bool = false,
         expectedPIDKey: String? = nil,
-        expectedPID: Int32? = nil
+        expectedPID: Int32? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) {
         switch self {
         case .workspace(let workspace):
@@ -103,7 +151,9 @@ enum ControlSidebarPanelOwner {
                 sessionID: sessionID,
                 startsNewOccupant: startsNewOccupant,
                 expectedPIDKey: expectedPIDKey,
-                expectedPID: expectedPID
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
         case .dock(let dock):
             guard let panelId else { return }
@@ -114,7 +164,9 @@ enum ControlSidebarPanelOwner {
                 sessionID: sessionID,
                 startsNewOccupant: startsNewOccupant,
                 expectedPIDKey: expectedPIDKey,
-                expectedPID: expectedPID
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
         }
     }

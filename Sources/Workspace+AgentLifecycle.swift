@@ -332,10 +332,25 @@ extension Workspace {
         sessionID: String? = nil,
         startsNewOccupant: Bool = false,
         expectedPIDKey: String? = nil,
-        expectedPID: Int32? = nil
+        expectedPID: Int32? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        let expectedProcessIdentity: AgentPIDProcessIdentity?
+        switch (expectedPID, expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+        case (nil, nil, nil):
+            expectedProcessIdentity = nil
+        case let (pid?, startSeconds?, startMicroseconds?):
+            expectedProcessIdentity = AgentPIDProcessIdentity(
+                pid: pid,
+                startSeconds: startSeconds,
+                startMicroseconds: startMicroseconds
+            )
+        case _:
+            return
+        }
         let claimedPID: (key: String, pid: Int32)?
         switch (expectedPIDKey, expectedPID) {
         case let (expectedPIDKey?, expectedPID?):
@@ -343,7 +358,9 @@ extension Workspace {
                   agentStatusKey(forAgentPIDKey: expectedPIDKey) == key else {
                 return
             }
-            if startsNewOccupant, expectedPIDKey == key {
+            if expectedProcessIdentity != nil {
+                claimedPID = (expectedPIDKey, expectedPID)
+            } else if startsNewOccupant, expectedPIDKey == key {
                 // A verified SessionStart for a shared PID key establishes
                 // lifecycle ownership and PID routing in this single
                 // main-actor mutation. Session-qualified PID keys retain the
@@ -358,6 +375,7 @@ extension Workspace {
                 claimedPID = nil
             }
         case (nil, nil):
+            guard expectedProcessIdentity == nil else { return }
             claimedPID = nil
         case (nil, _?), (_?, nil):
             return
@@ -378,10 +396,28 @@ extension Workspace {
         let isDuplicateAuthoritativeStart = startsNewOccupant
             && normalizedSessionID != nil
             && previous?.sessionID == normalizedSessionID
+
+        var processGenerationReplacedOccupant = false
+        if let claimedPID {
+            let outcome = recordAgentPIDOutcome(
+                key: claimedPID.key,
+                pid: claimedPID.pid,
+                panelId: targetPanelId,
+                expectedPIDStartSeconds: expectedProcessIdentity?.startSeconds,
+                expectedPIDStartMicroseconds: expectedProcessIdentity?.startMicroseconds,
+                preservingLifecycleStatusKey: key
+            )
+            guard outcome.accepted else { return }
+            processGenerationReplacedOccupant = previous != nil
+                && expectedProcessIdentity != nil
+                && !outcome.matchedExistingProcessGeneration
+        }
+
         let isReplacement = previous != nil
             && (
                 hasDifferentAuthoritativeSession
                     || (startsNewOccupant && !isDuplicateAuthoritativeStart)
+                    || processGenerationReplacedOccupant
             )
 
         if let previous, isReplacement {
@@ -409,14 +445,6 @@ extension Workspace {
             )
         }
         agentLifecycleRecordsByPanelId[targetPanelId, default: [:]][key] = record
-
-        if let claimedPID {
-            _ = recordAgentPID(
-                key: claimedPID.key,
-                pid: claimedPID.pid,
-                panelId: targetPanelId
-            )
-        }
 
         let isManual = AgentHibernationLifecycleStatusKeys.isManualKey(key)
         if !isManual,

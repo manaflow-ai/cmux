@@ -12404,6 +12404,7 @@ class TerminalController {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         let (title, subtitle, body, meta) = parseNotificationPayload(payload)
+        let agentMutationGuard = meta?.agentMutationGuard
 
         // Hook and PTY-derived agent notifications share one gate + mutation-bus path.
         guard AgentNotificationDelivery().enqueue(
@@ -12413,7 +12414,8 @@ class TerminalController {
             subtitle: subtitle,
             body: body,
             category: meta?.category,
-            pending: meta?.pending ?? false
+            pending: meta?.pending ?? false,
+            agentMutationGuard: agentMutationGuard
         ) else {
 #if DEBUG
             if let meta {
@@ -12483,6 +12485,23 @@ class TerminalController {
         let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
         if let error = panelResolution.error {
             return error
+        }
+        let parsedAgentMutationGuard = ControlSidebarAgentMutationGuardSocketResolution(
+            parsed.options
+        )
+        guard parsedAgentMutationGuard.isValid else {
+            return "ERROR: Usage: \(usage)"
+        }
+        if let agentMutationGuard = parsedAgentMutationGuard.value {
+            guard let panelID = panelResolution.panelId else {
+                return "ERROR: Usage: \(usage)"
+            }
+            controlSidebarScheduleGuardedNotificationClear(
+                target: target,
+                panelID: panelID,
+                guardValue: agentMutationGuard
+            )
+            return "OK"
         }
         if case .workspace(let tabId) = target {
             if let panelId = panelResolution.panelId {
@@ -13278,11 +13297,10 @@ class TerminalController {
     }
 
     /// Parses a `title|subtitle|body` notification payload, plus an OPTIONAL 4th
-    /// `meta` segment (e.g. `c=turn-complete;p=1`) that agent hooks append to gate
-    /// delivery by user config. The 4th segment is only treated as meta when it
-    /// begins with `c=`; otherwise it is folded back into the body, so legacy
-    /// callers whose body itself contains `|` parse byte-identically to before
-    /// (the fold reconstructs exactly the `maxSplits: 2` result).
+    /// `meta` segment that cmux-owned agent hooks append for delivery policy
+    /// (`c=turn-complete;p=1`), an apply-time ownership guard (`g=v1:...`),
+    /// or both. Anything outside the exact versioned grammar is folded back
+    /// into the body, preserving legacy free-form payload text.
     /// `nonisolated`: pure string parsing, run by the worker-lane notify
     /// bodies on the socket-worker thread.
     private nonisolated func parseNotificationPayload(_ args: String) -> (title: String, subtitle: String, body: String, meta: AgentNotificationMeta?) {
@@ -13291,19 +13309,11 @@ class TerminalController {
         var parts = trimmed.split(separator: "|", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
         var meta: AgentNotificationMeta? = nil
         if parts.count == 4 {
-            // The 4th segment is treated as gating metadata only when it parses
-            // as the FULL `c=<category>;p=<0|1>` grammar. Anything else — including
-            // a legacy body that happens to contain "|c=..." — is folded back into
-            // the body so pre-meta callers parse byte-identically to before.
-            // Conscious tradeoff: this reserves exactly three trailing literals
-            // ("|c=turn-complete;p=<0|1>", "|c=needs-permission;p=<0|1>",
-            // "|c=idle-reminder;p=<0|1>") in notify payloads; any other "c=..."
-            // tail (unknown categories included) stays part of the body. Accepted
-            // because the only meta producers are cmux's own agent hooks (whose
-            // fields are |-sanitized) and a collision requires one of those exact
-            // suffixes.
+            // Only cmux's exact canonical metadata is reserved. Its producers
+            // pipe-sanitize title/subtitle/body, so guard parsing never scans
+            // arbitrary payload bytes for an in-band marker.
             let candidate = parts[3].trimmingCharacters(in: .whitespacesAndNewlines)
-            if candidate.hasPrefix("c="), let parsed = AgentNotificationMeta(meta: candidate) {
+            if let parsed = AgentNotificationMeta(meta: candidate) {
                 meta = parsed
             } else {
                 parts[2] += "|" + parts[3]

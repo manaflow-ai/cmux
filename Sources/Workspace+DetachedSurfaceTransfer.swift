@@ -18,6 +18,8 @@ extension Workspace {
         /// Active lifecycle values follow a live panel into and out of a Dock,
         /// alongside its structured PID ownership.
         var agentLifecycleStates: [String: AgentHibernationLifecycleState] = [:]
+        /// Exact lifecycle-session owner by status key while the panel is in a Dock.
+        var agentLifecycleSessionIDs: [String: String] = [:]
     }
 
     struct DetachedSurfaceTransfer {

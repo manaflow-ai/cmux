@@ -596,6 +596,285 @@ struct AgentLifecycleEventTests {
     }
 
     @Test
+    func generationVerifiedLifecycleReclaimsMissingAnonymousPIDOwnership() throws {
+        let fixture = try Fixture()
+        let pidKey = "kiro.\(fixture.surfaceID.uuidString)"
+        let pid = getpid()
+        let identity = try #require(AgentPIDProcessIdentity(pid: pid))
+
+        fixture.workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            expectedPIDKey: pidKey,
+            expectedPID: pid,
+            expectedPIDStartSeconds: identity.startSeconds,
+            expectedPIDStartMicroseconds: identity.startMicroseconds
+        )
+
+        #expect(fixture.workspace.agentPIDs[pidKey] == pid)
+        #expect(fixture.workspace.agentPIDPanelIdsByKey[pidKey] == fixture.surfaceID)
+        #expect(fixture.workspace.agentPIDProcessIdentitiesByKey[pidKey] == identity)
+        #expect(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["kiro"]?.state
+                == .running
+        )
+    }
+
+    @Test
+    func generationMismatchedLifecycleCannotReclaimAnonymousPIDOwnership() throws {
+        let fixture = try Fixture()
+        let pidKey = "kiro.\(fixture.surfaceID.uuidString)"
+        let pid = getpid()
+        let identity = try #require(AgentPIDProcessIdentity(pid: pid))
+
+        fixture.workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            expectedPIDKey: pidKey,
+            expectedPID: pid,
+            expectedPIDStartSeconds: identity.startSeconds + 1,
+            expectedPIDStartMicroseconds: identity.startMicroseconds
+        )
+
+        #expect(fixture.workspace.agentPIDs[pidKey] == nil)
+        #expect(fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["kiro"] == nil)
+    }
+
+    @Test
+    func newerAnonymousProcessGenerationReplacesOlderWorkspaceOccupant() throws {
+        let fixture = try Fixture()
+        let olderProcess = try sleepingProcess()
+        let newerProcess = try sleepingProcess()
+        defer { terminate([olderProcess, newerProcess]) }
+        let olderIdentity = try #require(
+            AgentPIDProcessIdentity(pid: olderProcess.processIdentifier)
+        )
+        let newerIdentity = try #require(
+            AgentPIDProcessIdentity(pid: newerProcess.processIdentifier)
+        )
+        try #require(olderIdentity.startedBefore(newerIdentity))
+        let olderKey = "kiro.older"
+        let newerKey = "kiro.newer"
+
+        fixture.workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            expectedPIDKey: olderKey,
+            expectedPID: olderProcess.processIdentifier,
+            expectedPIDStartSeconds: olderIdentity.startSeconds,
+            expectedPIDStartMicroseconds: olderIdentity.startMicroseconds
+        )
+        let olderRecord = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["kiro"]
+        )
+
+        fixture.workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.surfaceID,
+            lifecycle: .idle,
+            expectedPIDKey: newerKey,
+            expectedPID: newerProcess.processIdentifier,
+            expectedPIDStartSeconds: newerIdentity.startSeconds,
+            expectedPIDStartMicroseconds: newerIdentity.startMicroseconds
+        )
+        let replacementRecord = try #require(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["kiro"]
+        )
+
+        #expect(fixture.workspace.agentPIDs[olderKey] == nil)
+        #expect(fixture.workspace.agentPIDs[newerKey] == newerProcess.processIdentifier)
+        #expect(replacementRecord.revision > olderRecord.revision)
+        #expect(replacementRecord.state == .idle)
+
+        fixture.workspace.setAgentLifecycle(
+            key: "kiro",
+            panelId: fixture.surfaceID,
+            lifecycle: .needsInput,
+            expectedPIDKey: olderKey,
+            expectedPID: olderProcess.processIdentifier,
+            expectedPIDStartSeconds: olderIdentity.startSeconds,
+            expectedPIDStartMicroseconds: olderIdentity.startMicroseconds
+        )
+
+        #expect(fixture.workspace.agentPIDs[olderKey] == nil)
+        #expect(fixture.workspace.agentPIDs[newerKey] == newerProcess.processIdentifier)
+        #expect(
+            fixture.workspace.agentLifecycleRecordsByPanelId[fixture.surfaceID]?["kiro"]
+                == replacementRecord
+        )
+    }
+
+    @Test
+    func newerAnonymousProcessGenerationMovesDockOwnershipAndRejectsStaleReclaim() throws {
+        let firstSource = Workspace()
+        let secondSource = Workspace()
+        let firstPanelID = try #require(firstSource.focusedPanelId)
+        let secondPanelID = try #require(secondSource.focusedPanelId)
+        let firstTransfer = try #require(firstSource.detachSurface(panelId: firstPanelID))
+        let secondTransfer = try #require(secondSource.detachSurface(panelId: secondPanelID))
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let rootPaneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(dock.attachDetachedSurface(firstTransfer, inPane: rootPaneID, focus: false))
+        try #require(
+            dock.attachDetachedSurface(
+                secondTransfer,
+                bySplitting: rootPaneID,
+                orientation: .horizontal,
+                insertFirst: false,
+                focus: false
+            )
+        )
+
+        let olderProcess = try sleepingProcess()
+        let newerProcess = try sleepingProcess()
+        defer { terminate([olderProcess, newerProcess]) }
+        let olderIdentity = try #require(
+            AgentPIDProcessIdentity(pid: olderProcess.processIdentifier)
+        )
+        let newerIdentity = try #require(
+            AgentPIDProcessIdentity(pid: newerProcess.processIdentifier)
+        )
+        try #require(olderIdentity.startedBefore(newerIdentity))
+        let pidKey = "kiro.shared"
+
+        _ = dock.recordAgentPID(
+            key: pidKey,
+            pid: olderProcess.processIdentifier,
+            panelId: firstPanelID,
+            expectedPIDStartSeconds: olderIdentity.startSeconds,
+            expectedPIDStartMicroseconds: olderIdentity.startMicroseconds
+        )
+        _ = dock.recordAgentPID(
+            key: pidKey,
+            pid: newerProcess.processIdentifier,
+            panelId: secondPanelID,
+            expectedPIDStartSeconds: newerIdentity.startSeconds,
+            expectedPIDStartMicroseconds: newerIdentity.startMicroseconds
+        )
+
+        #expect(dock.agentRuntimeByPanelId[firstPanelID]?.agentPIDKeys.contains(pidKey) != true)
+        #expect(
+            dock.agentRuntimeByPanelId[secondPanelID]?.agentPIDs[pidKey]
+                == newerProcess.processIdentifier
+        )
+
+        _ = dock.recordAgentPID(
+            key: pidKey,
+            pid: olderProcess.processIdentifier,
+            panelId: firstPanelID,
+            expectedPIDStartSeconds: olderIdentity.startSeconds,
+            expectedPIDStartMicroseconds: olderIdentity.startMicroseconds
+        )
+
+        #expect(dock.agentRuntimeByPanelId[firstPanelID]?.agentPIDKeys.contains(pidKey) != true)
+        #expect(
+            dock.agentRuntimeByPanelId[secondPanelID]?.agentPIDs[pidKey]
+                == newerProcess.processIdentifier
+        )
+    }
+
+    @Test
+    func dockSessionAuthorizationUsesExactStructuredIdentity() throws {
+        let source = Workspace()
+        let panelID = try #require(source.focusedPanelId)
+        let transfer = try #require(source.detachSurface(panelId: panelID))
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(dock.attachDetachedSurface(transfer, inPane: paneID, focus: false))
+        let currentSessionID = "bar.foo"
+        let pidKey = "codex.\(currentSessionID)"
+
+        _ = dock.recordAgentPID(key: pidKey, pid: getpid(), panelId: panelID)
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelID,
+            lifecycle: .running,
+            sessionID: currentSessionID,
+            startsNewOccupant: true
+        )
+
+        let owner = ControlSidebarPanelOwner.dock(dock)
+        #expect(
+            owner.acceptsAgentMutationGuard(
+                .session(statusKey: "codex", sessionID: currentSessionID),
+                panelId: panelID
+            )
+        )
+        #expect(
+            !owner.acceptsAgentMutationGuard(
+                .session(statusKey: "codex", sessionID: "foo"),
+                panelId: panelID
+            )
+        )
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelID,
+            lifecycle: .needsInput,
+            sessionID: "foo"
+        )
+        #expect(dock.agentRuntimeByPanelId[panelID]?.agentLifecycleStates["codex"] == .running)
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?.agentLifecycleSessionIDs["codex"]
+                == currentSessionID
+        )
+    }
+
+    @Test
+    func dockPreservesRecordedProcessAuthorizationAfterExit() throws {
+        let source = Workspace()
+        let panelID = try #require(source.focusedPanelId)
+        let transfer = try #require(source.detachSurface(panelId: panelID))
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(dock.attachDetachedSurface(transfer, inPane: paneID, focus: false))
+        let process = try sleepingProcess()
+        let identity = try #require(AgentPIDProcessIdentity(pid: process.processIdentifier))
+        let pidKey = "kiro.current"
+
+        dock.setAgentLifecycle(
+            key: "kiro",
+            panelId: panelID,
+            lifecycle: .running,
+            expectedPIDKey: pidKey,
+            expectedPID: process.processIdentifier,
+            expectedPIDStartSeconds: identity.startSeconds,
+            expectedPIDStartMicroseconds: identity.startMicroseconds
+        )
+        process.terminate()
+        process.waitUntilExit()
+        dock.setAgentLifecycle(
+            key: "kiro",
+            panelId: panelID,
+            lifecycle: .idle,
+            expectedPIDKey: pidKey,
+            expectedPID: process.processIdentifier,
+            expectedPIDStartSeconds: identity.startSeconds,
+            expectedPIDStartMicroseconds: identity.startMicroseconds
+        )
+
+        #expect(dock.agentRuntimeByPanelId[panelID]?.agentLifecycleStates["kiro"] == .idle)
+        #expect(
+            ControlSidebarPanelOwner.dock(dock).acceptsAgentMutationGuard(
+                .process(
+                    statusKey: "kiro",
+                    pidKey: pidKey,
+                    pid: process.processIdentifier,
+                    startSeconds: identity.startSeconds,
+                    startMicroseconds: identity.startMicroseconds
+                ),
+                panelId: panelID
+            )
+        )
+    }
+
+    @Test
     func staleSessionTeardownCannotClearReplacementLifecycle() throws {
         let fixture = try Fixture()
         fixture.workspace.recordAgentPID(
@@ -918,6 +1197,21 @@ struct AgentLifecycleEventTests {
                         (CmuxEventBus.int64(event["seq"]) ?? 0) > $0
                     } != false
             }
+        }
+    }
+
+    private func sleepingProcess() throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+        return process
+    }
+
+    private func terminate(_ processes: [Process]) {
+        for process in processes where process.isRunning {
+            process.terminate()
+            process.waitUntilExit()
         }
     }
 }

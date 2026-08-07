@@ -10,6 +10,22 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         key: String,
         panelID: UUID?
     )?
+    nonisolated(unsafe) var statusUpsertCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        panelID: UUID?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
+    )?
+    nonisolated(unsafe) var agentPIDRecordCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        pid: Int32,
+        panelID: UUID?,
+        expectedLifecycleSessionID: String?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
+    )?
     nonisolated(unsafe) var agentPIDClearCall: (
         target: ControlSidebarTabTarget,
         key: String,
@@ -29,7 +45,9 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         sessionID: String?,
         startsNewOccupant: Bool,
         expectedPIDKey: String?,
-        expectedPID: Int32?
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     )?
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -38,6 +56,42 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         panelID: UUID?
     ) {
         statusClearCall = (target, key, panelID)
+    }
+
+    nonisolated func controlSidebarScheduleStatusUpsert(
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: ControlSidebarMetadataFormat,
+        panelID: UUID?,
+        pid: Int32?,
+        agentMutationGuard: ControlSidebarAgentMutationGuard?
+    ) {
+        statusUpsertCall = (target, key, value, panelID, agentMutationGuard)
+    }
+
+    nonisolated func controlSidebarScheduleAgentPIDRecord(
+        target: ControlSidebarTabTarget,
+        key: String,
+        pid: Int32,
+        panelID: UUID?,
+        expectedLifecycleSessionID: String?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
+    ) {
+        agentPIDRecordCall = (
+            target,
+            key,
+            pid,
+            panelID,
+            expectedLifecycleSessionID,
+            expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds
+        )
     }
 
     nonisolated func controlSidebarScheduleAgentPIDClear(
@@ -84,7 +138,9 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         sessionID: String?,
         startsNewOccupant: Bool,
         expectedPIDKey: String?,
-        expectedPID: Int32?
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?
     ) {
         agentLifecycleCall = (
             target,
@@ -94,7 +150,9 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
             sessionID,
             startsNewOccupant,
             expectedPIDKey,
-            expectedPID
+            expectedPID,
+            expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds
         )
     }
 
