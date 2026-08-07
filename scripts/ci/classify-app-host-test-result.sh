@@ -32,6 +32,11 @@ if [ "$original_status" -eq 124 ]; then
   exit 1
 fi
 
+if [ "$original_status" -eq 127 ]; then
+  echo "App-host test run exceeded its total deadline" >&2
+  exit 1
+fi
+
 if [ "$original_status" -eq 126 ]; then
   echo "Required Swift Testing phase did not complete" >&2
   exit 1
