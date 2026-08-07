@@ -386,11 +386,13 @@ impl PersistentSessionStateResetter {
             &terminal_host_root,
             &pending_reset_dirs,
         )?;
+        let pending_reset_dir_paths =
+            pending_reset_dirs.iter().map(|pending| pending.path.clone()).collect();
         Ok(PersistentSessionStateResetPreview {
             state_root: self.state_root.clone(),
             session_dir: session_dir.clone(),
             terminal_host_root: terminal_host_root.clone(),
-            pending_reset_dirs,
+            pending_reset_dirs: pending_reset_dir_paths,
             requires_force: true,
             confirm_reset,
         })
@@ -501,12 +503,15 @@ impl PersistentSessionStateResetter {
             None
         };
         if session_dir_exists {
-            pending_reset_dirs.push(rename_session_dir_for_reset(
-                root,
-                session_name,
-                &session_dir,
-                session_dir_identity.as_deref().unwrap(),
-            )?);
+            pending_reset_dirs.push(PendingSessionResetDir {
+                path: rename_session_dir_for_reset(
+                    root,
+                    session_name,
+                    &session_dir,
+                    session_dir_identity.as_deref().unwrap(),
+                )?,
+                kind: PendingSessionResetKind::Session,
+            });
         }
         let terminal_host_reset_dir = if terminal_host_root_exists {
             Some(rename_terminal_host_dir_for_reset(
@@ -520,10 +525,16 @@ impl PersistentSessionStateResetter {
         };
         drop(lease);
         for reset_dir in pending_reset_dirs {
-            fs::remove_dir_all(&reset_dir).with_context(|| {
-                format!("remove workspace session state {}", reset_dir.display())
-            })?;
-            reset.removed_session_state = true;
+            let label = match reset_dir.kind {
+                PendingSessionResetKind::Session => "workspace session state",
+                PendingSessionResetKind::TerminalHosts => "terminal host state",
+            };
+            fs::remove_dir_all(&reset_dir.path)
+                .with_context(|| format!("remove {label} {}", reset_dir.path.display()))?;
+            match reset_dir.kind {
+                PendingSessionResetKind::Session => reset.removed_session_state = true,
+                PendingSessionResetKind::TerminalHosts => reset.removed_terminal_hosts = true,
+            }
         }
         if let Some(reset_dir) = terminal_host_reset_dir {
             fs::remove_dir_all(&reset_dir)
@@ -585,7 +596,22 @@ fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
     root.join(session_storage_component(session_name))
 }
 
-fn pending_session_reset_dirs(root: &Path, session_name: &str) -> anyhow::Result<Vec<PathBuf>> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingSessionResetKind {
+    Session,
+    TerminalHosts,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingSessionResetDir {
+    path: PathBuf,
+    kind: PendingSessionResetKind,
+}
+
+fn pending_session_reset_dirs(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<Vec<PendingSessionResetDir>> {
     let metadata = match fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -613,15 +639,21 @@ fn pending_session_reset_dirs(root: &Path, session_name: &str) -> anyhow::Result
         if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
             continue;
         }
+        let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
+        let kind = if rest.starts_with("terminal-hosts-") {
+            PendingSessionResetKind::TerminalHosts
+        } else {
+            PendingSessionResetKind::Session
+        };
         let path = entry.path();
         let metadata = fs::symlink_metadata(&path)
             .with_context(|| format!("inspect private reset path {}", path.display()))?;
         if !metadata.file_type().is_dir() {
             anyhow::bail!("private reset path is not a directory: {}", path.display());
         }
-        reset_dirs.push(path);
+        reset_dirs.push(PendingSessionResetDir { path, kind });
     }
-    reset_dirs.sort();
+    reset_dirs.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(reset_dirs)
 }
 
@@ -728,7 +760,7 @@ fn require_reset_confirmation(
     session_name: &str,
     session_dir: &Path,
     terminal_host_root: &Path,
-    pending_reset_dirs: &[PathBuf],
+    pending_reset_dirs: &[PendingSessionResetDir],
     confirm_reset: Option<&str>,
 ) -> anyhow::Result<()> {
     let confirmation = reset_confirmation_token(
@@ -749,7 +781,7 @@ fn reset_confirmation_token(
     session_name: &str,
     session_dir: &Path,
     terminal_host_root: &Path,
-    pending_reset_dirs: &[PathBuf],
+    pending_reset_dirs: &[PendingSessionResetDir],
 ) -> anyhow::Result<String> {
     let mut hash = Sha256::new();
     let mut budget = ResetFingerprintBudget::default();
@@ -767,10 +799,10 @@ fn reset_confirmation_token(
         &reset_dir_fingerprint("terminal-hosts", terminal_host_root, &mut budget)?,
     );
     for reset_dir in pending_reset_dirs {
-        update_reset_confirmation_part(&mut hash, &canonical_reset_path(reset_dir));
+        update_reset_confirmation_part(&mut hash, &canonical_reset_path(&reset_dir.path));
         update_reset_confirmation_part(
             &mut hash,
-            &reset_dir_fingerprint("pending", reset_dir, &mut budget)?,
+            &reset_dir_fingerprint("pending", &reset_dir.path, &mut budget)?,
         );
     }
     let digest = hash.finalize();

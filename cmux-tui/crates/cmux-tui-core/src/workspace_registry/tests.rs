@@ -150,6 +150,29 @@ fn reset_retries_previous_private_deletion_dir() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn reset_retries_previous_terminal_host_deletion_dir_as_terminal_hosts() {
+    let root = temp_root("reset-retries-terminal-host-private-delete");
+    let session = "reset-retries-terminal-host-private-delete";
+    fs::create_dir_all(&root).unwrap();
+    let pending_reset_dir = root.join(format!(
+        ".reset-{}-terminal-hosts-previous.deleting",
+        session_storage_component(session)
+    ));
+    fs::create_dir_all(pending_reset_dir.join("nested")).unwrap();
+    fs::write(pending_reset_dir.join("nested").join("terminal-host-state"), b"old").unwrap();
+
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session).unwrap();
+    assert_eq!(preview.pending_reset_dirs, vec![pending_reset_dir.clone()]);
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!pending_reset_dir.exists(), "reset left a terminal-host deletion dir behind");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn reset_rejects_same_file_rewrite_with_restored_mtime() {
