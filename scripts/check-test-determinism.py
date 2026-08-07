@@ -409,13 +409,16 @@ def _assertion_statement_contexts(lines: list[str]) -> dict[int, tuple[str, int]
 
 
 _INERT_TEXT_MATCHER = re.compile(r"\.(?:toContain|toStartWith)\s*\(")
-_DIRECT_URL_ASSIGNMENT = re.compile(
+_ASSIGNED_REFERENCE = re.compile(
     r"""(?x)
     ^\s*
-    (?:(const|let|var)\s+)?
-    ([A-Za-z_$][A-Za-z0-9_$]*)
+    (?:(?:const|let|var)\s+)?
+    (
+        [A-Za-z_$][A-Za-z0-9_$]*
+        (?:\.[A-Za-z_$][A-Za-z0-9_$]*)*
+    )
     (?:\s*:\s*[^=]+)?
-    \s*=\s*[^;"'`]*["'`]\s*$
+    \s*=(?!=|>)
     """
 )
 
@@ -554,30 +557,32 @@ def _statement_segment_bounds(
     return (start, end)
 
 
-def _assigned_identifier_for_url(
+def _assigned_reference_for_url(
     line: str,
     url_index: int,
     boundaries: list[int],
 ) -> Optional[str]:
-    """Return a simple identifier directly assigned the URL literal, if any."""
+    """Return the statement reference whose RHS contains the URL, if any."""
     segment_index = _statement_segment_index(boundaries, url_index)
-    segment_start, _segment_end = _statement_segment_bounds(
+    segment_start, segment_end = _statement_segment_bounds(
         line,
         boundaries,
         segment_index,
     )
-    prefix = line[segment_start:url_index]
-    assignment = _DIRECT_URL_ASSIGNMENT.match(prefix)
-    return assignment.group(2) if assignment is not None else None
+    segment = line[segment_start:segment_end]
+    assignment = _ASSIGNED_REFERENCE.match(segment)
+    if assignment is None or assignment.end() > url_index - segment_start:
+        return None
+    return assignment.group(1)
 
 
-def _identifier_is_reassigned(
+def _reference_is_reassigned(
     text: str,
-    identifier: str,
+    reference: str,
 ) -> bool:
-    """Whether executable code in text overwrites the identifier."""
+    """Whether executable code in text overwrites the reference."""
     pattern = re.compile(
-        rf"(?<![\w.$]){re.escape(identifier)}\s*(?::[^=]+)?=(?!=)"
+        rf"(?<![\w.$]){re.escape(reference)}\s*(?::[^=]+)?=(?!=)"
     )
     return any(
         _quoted_string_span_containing(text, match.start()) is None
@@ -585,12 +590,12 @@ def _identifier_is_reassigned(
     )
 
 
-def _identifier_match_is_executable(
+def _reference_match_is_executable(
     text: str,
     match: re.Match[str],
     path_suffix: str,
 ) -> bool:
-    """Whether an identifier occurrence is code or real string interpolation."""
+    """Whether a reference occurrence is code or real string interpolation."""
     span = _quoted_string_span_containing(text, match.start())
     if span is None:
         return True
@@ -617,28 +622,28 @@ def _identifier_match_is_executable(
     return False
 
 
-def _network_call_uses_identifier(
+def _network_call_uses_reference(
     line: str,
     verb_match: re.Match[str],
-    identifier: str,
+    reference: str,
     segment_end: int,
     path_suffix: str,
 ) -> bool:
-    """Whether a network call directly consumes the identifier."""
-    identifier_pattern = re.compile(
-        rf"(?<![\w.$]){re.escape(identifier)}(?![\w$:=])"
+    """Whether a network call directly consumes the assigned reference."""
+    reference_pattern = re.compile(
+        rf"(?<![\w.$]){re.escape(reference)}(?![\w$:=])"
     )
     if verb_match.group(0).lower() == "curl":
         shell_arguments = line[verb_match.end():segment_end]
         if path_suffix == ".sh":
             shell_reference = re.compile(
-                rf"\$(?:\{{{re.escape(identifier)}\}}|"
-                rf"{re.escape(identifier)}(?![A-Za-z0-9_]))"
+                rf"\$(?:\{{{re.escape(reference)}\}}|"
+                rf"{re.escape(reference)}(?![A-Za-z0-9_]))"
             )
             return shell_reference.search(shell_arguments) is not None
         return any(
-            _identifier_match_is_executable(line, match, path_suffix)
-            for match in identifier_pattern.finditer(
+            _reference_match_is_executable(line, match, path_suffix)
+            for match in reference_pattern.finditer(
                 line,
                 verb_match.end(),
                 segment_end,
@@ -673,8 +678,8 @@ def _network_call_uses_identifier(
                 break
 
     return any(
-        _identifier_match_is_executable(line, match, path_suffix)
-        for match in identifier_pattern.finditer(
+        _reference_match_is_executable(line, match, path_suffix)
+        for match in reference_pattern.finditer(
             line,
             open_parenthesis + 1,
             close_parenthesis,
@@ -733,12 +738,12 @@ def detect_live_network_host(
         url_segment = _statement_segment_index(boundaries, match.start())
         if url_segment in active_verb_segments:
             return True
-        identifier = _assigned_identifier_for_url(
+        reference = _assigned_reference_for_url(
             line,
             match.start(),
             boundaries,
         )
-        if identifier is None:
+        if reference is None:
             continue
         _assignment_start, assignment_end = _statement_segment_bounds(
             line,
@@ -748,9 +753,9 @@ def detect_live_network_host(
         for verb_match, verb_segment in active_verb_matches:
             if verb_segment <= url_segment:
                 continue
-            if _identifier_is_reassigned(
+            if _reference_is_reassigned(
                 line[assignment_end:verb_match.start()],
-                identifier,
+                reference,
             ):
                 continue
             _verb_start, verb_end = _statement_segment_bounds(
@@ -758,10 +763,10 @@ def detect_live_network_host(
                 boundaries,
                 verb_segment,
             )
-            if _network_call_uses_identifier(
+            if _network_call_uses_reference(
                 line,
                 verb_match,
-                identifier,
+                reference,
                 verb_end,
                 path_suffix,
             ):
