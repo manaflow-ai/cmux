@@ -457,7 +457,11 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, launchCommand: launchCommand)
+        let environmentParts = launchEnvironmentParts(
+            kind: kind,
+            launchCommand: launchCommand,
+            customRegistration: customRegistration
+        )
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
@@ -489,29 +493,18 @@ enum AgentResumeCommandBuilder {
         // The token is POSIX-only, so token-bearing commands are wrapped in
         // `/bin/sh -c '…'` to parse consistently from any user's login shell.
         // https://github.com/manaflow-ai/cmux/issues/5639
+        let managedProviderKind = managedProviderKind(
+            kind: kind,
+            customRegistration: customRegistration
+        )
         let shellCommand: String
-        switch kind {
-        case .claude:
-            shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+        if let managedProviderKind {
+            shellCommand = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
                 parts: sanitizedCommandParts,
+                kind: managedProviderKind,
                 quote: TerminalStartupShellQuoting.singleQuoted
             )
-        case .codex:
-            shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
-                parts: sanitizedCommandParts,
-                quote: TerminalStartupShellQuoting.singleQuoted
-            )
-        case .amp:
-            shellCommand = AgentResumeArgv.renderedPortableAmpResumeShellCommand(
-                parts: sanitizedCommandParts,
-                quote: TerminalStartupShellQuoting.singleQuoted
-            )
-        case .custom where customRegistration?.registeredResumeKind == .amp:
-            shellCommand = AgentResumeArgv.renderedPortableAmpResumeShellCommand(
-                parts: sanitizedCommandParts,
-                quote: TerminalStartupShellQuoting.singleQuoted
-            )
-        default:
+        } else {
             shellCommand = sanitizedCommandParts
                 .map(TerminalStartupShellQuoting.singleQuoted)
                 .joined(separator: " ")
@@ -547,14 +540,20 @@ enum AgentResumeCommandBuilder {
 
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        customRegistration: CmuxVaultAgentRegistration?
     ) -> [String] {
         var environment = launchCommand?.environment ?? [:]
-        environment.merge(AgentResumeArgv.managedWrapperCustomExecutableEnvironment(
-            kind: kind.rawValue,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
-        )) { _, wrapperValue in wrapperValue }
+        if let managedProviderKind = managedProviderKind(
+            kind: kind,
+            customRegistration: customRegistration
+        ) {
+            environment.merge(AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: managedProviderKind,
+                executablePath: launchCommand?.executablePath,
+                arguments: launchCommand?.arguments ?? []
+            )) { _, wrapperValue in wrapperValue }
+        }
         guard !environment.isEmpty else { return [] }
 
         var environmentParts: [String] = []
@@ -583,6 +582,16 @@ enum AgentResumeCommandBuilder {
             )
         }
         return environmentParts
+    }
+
+    private static func managedProviderKind(
+        kind: RestorableAgentKind,
+        customRegistration: CmuxVaultAgentRegistration?
+    ) -> String? {
+        if case .custom = kind {
+            return customRegistration?.registeredResumeKind?.rawValue
+        }
+        return kind.rawValue
     }
 
     fileprivate static func resumeArguments(

@@ -5,10 +5,11 @@ export default function (amp: PluginAPI) {
   const helpers = (amp as unknown as { helpers?: unknown }).helpers;
   const cwdFromEnv = (): string => firstString(process.env.PWD, process.cwd()) || process.cwd();
   const titleByThread = new Map<string, string>();
+  const emittedTitleByThread = new Map<string, string>();
   const titleVersions = new Map<string, number>();
   const titleLookupTokens = new Map<string, number>();
   const observedTitleThreads = new Set<string>();
-  const titleSubscriptions = new Map<string, { unsubscribe?: () => void; flush?: () => void }>();
+  const titleSubscriptions = new Map<string, { unsubscribe?: () => void }>();
   const stateSubscriptions = new Map<string, { unsubscribe?: () => void }>();
   const threadById = new Map<string, AmpThread>();
   type AmpThreadLifecycle = {
@@ -32,8 +33,6 @@ export default function (amp: PluginAPI) {
   const threads = (amp as unknown as { threads?: AmpThreads }).threads;
   let presentedThreadId = firstString(activeThread?.current?.id);
   const TITLE_MAX_LENGTH = 200;
-  const TITLE_DEBOUNCE_MS = 100;
-  const LOOKUP_TIMEOUT_MS = 1000;
 
   function threadFrom(event: { thread?: AmpThread } | undefined, ctx?: AmpThreadContext): AmpThread | undefined {
     const thread = ctx?.thread || event?.thread || rootThread;
@@ -150,11 +149,10 @@ export default function (amp: PluginAPI) {
     return normalizedTitle((event as unknown as { message?: unknown }).message);
   }
 
-  async function withLookupTimeout(value: Promise<unknown> | unknown): Promise<unknown> {
-    return await Promise.race([
-      Promise.resolve(value),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), LOOKUP_TIMEOUT_MS)),
-    ]);
+  function emitTitle(threadId: string, title: string): void {
+    if (emittedTitleByThread.get(threadId) === title) return;
+    emittedTitleByThread.set(threadId, title);
+    sendHook("title-update", threadId, cwdFromEnv(), { title });
   }
 
   function resolveThreadTitle(threadId: string, thread?: AmpThread): void {
@@ -167,7 +165,7 @@ export default function (amp: PluginAPI) {
     } catch (_) {
       return;
     }
-    void withLookupTimeout(lookup)
+    void Promise.resolve(lookup)
       .then((value) => {
         if (titleLookupTokens.get(threadId) !== token) return;
         if ((titleVersions.get(threadId) || 0) !== startVersion) return;
@@ -175,7 +173,7 @@ export default function (amp: PluginAPI) {
         if (!candidate) return;
         if (observedTitleThreads.has(threadId) && titleByThread.get(threadId) !== candidate) return;
         const title = rememberTitle(threadId, candidate);
-        if (title) sendHook("title-update", threadId, cwdFromEnv(), { title });
+        if (title) emitTitle(threadId, title);
       })
       .catch(() => {});
   }
@@ -183,34 +181,15 @@ export default function (amp: PluginAPI) {
   function watchThreadTitle(threadId: string, thread?: AmpThread): void {
     const observable = thread?.title;
     if (!observable?.subscribe || titleSubscriptions.has(threadId)) return;
-    let pendingTitle: string | null = null;
-    let lastSent: string | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const flush = () => {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-      const title = pendingTitle;
-      pendingTitle = null;
-      if (!title || title === lastSent) return;
-      lastSent = title;
-      titleByThread.set(threadId, title);
-      sendHook("title-update", threadId, cwdFromEnv(), { title });
-    };
     try {
       const subscription = observable.subscribe((value) => {
         const title = rememberTitle(threadId, value);
-        if (!title || title === lastSent) return;
+        if (!title) return;
         observedTitleThreads.add(threadId);
-        pendingTitle = title;
-        if (timer !== null) clearTimeout(timer);
-        timer = setTimeout(flush, TITLE_DEBOUNCE_MS);
+        emitTitle(threadId, title);
       });
       titleSubscriptions.set(threadId, {
-        unsubscribe: () => {
-          if (timer !== null) clearTimeout(timer);
-          subscription.unsubscribe?.();
-        },
-        flush,
+        unsubscribe: () => subscription.unsubscribe?.(),
       });
     } catch (_) {}
   }
@@ -265,6 +244,7 @@ export default function (amp: PluginAPI) {
     const cwd = cwdFromEnv();
     switch (state) {
       case "running":
+        lifecycle.terminalEventEmitted = false;
         if (lifecycle.inFlightTools === 0) {
           updateThreadPresentation(threadId, PRESENTATION.thinking);
         } else {
@@ -351,7 +331,7 @@ export default function (amp: PluginAPI) {
     } catch (_) {
       return;
     }
-    void withLookupTimeout(lookup)
+    void Promise.resolve(lookup)
       .then((value) => {
         if (version === lifecycleFor(threadId).observationVersion) {
           reconcileThreadState(threadId, value);

@@ -165,9 +165,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> String {
-        renderedPortableManagedResumeShellCommand(
+        AgentResumeArgv().renderedPortableManagedResumeShellCommand(
             parts: parts,
-            descriptor: .claude,
+            kind: ManagedAgentWrapperDescriptor.claude.kind,
             quote: quote
         )
     }
@@ -186,7 +186,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        renderingManagedWrapperExecutable(parts: parts, descriptor: .claude, quote: quote)
+        AgentResumeArgv().renderingManagedWrapperExecutable(
+            parts: parts,
+            descriptor: .claude,
+            quote: quote
+        )
     }
 
     /// Wraps a rendered codex resume command so it parses in any login shell.
@@ -227,9 +231,9 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> String {
-        renderedPortableManagedResumeShellCommand(
+        AgentResumeArgv().renderedPortableManagedResumeShellCommand(
             parts: parts,
-            descriptor: .codex,
+            kind: ManagedAgentWrapperDescriptor.codex.kind,
             quote: quote
         )
     }
@@ -245,24 +249,37 @@ public struct AgentResumeArgv: Sendable, Equatable {
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        renderingManagedWrapperExecutable(parts: parts, descriptor: .codex, quote: quote)
+        AgentResumeArgv().renderingManagedWrapperExecutable(
+            parts: parts,
+            descriptor: .codex,
+            quote: quote
+        )
     }
 
-    /// Renders an Amp resume command through cmux's managed wrapper shim.
+    /// Renders a managed agent's resume command through its wrapper shim.
     ///
     /// - Parameters:
     ///   - parts: The complete resume command, including any environment prefix.
+    ///   - kind: The provider identity registered with the managed wrapper.
     ///   - quote: The shell-word quoting function supplied by the caller.
-    /// - Returns: A shell-portable command routed through the Amp wrapper when available.
-    public static func renderedPortableAmpResumeShellCommand(
+    /// - Returns: A shell-portable command routed through the provider wrapper.
+    ///   Unknown providers are returned as ordinarily quoted shell words.
+    public func renderedPortableManagedResumeShellCommand(
         parts: [String],
+        kind: String,
         quote: (String) -> String
     ) -> String {
-        renderedPortableManagedResumeShellCommand(
+        guard let descriptor = ManagedAgentWrapperDescriptor.registered(kind: kind) else {
+            return parts.map(quote).joined(separator: " ")
+        }
+        let rendered = renderingManagedWrapperExecutable(
             parts: parts,
-            descriptor: .amp,
+            descriptor: descriptor,
             quote: quote
         )
+        let joined = rendered.joined(separator: " ")
+        guard rendered.contains(descriptor.wrapperShellExecutableToken) else { return joined }
+        return descriptor.portableShellCommand(posixCommand: joined)
     }
 
     /// Returns the safe custom-executable environment needed by a managed wrapper.
@@ -273,7 +290,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
     ///   - arguments: The captured argv, including `argv[0]`.
     /// - Returns: A single wrapper environment binding, or an empty dictionary
     ///   when the capture uses the default executable name.
-    public static func managedWrapperCustomExecutableEnvironment(
+    public func managedWrapperCustomExecutableEnvironment(
         kind: String,
         executablePath: String?,
         arguments: [String]
@@ -287,22 +304,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         return [descriptor.customExecutablePathEnvironmentKey: executable]
     }
 
-    private static func renderedPortableManagedResumeShellCommand(
-        parts: [String],
-        descriptor: ManagedAgentWrapperDescriptor,
-        quote: (String) -> String
-    ) -> String {
-        let rendered = renderingManagedWrapperExecutable(
-            parts: parts,
-            descriptor: descriptor,
-            quote: quote
-        )
-        let joined = rendered.joined(separator: " ")
-        guard rendered.contains(descriptor.wrapperShellExecutableToken) else { return joined }
-        return descriptor.portableShellCommand(posixCommand: joined)
-    }
-
-    private static func renderingManagedWrapperExecutable(
+    private func renderingManagedWrapperExecutable(
         parts: [String],
         descriptor: ManagedAgentWrapperDescriptor,
         quote: (String) -> String
@@ -317,7 +319,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         }
     }
 
-    private static func normalizedManagedExecutable(_ value: String?) -> String? {
+    private func normalizedManagedExecutable(_ value: String?) -> String? {
         guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
             return nil

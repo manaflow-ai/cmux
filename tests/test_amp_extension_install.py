@@ -381,7 +381,6 @@ await waitForProjectedStatus("error --icon xmark.circle --color #ff5555");
 const clearCountBeforeNoActiveThread = commandCount("clear-status amp");
 selectThread(null);
 await waitForCommandCount("clear-status amp", clearCountBeforeNoActiveThread + 1);
-await new Promise((resolve) => setTimeout(resolve, 100));
 const statusCountWithoutActiveThread = projectedStatusCount();
 secondState = "running";
 await secondStateSubscriber(secondState);
@@ -446,7 +445,12 @@ await handlers.get("agent.end")(legacyEnd, { thread: legacyThread });
                 and "hooks amp title-update" in args_log
                 and "hooks amp lifecycle" in args_log
                 and '"session_id":"T-amp-session-test"' in stdin_log
+                and '"session_id":"T-amp-session-second"' in stdin_log
+                and '"session_id":"T-amp-session-third"' in stdin_log
                 and '"session_id":"T-amp-session-legacy"' in stdin_log
+                and '"turn_id":"turn-second-follow-up"' in stdin_log
+                and '"turn_id":"turn-third"' in stdin_log
+                and '"turn_id":"turn-legacy"' in stdin_log
                 and "argv=" in env_log
             ):
                 break

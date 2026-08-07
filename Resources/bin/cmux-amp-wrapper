@@ -44,7 +44,12 @@ find_real_amp() {
 
     local search_path="${PATH:-}"
     local old_ifs="$IFS"
+    local globbing_was_disabled=0
     local directory candidate
+    case "$-" in
+        *f*) globbing_was_disabled=1 ;;
+        *) set -f ;;
+    esac
     IFS=:
     for directory in $search_path; do
         [[ -n "$directory" ]] || directory="."
@@ -52,11 +57,17 @@ find_real_amp() {
         cmux_amp_is_self_or_shim "$candidate" && continue
         if [[ -f "$candidate" && -x "$candidate" ]]; then
             IFS="$old_ifs"
+            if [[ "$globbing_was_disabled" == 0 ]]; then
+                set +f
+            fi
             printf '%s' "$candidate"
             return 0
         fi
     done
     IFS="$old_ifs"
+    if [[ "$globbing_was_disabled" == 0 ]]; then
+        set +f
+    fi
     return 1
 }
 
