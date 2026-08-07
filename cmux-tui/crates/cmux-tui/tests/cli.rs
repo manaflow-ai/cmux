@@ -616,6 +616,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     fs::remove_dir_all(dir).unwrap();
 }
 
+#[cfg(unix)]
 #[test]
 fn session_reset_state_removes_only_the_named_saved_state() {
     let dir = unique_temp_dir("session-reset-state");
