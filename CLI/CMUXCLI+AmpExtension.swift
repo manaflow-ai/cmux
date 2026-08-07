@@ -629,7 +629,6 @@ export default function (amp: PluginAPI) {
   const nativeAttentionIdentityRetryDelayMilliseconds = 250;
   const nativeStateSnapshotDeadlineMilliseconds = 1_000;
   const activeNativeStateObservationLeaseMilliseconds = 30 * 60 * 1_000;
-  const pendingNativeStateObservationLeaseMilliseconds = 30 * 1_000;
 
   const synchronizeNativeAttention = (state: AmpTurnState): void => {
     if (state.nativeAttentionInFlight) return;
@@ -859,10 +858,12 @@ export default function (amp: PluginAPI) {
     }
     if (state.nativeStateObservationLease) {
       clearTimeout(state.nativeStateObservationLease);
+      state.nativeStateObservationLease = null;
     }
-    const retentionMilliseconds = state.pendingEnd
-      ? pendingNativeStateObservationLeaseMilliseconds
-      : activeNativeStateObservationLeaseMilliseconds;
+    // Once agent.end is pending, only an observed terminal state, a matching
+    // tool result, or process exit can safely retire the turn. A wall-clock
+    // lease would discard durable work evidence from long-running tools.
+    if (state.pendingEnd) return;
     state.nativeStateObservationLease = setTimeout(() => {
       if (
         turnStates.get(threadId) !== state
@@ -875,7 +876,7 @@ export default function (amp: PluginAPI) {
       // settled boundary. Retire our observer and turn ownership without
       // publishing a false completion; a later agent event starts fresh.
       discardTurnState(threadId, state);
-    }, retentionMilliseconds);
+    }, activeNativeStateObservationLeaseMilliseconds);
     state.nativeStateObservationLease.unref?.();
   };
 

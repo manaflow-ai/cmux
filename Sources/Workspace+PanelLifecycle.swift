@@ -235,6 +235,12 @@ extension Workspace {
         let processIdentity =
             providedProcessIdentity
                 ?? Self.agentPIDProcessIdentity(pid: pid)
+        if let processIdentity,
+           previous.panelId == panelId,
+           previous.pid == pid,
+           previous.identity == processIdentity {
+            return false
+        }
         let replacesProcessGeneration =
             previous.identity != nil
                 && previous.identity != processIdentity
