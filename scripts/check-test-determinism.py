@@ -409,6 +409,15 @@ def _assertion_statement_contexts(lines: list[str]) -> dict[int, tuple[str, int]
 
 
 _INERT_TEXT_MATCHER = re.compile(r"\.(?:toContain|toStartWith)\s*\(")
+_DIRECT_URL_ASSIGNMENT = re.compile(
+    r"""(?x)
+    (?<![\w.$])
+    (?:(const|let|var)\s+)?
+    ([A-Za-z_$][A-Za-z0-9_$]*)
+    (?:\s*:\s*[^=]+)?
+    \s*=\s*(?:[rRbBuUfF]{0,2})?["'`]\s*$
+    """
+)
 
 
 def _quoted_string_span_containing(
@@ -529,6 +538,135 @@ def _statement_segment_index(boundaries: list[int], match_index: int) -> int:
     return sum(boundary < match_index for boundary in boundaries)
 
 
+def _statement_segment_bounds(
+    line: str,
+    boundaries: list[int],
+    segment_index: int,
+) -> tuple[int, int]:
+    """Return the half-open source range for one top-level statement segment."""
+    if segment_index == 0:
+        start = 0
+    else:
+        separator = boundaries[segment_index - 1]
+        separator_width = 2 if line.startswith(("&&", "||"), separator) else 1
+        start = separator + separator_width
+    end = boundaries[segment_index] if segment_index < len(boundaries) else len(line)
+    return (start, end)
+
+
+def _assigned_identifier_for_url(
+    line: str,
+    url_index: int,
+    boundaries: list[int],
+) -> Optional[str]:
+    """Return a simple identifier directly assigned the URL literal, if any."""
+    segment_index = _statement_segment_index(boundaries, url_index)
+    segment_start, _segment_end = _statement_segment_bounds(
+        line,
+        boundaries,
+        segment_index,
+    )
+    prefix = line[segment_start:url_index]
+    assignment = _DIRECT_URL_ASSIGNMENT.search(prefix)
+    if assignment is None:
+        return None
+    declaration = assignment.group(1)
+    if declaration is None and prefix[:assignment.start()].strip():
+        return None
+    return assignment.group(2)
+
+
+def _identifier_is_reassigned(
+    text: str,
+    identifier: str,
+) -> bool:
+    """Whether executable code in text overwrites the identifier."""
+    pattern = re.compile(
+        rf"(?<![\w.$]){re.escape(identifier)}\s*(?::[^=]+)?=(?!=)"
+    )
+    return any(
+        _quoted_string_span_containing(text, match.start()) is None
+        for match in pattern.finditer(text)
+    )
+
+
+def _identifier_match_is_executable(
+    text: str,
+    match: re.Match[str],
+    path_suffix: str,
+) -> bool:
+    """Whether an identifier occurrence is code or real string interpolation."""
+    span = _quoted_string_span_containing(text, match.start())
+    if span is None:
+        return True
+    quote_start, quote_end, quote = span
+    if not _string_literal_interpolates(
+        text,
+        quote_start,
+        quote_end,
+        quote,
+        path_suffix,
+    ):
+        return False
+
+    before = text[quote_start + 1:match.start()]
+    after = text[match.end():quote_end]
+    if path_suffix in (".js", ".mjs", ".ts", ".tsx"):
+        return before.rfind("${") > before.rfind("}") and "}" in after
+    if path_suffix == ".py":
+        return before.rfind("{") > before.rfind("}") and "}" in after
+    if path_suffix == ".swift":
+        return before.rfind("\\(") > before.rfind(")") and ")" in after
+    if path_suffix == ".sh" and quote == '"':
+        return before.endswith("${") and after.startswith("}")
+    return False
+
+
+def _network_call_uses_identifier(
+    line: str,
+    verb_match: re.Match[str],
+    identifier: str,
+    segment_end: int,
+    path_suffix: str,
+) -> bool:
+    """Whether a parenthesized network call directly consumes the identifier."""
+    open_parenthesis = line.find("(", verb_match.start(), segment_end)
+    if open_parenthesis == -1:
+        return False
+
+    quote: Optional[str] = None
+    escaped = False
+    depth = 0
+    close_parenthesis = segment_end
+    for index in range(open_parenthesis, segment_end):
+        char = line[index]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote is not None:
+            if char == quote:
+                quote = None
+        elif char in ("'", '"', "`"):
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                close_parenthesis = index
+                break
+
+    arguments = line[open_parenthesis + 1:close_parenthesis]
+    identifier_pattern = re.compile(
+        rf"(?<![\w.$]){re.escape(identifier)}(?![\w$:=])"
+    )
+    return any(
+        _identifier_match_is_executable(arguments, match, path_suffix)
+        for match in identifier_pattern.finditer(arguments)
+    )
+
+
 def detect_live_network_host(
     line: str,
     *,
@@ -558,13 +696,14 @@ def detect_live_network_host(
         )
 
     boundaries = _statement_segment_boundaries(line)
-    active_verb_segments = {
-        _statement_segment_index(boundaries, match.start())
+    active_verb_matches = [
+        (match, _statement_segment_index(boundaries, match.start()))
         for match in _NETWORK_VERB.finditer(line)
         if not is_static_matcher_literal(match.start())
-    }
-    if not active_verb_segments:
+    ]
+    if not active_verb_matches:
         return False
+    active_verb_segments = {segment for _match, segment in active_verb_matches}
 
     for match in _URL.finditer(line):
         if is_static_matcher_literal(match.start()):
@@ -576,8 +715,42 @@ def detect_live_network_host(
             continue
         if _looks_like_ipv4(host) and _is_private_ipv4(host):
             continue
-        if _statement_segment_index(boundaries, match.start()) in active_verb_segments:
+        url_segment = _statement_segment_index(boundaries, match.start())
+        if url_segment in active_verb_segments:
             return True
+        identifier = _assigned_identifier_for_url(
+            line,
+            match.start(),
+            boundaries,
+        )
+        if identifier is None:
+            continue
+        _assignment_start, assignment_end = _statement_segment_bounds(
+            line,
+            boundaries,
+            url_segment,
+        )
+        for verb_match, verb_segment in active_verb_matches:
+            if verb_segment <= url_segment:
+                continue
+            if _identifier_is_reassigned(
+                line[assignment_end:verb_match.start()],
+                identifier,
+            ):
+                continue
+            _verb_start, verb_end = _statement_segment_bounds(
+                line,
+                boundaries,
+                verb_segment,
+            )
+            if _network_call_uses_identifier(
+                line,
+                verb_match,
+                identifier,
+                verb_end,
+                path_suffix,
+            ):
+                return True
     return False
 
 
@@ -1111,6 +1284,10 @@ def _self_test() -> int:
             "tests/n17l.py",
             'url = "https://cmux.com/docs/api"; '
             'requests.get(url="http://127.0.0.1:4321")\n',
+        ),
+        (
+            "web/tests/n17m.tsx",
+            'const node = <Thing url="https://cmux.com/docs/api" />; fetch(url)\n',
         ),
         (
             "web/tests/n18.ts",
