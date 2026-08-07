@@ -734,6 +734,22 @@ fn session_effect_workflow_rows(registry: &WorkspaceRegistry) -> Vec<String> {
         .unwrap()
 }
 
+fn runtime_attachment_committed_sequence(
+    registry: &WorkspaceRegistry,
+    terminal_id: &TerminalPublicId,
+) -> u64 {
+    registry
+        .connection
+        .query_row(
+            "SELECT committed_sequence FROM journal_runtime_attachment_states WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(u64::try_from)
+        .unwrap()
+        .unwrap()
+}
+
 fn commit_browser_topology(
     registry: &mut WorkspaceRegistry,
     mutation_id: &str,
@@ -3743,6 +3759,231 @@ fn default_off_hibernation_policy_and_terminal_close_do_not_hibernate() {
         TerminalLifecycle::Tombstoned
     );
     drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn runtime_host_loss_proof_marks_interrupted_only_with_matching_epoch_and_lease() {
+    let root = temp_root("runtime-host-loss-proof");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let matching_loss_sequence;
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "runtime-host-loss-proof").unwrap();
+        let session_id = registry.session_id().to_string();
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+        ];
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-proof-attached",
+            "runtime.attachment.updated",
+            subjects.clone(),
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-proof-a",
+                "state":"attached",
+                "host_epoch":"host-epoch-a",
+                "lease_generation":"lease-a"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-proof-wrong-lease",
+            "runtime.host_loss.proven",
+            subjects.clone(),
+            json!({
+                "format":"cmux.runtime-host-loss.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-proof-a",
+                "host_epoch":"host-epoch-a",
+                "lease_generation":"lease-stale",
+                "proof":"host_liveness_dead"
+            }),
+            true,
+        );
+        matching_loss_sequence = append_persistence_state_record(
+            &mut registry,
+            "runtime-proof-matching-loss",
+            "runtime.host_loss.proven",
+            subjects.clone(),
+            json!({
+                "format":"cmux.runtime-host-loss.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-proof-a",
+                "host_epoch":"host-epoch-a",
+                "lease_generation":"lease-a",
+                "proof":"host_liveness_dead"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-proof-duplicate-loss",
+            "runtime.host_loss.proven",
+            subjects,
+            json!({
+                "format":"cmux.runtime-host-loss.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-proof-a",
+                "host_epoch":"host-epoch-a",
+                "lease_generation":"lease-a",
+                "proof":"host_liveness_dead"
+            }),
+            true,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "runtime-host-loss-proof").unwrap();
+    let rows = persistence_state_rows(&reopened);
+    assert!(rows.iter().any(|row| {
+        row.starts_with("runtime:")
+            && row.contains(r#""state":"interrupted""#)
+            && row.contains(r#""host_epoch":"host-epoch-a""#)
+            && row.contains(r#""lease_generation":"lease-a""#)
+    }));
+    assert!(rows.iter().any(|row| {
+        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+    }));
+    assert_eq!(
+        runtime_attachment_committed_sequence(&reopened, &terminal_id),
+        matching_loss_sequence
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn runtime_host_loss_reopen_clean_stop_and_live_restart_do_not_interrupt() {
+    let root = temp_root("runtime-host-loss-non-events");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "runtime-host-loss-non-events").unwrap();
+        let session_id = registry.session_id().to_string();
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+        ];
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-live-restart-attached",
+            "runtime.attachment.updated",
+            subjects,
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-live-a",
+                "state":"attached",
+                "host_epoch":"host-epoch-live",
+                "lease_generation":"lease-live"
+            }),
+            true,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "runtime-host-loss-non-events").unwrap();
+    let live_rows = persistence_state_rows(&reopened);
+    assert!(live_rows.iter().any(|row| {
+        row.starts_with("runtime:") && row.contains(r#""state":"attached""#)
+    }));
+    assert!(!live_rows.iter().any(|row| {
+        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+    }));
+    drop(reopened);
+
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "runtime-host-loss-non-events").unwrap();
+        let session_id = registry.session_id().to_string();
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-clean-stop-detached",
+            "runtime.attachment.updated",
+            vec![
+                JournalSubject { kind: "session".into(), id: session_id },
+                JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+            ],
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-live-a",
+                "state":"detached",
+                "host_epoch":"host-epoch-live",
+                "lease_generation":"lease-live"
+            }),
+            true,
+        );
+    }
+
+    let reopened_after_clean_stop =
+        WorkspaceRegistry::open(&root, "runtime-host-loss-non-events").unwrap();
+    let clean_rows = persistence_state_rows(&reopened_after_clean_stop);
+    assert!(clean_rows.iter().any(|row| {
+        row.starts_with("runtime:") && row.contains(r#""state":"detached""#)
+    }));
+    assert!(!clean_rows.iter().any(|row| {
+        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+    }));
+    drop(reopened_after_clean_stop);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn runtime_host_loss_rejects_pid_and_unknown_extensions() {
+    let root = temp_root("runtime-host-loss-rejects");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "runtime-host-loss-rejects").unwrap();
+        let session_id = registry.session_id().to_string();
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+        ];
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-loss-rejects-attached",
+            "runtime.attachment.updated",
+            subjects.clone(),
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-rejects-a",
+                "state":"attached",
+                "host_epoch":"host-epoch-rejects",
+                "lease_generation":"lease-rejects"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-loss-rejects-pid",
+            "runtime.host_loss.proven",
+            subjects,
+            json!({
+                "format":"cmux.runtime-host-loss.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-rejects-a",
+                "host_epoch":"host-epoch-rejects",
+                "lease_generation":"lease-rejects",
+                "proof":"host_liveness_dead",
+                "pid":42,
+                "env":{"TOKEN":"secret"},
+                "url":"ssh://user:password@example.test"
+            }),
+            true,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "runtime-host-loss-rejects").unwrap();
+    let rows = persistence_state_rows(&reopened);
+    assert!(rows.iter().any(|row| {
+        row.starts_with("runtime:") && row.contains(r#""state":"attached""#)
+    }));
+    assert!(!rows.iter().any(|row| {
+        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+    }));
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
