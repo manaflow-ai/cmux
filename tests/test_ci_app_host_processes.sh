@@ -445,8 +445,12 @@ current_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
 current_executable="$DURABLE_SCOPE_EXECUTABLE"
 spawn_process
 current_pid="$CMUX_TEST_SPAWNED_PID"
+spawn_process
+current_pid_two="$CMUX_TEST_SPAWNED_PID"
 write_receipt \
   "$current_receipt_dir" "$current_key" "$current_pid" "$current_executable"
+write_receipt \
+  "$current_receipt_dir" "$current_key" "$current_pid_two" "$current_executable"
 
 make_durable_scope waiting "930002$$" 2 1 \
   "$stale_runner_root/waiting-job/derived-data"
@@ -454,10 +458,11 @@ waiting_home="$DURABLE_SCOPE_HOME"
 waiting_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
 waiting_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
 
-printf '%s|%s\n%s|%s\n%s|%s\n' \
+printf '%s|%s\n%s|%s\n%s|%s\n%s|%s\n' \
   "$old_pid_one" "$old_executable" \
   "$old_pid_two" "$old_executable" \
   "$current_pid" "$current_executable" \
+  "$current_pid_two" "$current_executable" \
   > "$CMUX_FAKE_LSOF_STATE"
 if cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
@@ -468,7 +473,9 @@ if cmux_recover_owned_app_host_attempt \
 fi
 grep -Fq "foreign app-host" "$TMP_DIR/foreign-owner.err" \
   || fail "current retry recovery did not identify the foreign owner"
-for preserved_pid in "$old_pid_one" "$old_pid_two" "$current_pid"; do
+for preserved_pid in \
+  "$old_pid_one" "$old_pid_two" "$current_pid" "$current_pid_two"
+do
   /bin/kill -0 "$preserved_pid" 2>/dev/null \
     || fail "ownership preflight signaled a process before rejecting recovery"
 done
@@ -485,8 +492,10 @@ cmux_recover_owned_app_host_attempt \
   "${current_executable%%/Build/Products/*}" \
   "$stale_runner_root" "$system_temp_root" \
   || fail "current retry did not terminate its owned app host"
-wait "$current_pid" 2>/dev/null || true
-untrack_pid "$current_pid"
+for terminated_pid in "$current_pid" "$current_pid_two"; do
+  wait "$terminated_pid" 2>/dev/null || true
+  untrack_pid "$terminated_pid"
+done
 for preserved_path in \
   "$old_home" "$old_receipt_dir" "$old_confirmation_file" \
   "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
