@@ -241,6 +241,17 @@ _NETWORK_VERB = re.compile(
     """
 )
 
+# Process-launch APIs make a quoted shell command executable. A network verb
+# inside one of these calls is not inert fixture text even though the verb itself
+# lives inside a string/argument-array literal.
+_COMMAND_LAUNCHER = re.compile(
+    r"""(?x)
+    \bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\(
+  | \bos\.system\s*\(
+  | \b(?:exec|execSync|spawn|spawnSync|execa|execaCommand|execaCommandSync)\s*\(
+    """
+)
+
 # Private / loopback hostnames and IPs that are NOT live network.
 _PRIVATE_HOST = re.compile(
     r"""(?xi)
@@ -316,6 +327,80 @@ def _is_assertion_line(line: str) -> bool:
     return bool(_ASSERT_TOKEN.search(line) or _RAISE_IF.search(line))
 
 
+def _is_inside_string_literal(line: str, offset: int) -> bool:
+    """Best-effort check for whether ``offset`` is inside a quoted string.
+
+    The network detector intentionally accepts URLs in string arguments to real
+    clients (for example, ``fetch("https://...")``), so stripping every string
+    would hide the URL it needs to inspect.  The *client verb*, however, must be
+    executable code.  Ignoring verbs quoted as fixture/output text keeps a line
+    such as ``expect(html).toContain("curl https://...")`` from looking like a
+    network call while preserving the real ``fetch(...)`` case.
+
+    This remains a conservative line-level heuristic, not a language parser. It
+    recognizes the quote forms used by the scanned languages and honors escaped
+    quote characters.
+    """
+    quote: Optional[str] = None
+    escaped = False
+    for character in line[:offset]:
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if quote is None:
+            if character in ('"', "'", "`"):
+                quote = character
+        elif character == quote:
+            quote = None
+    return quote is not None
+
+
+def _call_contains_offset(line: str, opening_paren: int, offset: int) -> bool:
+    """Whether ``offset`` is inside the call opened at ``opening_paren``."""
+    depth = 0
+    quote: Optional[str] = None
+    escaped = False
+    for index in range(opening_paren, min(offset + 1, len(line))):
+        character = line[index]
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            continue
+        if character in ('"', "'", "`"):
+            quote = character
+        elif character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0 and index < offset:
+                return False
+    return depth > 0
+
+
+def _is_executable_network_verb(line: str, verb_start: int) -> bool:
+    if not _is_inside_string_literal(line, verb_start):
+        return True
+
+    for launcher in _COMMAND_LAUNCHER.finditer(line):
+        if launcher.start() >= verb_start:
+            break
+        if _is_inside_string_literal(line, launcher.start()):
+            continue
+        opening_paren = line.find("(", launcher.start(), launcher.end())
+        if opening_paren != -1 and _call_contains_offset(line, opening_paren, verb_start):
+            return True
+    return False
+
+
 def detect_assert_on_duration(line: str) -> bool:
     if not _is_assertion_line(line):
         return False
@@ -347,7 +432,13 @@ def detect_live_network_host(line: str) -> bool:
     # canonical-URL assertion, toContain) opens no socket and is not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    if not _NETWORK_VERB.search(line):
+    # A verb mentioned inside asserted/rendered text is fixture data, not code
+    # that can drive the network. URLs remain inspectable inside string
+    # arguments because only the verb's lexical position is filtered here.
+    if not any(
+        _is_executable_network_verb(line, match.start())
+        for match in _NETWORK_VERB.finditer(line)
+    ):
         return False
     for match in _URL.finditer(line):
         host = match.group(1)
