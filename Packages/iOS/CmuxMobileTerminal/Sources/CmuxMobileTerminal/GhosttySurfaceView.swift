@@ -2181,7 +2181,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // An absolute `set_font_size:<target>` keeps libghostty in lockstep
         // with `liveFontSize`, which we keep inside [minimumSize, maximumSize].
         let action = "set_font_size:\(target)"
+        let surfaceBits = Int(bitPattern: surface)
         outputQueue.async {
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
@@ -2603,7 +2605,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         let workQueue = outputQueue
+        let surfaceBits = Int(bitPattern: surface)
         workQueue.async { [weak self] in
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
             if let preparedConfigBits,
                let preparedConfig = ghostty_config_t(bitPattern: preparedConfigBits) {
                 ghostty_surface_update_theme_config(surface, preparedConfig)
@@ -2691,7 +2695,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let generation = surfaceGeneration
         let action = "scroll_to_bottom"
         let gate = viewportRestoreGate
+        let surfaceBits = Int(bitPattern: surface)
         outputQueue.async { [weak self] in
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
             action.withCString { pointer in
                 _ = ghostty_surface_binding_action(surface, pointer, UInt(action.utf8.count))
             }
@@ -3157,7 +3163,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
         surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
+        let surfaceBits = Int(bitPattern: surface)
         queue.async { [weak self] in
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
             let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
             GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
@@ -3445,7 +3453,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = CACurrentMediaTime()
         let generation = surfaceGeneration
         let enqueuedAt = CACurrentMediaTime()
+        let surfaceBits = Int(bitPattern: surface)
         outputQueue.async { [weak self] in
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
@@ -3848,7 +3858,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
 
+        let surfaceBits = Int(bitPattern: surface)
         outputQueue.async { [weak self] in
+            guard let surface = ghostty_surface_t(bitPattern: surfaceBits) else { return }
             if pushContentScale {
                 ghostty_surface_set_content_scale(surface, scale, scale)
             }
