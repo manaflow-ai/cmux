@@ -957,6 +957,10 @@ struct RestorableAgentSessionIndex: Sendable {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? entriesByPanelId[panelId]
     }
 
+    func entry(panelId: UUID) -> Entry? {
+        entriesByPanelId[panelId]
+    }
+
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
     }
