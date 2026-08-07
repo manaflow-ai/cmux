@@ -1121,6 +1121,27 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/assigned-curl-fstring.py",
+            'url="https://cmux.com/install.sh"; '
+            'subprocess.run(f"curl {url}", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/assigned-curl-template.ts",
+            'const url="https://cmux.com/install.sh"; exec(`curl ${url}`)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/assigned-curl-interpolation.swift",
+            'let url="https://cmux.com/install.sh"; run("curl \\(url)")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-curl-wrapper.py",
+            'url="https://cmux.com/install.sh"; _run("curl " + url)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "cmuxTests/assigned-fetch-interpolation.swift",
             'let url = "https://api.openai.com/v1/items"; fetch("\\(url)/next")\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1314,6 +1335,16 @@ def _self_test() -> int:
             "tests/n17o.sh",
             'url="https://cmux.com/install.sh"; '
             'url="http://127.0.0.1/install.sh"; curl "$url"\n',
+        ),
+        (
+            "tests/n17p.py",
+            'url="https://cmux.com/install.sh"; '
+            'subprocess.run(f"curl url", shell=True)\n',
+        ),
+        (
+            "web/tests/n17q.ts",
+            'const url="https://cmux.com/install.sh"; '
+            'exec(`curl ${other}/url`)\n',
         ),
         (
             "web/tests/n18.ts",
