@@ -151,6 +151,18 @@ jobs:
       - name: Validate app-host xcodebuild attempt budget
         run: ./tests/test_ci_app_host_xcodebuild_attempts.sh
 
+      - name: Validate app-host user configuration isolation
+        run: python3 tests/test_ci_app_host_home_isolation.py
+
+      - name: Validate app-host identity and cleanup confirmation
+        run: bash tests/test_ci_app_host_identity.sh
+
+      - name: Validate app-host process receipts
+        run: bash tests/test_ci_app_host_processes.sh
+
+      - name: Validate isolated app-host home cleanup
+        run: bash tests/test_ci_app_host_home_cleanup.sh
+
       - name: Validate cmux profiling support scripts
         run: ./tests/test_start_cmux_profiling.sh
 
@@ -475,6 +487,10 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     env:
+      # This independent job-level marker makes every app-host wrapper fail
+      # closed if a setup step or environment handoff loses either redirect.
+      CMUX_CI_APP_HOST_ISOLATION_REQUIRED: "1"
+      CMUX_APP_HOST_SHARD: ${{ matrix.shard }}
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       CMUX_SKIP_ZIG_BUILD: "1"
@@ -547,6 +563,9 @@ jobs:
           rm -rf "$DERIVED_DATA_PATH"
           mkdir -p "$DERIVED_DATA_PATH"
           echo "CMUX_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
+
+      - name: Prepare isolated app-host home
+        run: scripts/ci/prepare-app-host-home.sh
 
       - name: Resolve Swift packages
         run: |
@@ -1110,6 +1129,10 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_compacted_feed.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_campfire_extension_install.py
+
+      - name: Clean up isolated app-host home
+        if: ${{ always() }}
+        run: scripts/ci/run-in-console-session.sh scripts/ci/cleanup-app-host-home.sh
 
   tests:
     name: tests
