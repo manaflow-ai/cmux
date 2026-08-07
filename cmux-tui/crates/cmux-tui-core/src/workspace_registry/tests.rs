@@ -3352,7 +3352,10 @@ fn schema_thirteen_wraps_legacy_resource_api_frontend_projections() {
     }
 
     let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
-    assert_eq!(required_meta(&migrated.connection, "schema_version").unwrap(), "14");
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
     let projections = migrated.public_projections().unwrap().frontend_projections;
     assert_eq!(projections.len(), 1);
     assert_eq!(projections[0].schema_version, 2);

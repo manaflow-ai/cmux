@@ -101,6 +101,7 @@ fn agent_state(value: &str) -> anyhow::Result<AgentState> {
         "blocked" => Ok(AgentState::Blocked),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
+        "interrupted" => Ok(AgentState::Interrupted),
         "unknown" => Ok(AgentState::Unknown),
         other => anyhow::bail!("invalid durable agent state {other:?}"),
     }

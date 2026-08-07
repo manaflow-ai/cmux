@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
+const AGENT_STATE_FORMAT: &str = "cmux.journal-agent-state.v1";
 const RECOVERY_FORMAT: &str = "cmux.agent-recovery.v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,6 +19,26 @@ struct AgentProjectionRow {
     committed_sequence: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanonicalAgentStateRow {
+    agent_tree_id: String,
+    agent_node_id: String,
+    terminal_id: TerminalPublicId,
+    state: String,
+    updated_at_ms: u64,
+    source_session: Option<String>,
+    provider: String,
+    parent_agent_node_id: Option<String>,
+    agent_relation: String,
+    agent_identity_quality: String,
+    committed_sequence: u64,
+}
+
+struct DerivedAgentProjections {
+    terminal_current: BTreeMap<String, AgentProjectionRow>,
+    canonical_states: BTreeMap<String, CanonicalAgentStateRow>,
+}
+
 pub(super) fn apply_agent_projection_journal_record(
     transaction: &Transaction<'_>,
     sequence: u64,
@@ -27,6 +48,17 @@ pub(super) fn apply_agent_projection_journal_record(
     subjects: &[JournalSubject],
     payload: &Value,
 ) -> anyhow::Result<()> {
+    if let Some(canonical_state) = canonical_agent_state_from_journal_record(
+        sequence,
+        kind,
+        occurred_at_ms,
+        producer,
+        subjects,
+        payload,
+    )? {
+        upsert_agent_state(transaction, &canonical_state)?;
+    }
+
     let Some(next) = projection_from_journal_record(
         sequence,
         kind,
@@ -53,7 +85,11 @@ pub(super) fn rebuild_agent_projections_from_journal(
     let projections = derive_agent_projections_from_journal(connection)?;
     let tx = connection.unchecked_transaction()?;
     tx.execute("DELETE FROM resource_agent_projections", [])?;
-    for projection in projections.into_values() {
+    tx.execute("DELETE FROM journal_agent_states", [])?;
+    for state in projections.canonical_states.into_values() {
+        upsert_agent_state(&tx, &state)?;
+    }
+    for projection in projections.terminal_current.into_values() {
         if terminal_is_live(&tx, &projection.terminal_id)? {
             upsert_projection(&tx, &projection)?;
         }
@@ -64,14 +100,25 @@ pub(super) fn rebuild_agent_projections_from_journal(
 
 fn derive_agent_projections_from_journal(
     connection: &Connection,
-) -> anyhow::Result<BTreeMap<String, AgentProjectionRow>> {
-    let mut projections = BTreeMap::new();
+) -> anyhow::Result<DerivedAgentProjections> {
+    let mut terminal_current = BTreeMap::new();
+    let mut canonical_states = BTreeMap::new();
     let mut sequence = 0;
     loop {
         let page = session_journal::query_session_journal_after(connection, sequence, 1024)?;
         let empty = page.records.is_empty();
         for record in page.records {
             sequence = record.sequence;
+            if let Some(next) = canonical_agent_state_from_journal_record(
+                record.sequence,
+                &record.kind,
+                record.occurred_at_ms,
+                &record.producer,
+                &record.subjects,
+                &record.payload,
+            )? {
+                canonical_states.insert(next.agent_node_id.clone(), next);
+            }
             let Some(next) = projection_from_journal_record(
                 record.sequence,
                 &record.kind,
@@ -84,14 +131,14 @@ fn derive_agent_projections_from_journal(
                 continue;
             };
             let key = next.terminal_id.to_string();
-            let current = projections.remove(&key);
-            projections.insert(key, merge_projection(current, next));
+            let current = terminal_current.remove(&key);
+            terminal_current.insert(key, merge_projection(current, next));
         }
         if empty || sequence >= page.head_sequence {
             break;
         }
     }
-    Ok(projections)
+    Ok(DerivedAgentProjections { terminal_current, canonical_states })
 }
 
 fn projection_from_journal_record(
@@ -136,6 +183,67 @@ fn projection_from_journal_record(
         updated_at_ms: occurred_at_ms,
         source_session,
         provider,
+        committed_sequence: sequence,
+    }))
+}
+
+fn canonical_agent_state_from_journal_record(
+    sequence: u64,
+    kind: &str,
+    occurred_at_ms: u64,
+    producer: &JournalProducer,
+    subjects: &[JournalSubject],
+    payload: &Value,
+) -> anyhow::Result<Option<CanonicalAgentStateRow>> {
+    if producer.kind != "agent_adapter" || producer.id != crate::AGENT_HOOK_PRODUCER_ID {
+        return Ok(None);
+    }
+    let Some(state) = hook_projection_state(kind, payload) else {
+        return Ok(None);
+    };
+    let Some(terminal_id) = terminal_subject(subjects)? else {
+        return Ok(None);
+    };
+    let Some(normalized) = payload.get("normalized").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    let Some(agent_tree_id) = required_normalized_text(normalized, "agent_tree_id") else {
+        return Ok(None);
+    };
+    let Some(agent_node_id) = required_normalized_text(normalized, "agent_node_id") else {
+        return Ok(None);
+    };
+    let Some(provider) =
+        payload.get("adapter").and_then(|adapter| adapter.get("id")).and_then(Value::as_str)
+    else {
+        return Ok(None);
+    };
+    if provider.is_empty() {
+        return Ok(None);
+    }
+    let Some(agent_relation) = required_normalized_text(normalized, "agent_relation") else {
+        return Ok(None);
+    };
+    let Some(agent_identity_quality) =
+        required_normalized_text(normalized, "agent_identity_quality")
+    else {
+        return Ok(None);
+    };
+    let source_session =
+        optional_normalized_text(normalized, "agent_session_id").map(str::to_string);
+    let parent_agent_node_id =
+        optional_normalized_text(normalized, "parent_agent_node_id").map(str::to_string);
+    Ok(Some(CanonicalAgentStateRow {
+        agent_tree_id: agent_tree_id.to_string(),
+        agent_node_id: agent_node_id.to_string(),
+        terminal_id,
+        state: state.into(),
+        updated_at_ms: occurred_at_ms,
+        source_session,
+        provider: provider.to_string(),
+        parent_agent_node_id,
+        agent_relation: agent_relation.to_string(),
+        agent_identity_quality: agent_identity_quality.to_string(),
         committed_sequence: sequence,
     }))
 }
@@ -192,6 +300,20 @@ fn projection_from_resource_report(
     }))
 }
 
+fn required_normalized_text<'a>(
+    normalized: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> Option<&'a str> {
+    optional_normalized_text(normalized, field)
+}
+
+fn optional_normalized_text<'a>(
+    normalized: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> Option<&'a str> {
+    normalized.get(field).and_then(Value::as_str).filter(|value| !value.is_empty())
+}
+
 fn projection_from_recovery_event(
     sequence: u64,
     occurred_at_ms: u64,
@@ -246,6 +368,9 @@ fn hook_projection_state(kind: &str, payload: &Value) -> Option<&'static str> {
         | "agent.error.reported" => Some("blocked"),
         "agent.turn.completed" => Some("idle"),
         "agent.session.ended" => Some("done"),
+        "agent.child.spawned" => Some("working"),
+        "agent.child.completed" => Some("done"),
+        "agent.child.failed" => Some("blocked"),
         _ => None,
     }
 }
@@ -293,6 +418,62 @@ fn stored_projection(
     let committed_sequence =
         u64::try_from(committed_sequence).context("agent projection revision is negative")?;
     projection_from_resource_report(committed_sequence, &json!({"result":result}))
+}
+
+fn upsert_agent_state(
+    transaction: &Transaction<'_>,
+    state: &CanonicalAgentStateRow,
+) -> anyhow::Result<()> {
+    let value = json!({
+        "format":AGENT_STATE_FORMAT,
+        "agent_tree_id":state.agent_tree_id,
+        "agent_node_id":state.agent_node_id,
+        "terminal_id":state.terminal_id,
+        "state":state.state,
+        "source":"hook",
+        "updated_at_ms":state.updated_at_ms.to_string(),
+        "source_session":state.source_session,
+        "provider":state.provider,
+        "parent_agent_node_id":state.parent_agent_node_id,
+        "agent_relation":state.agent_relation,
+        "agent_identity_quality":state.agent_identity_quality,
+    });
+    transaction.execute(
+        "INSERT INTO journal_agent_states(
+           agent_node_id, agent_tree_id, terminal_id, provider, state,
+           source_session, parent_agent_node_id, agent_relation,
+           agent_identity_quality, updated_at_ms, result_json, committed_sequence
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(agent_node_id) DO UPDATE SET
+           agent_tree_id = excluded.agent_tree_id,
+           terminal_id = excluded.terminal_id,
+           provider = excluded.provider,
+           state = excluded.state,
+           source_session = excluded.source_session,
+           parent_agent_node_id = excluded.parent_agent_node_id,
+           agent_relation = excluded.agent_relation,
+           agent_identity_quality = excluded.agent_identity_quality,
+           updated_at_ms = excluded.updated_at_ms,
+           result_json = excluded.result_json,
+           committed_sequence = excluded.committed_sequence",
+        params![
+            state.agent_node_id.as_str(),
+            state.agent_tree_id.as_str(),
+            state.terminal_id.as_str(),
+            state.provider.as_str(),
+            state.state.as_str(),
+            state.source_session.as_deref(),
+            state.parent_agent_node_id.as_deref(),
+            state.agent_relation.as_str(),
+            state.agent_identity_quality.as_str(),
+            i64::try_from(state.updated_at_ms)
+                .context("agent state timestamp exceeds SQLite range")?,
+            canonical_json(&value)?,
+            i64::try_from(state.committed_sequence)
+                .context("agent state sequence exceeds SQLite range")?,
+        ],
+    )?;
+    Ok(())
 }
 
 fn upsert_projection(
