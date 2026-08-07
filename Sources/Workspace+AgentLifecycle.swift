@@ -1,5 +1,15 @@
 import CmuxWorkspaces
 import Foundation
+import os
+
+/// Release-visible restore/wake decision log. The pre-existing `cmuxDebugLog`
+/// calls compile out of Release builds, which made field diagnosis of
+/// never-resuming panels impossible; keep these decision points visible via
+/// the unified log (`log show --predicate 'subsystem == "com.cmuxterm.app"'`).
+nonisolated let cmuxAgentRestoreLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AgentRestore"
+)
 
 extension Workspace {
     func allowsAgentContinuation(forPanelId panelId: UUID) -> Bool {
