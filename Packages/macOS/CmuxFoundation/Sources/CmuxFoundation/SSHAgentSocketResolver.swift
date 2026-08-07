@@ -73,13 +73,17 @@ public struct SSHAgentSocketResolver: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawValue.isEmpty else { return (key, nil) }
 
+        let normalizedValue: String
         if rawValue.count >= 2,
            let quote = rawValue.first,
            (quote == "\"" || quote == "'"),
            rawValue.last == quote {
-            return (key, String(rawValue.dropFirst().dropLast()))
+            normalizedValue = String(rawValue.dropFirst().dropLast())
+        } else {
+            normalizedValue = rawValue
         }
-        return (key, rawValue)
+        guard !normalizedValue.isEmpty else { return (key, nil) }
+        return (key, normalizedValue)
     }
 
     /// Returns whether an option list contains a key.
