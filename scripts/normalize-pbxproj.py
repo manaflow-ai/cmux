@@ -37,7 +37,9 @@ DEFAULT_PATH = Path("cmux.xcodeproj/project.pbxproj")
 
 ENTRY_COMMENT_RE = re.compile(r"/\*\s*(?P<label>.+?)\s*\*/")
 OBJECT_DEFINITION_RE = re.compile(
-    r"^\t\t(?P<identifier>[A-Za-z0-9]{8,})(?: /\*.*?\*/)? = \{"
+    r"^[ \t]*(?P<identifier>(?:[A-Fa-f]{8,}|"
+    r"(?=[A-Za-z0-9]*[0-9])[A-Za-z0-9]{8,}))"
+    r"(?: /\*.*?\*/)? = \{"
 )
 
 # Sections we sort flat. Every entry is a single line of the form

@@ -629,6 +629,7 @@ export default function (amp: PluginAPI) {
   const nativeAttentionIdentityRetryDelayMilliseconds = 250;
   const nativeStateSnapshotDeadlineMilliseconds = 1_000;
   const activeNativeStateObservationLeaseMilliseconds = 30 * 60 * 1_000;
+  const maximumRetainedTurnStateCount = 128;
 
   const synchronizeNativeAttention = (state: AmpTurnState): void => {
     if (state.nativeAttentionInFlight) return;
@@ -845,6 +846,32 @@ export default function (amp: PluginAPI) {
     }
   };
 
+  const touchTurnState = (
+    threadId: string,
+    state: AmpTurnState,
+  ): void => {
+    if (turnStates.get(threadId) !== state) return;
+    turnStates.delete(threadId);
+    turnStates.set(threadId, state);
+  };
+
+  const retainTurnState = (
+    threadId: string,
+    state: AmpTurnState,
+  ): void => {
+    const existing = turnStates.get(threadId);
+    if (existing && existing !== state) {
+      discardTurnState(threadId, existing);
+    }
+    turnStates.delete(threadId);
+    turnStates.set(threadId, state);
+    while (turnStates.size > maximumRetainedTurnStateCount) {
+      const oldest = turnStates.entries().next().value;
+      if (!oldest) break;
+      discardTurnState(oldest[0], oldest[1]);
+    }
+  };
+
   const renewNativeStateObservationLease = (
     threadId: string,
     state: AmpTurnState,
@@ -856,6 +883,7 @@ export default function (amp: PluginAPI) {
     ) {
       return;
     }
+    touchTurnState(threadId, state);
     if (state.nativeStateObservationLease) {
       clearTimeout(state.nativeStateObservationLease);
       state.nativeStateObservationLease = null;
@@ -863,7 +891,13 @@ export default function (amp: PluginAPI) {
     // Once agent.end is pending, only an observed terminal state, a matching
     // tool result, or process exit can safely retire the turn. A wall-clock
     // lease would discard durable work evidence from long-running tools.
-    if (state.pendingEnd) return;
+    if (
+      state.pendingEnd
+      || state.activeToolUseIds.size > 0
+      || state.nativeThreadState === "awaiting-approval"
+    ) {
+      return;
+    }
     state.nativeStateObservationLease = setTimeout(() => {
       if (
         turnStates.get(threadId) !== state
@@ -1102,7 +1136,7 @@ export default function (amp: PluginAPI) {
     if (!sessionId) return;
     discardTurnState(sessionId, turnStates.get(sessionId));
     const state = makeTurnState(event, sessionId);
-    turnStates.set(sessionId, state);
+    retainTurnState(sessionId, state);
     setStatus("thinking", "brain", COLOR.thinking);
     wsLog("prompt received");
     sendHook("prompt-submit", sessionId, cwdFromEnv(), {
@@ -1174,7 +1208,7 @@ export default function (amp: PluginAPI) {
     }
     const state = currentState
       ?? makeTurnState(event, sessionId, incomingTurnId);
-    turnStates.set(sessionId, state);
+    retainTurnState(sessionId, state);
     const pendingEnd = { event, sessionId, cwd };
     state.pendingEnd = pendingEnd;
     // agent.end is always provisional. Only PluginThread.state reaching a
