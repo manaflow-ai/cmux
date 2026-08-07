@@ -15,6 +15,37 @@ import Testing
 /// native free to the runtime teardown coordinator.
 @MainActor
 @Suite(.serialized) struct TerminalSurfaceTeardownCallbackLifetimeTests {
+    @Test func explicitTeardownRetiresLogicalRegistryOwnershipExactlyOnce() throws {
+        let registry = TerminalSurfaceRegistry()
+        var surface: TerminalSurface? = makeSurface(registry: registry)
+        let surfaceId = try #require(surface?.id)
+        let registeredGeneration = registry.topologyGeneration
+        #expect(registry.surface(id: surfaceId) != nil)
+
+        surface?.teardownSurface()
+        let teardownGeneration = registry.topologyGeneration
+        #expect(registry.surface(id: surfaceId) == nil)
+        #expect(teardownGeneration > registeredGeneration)
+
+        surface?.teardownSurface()
+        #expect(registry.topologyGeneration == teardownGeneration)
+
+        surface = nil
+        #expect(registry.topologyGeneration == teardownGeneration)
+    }
+
+    @Test func deinitOnlyTeardownStillRetiresRegistryOwnership() throws {
+        let registry = TerminalSurfaceRegistry()
+        var surface: TerminalSurface? = makeSurface(registry: registry)
+        let surfaceId = try #require(surface?.id)
+        let registeredGeneration = registry.topologyGeneration
+
+        surface = nil
+
+        #expect(registry.surface(id: surfaceId) == nil)
+        #expect(registry.topologyGeneration > registeredGeneration)
+    }
+
     @Test func cancellingEventWaitReturnsWithoutWaitingForDeadline() async {
         let recorder = TeardownOrderRecorder()
         let wait = Task {

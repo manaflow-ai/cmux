@@ -179,6 +179,7 @@ struct DockRuntimeParityTests {
             defer {
                 TerminalController.shared.setActiveTabManager(previousManager)
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowID)
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowID)
                 manager.tabs.forEach { $0.teardownAllPanels() }
                 window.orderOut(nil)
                 window.close()
@@ -193,7 +194,7 @@ struct DockRuntimeParityTests {
     @Test("Notification attention routes to both Dock scopes")
     func notificationAttentionRoutesToBothDockScopes() async throws {
         try await withAppContext { appDelegate, manager, workspace, windowID in
-            let workspaceDock = workspace.dockSplit
+            let workspaceDock = workspace.requiredDockSplitForTesting
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
             let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
             let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
@@ -313,7 +314,7 @@ struct DockRuntimeParityTests {
     @Test("Explicit socket flashes route as user initiated in both Dock scopes")
     func explicitSocketFlashesRouteAsUserInitiatedInBothDockScopes() async throws {
         try await withAppContext { appDelegate, _, workspace, windowID in
-            let workspaceDock = workspace.dockSplit
+            let workspaceDock = workspace.requiredDockSplitForTesting
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
             let workspacePanel = DockRuntimeParityPanel(title: "Workspace Dock")
             let globalPanel = DockRuntimeParityPanel(title: "Global Dock")
@@ -366,7 +367,7 @@ struct DockRuntimeParityTests {
     )
     func topologyAndBareIDRoutingIncludeBothDockScopes() async throws {
         try await withAppContext { appDelegate, _, workspace, windowID in
-            let workspaceDock = workspace.dockSplit
+            let workspaceDock = workspace.requiredDockSplitForTesting
             let globalDock = appDelegate.windowDock(forWindowId: windowID)
             let workspaceTerminal = TerminalPanel(
                 workspaceId: workspace.id,

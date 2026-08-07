@@ -119,6 +119,48 @@ struct MainWindowVisibilityLifecycleTests {
         #expect(madeKeyWindows.isEmpty)
     }
 
+    @Test
+    func committedCloseRejectsDirectFocusAndReveal() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        var activeWindows: [NSWindow] = []
+        var softShownWindows: [NSWindow] = []
+        var orderedWindows: [NSWindow] = []
+        var activationCount = 0
+
+        let controller = MainWindowVisibilityController(
+            dependencies: .init(
+                isActivationSuppressed: { false },
+                setActiveMainWindow: { activeWindows.append($0) },
+                activateRunningApplication: { _ in activationCount += 1 },
+                windowOperations: makeWindowOperations(
+                    makeKeyAndOrderFront: { orderedWindows.append($0) },
+                    makeKey: { orderedWindows.append($0) },
+                    orderFront: { orderedWindows.append($0) },
+                    orderFrontRegardless: { orderedWindows.append($0) },
+                    softShow: { softShownWindows.append($0) }
+                )
+            )
+        )
+
+        controller.commitClose(window)
+
+        #expect(!controller.focus(window, reason: .focusMainWindow))
+        controller.focusForInWindowCommand(window, reason: .findShortcut)
+        #expect(
+            controller.reveal(
+                [window],
+                preferredWindow: window,
+                reason: .applicationReopen
+            ) == nil
+        )
+        #expect(activeWindows.isEmpty)
+        #expect(softShownWindows.isEmpty)
+        #expect(orderedWindows.isEmpty)
+        #expect(activationCount == 0)
+    }
+
     private func makeWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 120, height: 80),

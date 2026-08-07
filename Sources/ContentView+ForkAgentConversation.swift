@@ -290,14 +290,17 @@ extension ContentView {
                     NSSound.beep()
                     return
                 }
-                let forkWorkspace = tabManager.addWorkspace(
+                guard let forkWorkspace = tabManager.addWorkspaceIfActive(
                     workingDirectory: launch.terminalWorkingDirectory,
                     initialTerminalCommand: launch.initialTerminalCommand,
                     initialTerminalInput: launch.initialTerminalInput,
                     initialTerminalEnvironment: launch.initialTerminalEnvironment,
                     inheritWorkingDirectory: launch.terminalWorkingDirectory != nil,
                     autoWelcomeIfNeeded: false
-                )
+                ) else {
+                    didFork = false
+                    break
+                }
                 if let remoteConfiguration = launch.remoteConfiguration {
                     forkWorkspace.configureRemoteConnection(
                         remoteConfiguration,

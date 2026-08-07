@@ -1324,6 +1324,7 @@ extension Workspace {
         snapshotWorkspaceId: UUID?,
         shouldRestoreSingleDefaultCloudTerminal: Bool
     ) -> UUID? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let restoresUntrustedSavedDirectory = snapshot.directoryIsTrustedRemoteReport != true &&
             (snapshot.directoryRequiresRemoteTrust == true ||
                 restoresLegacyRemoteDirectoryWithoutProvenance(snapshot))
@@ -2120,6 +2121,7 @@ final class Workspace: Identifiable, ObservableObject {
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
     )
     let id: UUID
+    private(set) var isRetiredFromOwningTabManager = false
     /// Restart-stable workspace identifier persisted for durable deep links.
     private(set) var stableId = UUID()
     /// Durable idempotency key for task-composer workspace creation.
@@ -2217,7 +2219,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// The right-sidebar Dock for this workspace: its own Bonsplit tree of
     /// terminal/browser panels, separate from the main-area `bonsplitController`.
     /// Created on first access so workspaces that never open the Dock pay nothing.
-    var dockSplit: DockSplitStore {
+    var dockSplit: DockSplitStore? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         if let existing = _dockSplit { return existing }
         let store = DockSplitStore(
             workspaceId: id,
@@ -3446,7 +3449,7 @@ final class Workspace: Identifiable, ObservableObject {
             queue: nil
         ) { [weak self] notification in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, !self.isRetiredFromOwningTabManager else { return }
                 if let index = SharedLiveAgentIndex.shared.index {
                     let completedPanelIds: [UUID]
                     if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
@@ -3484,7 +3487,8 @@ final class Workspace: Identifiable, ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.reapplySurfaceTabBarButtonsForFeatureFlags()
+                guard let self, !self.isRetiredFromOwningTabManager else { return }
+                self.reapplySurfaceTabBarButtonsForFeatureFlags()
             }
         }
     }
@@ -7581,6 +7585,7 @@ final class Workspace: Identifiable, ObservableObject {
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanelCreationOutcome {
+        guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror workspace a split means "split the mirrored
         // tmux pane": route it to the remote and let the resulting
         // %layout-change render the new pane (one source of truth). NEVER
@@ -7877,6 +7882,7 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanelCreationOutcome {
+        guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
         // create a local orphan the mirror can't reconcile. Dead mirrors are
         // torn down via handleSessionEndedRemotely.
@@ -8086,7 +8092,8 @@ final class Workspace: Identifiable, ObservableObject {
     func makeRemoteTmuxPanePanel(
         onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil
-    ) -> TerminalPanel {
+    ) -> TerminalPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let surface = TerminalSurface(
             tabId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
@@ -8121,6 +8128,7 @@ final class Workspace: Identifiable, ObservableObject {
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: (@MainActor @Sendable (_ columns: Int, _ rows: Int) -> Void)? = nil
     ) -> TerminalPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let newPanel = performRemoteTmuxMirrorMutation { () -> TerminalPanel? in
             guard let paneId = bonsplitController.focusedPaneId ?? bonsplitController.allPaneIds.first
             else { return nil }
@@ -8314,7 +8322,8 @@ final class Workspace: Identifiable, ObservableObject {
         replayFileURL: URL? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
-        guard let oldPanel = terminalPanel(for: panelId),
+        guard !isRetiredFromOwningTabManager,
+              let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else {
             return nil
@@ -8378,7 +8387,6 @@ final class Workspace: Identifiable, ObservableObject {
             discardAgentHibernationTracking: false,
             cleanupControllerSurfaceState: false
         )
-        GhosttyApp.terminalSurfaceRegistry.unregister(oldPanel.surface)
         oldPanel.removeOwnedSessionScrollbackReplayArtifact()
         oldPanel.surface.teardownSurface()
 
@@ -8479,6 +8487,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialDividerPosition: CGFloat? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         // No local browser surfaces in a remote tmux mirror workspace (it is a
         // 1:1 view of a tmux session). See ``newBrowserSurface(inPane:)``.
         if isRemoteTmuxMirror { return nil }
@@ -8601,6 +8610,7 @@ final class Workspace: Identifiable, ObservableObject {
         bypassRemoteProxy: Bool = false,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         // A remote tmux mirror workspace is a 1:1 view of a tmux session (which
         // has no browser concept). A local browser tab here would be an orphan
         // that the mirror's rebuild() never reconciles, breaking the 1:1
@@ -8713,6 +8723,7 @@ final class Workspace: Identifiable, ObservableObject {
         title: String,
         focus: Bool = true
     ) -> CMUXSidebarExtensionBrowserPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus || bonsplitController.focusedPaneId == paneId
         let extensionBrowserPanel = CMUXSidebarExtensionBrowserPanel(title: title)
         panels[extensionBrowserPanel.id] = extensionBrowserPanel
@@ -8762,6 +8773,7 @@ final class Workspace: Identifiable, ObservableObject {
         from panelId: UUID,
         filePath: String
     ) -> MarkdownPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let md = panel as? MarkdownPanel else { continue }
@@ -8792,6 +8804,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         fontSize: Double? = nil
     ) -> MarkdownPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
         for paneId in bonsplitController.allPaneIds {
@@ -8855,6 +8868,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> MarkdownPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
@@ -8905,6 +8919,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> ProjectPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         guard !projectPath.isEmpty else { return nil }
         let url = URL(fileURLWithPath: (projectPath as NSString).expandingTildeInPath).standardizedFileURL
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
@@ -8956,6 +8971,7 @@ final class Workspace: Identifiable, ObservableObject {
         filePath: String,
         focus: Bool = true
     ) -> MarkdownPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let markdownPanel = panel as? MarkdownPanel else { continue }
@@ -8977,6 +8993,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool,
         filePath: String
     ) -> MarkdownPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let markdownPanel = MarkdownPanel(workspaceId: id, filePath: filePath)
         panels[markdownPanel.id] = markdownPanel
         panelTitles[markdownPanel.id] = markdownPanel.displayTitle
@@ -9017,6 +9034,7 @@ final class Workspace: Identifiable, ObservableObject {
         filePath: String,
         focus: Bool = true
     ) -> FilePreviewPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
@@ -9036,6 +9054,7 @@ final class Workspace: Identifiable, ObservableObject {
         from panelId: UUID,
         filePath: String
     ) -> FilePreviewPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let canonical = (filePath as NSString).resolvingSymlinksInPath
         for (existingId, panel) in panels {
             guard let preview = panel as? FilePreviewPanel else { continue }
@@ -9065,6 +9084,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> FilePreviewPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
@@ -9115,6 +9135,7 @@ final class Workspace: Identifiable, ObservableObject {
         mode: RightSidebarMode,
         focus: Bool = true
     ) -> RightSidebarToolPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         guard mode.canOpenAsPane else { return nil }
         for (existingId, panel) in panels {
             guard let toolPanel = panel as? RightSidebarToolPanel,
@@ -9136,6 +9157,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> RightSidebarToolPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         guard mode.canOpenAsPane else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -9187,6 +9209,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> AgentSessionPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
         let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
@@ -9263,6 +9286,7 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool,
         filePath: String
     ) -> FilePreviewPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         let filePreviewPanel = FilePreviewPanel(workspaceId: id, filePath: filePath)
         panels[filePreviewPanel.id] = filePreviewPanel
         panelTitles[filePreviewPanel.id] = filePreviewPanel.displayTitle
@@ -9293,12 +9317,32 @@ final class Workspace: Identifiable, ObservableObject {
         return filePreviewPanel
     }
 
+    /// Permanently retires this workspace before releasing its runtime resources.
+    func retireFromOwningTabManager() {
+        guard !isRetiredFromOwningTabManager else { return }
+        isRetiredFromOwningTabManager = true
+        if let sharedLiveAgentIndexObserver {
+            NotificationCenter.default.removeObserver(sharedLiveAgentIndexObserver)
+            self.sharedLiveAgentIndexObserver = nil
+        }
+        if let featureFlagsObserver {
+            NotificationCenter.default.removeObserver(featureFlagsObserver)
+            self.featureFlagsObserver = nil
+        }
+        teardownAllPanels()
+        teardownRemoteConnection()
+        owningTabManager = nil
+    }
+
     /// Tear down all panels before removing the workspace.
     func teardownAllPanels() {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
         hideAllBrowserPortalViews()
+        // Retire the right-sidebar Dock before closing any main-area panel so
+        // callbacks triggered by teardown cannot reuse a retained Dock store.
+        _dockSplit?.retire()
         let panelEntries = Array(panels)
         for (panelId, panel) in panelEntries {
             discardClosedPanelLifecycleState(
@@ -9328,9 +9372,6 @@ final class Workspace: Identifiable, ObservableObject {
         pendingTerminalInputObserversByPanelId.removeAll(keepingCapacity: false)
         lastTerminalConfigInheritancePanelId = nil
         lastTerminalConfigInheritanceFontSizeLineage = nil
-        // Tear down the right-sidebar Dock's own panels (terminals/browsers) too,
-        // but only if the Dock was ever opened for this workspace.
-        _dockSplit?.closeAllPanels()
     }
 
     /// Close a panel.
@@ -9696,6 +9737,7 @@ final class Workspace: Identifiable, ObservableObject {
         focus: Bool = true,
         focusIntent: PanelFocusIntent? = nil
     ) -> UUID? {
+        guard !isRetiredFromOwningTabManager else { return nil }
 #if DEBUG
         let attachStart = ProcessInfo.processInfo.systemUptime
         cmuxDebugLog(
@@ -10361,7 +10403,8 @@ final class Workspace: Identifiable, ObservableObject {
     func createReplacementTerminalPanel(
         remoteDisconnectSurfaceId: UUID? = nil,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> TerminalPanel {
+    ) -> TerminalPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         var replacementConfig = inheritedTerminalConfig(
             preferredPanelId: focusedPanelId,
             inPane: bonsplitController.focusedPaneId
@@ -11488,6 +11531,7 @@ final class Workspace: Identifiable, ObservableObject {
         initialInput: String?,
         remoteStartupCommand: String? = nil
     ) -> TerminalPanel? {
+        guard !isRetiredFromOwningTabManager else { return nil }
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
         let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
@@ -12699,7 +12743,8 @@ extension Workspace: BonsplitDelegate {
             dlog("replacement.remoteDisconnect.fire target=\(pendingRemoteDisconnectReplacementsBySurfaceId[panelId]?.target ?? "nil")")
             #endif
             let replacement = createReplacementTerminalPanel(remoteDisconnectSurfaceId: panelId)
-            if let replacementTabId = surfaceIdFromPanelId(replacement.id),
+            if let replacement,
+               let replacementTabId = surfaceIdFromPanelId(replacement.id),
                let replacementPane = bonsplitController.allPaneIds.first {
                 bonsplitController.focusPane(replacementPane)
                 bonsplitController.selectTab(replacementTabId)
@@ -12739,6 +12784,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        guard !isRetiredFromOwningTabManager else { return false }
         // In a remote tmux mirror, split means tmux `split-window`; always veto
         // local splits so the mirror never gains an orphan pane.
         guard isRemoteTmuxMirror else { return true }
@@ -12915,6 +12961,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didSplitPane originalPane: PaneID, newPane: PaneID, orientation: SplitOrientation) {
+        guard !isRetiredFromOwningTabManager else { return }
 #if DEBUG
         let panelKindForTab: (TabID) -> String = { tabId in
             guard let panelId = self.panelIdFromSurfaceId(tabId),
@@ -13132,7 +13179,7 @@ extension Workspace: BonsplitDelegate {
         if let builtInAction = executable.builtInAction {
             switch builtInAction {
             case .newWorkspace:
-                owningTabManager?.addWorkspace()
+                owningTabManager?.addWorkspaceIfActive()
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
                 _ = AppDelegate.shared?.performCloudVMAction(tabManager: owningTabManager, preferredWindow: presentingWindow, debugSource: "surfaceTabBar.cloudVM")

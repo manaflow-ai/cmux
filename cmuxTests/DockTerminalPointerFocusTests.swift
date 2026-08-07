@@ -64,6 +64,7 @@ struct DockTerminalPointerFocusTests {
         window.makeKeyAndOrderFront(nil)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
             window.close()
@@ -162,6 +163,7 @@ struct DockTerminalPointerFocusTests {
         window.makeKeyAndOrderFront(nil)
         defer {
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
             manager.tabs.forEach { $0.teardownAllPanels() }
             window.orderOut(nil)
             window.close()
