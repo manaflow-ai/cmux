@@ -41,8 +41,11 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
         || [ "$fd_filter" != "9" ]; then
         continue
       fi
-      printf 'p%s\n%s\nn%s\n' \
-        "$state_pid" "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f9}" "$path_filter"
+      printf 'p%s\n%s\n%s\nn%s\n' \
+        "$state_pid" \
+        "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f9}" \
+        "${CMUX_FAKE_LSOF_RECEIPT_ACCESS_FIELD:-aw}" \
+        "$path_filter"
     else
       printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
         "$state_pid" "$state_executable"
