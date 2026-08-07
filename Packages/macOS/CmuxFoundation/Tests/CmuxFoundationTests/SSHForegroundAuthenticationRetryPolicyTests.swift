@@ -338,7 +338,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(policy.processTreeTerminationShellFunction())
         cmux_ssh_auth_take_process_snapshot() {
           if [ "$(/bin/cat "$CMUX_TEST_SNAPSHOT_PERMISSION")" != 1 ]; then return 1; fi
-          /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= > "$1" 2>/dev/null
+          cmux_ssh_auth_take_process_snapshot_until \
+            "$1" "$cmux_ssh_auth_deadline_millis"
         }
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
@@ -1345,7 +1346,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
         let actual = try String(contentsOf: identityURL, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let expected = "\(info.pbi_pgid)|K_\(info.pbi_start_tvsec)_\(info.pbi_start_tvusec)_0_0"
+        let expected = "\(info.pbi_pgid)|K_\(info.pbi_start_tvsec)_\(info.pbi_start_tvusec)"
         #expect(actual == expected)
     }
 
@@ -3498,12 +3499,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_test_real_identity() {
-          /usr/bin/env LC_ALL=C LANG=C /bin/ps \
-            -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
-            /usr/bin/awk 'NF >= 8 && $3 !~ /Z/ {
-              started = $4 "_" $5 "_" $6 "_" $7 "_" $8
-              print $1 "|" $2 "|" started
-            }'
+          cmux_test_kernel_record=$(cmux_ssh_auth_kernel_process_identity "$1") || return 1
+          cmux_test_parent=${cmux_test_kernel_record%%|*}
+          cmux_test_remainder=${cmux_test_kernel_record#*|}
+          cmux_test_group=${cmux_test_remainder%%|*}
+          cmux_test_remainder=${cmux_test_remainder#*|}
+          cmux_test_status=${cmux_test_remainder%%|*}
+          cmux_test_started=${cmux_test_remainder#*|}
+          printf '%s|%s|%s\n' "$cmux_test_parent" "$cmux_test_group" "$cmux_test_started"
         }
         cmux_ssh_auth_identity() {
           if [ "$1" = 101 ]; then

@@ -64,35 +64,42 @@ extension SSHForegroundAuthenticationRetryPolicy {
           if [ "$cmux_ssh_auth_snapshot_remaining" -le 0 ]; then return 1; fi
 
           /usr/bin/perl -MTime::HiRes=alarm -e '
-            $cmux_timeout_millis = shift;
-            $cmux_timeout = $cmux_timeout_millis / 1000;
-            $cmux_pid = fork();
-            exit 1 if !defined $cmux_pid;
-            if ($cmux_pid == 0) {
-              exec @ARGV;
-              exit 127;
+            use strict;
+            use warnings;
+            my $timeout_millis = shift;
+            exit 1 unless defined($timeout_millis) &&
+              $timeout_millis =~ /\A[1-9][0-9]*\z/;
+            local $SIG{ALRM} = sub { exit 124 };
+            alarm($timeout_millis / 1000);
+
+            # One bounded kernel-table read supplies every durable process
+            # identity. SYS_proc_info(2) returns microsecond start timestamps,
+            # unlike the one-second value formatted by ps lstart.
+            my $pid_buffer = "\0" x (4 * 131_072);
+            my $pid_bytes = syscall(
+              336, 1, 1, 0, 0, $pid_buffer, length($pid_buffer)
+            );
+            exit 1 if $pid_bytes <= 0 || $pid_bytes >= length($pid_buffer) ||
+              ($pid_bytes % 4) != 0;
+            my %state = (1 => "I", 2 => "R", 3 => "S", 4 => "T", 5 => "Z");
+            for my $pid (unpack("L<*", substr($pid_buffer, 0, $pid_bytes))) {
+              next if $pid == 0;
+              my $buffer = "\0" x 136;
+              my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
+              next unless $size == 136;
+              my $status = unpack("L<", substr($buffer, 4, 4));
+              my $observed_pid = unpack("L<", substr($buffer, 12, 4));
+              my $parent = unpack("L<", substr($buffer, 16, 4));
+              my $group = unpack("L<", substr($buffer, 100, 4));
+              my $seconds = unpack("Q<", substr($buffer, 120, 8));
+              my $microseconds = unpack("Q<", substr($buffer, 128, 8));
+              next if $observed_pid != $pid || $group == 0 || $seconds == 0 ||
+                $microseconds >= 1_000_000;
+              my $state = $state{$status} // "U";
+              print "$pid $parent $group $state K_${seconds}_${microseconds}\n";
             }
-            $cmux_timed_out = 0;
-            local $SIG{ALRM} = sub {
-              $cmux_timed_out = 1;
-              kill 9, $cmux_pid;
-            };
-            alarm $cmux_timeout;
-            do {
-              $cmux_waited = waitpid($cmux_pid, 0);
-            } while ($cmux_waited == -1 && $!{EINTR});
-            $cmux_status = $?;
-            alarm 0;
-            if ($cmux_waited == -1) {
-              kill 9, $cmux_pid;
-              waitpid($cmux_pid, 0);
-              exit 1;
-            }
-            exit 124 if $cmux_timed_out;
-            exit(128 + ($cmux_status & 127)) if $cmux_status & 127;
-            exit($cmux_status >> 8);
+            alarm(0);
           ' "$cmux_ssh_auth_snapshot_remaining" \
-            /usr/bin/env LC_ALL=C LANG=C /bin/ps -axo pid=,ppid=,pgid=,state=,lstart= \
             > "$cmux_ssh_auth_snapshot_output" 2>/dev/null
         }
 
@@ -108,12 +115,15 @@ extension SSHForegroundAuthenticationRetryPolicy {
               cmux_previous[$1 SUBSEP $3 SUBSEP $4] = 1
               next
             }
-            NF >= 9 && $4 !~ /Z/ {
+            NF >= 5 && $4 !~ /Z/ {
               cmux_pid = $1
               cmux_parent[cmux_pid] = $2
               cmux_group[cmux_pid] = $3
               cmux_state[cmux_pid] = $4
-              cmux_started[cmux_pid] = $5 "_" $6 "_" $7 "_" $8 "_" $9
+              cmux_started[cmux_pid] = $5
+              if (NF >= 9) {
+                cmux_started[cmux_pid] = $5 "_" $6 "_" $7 "_" $8 "_" $9
+              }
               cmux_next_sibling[cmux_pid] = cmux_first_child[$2]
               cmux_first_child[$2] = cmux_pid
               if ($3 == cmux_root_group ||
@@ -201,8 +211,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
               if ($3 != 0 && $3 != cmux_caller_group) cmux_candidate[$3] = 1
               next
             }
-            FILENAME == ARGV[2] && NF >= 9 && $4 !~ /Z/ {
-              cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+            FILENAME == ARGV[2] && NF >= 5 && $4 !~ /Z/ {
+              cmux_started = $5
+              if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
               if ($3 in cmux_candidate) {
                 cmux_seen[$3] = 1
                 if (!(($1 SUBSEP $3 SUBSEP cmux_started) in cmux_owned)) {
@@ -229,8 +240,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
           cmux_ssh_auth_filter_output="$3"
           cmux_ssh_auth_filter_require_stopped="$4"
           /usr/bin/awk -v cmux_require_stopped="$cmux_ssh_auth_filter_require_stopped" '
-            FILENAME == ARGV[1] && NF >= 9 && $4 !~ /Z/ {
-              cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+            FILENAME == ARGV[1] && NF >= 5 && $4 !~ /Z/ {
+              cmux_started = $5
+              if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
               cmux_current[$1 SUBSEP $3 SUBSEP cmux_started] = $4
               next
             }
@@ -249,23 +261,26 @@ extension SSHForegroundAuthenticationRetryPolicy {
             ''|*[!0-9]*) cmux_ssh_auth_reset_stop_budget ;;
           esac
           cmux_ssh_auth_select_exclusive_groups || return 1
-          # Only the published authentication group has a durable anchor whose
-          # stable identity survives publisher exit. Other groups use exact PID
-          # journals, so rollback never depends on an arbitrary member staying
-          # alive between the pre-STOP validation and the post-STOP snapshot.
+          # Only the published authentication group can use a process-group
+          # STOP. Journal every member first so rollback can validate any
+          # survivor if the anchor is externally killed while the group is
+          # stopped. Larger groups use bounded per-PID transactions instead.
           /usr/bin/awk -v cmux_root_group="${cmux_ssh_auth_owned_group:-0}" '
             FILENAME == ARGV[1] && $1 == cmux_root_group {
               cmux_candidate[$1] = 1
               next
             }
-            FILENAME == ARGV[2] && NF >= 5 &&
-                $3 in cmux_candidate && $5 ~ /T/ {
-              cmux_previously_stopped[$3] = 1
+            FILENAME == ARGV[2] && NF >= 5 && $3 in cmux_candidate {
+              cmux_count[$3] += 1
+              if ($5 ~ /T/) cmux_previously_stopped[$3] = 1
               next
             }
             END {
               for (cmux_group in cmux_candidate) {
-                if (!(cmux_group in cmux_previously_stopped)) print cmux_group
+                if (!(cmux_group in cmux_previously_stopped) &&
+                    cmux_count[cmux_group] > 0 && cmux_count[cmux_group] <= 1024) {
+                  print cmux_group
+                }
               }
             }
           ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
@@ -274,22 +289,16 @@ extension SSHForegroundAuthenticationRetryPolicy {
             "$cmux_ssh_auth_owned_groups" || return 1
           : > "$cmux_ssh_auth_signaled_groups" || return 1
           : > "$cmux_ssh_auth_frozen_processes" || return 1
-          # One stable witness makes an exclusive group STOP recoverable without
-          # journaling every member. The write-ahead record precedes STOP, and
-          # the shared post-STOP snapshot must confirm the witness plus every
-          # current group member is stopped before this transaction can commit.
-          /usr/bin/awk -v cmux_anchor="${cmux_ssh_auth_group_anchor:-}" '
+          /usr/bin/awk '
             FILENAME == ARGV[1] { cmux_group[$1] = 1; next }
-            FILENAME == ARGV[2] && NF >= 5 && $1 == cmux_anchor &&
-                $3 in cmux_group &&
-                !($3 in cmux_witnessed) {
-              cmux_witnessed[$3] = 1
+            FILENAME == ARGV[2] && NF >= 5 && $3 in cmux_group {
+              cmux_witnessed[$3] += 1
               print $3, $1, $2, $4, $5
               next
             }
             END {
               for (cmux_candidate in cmux_group) {
-                if (!(cmux_candidate in cmux_witnessed)) exit 1
+                if (cmux_witnessed[cmux_candidate] == 0) exit 1
               }
             }
           ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
@@ -317,12 +326,27 @@ extension SSHForegroundAuthenticationRetryPolicy {
               "$cmux_ssh_auth_pid" "$cmux_ssh_auth_parent" \
               "$cmux_ssh_auth_started" "$cmux_ssh_auth_state" \
               >> "$cmux_ssh_auth_signaled_groups" || return 1
-            kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || continue
           done < "$cmux_ssh_auth_ordered_processes"
+          cmux_ssh_auth_expected_group_records=$(/usr/bin/awk \
+            'NF >= 5 { count += 1 } END { print count + 0 }' \
+            "$cmux_ssh_auth_ordered_processes") || return 1
+          cmux_ssh_auth_durable_group_records=$(/usr/bin/awk \
+            'NF >= 5 { count += 1 } END { print count + 0 }' \
+            "$cmux_ssh_auth_signaled_groups") || return 1
+          if [ "$cmux_ssh_auth_expected_group_records" != \
+            "$cmux_ssh_auth_durable_group_records" ]; then return 1; fi
+          /usr/bin/awk 'NF >= 5 { print $1 }' \
+            "$cmux_ssh_auth_signaled_groups" | /usr/bin/sort -un \
+            > "$cmux_ssh_auth_next_owned_processes" || return 1
+          while IFS= read -r cmux_ssh_auth_group; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
+            case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) return 1 ;; esac
+            kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || return 1
+          done < "$cmux_ssh_auth_next_owned_processes"
 
           # Shared groups use exact process identities, capped so rollback is
-          # always finite. Initially exclusive members are already covered by
-          # their durable group witness.
+          # always finite. Exclusive members are already covered by their
+          # member-complete process-group journal.
           /usr/bin/awk '
             FILENAME == ARGV[1] { cmux_exclusive[$1] = 1; next }
             !($3 in cmux_exclusive) { print }
@@ -369,8 +393,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
               cmux_group[$1] = 1
               next
             }
-            FILENAME == ARGV[2] && NF >= 9 && $4 !~ /Z/ {
-              cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+            FILENAME == ARGV[2] && NF >= 5 && $4 !~ /Z/ {
+              cmux_started = $5
+              if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
               cmux_key = $1 SUBSEP $3 SUBSEP cmux_started
               if (cmux_key in cmux_expected && $4 ~ /T/) {
                 cmux_stopped[cmux_key] = 1
@@ -394,8 +419,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
               cmux_original[$2 SUBSEP $4 SUBSEP $5] = $6
               next
             }
-            FILENAME == ARGV[2] && NF >= 9 && $4 ~ /T/ && $4 !~ /Z/ {
-              cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
+            FILENAME == ARGV[2] && NF >= 5 && $4 ~ /T/ && $4 !~ /Z/ {
+              cmux_started = $5
+              if (NF >= 9) cmux_started = $5 "_" $6 "_" $7 "_" $8 "_" $9
               cmux_stopped[$1 SUBSEP $3 SUBSEP cmux_started] = 1
               next
             }
@@ -513,8 +539,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
             function cmux_started(value) {
               return value ~ /^[A-Za-z0-9_:]+$/
             }
-            FILENAME == ARGV[1] && NF >= 9 && $4 ~ /T/ && $4 !~ /Z/ {
-              cmux_start = $5 "_" $6 "_" $7 "_" $8 "_" $9
+            FILENAME == ARGV[1] && NF >= 5 && $4 ~ /T/ && $4 !~ /Z/ {
+              cmux_start = $5
+              if (NF >= 9) cmux_start = $5 "_" $6 "_" $7 "_" $8 "_" $9
               cmux_current[$1 SUBSEP $3 SUBSEP cmux_start] = 1
               next
             }

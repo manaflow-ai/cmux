@@ -160,23 +160,46 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         return "/bin/rm -f -- \(arguments) 2>/dev/null || true"
     }
 
-    /// Builds the bounded helper that terminates foreground SSH authentication.
-    ///
-    /// The classifier publishes a signal-resistant anchor in its isolated PTY
-    /// process group. Cleanup validates the anchor and stable process identities,
-    /// freezes the descendant closure in bounded batches, then KILLs each batch.
-    /// The shared wrapper PID is KILLed only while its original identity still
-    /// matches.
-    ///
-    /// - Returns: Shell functions that terminate the owned group and outer tree.
-    public func processTreeTerminationShellFunction() -> String {
+    func processIdentityShellFunctions() -> String {
         #"""
+        cmux_ssh_auth_kernel_process_identity() {
+          /usr/bin/perl -e '
+            use strict;
+            use warnings;
+            my $raw_pid = shift;
+            exit 1 unless defined($raw_pid) && $raw_pid =~ /\A[1-9][0-9]*\z/;
+            my $pid = 0 + $raw_pid;
+            my $buffer = "\0" x 136;
+            # Darwin SYS_proc_info(2), PROC_INFO_CALL_PIDINFO(2),
+            # PROC_PIDTBSDINFO(3). proc_bsdinfo has been 136 bytes since the
+            # API shipped in macOS 10.5.
+            my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
+            exit 1 unless $size == 136;
+            my $status = unpack("L<", substr($buffer, 4, 4));
+            my $observed_pid = unpack("L<", substr($buffer, 12, 4));
+            my $parent = unpack("L<", substr($buffer, 16, 4));
+            my $group = unpack("L<", substr($buffer, 100, 4));
+            my $seconds = unpack("Q<", substr($buffer, 120, 8));
+            my $microseconds = unpack("Q<", substr($buffer, 128, 8));
+            exit 1 if $observed_pid != $pid || $group == 0 ||
+              $seconds == 0 || $microseconds >= 1_000_000 || $status == 5;
+            print "$parent|$group|$status|K_${seconds}_${microseconds}\n";
+          ' "$1"
+        }
+
         cmux_ssh_auth_identity() {
-          /usr/bin/env LC_ALL=C LANG=C /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
-            /usr/bin/awk 'NF >= 8 && $3 !~ /Z/ {
-              cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
-              print $1 "|" $2 "|" cmux_started
-            }'
+          cmux_ssh_auth_kernel_record=$(cmux_ssh_auth_kernel_process_identity "$1") || return 1
+          cmux_ssh_auth_kernel_parent=${cmux_ssh_auth_kernel_record%%|*}
+          cmux_ssh_auth_kernel_remainder=${cmux_ssh_auth_kernel_record#*|}
+          cmux_ssh_auth_kernel_group=${cmux_ssh_auth_kernel_remainder%%|*}
+          cmux_ssh_auth_kernel_remainder=${cmux_ssh_auth_kernel_remainder#*|}
+          cmux_ssh_auth_kernel_status=${cmux_ssh_auth_kernel_remainder%%|*}
+          cmux_ssh_auth_kernel_started=${cmux_ssh_auth_kernel_remainder#*|}
+          case "$cmux_ssh_auth_kernel_parent:$cmux_ssh_auth_kernel_group:$cmux_ssh_auth_kernel_status" in
+            *[!0-9:]*|:*|*:) return 1 ;;
+          esac
+          printf '%s|%s|%s\n' "$cmux_ssh_auth_kernel_parent" \
+            "$cmux_ssh_auth_kernel_group" "$cmux_ssh_auth_kernel_started"
         }
 
         cmux_ssh_auth_stable_identity() {
@@ -188,12 +211,32 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         }
 
         cmux_ssh_auth_stopped_identity() {
-          /usr/bin/env LC_ALL=C LANG=C /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
-            /usr/bin/awk 'NF >= 8 && $3 ~ /T/ && $3 !~ /Z/ {
-              cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
-              print $1 "|" $2 "|" cmux_started
-            }'
+          cmux_ssh_auth_kernel_record=$(cmux_ssh_auth_kernel_process_identity "$1") || return 1
+          cmux_ssh_auth_kernel_parent=${cmux_ssh_auth_kernel_record%%|*}
+          cmux_ssh_auth_kernel_remainder=${cmux_ssh_auth_kernel_record#*|}
+          cmux_ssh_auth_kernel_group=${cmux_ssh_auth_kernel_remainder%%|*}
+          cmux_ssh_auth_kernel_remainder=${cmux_ssh_auth_kernel_remainder#*|}
+          cmux_ssh_auth_kernel_status=${cmux_ssh_auth_kernel_remainder%%|*}
+          cmux_ssh_auth_kernel_started=${cmux_ssh_auth_kernel_remainder#*|}
+          if [ "$cmux_ssh_auth_kernel_status" != 4 ]; then return 1; fi
+          printf '%s|%s|%s\n' "$cmux_ssh_auth_kernel_parent" \
+            "$cmux_ssh_auth_kernel_group" "$cmux_ssh_auth_kernel_started"
         }
+        """#
+    }
+
+    /// Builds the bounded helper that terminates foreground SSH authentication.
+    ///
+    /// The classifier publishes a signal-resistant anchor in its isolated PTY
+    /// process group. Cleanup validates the anchor and stable process identities,
+    /// freezes the descendant closure in bounded batches, then KILLs each batch.
+    /// The shared wrapper PID is KILLed only while its original identity still
+    /// matches.
+    ///
+    /// - Returns: Shell functions that terminate the owned group and outer tree.
+    public func processTreeTerminationShellFunction() -> String {
+        #"""
+        \#(processIdentityShellFunctions())
 
         \#(ownedProcessGroupTerminationShellFunctions())
 
@@ -253,13 +296,25 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_worker_file="$1"
           if ! /bin/sh -c '
             cmux_owner_pid=$PPID
-            cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
-              /bin/ps -o pgid= -o state= -o lstart= \
-                -p "$cmux_owner_pid" 2>/dev/null | \
-              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
-                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
-                print $1 "|" cmux_started
-              }'\'')
+            cmux_owner_record=$(/usr/bin/perl -e '\''
+              use strict;
+              use warnings;
+              my $raw_pid = shift;
+              exit 1 unless defined($raw_pid) && $raw_pid =~ /\A[1-9][0-9]*\z/;
+              my $pid = 0 + $raw_pid;
+              my $buffer = "\0" x 136;
+              my $size = syscall(336, 2, $pid, 3, 0, $buffer, 136);
+              exit 1 unless $size == 136;
+              my $status = unpack("L<", substr($buffer, 4, 4));
+              my $observed_pid = unpack("L<", substr($buffer, 12, 4));
+              my $group = unpack("L<", substr($buffer, 100, 4));
+              my $seconds = unpack("Q<", substr($buffer, 120, 8));
+              my $microseconds = unpack("Q<", substr($buffer, 128, 8));
+              exit 1 if $observed_pid != $pid || $group == 0 ||
+                $seconds == 0 || $microseconds >= 1_000_000 || $status == 5;
+              print "$group|K_${seconds}_${microseconds}\n";
+            '\'' "$cmux_owner_pid")
+            cmux_owner_identity="$cmux_owner_record"
             if [ -z "$cmux_owner_identity" ]; then exit 1; fi
             umask 077
             printf "%s|%s\n" "$cmux_owner_pid" "$cmux_owner_identity" > "$1"
@@ -725,20 +780,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           fi
           # Publish the actual function-subshell worker. POSIX shells retain
           # the parent shell's `$$`, while this direct child reports it as PPID.
-          if ! /bin/sh -c '
-            cmux_owner_pid=$PPID
-            cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
-              /bin/ps -o pgid= -o state= -o lstart= \
-                -p "$cmux_owner_pid" 2>/dev/null | \
-              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
-                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
-                print $1 "|" cmux_started
-              }'\'')
-            if [ -z "$cmux_owner_identity" ]; then exit 1; fi
-            umask 077
-            printf "%s|%s\n" "$cmux_owner_pid" "$cmux_owner_identity" > "$1"
-          ' cmux-cleanup-owner "$cmux_ssh_auth_cleanup_owner_publish_file" \
-            2>/dev/null; then
+          if ! cmux_ssh_auth_publish_current_worker \
+            "$cmux_ssh_auth_cleanup_owner_publish_file"; then
             cmux_ssh_auth_cleanup_claim_abort_locked
             return 1
           fi
@@ -983,20 +1026,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # the parent shell's `$$` inside a function subshell. A direct child
           # can identify that worker through PPID without a command-substitution
           # process becoming the recorded owner.
-          if ! /bin/sh -c '
-            cmux_owner_pid=$PPID
-            cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
-              /bin/ps -o pgid= -o state= -o lstart= \
-                -p "$cmux_owner_pid" 2>/dev/null | \
-              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
-                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
-                print $1 "|" cmux_started
-              }'\'')
-            if [ -z "$cmux_owner_identity" ]; then exit 1; fi
-            umask 077
-            printf "%s|%s\n" "$cmux_owner_pid" "$cmux_owner_identity" > "$1"
-          ' cmux-recovery-owner "$cmux_ssh_auth_recovery_claim.new" \
-            2>/dev/null || ! \
+          if ! cmux_ssh_auth_publish_current_worker \
+            "$cmux_ssh_auth_recovery_claim.new" || ! \
             /bin/mv -f -- "$cmux_ssh_auth_recovery_claim.new" \
               "$cmux_ssh_auth_recovery_claim" 2>/dev/null; then
             /bin/rm -f -- "$cmux_ssh_auth_recovery_claim.new" 2>/dev/null || true
@@ -1462,6 +1493,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// - Returns: A zsh command suitable for embedding in a startup script.
     public func classifyingTransientFailure(in command: String) -> String {
         let ownedGroupCommand = [
+            processIdentityShellFunctions(),
             "cmux_ssh_auth_group_dir=\"${CMUX_SSH_AUTH_GROUP_DIR:-}\"",
             "if [ -z \"$cmux_ssh_auth_group_dir\" ]; then exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command)); fi",
             "cmux_ssh_auth_expected_dir_identity=\"$(/usr/bin/id -u):700\"",
@@ -1517,7 +1549,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "  case \"$cmux_ssh_auth_group_recorded_publisher\" in ''|0|*[!0-9]*) return 1 ;; esac",
             "  case \"$cmux_ssh_auth_group_recorded_publisher_group\" in ''|0|*[!0-9]*) return 1 ;; esac",
             "  case \"$cmux_ssh_auth_group_recorded_publisher_started\" in ''|*[!A-Za-z0-9_:]*) return 1 ;; esac",
-            "  cmux_ssh_auth_group_current_publisher=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -o state= -o lstart= -p \"$cmux_ssh_auth_group_recorded_publisher\" 2>/dev/null | /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ { print $1 \"|\" $3 \"_\" $4 \"_\" $5 \"_\" $6 \"_\" $7 }')",
+            "  cmux_ssh_auth_group_current_publisher=$(cmux_ssh_auth_stable_identity \"$cmux_ssh_auth_group_recorded_publisher\")",
             "  [ \"$cmux_ssh_auth_group_current_publisher\" = \"$cmux_ssh_auth_group_recorded_publisher_group|$cmux_ssh_auth_group_recorded_publisher_started\" ]",
             "}",
             "cmux_ssh_auth_group_anchor_wait() {",
@@ -1547,13 +1579,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "if [ \"$cmux_ssh_auth_supervisor_group\" != \"$$\" ]; then exit 255; fi",
             "( trap '' HUP INT TERM; exec {cmux_ssh_auth_group_anchor_guard_fd}>&-; while IFS= read -r cmux_ssh_auth_group_anchor_input; do :; done; cmux_ssh_auth_group_anchor_wait ) < \"$cmux_ssh_auth_group_anchor_fifo\" >/dev/null 2>&1 &",
             "cmux_ssh_auth_group_anchor_pid=$!",
-            "cmux_ssh_auth_anchor_identity=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o pgid= -o state= -o lstart= -p \"$cmux_ssh_auth_group_anchor_pid\" 2>/dev/null | /usr/bin/awk 'NF >= 7 && $2 !~ /Z/ { print $1 \"|\" $3 \"_\" $4 \"_\" $5 \"_\" $6 \"_\" $7 }')",
+            "cmux_ssh_auth_anchor_identity=$(cmux_ssh_auth_stable_identity \"$cmux_ssh_auth_group_anchor_pid\")",
             "cmux_ssh_auth_anchor_group=${cmux_ssh_auth_anchor_identity%%|*}",
             "cmux_ssh_auth_anchor_started=${cmux_ssh_auth_anchor_identity#*|}",
             "case \"$cmux_ssh_auth_supervisor_group:$cmux_ssh_auth_anchor_group:$cmux_ssh_auth_anchor_started\" in *[!A-Za-z0-9_:]*) exit 255 ;; esac",
             "if [ \"$cmux_ssh_auth_anchor_group\" != \"$cmux_ssh_auth_supervisor_group\" ]; then exit 255; fi",
             "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
-            "cmux_ssh_auth_group_publisher_identity=$(/usr/bin/env LC_ALL=C LANG=C /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p \"$$\" 2>/dev/null | /usr/bin/awk 'NF >= 8 && $3 !~ /Z/ { print $1 \"|\" $2 \"|\" $4 \"_\" $5 \"_\" $6 \"_\" $7 \"_\" $8 }')",
+            "cmux_ssh_auth_group_publisher_identity=$(cmux_ssh_auth_identity \"$$\")",
             "cmux_ssh_auth_group_publisher_parent=${cmux_ssh_auth_group_publisher_identity%%|*}",
             "cmux_ssh_auth_group_publisher_remainder=${cmux_ssh_auth_group_publisher_identity#*|}",
             "cmux_ssh_auth_group_publisher_group=${cmux_ssh_auth_group_publisher_remainder%%|*}",
