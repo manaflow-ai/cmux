@@ -89,15 +89,19 @@ struct CmxIrohRegistrationPublicationStateTests {
 
     @Test("direct port changes require publication")
     func changedDirectPortsRequirePublication() throws {
-        let first = try state(hints: [], ipv4Port: 50_000)
-        let changed = try state(hints: [], ipv4Port: 50_001)
+        let first = try state(hints: [], ipv4Port: 50_000, ipv6Port: 50_000)
+        let ipv4Changed = try state(hints: [], ipv4Port: 50_001, ipv6Port: 50_000)
+        let ipv6Changed = try state(hints: [], ipv4Port: 50_000, ipv6Port: 50_001)
 
-        #expect(changed.requiresPublication(after: first, now: now))
+        #expect(ipv4Changed.requiresPublication(after: first, now: now))
+        #expect(ipv6Changed.requiresPublication(after: first, now: now))
+        #expect(!first.requiresPublication(after: first, now: now))
     }
 
     private func state(
         hints: [CmxIrohPathHint],
         ipv4Port: UInt16? = nil,
+        ipv6Port: UInt16? = nil,
         payloadNow: Date? = nil
     ) throws -> CmxIrohRegistrationPublicationState {
         let payloadNow = payloadNow ?? now
@@ -111,9 +115,9 @@ struct CmxIrohRegistrationPublicationStateTests {
             pairingEnabled: false,
             capabilities: [],
             pathHints: hints,
-            directPorts: try ipv4Port.map {
-                try CmxIrohDirectPorts(ipv4: $0, ipv6: nil)
-            },
+            directPorts: ipv4Port == nil && ipv6Port == nil
+                ? nil
+                : try CmxIrohDirectPorts(ipv4: ipv4Port, ipv6: ipv6Port),
             now: payloadNow
         )
         return CmxIrohRegistrationPublicationState(payload: payload, now: payloadNow)

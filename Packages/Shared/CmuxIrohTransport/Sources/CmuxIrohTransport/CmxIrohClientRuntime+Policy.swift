@@ -78,11 +78,6 @@ extension CmxIrohClientRuntime {
         let payload = try await registrationPayload(
             expectedEndpointID: expectedEndpointID
         )
-        let signer = try CmxIrohRegistrationSigner(
-            identity: configuration.identity,
-            endpointID: expectedEndpointID.endpointID
-        )
-        let prepared = try signer.prepare(payload: payload)
         let refreshState = Self.registrationRefreshState(
             payload: payload,
             now: now()
@@ -100,6 +95,11 @@ extension CmxIrohClientRuntime {
                 // read-only forever.
             }
         }
+        let signer = try CmxIrohRegistrationSigner(
+            identity: configuration.identity,
+            endpointID: expectedEndpointID.endpointID
+        )
+        let prepared = try signer.prepare(payload: payload)
         let registration: CmxIrohRegistrationResponse?
         do {
             registration = try await broker.register(prepared: prepared, signer: signer)
