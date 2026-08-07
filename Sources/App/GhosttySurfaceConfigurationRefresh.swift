@@ -53,4 +53,22 @@ enum GhosttySurfaceConfigurationRefresh {
         refreshHostBackground()
         forceRefresh(forceRefreshReason)
     }
+
+    static func applyConfigurationReload(
+        to surface: ghostty_surface_t?,
+        soft: Bool,
+        source: String,
+        redrawReason: String,
+        reloadSurfaceConfiguration: (ghostty_surface_t, Bool, String) -> Void,
+        applySurfaceColorScheme: () -> Void,
+        refreshHostBackground: () -> Void,
+        forceRefresh: (String) -> Void
+    ) {
+        if let surface {
+            applySurfaceColorScheme()
+            reloadSurfaceConfiguration(surface, soft, source)
+        }
+        refreshHostBackground()
+        forceRefresh(redrawReason)
+    }
 }
