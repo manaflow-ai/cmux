@@ -455,11 +455,11 @@ cmux_terminate_one_verified_app_host() {
   local receipt_file="$1"
   local expected_key="$2"
   local derived_data_path="$3"
-  local missing_product_runner_temp="${4:-}"
+  local missing_product_runner_root="${4:-}"
   local verify_status pid executable wait_status
-  if [ -n "$missing_product_runner_temp" ]; then
+  if [ -n "$missing_product_runner_root" ]; then
     if cmux_verify_stale_app_host_receipt \
-      "$receipt_file" "$expected_key" "$missing_product_runner_temp"; then
+      "$receipt_file" "$expected_key" "$missing_product_runner_root"; then
       verify_status=0
     else
       verify_status=$?
@@ -502,9 +502,9 @@ cmux_terminate_one_verified_app_host() {
   fi
 
   # Re-authenticate immediately before escalating the signal.
-  if [ -n "$missing_product_runner_temp" ]; then
+  if [ -n "$missing_product_runner_root" ]; then
     if cmux_verify_stale_app_host_receipt \
-      "$receipt_file" "$expected_key" "$missing_product_runner_temp"; then
+      "$receipt_file" "$expected_key" "$missing_product_runner_root"; then
       verify_status=0
     else
       verify_status=$?
@@ -556,21 +556,21 @@ cmux_terminate_verified_app_hosts() {
 }
 
 cmux_app_host_derived_data_from_executable() {
-  local runner_temp="$1"
+  local runner_root="$1"
   local executable="$2"
-  local suffix derived_data_path resolved_runner_temp
+  local suffix derived_data_path resolved_runner_root
   suffix="/Build/Products/"
-  resolved_runner_temp="${runner_temp%/}"
+  resolved_runner_root="${runner_root%/}"
   case "$executable" in
     *"//"*|*"/./"*|*/.|*"/../"*|*/..) return 1 ;;
   esac
   case "$executable" in
-    "$resolved_runner_temp"/*"$suffix"*) ;;
+    "$resolved_runner_root"/*"$suffix"*) ;;
     *) return 1 ;;
   esac
   derived_data_path="${executable%%"$suffix"*}"
   case "$derived_data_path" in
-    "$resolved_runner_temp"/*) ;;
+    "$resolved_runner_root"/*) ;;
     *) return 1 ;;
   esac
   cmux_app_host_executable_is_scoped \
@@ -578,30 +578,30 @@ cmux_app_host_derived_data_from_executable() {
   CMUX_APP_HOST_RECEIPT_DERIVED_DATA="$derived_data_path"
 }
 
-cmux_validate_app_host_runner_temp() {
-  local runner_temp="$1"
-  case "$runner_temp" in
+cmux_validate_app_host_runner_root() {
+  local runner_root="$1"
+  case "$runner_root" in
     /)
-      echo "FAIL: runner temporary directory cannot be the filesystem root" >&2
+      echo "FAIL: app-host runner root cannot be the filesystem root" >&2
       return 1
       ;;
     /*) ;;
     *)
-      echo "FAIL: runner temporary directory must be absolute" >&2
+      echo "FAIL: app-host runner root must be absolute" >&2
       return 1
       ;;
   esac
-  if [ -L "$runner_temp" ] || [ ! -d "$runner_temp" ]; then
-    echo "FAIL: runner temporary directory is unavailable" >&2
+  if [ -L "$runner_root" ] || [ ! -d "$runner_root" ]; then
+    echo "FAIL: app-host runner root is unavailable" >&2
     return 1
   fi
-  local resolved_runner_temp
-  resolved_runner_temp="$(cd "$runner_temp" 2>/dev/null && pwd -P)" || return 1
-  if [ "${runner_temp%/}" != "$resolved_runner_temp" ]; then
-    echo "FAIL: runner temporary directory changed identity" >&2
+  local resolved_runner_root
+  resolved_runner_root="$(cd "$runner_root" 2>/dev/null && pwd -P)" || return 1
+  if [ "${runner_root%/}" != "$resolved_runner_root" ]; then
+    echo "FAIL: app-host runner root changed identity" >&2
     return 1
   fi
-  CMUX_VALIDATED_APP_HOST_RUNNER_TEMP="$resolved_runner_temp"
+  CMUX_VALIDATED_APP_HOST_RUNNER_ROOT="$resolved_runner_root"
 }
 
 # This verifier deliberately does not require the DerivedData root to exist.
@@ -611,17 +611,17 @@ cmux_validate_app_host_runner_temp() {
 cmux_verify_stale_app_host_receipt() {
   local receipt_file="$1"
   local expected_key="$2"
-  local runner_temp="$3"
-  cmux_validate_app_host_runner_temp "$runner_temp" || return 1
-  runner_temp="$CMUX_VALIDATED_APP_HOST_RUNNER_TEMP"
+  local runner_root="$3"
+  cmux_validate_app_host_runner_root "$runner_root" || return 1
+  runner_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
   cmux_read_app_host_receipt "$receipt_file" "$expected_key" || return 1
 
   local receipt_pid receipt_executable primary_status
   receipt_pid="$CMUX_PARSED_APP_HOST_RECEIPT_PID"
   receipt_executable="$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE"
   if ! cmux_app_host_derived_data_from_executable \
-    "$runner_temp" "$receipt_executable"; then
-    echo "FAIL: stale app-host receipt executable is outside runner temporary storage" >&2
+    "$runner_root" "$receipt_executable"; then
+    echo "FAIL: stale app-host receipt executable is outside the runner work root" >&2
     return 1
   fi
   local receipt_derived_data="$CMUX_APP_HOST_RECEIPT_DERIVED_DATA"
@@ -648,12 +648,12 @@ cmux_verify_stale_app_host_receipt() {
 }
 
 cmux_record_runner_app_host_target() {
-  local runner_temp="$1"
+  local runner_root="$1"
   local pid="$2"
   local lsof_executable="$3"
   local executable="${lsof_executable% (deleted)}"
   if ! cmux_app_host_derived_data_from_executable \
-    "$runner_temp" "$executable"; then
+    "$runner_root" "$executable"; then
     return 0
   fi
   local target_index="${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}"
@@ -664,8 +664,9 @@ cmux_record_runner_app_host_target() {
 # Enumerate process executable vnodes, not command lines. The first txt vnode
 # in each lsof process record is the launched executable on macOS.
 cmux_scan_runner_app_host_targets() {
-  local runner_temp="$1"
-  cmux_validate_app_host_runner_temp "$runner_temp" || return 1
+  local runner_root="$1"
+  cmux_validate_app_host_runner_root "$runner_root" || return 1
+  runner_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
   cmux_select_app_host_lsof || return 1
 
   local output status line current_pid first_executable
@@ -689,7 +690,7 @@ cmux_scan_runner_app_host_targets() {
       p*)
         if [ -n "$current_pid" ] && [ -n "$first_executable" ]; then
           cmux_record_runner_app_host_target \
-            "$CMUX_VALIDATED_APP_HOST_RUNNER_TEMP" \
+            "$runner_root" \
             "$current_pid" "$first_executable"
         fi
         current_pid="${line#p}"
@@ -720,15 +721,16 @@ $output
 EOF
   if [ -n "$current_pid" ] && [ -n "$first_executable" ]; then
     cmux_record_runner_app_host_target \
-      "$CMUX_VALIDATED_APP_HOST_RUNNER_TEMP" \
+      "$runner_root" \
       "$current_pid" "$first_executable"
   fi
 }
 
 cmux_find_verified_stale_app_host_receipt() {
-  local runner_temp="$1"
-  local target_pid="$2"
-  local target_executable="$3"
+  local runner_root="$1"
+  local receipt_root="$2"
+  local target_pid="$3"
+  local target_executable="$4"
   local receipt_file receipt_dir receipt_dir_name expected_key verify_status
   local matching_receipts=0
   local matched_receipt=""
@@ -736,20 +738,20 @@ cmux_find_verified_stale_app_host_receipt() {
   local matched_derived_data=""
 
   for receipt_file in \
-    "$runner_temp"/cmux-app-host-*-receipts/"app-host-$target_pid.receipt"; do
+    "$receipt_root"/cmux-ah-*-receipts/"app-host-$target_pid.receipt"; do
     if [ ! -e "$receipt_file" ] && [ ! -L "$receipt_file" ]; then
       continue
     fi
     receipt_dir="$(dirname "$receipt_file")"
     cmux_validate_app_host_receipt_dir "$receipt_dir" || return 1
     receipt_dir_name="$(basename "$receipt_dir")"
-    expected_key="${receipt_dir_name#cmux-app-host-}"
+    expected_key="${receipt_dir_name#cmux-ah-}"
     expected_key="${expected_key%-receipts}"
     cmux_validate_app_host_key "$expected_key" || return 1
     cmux_read_app_host_receipt "$receipt_file" "$expected_key" || return 1
     if ! cmux_app_host_derived_data_from_executable \
-      "$runner_temp" "$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE"; then
-      echo "FAIL: stale app-host receipt executable is outside runner temporary storage" >&2
+      "$runner_root" "$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE"; then
+      echo "FAIL: stale app-host receipt executable is outside the runner work root" >&2
       return 1
     fi
     if [ "$CMUX_PARSED_APP_HOST_RECEIPT_EXECUTABLE" != "$target_executable" ]; then
@@ -757,7 +759,7 @@ cmux_find_verified_stale_app_host_receipt() {
     fi
 
     if cmux_verify_stale_app_host_receipt \
-      "$receipt_file" "$expected_key" "$runner_temp"; then
+      "$receipt_file" "$expected_key" "$runner_root"; then
       verify_status=0
     else
       verify_status=$?
@@ -787,7 +789,7 @@ cmux_find_verified_stale_app_host_receipt() {
       fi
       return 1
     fi
-    echo "FAIL: live app-host target PID $target_pid at $target_executable has no verified receipt beneath $runner_temp" >&2
+    echo "FAIL: live app-host target PID $target_pid at $target_executable has no verified receipt beneath $receipt_root" >&2
     return 1
   fi
   if [ "$matching_receipts" -ne 1 ]; then
@@ -804,11 +806,14 @@ cmux_find_verified_stale_app_host_receipt() {
 # host. Only after the complete set has matching receipts may any PID be
 # signaled. Deleted products remain verifiable through their retained vnodes.
 cmux_terminate_stale_receipted_app_hosts() {
-  local runner_temp="$1"
-  cmux_validate_app_host_runner_temp "$runner_temp" || return 1
-  local resolved_runner_temp="$CMUX_VALIDATED_APP_HOST_RUNNER_TEMP"
+  local runner_root="$1"
+  local receipt_root="$2"
+  cmux_validate_app_host_runner_root "$runner_root" || return 1
+  local resolved_runner_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
+  cmux_validate_app_host_runner_root "$receipt_root" || return 1
+  local resolved_receipt_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
 
-  cmux_scan_runner_app_host_targets "$resolved_runner_temp" || return 1
+  cmux_scan_runner_app_host_targets "$resolved_runner_root" || return 1
   local target_count="${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}"
   local -a verified_receipts verified_keys verified_derived_data
   verified_receipts=()
@@ -822,7 +827,8 @@ cmux_terminate_stale_receipted_app_hosts() {
     target_pid="${CMUX_APP_HOST_RUNNER_TARGET_PIDS[$target_index]}"
     target_executable="${CMUX_APP_HOST_RUNNER_TARGET_EXECUTABLES[$target_index]}"
     if cmux_find_verified_stale_app_host_receipt \
-      "$resolved_runner_temp" "$target_pid" "$target_executable"; then
+      "$resolved_runner_root" "$resolved_receipt_root" \
+      "$target_pid" "$target_executable"; then
       find_status=0
     else
       find_status=$?
@@ -848,17 +854,18 @@ cmux_terminate_stale_receipted_app_hosts() {
       "${verified_receipts[$target_index]}" \
       "${verified_keys[$target_index]}" \
       "${verified_derived_data[$target_index]}" \
-      "$resolved_runner_temp" || return 1
+      "$resolved_runner_root" || return 1
     target_index=$((target_index + 1))
   done
 
-  cmux_scan_runner_app_host_targets "$resolved_runner_temp" || return 1
+  cmux_scan_runner_app_host_targets "$resolved_runner_root" || return 1
   target_count="${#CMUX_APP_HOST_RUNNER_TARGET_PIDS[@]}"
   if [ "$target_count" -ne 0 ]; then
     target_pid="${CMUX_APP_HOST_RUNNER_TARGET_PIDS[0]}"
     target_executable="${CMUX_APP_HOST_RUNNER_TARGET_EXECUTABLES[0]}"
     if ! cmux_find_verified_stale_app_host_receipt \
-      "$resolved_runner_temp" "$target_pid" "$target_executable"; then
+      "$resolved_runner_root" "$resolved_receipt_root" \
+      "$target_pid" "$target_executable"; then
       return 1
     fi
     echo "FAIL: verified app-host target PID $target_pid remained live after stale cleanup" >&2

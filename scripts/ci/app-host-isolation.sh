@@ -35,13 +35,17 @@ cmux_resolve_app_host_identity() {
     return 1
   fi
 
-  local system_temp_root runner_temp app_host_key confirmation_material
+  local system_temp_root runner_temp runner_work_root app_host_key confirmation_material
   system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)" || {
     echo "FAIL: system temporary directory is unavailable" >&2
     return 1
   }
   runner_temp="$(cd "$RUNNER_TEMP" 2>/dev/null && pwd -P)" || {
     echo "FAIL: runner temporary directory is unavailable" >&2
+    return 1
+  }
+  runner_work_root="$(cd "$(dirname "$runner_temp")" 2>/dev/null && pwd -P)" || {
+    echo "FAIL: runner work root is unavailable" >&2
     return 1
   }
   app_host_key="$(
@@ -59,14 +63,21 @@ cmux_resolve_app_host_identity() {
   esac
 
   CMUX_RESOLVED_APP_HOST_KEY="$app_host_key"
+  # /private/tmp survives GitHub's per-job RUNNER_TEMP cleanup. Its sticky
+  # ownership lets the console account delete only the exact targets that the
+  # runner created and later transferred to it.
+  # shellcheck disable=SC2034 # consumed by callers after sourcing this helper
+  CMUX_RESOLVED_SYSTEM_TEMP_ROOT="$system_temp_root"
   # shellcheck disable=SC2034 # consumed by callers after sourcing this helper
   CMUX_RESOLVED_RUNNER_TEMP="$runner_temp"
+  # shellcheck disable=SC2034 # consumed by callers after sourcing this helper
+  CMUX_RESOLVED_RUNNER_WORK_ROOT="$runner_work_root"
   CMUX_RESOLVED_APP_HOST_HOME_INPUT="/tmp/cmux-ah-$app_host_key"
   CMUX_RESOLVED_APP_HOST_HOME="${system_temp_root%/}/cmux-ah-$app_host_key"
   CMUX_RESOLVED_APP_HOST_XDG_CONFIG_HOME_INPUT="${CMUX_RESOLVED_APP_HOST_HOME_INPUT%/}/.config"
   CMUX_RESOLVED_APP_HOST_XDG_CONFIG_HOME="${CMUX_RESOLVED_APP_HOST_HOME%/}/.config"
-  CMUX_RESOLVED_APP_HOST_RECEIPT_DIR="${runner_temp%/}/cmux-app-host-$app_host_key-receipts"
-  CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE="${runner_temp%/}/cmux-app-host-$app_host_key.confirm"
+  CMUX_RESOLVED_APP_HOST_RECEIPT_DIR="${system_temp_root%/}/cmux-ah-$app_host_key-receipts"
+  CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE="${system_temp_root%/}/cmux-ah-$app_host_key.confirm"
 
   confirmation_material="cmux-app-host-cleanup-v1
 ${GITHUB_RUN_ID}
