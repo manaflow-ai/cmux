@@ -18,9 +18,10 @@ struct TerminalClipboardInputSequencerTests {
         )
         var delivered: [String] = []
 
-        await Task.detached {
+        let reservationAccepted = await Task.detached {
             sequencer.reserveRequestAdmission(id: 1, onOverflow: {})
         }.value
+        #expect(reservationAccepted)
 
         #expect(sequencer.shouldDefer("suffix"))
         #expect(delivered.isEmpty)
@@ -50,12 +51,13 @@ struct TerminalClipboardInputSequencerTests {
             }
         }
 
-        await Task.detached {
+        let reservationAccepted = await Task.detached {
             sequencer.reserveRequestAdmission(
                 id: 1,
                 onOverflow: overflow
             )
         }.value
+        #expect(reservationAccepted)
         #expect(sequencer.shouldDefer("first"))
         #expect(sequencer.shouldDefer("second"))
 
@@ -150,12 +152,13 @@ struct TerminalClipboardInputSequencerTests {
                 delivered.append($0)
             }
         }
-        await Task.detached {
+        let reservationAccepted = await Task.detached {
             sequencer.reserveRequestAdmission(
                 id: 2,
                 onOverflow: reservedOverflow
             )
         }.value
+        #expect(reservationAccepted)
         #expect(sequencer.shouldDefer("first"))
         #expect(sequencer.shouldDefer("second"))
 
@@ -341,7 +344,8 @@ struct TerminalClipboardInputSequencerTests {
         )
         window.isReleasedWhenClosed = false
         window.contentView = contentView
-        window.makeFirstResponder(priorResponder)
+        #expect(window.makeFirstResponder(priorResponder))
+        let priorFirstResponder = try #require(window.firstResponder)
         defer {
             window.orderOut(nil)
             window.close()
@@ -363,7 +367,7 @@ struct TerminalClipboardInputSequencerTests {
             epoch: .max
         )
         terminalView.mouseDown(with: event)
-        #expect(window.firstResponder === priorResponder)
+        #expect(window.firstResponder === priorFirstResponder)
 
         terminalView.completeClipboardRead(1, confirmed: false)
         #expect(window.firstResponder === terminalView)
