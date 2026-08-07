@@ -1009,18 +1009,24 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         session.field.inlineRenameTextColor = palette(model).selectedForeground(1.0)
         renameSession = session
         titleView.isHidden = true
+        // Give the field its title-slot frame BEFORE it enters the window:
+        // the attach-time focus grab sizes the field editor from the current
+        // frame, and a zero-frame grab mis-sizes the editor's dark box (same
+        // lifecycle as SidebarRowChecklistItemLine's edit field).
+        needsLayout = true
+        layoutSubtreeIfNeeded()
         // Entering the window-attached hierarchy makes the field first
         // responder and selects the whole title (the engine shared with the
         // SwiftUI sidebar); no follow-up selection call may run, because
         // `selectText(_:)` after focus restarts the field-editor session and
         // synchronously commits the untouched title (#9495).
         contentContainer.addSubview(session.field)
+        SidebarRowChecklistFieldBridge.clearFieldEditorBackground(session.field)
 #if DEBUG
         cmuxDebugLog(
             "sidebar.row.beginInlineRename tookFocus=\(session.field.currentEditor() != nil ? 1 : 0) window=\(window == nil ? 0 : 1)"
         )
 #endif
-        needsLayout = true
     }
 
     /// Cancels any active rename without a write (the workspace changed
