@@ -293,15 +293,14 @@ _ARGV_CALL_LAUNCHER = re.compile(
     \bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\(
   | (?<![A-Za-z0-9_.])(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(
   | \b(?:childProcess|child_process)\.(?:execFile|execFileSync|spawn|spawnSync)\s*\(
-  | \bBun\.spawn(?:Sync)?\s*\(
+  | (?P<bun>\bBun\.spawn(?:Sync)?\s*\()
     """
 )
 
 _ARGV_COMMAND_LABELS = frozenset({"args"})
-
-_EXPLICIT_SHELL_MODE = re.compile(
-    r"\bshell\s*(?:=|:)\s*(?:True|true)\b"
-)
+_BUN_OBJECT_COMMAND_LABELS = frozenset({"cmd"})
+_SHELL_MODE_LABELS = frozenset({"shell"})
+_NO_ARGUMENT_LABELS: frozenset[str] = frozenset()
 
 _SHELL_COMMAND_FLAG = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|--command)$")
 _SHELL_OPTIONS_WITH_VALUES = frozenset(
@@ -827,21 +826,21 @@ def _parse_call_argument(
     )
 
 
-def _call_arguments(
+def _arguments_in_range(
     line: str,
-    opening_paren: int,
+    start: int,
+    end: int,
     path_suffix: str = "",
 ) -> list[_CallArgument]:
-    """Return top-level call arguments without splitting nested expressions."""
-    call_end = _call_end(line, opening_paren, path_suffix)
+    """Return comma-delimited arguments without splitting nested expressions."""
     executable = _executable_code_positions(line, path_suffix)
     arguments: list[_CallArgument] = []
-    argument_start = opening_paren + 1
+    argument_start = start
     paren_depth = 0
     bracket_depth = 0
     brace_depth = 0
 
-    for index in range(argument_start, call_end):
+    for index in range(argument_start, end):
         if not executable[index]:
             continue
         character = line[index]
@@ -863,10 +862,51 @@ def _call_arguments(
                 arguments.append(_parse_call_argument(line, bounds))
             argument_start = index + 1
 
-    bounds = _trim_bounds(line, argument_start, call_end)
+    bounds = _trim_bounds(line, argument_start, end)
     if bounds[0] < bounds[1]:
         arguments.append(_parse_call_argument(line, bounds))
     return arguments
+
+
+def _call_arguments(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> list[_CallArgument]:
+    """Return top-level call arguments without splitting nested expressions."""
+    return _arguments_in_range(
+        line,
+        opening_paren + 1,
+        _call_end(line, opening_paren, path_suffix),
+        path_suffix,
+    )
+
+
+def _object_properties(
+    line: str,
+    bounds: tuple[int, int],
+    path_suffix: str = "",
+) -> list[_CallArgument]:
+    """Return the top-level properties of an object literal argument."""
+    start, end = _trim_bounds(line, *bounds)
+    if end - start < 2 or line[start] != "{" or line[end - 1] != "}":
+        return []
+    return _arguments_in_range(line, start + 1, end - 1, path_suffix)
+
+
+def _select_labeled_argument(
+    arguments: list[_CallArgument],
+    labels: frozenset[str],
+) -> Optional[_CallArgument]:
+    return next(
+        (
+            argument
+            for argument in arguments
+            if argument.label is not None
+            and argument.label.lower() in labels
+        ),
+        None,
+    )
 
 
 def _select_call_argument(
@@ -874,9 +914,8 @@ def _select_call_argument(
     labels: frozenset[str],
     positional_index: int,
 ) -> Optional[_CallArgument]:
-    for argument in arguments:
-        if argument.label is not None and argument.label.lower() in labels:
-            return argument
+    if labeled := _select_labeled_argument(arguments, labels):
+        return labeled
 
     positional_arguments = [
         argument
@@ -892,6 +931,7 @@ def _argv_source_ranges(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> list[tuple[int, int]]:
     """Return only command/argv inputs, excluding later launcher options."""
     arguments = _call_arguments(line, opening_paren, path_suffix)
@@ -907,6 +947,13 @@ def _argv_source_ranges(
         return []
 
     first = command_argument.value_bounds
+    if object_command_labels and line[first[0] : first[0] + 1] == "{":
+        object_command = _select_labeled_argument(
+            _object_properties(line, first, path_suffix),
+            object_command_labels,
+        )
+        return [object_command.value_bounds] if object_command is not None else []
+
     ranges = [first]
     if (
         command_argument.label is not None
@@ -930,9 +977,15 @@ def _argv_literal_tokens(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> list[tuple[int, int]]:
     """Return argv literals only when argv[0] itself is a quoted literal."""
-    ranges = _argv_source_ranges(line, opening_paren, path_suffix)
+    ranges = _argv_source_ranges(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
     if not ranges:
         return []
 
@@ -1069,24 +1122,38 @@ def _call_uses_explicit_shell(
     opening_paren: int,
     path_suffix: str = "",
 ) -> bool:
-    call_end = _call_end(line, opening_paren, path_suffix)
-    return any(
-        not _is_inside_string_literal(line, match.start(), path_suffix)
-        for match in _EXPLICIT_SHELL_MODE.finditer(
-            line,
-            opening_paren,
-            call_end,
+    arguments = _call_arguments(line, opening_paren, path_suffix)
+    candidates = list(arguments)
+    for argument in arguments:
+        candidates.extend(
+            _object_properties(line, argument.value_bounds, path_suffix)
         )
-    )
+
+    shell_mode = _select_labeled_argument(candidates, _SHELL_MODE_LABELS)
+    if shell_mode is None:
+        return False
+
+    start, end = shell_mode.value_bounds
+    if line[start:end] in ("True", "true"):
+        return True
+
+    quoted = _quoted_argument_bounds(line, start)
+    return quoted is not None and quoted[0] < quoted[1] < end
 
 
 def _argv_interpreter_source_bounds(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> Optional[tuple[int, int]]:
     """Return the argv word a known interpreter consumes as evaluated source."""
-    literals = _argv_literal_tokens(line, opening_paren, path_suffix)
+    literals = _argv_literal_tokens(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
     token_index = _argv_executable_index(line, literals)
     if token_index is None or len(literals) - token_index < 2:
         return None
@@ -1135,8 +1202,14 @@ def _argv_executable_bounds(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> Optional[tuple[int, int]]:
-    literals = _argv_literal_tokens(line, opening_paren, path_suffix)
+    literals = _argv_literal_tokens(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
     index = _argv_executable_index(line, literals)
     return literals[index] if index is not None else None
 
@@ -1150,11 +1223,13 @@ def _argv_execution_target_ranges(
     opening_paren: int,
     verb_start: int,
     path_suffix: str,
+    object_command_labels: frozenset[str] = _NO_ARGUMENT_LABELS,
 ) -> list[tuple[int, int]]:
     evaluated_source = _argv_interpreter_source_bounds(
         line,
         opening_paren,
         path_suffix,
+        object_command_labels,
     )
     if evaluated_source is not None and _bounds_contain_offset(
         evaluated_source,
@@ -1162,7 +1237,12 @@ def _argv_execution_target_ranges(
     ):
         return [evaluated_source]
 
-    executable_bounds = _argv_executable_bounds(line, opening_paren, path_suffix)
+    executable_bounds = _argv_executable_bounds(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
     if executable_bounds is None or not _bounds_contain_offset(
         executable_bounds,
         verb_start,
@@ -1177,7 +1257,12 @@ def _argv_execution_target_ranges(
     ):
         return []
 
-    source_ranges = _argv_source_ranges(line, opening_paren, path_suffix)
+    source_ranges = _argv_source_ranges(
+        line,
+        opening_paren,
+        path_suffix,
+        object_command_labels,
+    )
     if not source_ranges:
         return []
     return [(verb_start, source_ranges[0][1]), *source_ranges[1:]]
@@ -1213,6 +1298,11 @@ def _launcher_target_ranges(
             opening_paren,
             verb_start,
             path_suffix,
+            (
+                _BUN_OBJECT_COMMAND_LABELS
+                if launcher.group("bun") is not None
+                else _NO_ARGUMENT_LABELS
+            ),
         )
         if ranges:
             return ranges
@@ -2135,6 +2225,27 @@ def _self_test() -> int:
         (
             "web/tests/n18i.ts",
             'spawn("echo", ["curl https://api.openai.com/v1/items"])\n',
+        ),
+        # An empty Node shell path is falsey and leaves the command in direct
+        # executable mode; the whitespace-containing command cannot run curl.
+        (
+            "web/tests/n18i_empty_shell.ts",
+            (
+                'child_process.spawn("curl https://api.openai.com/v1/items", {\n'
+                '  shell: "",\n'
+                "});\n"
+            ),
+        ),
+        # Bun's object form executes only cmd[0]. Later argv strings and option
+        # metadata are data and must not become network invocation targets.
+        (
+            "web/tests/n18i_bun_options_data.ts",
+            (
+                "Bun.spawn({\n"
+                '  cmd: ["printf", "curl https://api.openai.com/v1/items"],\n'
+                '  env: { DOCS_URL: "https://cmux.com" },\n'
+                "});\n"
+            ),
         ),
         # Python does not split a string command unless shell=True is explicit.
         (
