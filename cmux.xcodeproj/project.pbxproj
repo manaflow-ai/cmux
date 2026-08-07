@@ -963,6 +963,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A9523F000000000000000024 /* CursorNativeApprovalFileObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000004 /* CursorNativeApprovalFileObserver.swift */; };
 		A9523F000000000000000025 /* CursorNativeApprovalFileReadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000005 /* CursorNativeApprovalFileReadResult.swift */; };
 		A9523F000000000000000026 /* CursorNativeApprovalObservationOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000006 /* CursorNativeApprovalObservationOutcome.swift */; };
+		A9523F0000000000000000A9 /* CursorNativeApprovalObserverLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F0000000000000000A8 /* CursorNativeApprovalObserverLease.swift */; };
 		A9523F000000000000000027 /* CursorNativeAttentionIdentifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F000000000000000007 /* CursorNativeAttentionIdentifiers.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
 		C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00010000000000000002 /* CustomSidebarPanel.swift */; };
@@ -3638,6 +3639,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A9523F000000000000000004 /* CursorNativeApprovalFileObserver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorNativeApprovalFileObserver.swift; sourceTree = "<group>"; };
 		A9523F000000000000000005 /* CursorNativeApprovalFileReadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorNativeApprovalFileReadResult.swift; sourceTree = "<group>"; };
 		A9523F000000000000000006 /* CursorNativeApprovalObservationOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorNativeApprovalObservationOutcome.swift; sourceTree = "<group>"; };
+		A9523F0000000000000000A8 /* CursorNativeApprovalObserverLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorNativeApprovalObserverLease.swift; sourceTree = "<group>"; };
 		A9523F000000000000000007 /* CursorNativeAttentionIdentifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CursorNativeAttentionIdentifiers.swift; sourceTree = "<group>"; };
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
 		C57B00010000000000000002 /* CustomSidebarPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPanel.swift; sourceTree = "<group>"; };
@@ -7370,6 +7372,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9523F000000000000000004 /* CursorNativeApprovalFileObserver.swift */,
 				A9523F000000000000000005 /* CursorNativeApprovalFileReadResult.swift */,
 				A9523F000000000000000006 /* CursorNativeApprovalObservationOutcome.swift */,
+				A9523F0000000000000000A8 /* CursorNativeApprovalObserverLease.swift */,
 				A9523F000000000000000007 /* CursorNativeAttentionIdentifiers.swift */,
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
 				A6AC720A0000000000000002 /* WorkspaceLoadingArguments.swift */,
@@ -10499,6 +10502,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9523F000000000000000024 /* CursorNativeApprovalFileObserver.swift in Sources */,
 				A9523F000000000000000025 /* CursorNativeApprovalFileReadResult.swift in Sources */,
 				A9523F000000000000000026 /* CursorNativeApprovalObservationOutcome.swift in Sources */,
+				A9523F0000000000000000A9 /* CursorNativeApprovalObserverLease.swift in Sources */,
 				A9523F000000000000000027 /* CursorNativeAttentionIdentifiers.swift in Sources */,
 				FEEDC1A50000000000000001 /* FeedEventClassifier.swift in Sources */,
 				C51A73B20000000000000002 /* IOSScreenshotCommandResultBox.swift in Sources */,

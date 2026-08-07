@@ -289,8 +289,25 @@ extension DockSplitStore {
         processIdentity providedProcessIdentity:
             AgentPIDProcessIdentity? = nil
     ) -> Bool {
+        recordAgentPIDResult(
+            key: key,
+            pid: pid,
+            panelId: panelId,
+            processIdentity: providedProcessIdentity
+        ).replacedOtherRuntime
+    }
+
+    /// Admits an exact process generation before replacing any Dock runtime.
+    func recordAgentPIDResult(
+        key: String,
+        pid: pid_t,
+        panelId: UUID,
+        processIdentity providedProcessIdentity:
+            AgentPIDProcessIdentity? = nil
+    ) -> (accepted: Bool, replacedOtherRuntime: Bool) {
         var didReplaceRuntime = false
         var didReplaceProcessGeneration = false
+        var accepted = false
         let processIdentity =
             providedProcessIdentity
                 ?? Workspace.agentPIDProcessIdentity(pid: pid)
@@ -299,19 +316,32 @@ extension DockSplitStore {
            runtime.agentPIDs[key] == pid,
            runtime.agentPIDProcessIdentities[key] == processIdentity,
            runtime.agentPIDKeys.contains(key) {
-            return false
+            return (accepted: true, replacedOtherRuntime: false)
         }
-        agentProcessExitMonitor.cancel(
-            key: Self.agentProcessObservationKey(
-                key: key,
-                panelId: panelId
-            )
-        )
         mutateAgentRuntime(panelId: panelId) { runtime in
             let statusKey = Self.agentStatusKey(
                 forAgentPIDKey: key,
                 runtime: runtime
             )
+            if let processIdentity {
+                if let previousGeneration =
+                    runtime.agentPIDProcessIdentities[key],
+                   processIdentity < previousGeneration {
+                    return
+                }
+                guard runtime.agentLifecycleReconciliationState
+                    .recordProcessGeneration(
+                        key: statusKey,
+                        panelId: panelId,
+                        generation: processIdentity,
+                        isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                            rawValue: statusKey
+                        ).isAllowed
+                    ) else {
+                    return
+                }
+            }
+            accepted = true
             if let previousGeneration =
                 runtime.agentPIDProcessIdentities[key],
                previousGeneration != processIdentity {
@@ -372,17 +402,16 @@ extension DockSplitStore {
                 runtime.agentPIDProcessIdentities.removeValue(forKey: key)
             }
             runtime.agentPIDKeys.insert(key)
-            if let generation = runtime.agentPIDProcessIdentities[key] {
-                runtime.agentLifecycleReconciliationState.recordProcessGeneration(
-                    key: statusKey,
-                    panelId: panelId,
-                    generation: generation,
-                    isBuiltIn: AgentHibernationLifecycleStatusKeys(
-                        rawValue: statusKey
-                    ).isAllowed
-                )
-            }
         }
+        guard accepted else {
+            return (accepted: false, replacedOtherRuntime: false)
+        }
+        agentProcessExitMonitor.cancel(
+            key: Self.agentProcessObservationKey(
+                key: key,
+                panelId: panelId
+            )
+        )
         if let generation = agentRuntimeByPanelId[panelId]?
             .agentPIDProcessIdentities[key] {
             observeAgentProcessExit(
@@ -397,7 +426,10 @@ extension DockSplitStore {
                 surfaceId: panelId
             )
         }
-        return didReplaceRuntime
+        return (
+            accepted: true,
+            replacedOtherRuntime: didReplaceRuntime
+        )
     }
 
     @discardableResult
