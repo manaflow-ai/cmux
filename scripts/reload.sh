@@ -635,7 +635,20 @@ reload_finalize() {
       echo "==> removed incomplete staged tagged app" >&2
     fi
     if [[ -s "$RELOAD_LOG" ]]; then
-      cat "$RELOAD_LOG" >&2
+      # Guard against a self-referential dump: if the caller redirected our stderr
+      # to the same path we use as RELOAD_LOG (e.g. `reload.sh > /tmp/cmux-reload-<tag>.log 2>&1`),
+      # then `cat "$RELOAD_LOG" >&2` appends the file to itself forever and fills the
+      # disk (this ran a log to 173GB overnight). Skip the dump when stderr and
+      # RELOAD_LOG share an inode; otherwise bound it with tail so a huge log can't
+      # flood the caller's output. Full log path is printed below either way.
+      local reload_log_ino reload_stderr_ino
+      reload_log_ino="$(stat -f '%d:%i' "$RELOAD_LOG" 2>/dev/null || echo log)"
+      reload_stderr_ino="$(stat -f '%d:%i' /dev/fd/2 2>/dev/null || echo err)"
+      if [[ "$reload_log_ino" == "$reload_stderr_ino" ]]; then
+        echo "==> (skipped log dump: stderr is the reload log itself)" >&2
+      else
+        tail -n 2000 "$RELOAD_LOG" >&2
+      fi
     fi
     echo "" >&2
     echo "==> reload FAILED (exit $rc) after ${elapsed}s" >&2
