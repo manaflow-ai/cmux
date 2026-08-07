@@ -163,8 +163,7 @@ public struct NestedTopologyReducer: Sendable {
             return
         }
         try validateCounts(afterAdding: .workspace, state: state)
-        state.workspaces.append(node)
-        state.lookup.workspaceIndices[node.id] = state.workspaces.count - 1
+        state.append(node)
         state.workspaceOrderingChanged = true
         state.didChange = true
     }
@@ -181,7 +180,7 @@ public struct NestedTopologyReducer: Sendable {
         let existing = state.workspaces[index]
         let merged = existing.mergingUpdate(node)
         guard merged != existing else { return }
-        state.workspaces[index] = merged
+        state.replace(merged, at: index)
         state.workspaceOrderingChanged = existing.order != merged.order
             || state.workspaceOrderingChanged
         state.didChange = true
@@ -207,8 +206,7 @@ public struct NestedTopologyReducer: Sendable {
             return
         }
         try validateCounts(afterAdding: .tab, state: state)
-        state.tabs.append(node)
-        state.lookup.tabIndices[node.id] = state.tabs.count - 1
+        state.append(node)
         state.tabOrderingChanged = true
         state.didChange = true
     }
@@ -232,7 +230,7 @@ public struct NestedTopologyReducer: Sendable {
         let existing = state.tabs[index]
         let merged = existing.mergingUpdate(node)
         guard merged != existing else { return }
-        state.tabs[index] = merged
+        state.replace(merged, at: index)
         state.tabOrderingChanged = existing.order != merged.order
             || existing.workspaceID != merged.workspaceID
             || state.tabOrderingChanged
@@ -260,8 +258,7 @@ public struct NestedTopologyReducer: Sendable {
             return
         }
         try validateCounts(afterAdding: .pane, state: state)
-        state.panes.append(node)
-        state.lookup.paneIndices[node.id] = state.panes.count - 1
+        state.append(node)
         state.paneOrderingChanged = true
         state.didChange = true
     }
@@ -285,7 +282,7 @@ public struct NestedTopologyReducer: Sendable {
         let existing = state.panes[index]
         let merged = existing.mergingUpdate(node)
         guard merged != existing else { return }
-        state.panes[index] = merged
+        state.replace(merged, at: index)
         state.paneOrderingChanged = existing.order != merged.order
             || existing.association.tabID != merged.association.tabID
             || state.paneOrderingChanged
@@ -313,8 +310,7 @@ public struct NestedTopologyReducer: Sendable {
             return
         }
         try validateCounts(afterAdding: .agent, state: state)
-        state.agents.append(node)
-        state.lookup.agentIndices[node.id] = state.agents.count - 1
+        state.append(node)
         state.agentOrderingChanged = true
         state.didChange = true
     }
@@ -338,7 +334,7 @@ public struct NestedTopologyReducer: Sendable {
         let existing = state.agents[index]
         let merged = existing.mergingUpdate(node)
         guard merged != existing else { return }
-        state.agents[index] = merged
+        state.replace(merged, at: index)
         state.agentOrderingChanged = existing.order != merged.order
             || existing.paneID != merged.paneID
             || state.agentOrderingChanged
@@ -351,10 +347,10 @@ public struct NestedTopologyReducer: Sendable {
         state: NestedTopologyReductionState
     ) throws {
         try validator.validateCounts(
-            workspaces: state.workspaces.count + (kind == .workspace ? 1 : 0),
-            tabs: state.tabs.count + (kind == .tab ? 1 : 0),
-            panes: state.panes.count + (kind == .pane ? 1 : 0),
-            agents: state.agents.count + (kind == .agent ? 1 : 0)
+            workspaces: state.lookup.workspaceIndices.count + (kind == .workspace ? 1 : 0),
+            tabs: state.lookup.tabIndices.count + (kind == .tab ? 1 : 0),
+            panes: state.lookup.paneIndices.count + (kind == .pane ? 1 : 0),
+            agents: state.lookup.agentIndices.count + (kind == .agent ? 1 : 0)
         )
     }
 

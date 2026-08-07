@@ -32,7 +32,18 @@ public struct NestedParentAssociation: Codable, Equatable, Sendable {
     }
 
     func replacing(with candidate: NestedParentAssociation) -> NestedParentAssociation {
-        guard candidate.key == key else { return candidate }
+        guard candidate.key == key else {
+            guard authority == .provider, candidate.authority == .heuristic else {
+                return candidate
+            }
+            // A session generation resets its heuristic lock, not provider-owned parentage.
+            return NestedParentAssociation(
+                key: candidate.key,
+                tabID: tabID,
+                authority: .provider,
+                heuristicAlreadySatisfied: false
+            )
+        }
 
         switch candidate.authority {
         case .provider:

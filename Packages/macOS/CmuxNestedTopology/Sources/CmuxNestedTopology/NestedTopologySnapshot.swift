@@ -5,6 +5,9 @@ public import Foundation
 /// The snapshot deliberately contains no cmux workspace, Bonsplit pane,
 /// Ghostty surface, endpoint, or persistence identity. A later attachment
 /// layer binds this virtual tree to a host stable surface.
+/// Equality includes the validation policy that certified the snapshot because
+/// reducers use that policy to decide whether the topology must be revalidated.
+/// The policy remains local trust metadata and is not encoded on the wire.
 public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
     /// Decoder user-info key for a caller-owned ``NestedTopologyLimits`` value.
     ///
@@ -102,22 +105,16 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
         )
     }
 
-    /// Decodes and validates a snapshot with caller-supplied or standard limits.
+    /// Decodes and incrementally validates a snapshot with caller-supplied or standard limits.
+    ///
+    /// Decoder APIs do not expose the source byte count. Provider transports
+    /// must enforce a bounded frame size before constructing their decoder.
     ///
     /// - Parameter decoder: Decoder containing the snapshot fields.
     public init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
         let limits = decoder.userInfo[Self.decodingLimitsUserInfoKey]
             as? NestedTopologyLimits ?? .standard
-        self = try NestedTopologyReducer(limits: limits).makeSnapshot(
-            provider: container.decode(NestedProviderIdentity.self, forKey: .provider),
-            capabilities: container.decode(NestedProviderCapabilities.self, forKey: .capabilities),
-            workspaces: container.decode([NestedWorkspaceNode].self, forKey: .workspaces),
-            tabs: container.decode([NestedTabNode].self, forKey: .tabs),
-            panes: container.decode([NestedPaneNode].self, forKey: .panes),
-            agents: container.decode([NestedAgentNode].self, forKey: .agents),
-            focus: container.decode(NestedTopologyFocus.self, forKey: .focus)
-        )
+        self = try NestedTopologySnapshotDecoder(limits: limits).decode(from: decoder)
     }
 
     /// Encodes the validated immutable snapshot.
@@ -134,7 +131,7 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
         try container.encode(focus, forKey: .focus)
     }
 
-    private enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey {
         case provider
         case capabilities
         case workspaces

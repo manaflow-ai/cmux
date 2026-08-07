@@ -4,6 +4,9 @@ struct NestedTopologyLookup: Equatable, Sendable {
     var tabIndices: [NestedNodeID: Int]
     var paneIndices: [NestedNodeID: Int]
     var agentIndices: [NestedNodeID: Int]
+    var tabIDsByWorkspace: [NestedNodeID: Set<NestedNodeID>]
+    var paneIDsByTab: [NestedNodeID: Set<NestedNodeID>]
+    var agentIDsByPane: [NestedNodeID: Set<NestedNodeID>]
 
     init(
         workspaces: [NestedWorkspaceNode],
@@ -15,10 +18,22 @@ struct NestedTopologyLookup: Equatable, Sendable {
         tabIndices = [:]
         paneIndices = [:]
         agentIndices = [:]
+        tabIDsByWorkspace = [:]
+        paneIDsByTab = [:]
+        agentIDsByPane = [:]
         workspaceIndices = indices(for: workspaces, id: \.id)
         tabIndices = indices(for: tabs, id: \.id)
         paneIndices = indices(for: panes, id: \.id)
         agentIndices = indices(for: agents, id: \.id)
+        for tab in tabs {
+            tabIDsByWorkspace[tab.workspaceID, default: []].insert(tab.id)
+        }
+        for pane in panes {
+            paneIDsByTab[pane.association.tabID, default: []].insert(pane.id)
+        }
+        for agent in agents {
+            agentIDsByPane[agent.paneID, default: []].insert(agent.id)
+        }
     }
 
     mutating func rebuildWorkspaces(_ workspaces: [NestedWorkspaceNode]) {

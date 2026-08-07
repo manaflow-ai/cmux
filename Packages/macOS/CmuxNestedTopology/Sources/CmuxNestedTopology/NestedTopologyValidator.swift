@@ -252,7 +252,7 @@ struct NestedTopologyValidator: Sendable {
         }
     }
 
-    private func validateProvider(_ provider: NestedProviderIdentity) throws {
+    func validateProvider(_ provider: NestedProviderIdentity) throws {
         try validateRequiredField(
             provider.kind.rawValue,
             name: "provider.kind",
@@ -267,7 +267,7 @@ struct NestedTopologyValidator: Sendable {
         )
     }
 
-    private func validateCapabilities(_ capabilities: NestedProviderCapabilities) throws {
+    func validateCapabilities(_ capabilities: NestedProviderCapabilities) throws {
         guard capabilities.values.count <= limits.maximumCapabilities else {
             throw NestedTopologyError.capabilityLimitExceeded(
                 actual: capabilities.values.count,
@@ -275,13 +275,17 @@ struct NestedTopologyValidator: Sendable {
             )
         }
         for capability in capabilities.values {
-            try validateRequiredField(
-                capability.rawValue,
-                name: "provider.capability",
-                maximumBytes: limits.maximumCapabilityBytes,
-                rejectsControls: true
-            )
+            try validateCapability(capability)
         }
+    }
+
+    func validateCapability(_ capability: NestedProviderCapability) throws {
+        try validateRequiredField(
+            capability.rawValue,
+            name: "provider.capability",
+            maximumBytes: limits.maximumCapabilityBytes,
+            rejectsControls: true
+        )
     }
 
     func validateCounts(
