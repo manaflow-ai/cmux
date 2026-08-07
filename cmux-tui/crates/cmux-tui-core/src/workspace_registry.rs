@@ -1134,45 +1134,157 @@ fn remove_reset_dir_children_from_handle(
             expected_entries,
             ignore_terminal_host_publication_lock,
         )?;
-        if reset_stat_is_dir(&child_stat) {
-            let child_directory =
-                open_reset_child_dir(directory.as_raw_fd(), &child_name, &child_display)?;
-            let opened = child_directory
-                .metadata()
-                .with_context(|| format!("inspect {label} {}", child_display.display()))?;
+        #[cfg(test)]
+        inject_reset_delete_child_replacement(&child_display)?;
+        let staged_child = stage_reset_child_for_deletion(
+            directory.as_raw_fd(),
+            &child_name,
+            &child_display,
+            &child_stat,
+        )?;
+        ensure_reset_manifest_entry(
+            directory.as_raw_fd(),
+            &staged_child.name,
+            &child_relative,
+            &staged_child.display_path,
+            &staged_child.stat,
+            expected_entries,
+            ignore_terminal_host_publication_lock,
+        )?;
+        if reset_stat_is_dir(&staged_child.stat) {
+            let child_directory = open_reset_child_dir(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &staged_child.display_path,
+            )?;
+            let opened = child_directory.metadata().with_context(|| {
+                format!("inspect {label} {}", staged_child.display_path.display())
+            })?;
             if !opened.file_type().is_dir()
-                || opened.dev() != child_device
-                || opened.ino() != reset_stat_inode(&child_stat)
+                || opened.dev() != reset_stat_device(&staged_child.stat)
+                || opened.ino() != reset_stat_inode(&staged_child.stat)
             {
-                anyhow::bail!("reset path changed during reset: {}", child_display.display());
+                anyhow::bail!(
+                    "reset path changed during reset: {}",
+                    staged_child.display_path.display()
+                );
             }
             remove_reset_dir_children_from_handle(
                 &child_directory,
-                &child_display,
+                &staged_child.display_path,
                 &child_relative,
                 label,
                 root_device,
                 expected_entries,
                 ignore_terminal_host_publication_lock,
             )?;
-            let current = reset_child_stat(directory.as_raw_fd(), &child_name, &child_display)?;
+            let current = reset_child_stat(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &staged_child.display_path,
+            )?;
             if !reset_stat_is_dir(&current)
-                || reset_stat_device(&current) != child_device
-                || reset_stat_inode(&current) != reset_stat_inode(&child_stat)
+                || reset_stat_device(&current) != reset_stat_device(&staged_child.stat)
+                || reset_stat_inode(&current) != reset_stat_inode(&staged_child.stat)
             {
-                anyhow::bail!("reset path changed during reset: {}", child_display.display());
+                anyhow::bail!(
+                    "reset path changed during reset: {}",
+                    staged_child.display_path.display()
+                );
             }
             reset_unlink_child(
                 directory.as_raw_fd(),
-                &child_name,
-                &child_display,
+                &staged_child.name,
+                &staged_child.display_path,
                 libc::AT_REMOVEDIR,
             )?;
         } else {
-            reset_unlink_child(directory.as_raw_fd(), &child_name, &child_display, 0)?;
+            reset_unlink_child(
+                directory.as_raw_fd(),
+                &staged_child.name,
+                &staged_child.display_path,
+                0,
+            )?;
         }
     }
+    let remaining = reset_dir_child_names(directory, display_path, label)?;
+    if !remaining.is_empty() {
+        anyhow::bail!("reset path changed during reset: {}", display_path.display());
+    }
     Ok(())
+}
+
+#[cfg(all(unix, test))]
+fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
+    let mut replacement = RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().unwrap();
+    if replacement.as_ref() != Some(&path.to_path_buf()) {
+        return Ok(());
+    }
+    *replacement = None;
+    fs::remove_file(path)
+        .with_context(|| format!("remove injected reset file {}", path.display()))?;
+    fs::write(path, b"replacement")
+        .with_context(|| format!("write injected reset file {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+struct ResetStagedChild {
+    name: std::ffi::OsString,
+    display_path: PathBuf,
+    stat: libc::stat,
+}
+
+#[cfg(unix)]
+fn stage_reset_child_for_deletion(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    expected: &libc::stat,
+) -> anyhow::Result<ResetStagedChild> {
+    for _ in 0..16 {
+        let private_name =
+            std::ffi::OsString::from(format!(".reset-delete-{}.entry", try_new_uuid_v4()?));
+        let private_display = display_path.with_file_name(&private_name);
+        match reset_rename_child_exclusive(
+            parent_fd,
+            name,
+            &private_name,
+            display_path,
+            &private_display,
+        ) {
+            Ok(()) => {
+                let stat = reset_child_stat(parent_fd, &private_name, &private_display)?;
+                if reset_stat_device(&stat) != reset_stat_device(expected)
+                    || reset_stat_inode(&stat) != reset_stat_inode(expected)
+                    || reset_stat_kind(&stat) != reset_stat_kind(expected)
+                {
+                    let _ = reset_rename_child_exclusive(
+                        parent_fd,
+                        &private_name,
+                        name,
+                        &private_display,
+                        display_path,
+                    );
+                    anyhow::bail!("reset path changed during reset: {}", display_path.display());
+                }
+                return Ok(ResetStagedChild {
+                    name: private_name,
+                    display_path: private_display,
+                    stat,
+                });
+            }
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    anyhow::bail!("could not allocate private reset path for {}", display_path.display())
 }
 
 #[cfg(unix)]
@@ -1427,6 +1539,73 @@ fn reset_unlink_child(
     }
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+fn reset_rename_child_exclusive(
+    parent_fd: std::os::fd::RawFd,
+    from: &std::ffi::OsStr,
+    to: &std::ffi::OsStr,
+    from_display: &Path,
+    to_display: &Path,
+) -> anyhow::Result<()> {
+    let from = reset_child_c_string(from, from_display)?;
+    let to = reset_child_c_string(to, to_display)?;
+    loop {
+        // SAFETY: renameatx_np reads nul-terminated names relative to a valid parent directory fd.
+        let result = unsafe {
+            libc::renameatx_np(parent_fd, from.as_ptr(), parent_fd, to.as_ptr(), libc::RENAME_EXCL)
+        };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "move reset path {} to private path {}",
+                from_display.display(),
+                to_display.display()
+            )
+        });
+    }
+}
+
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "macos"))))]
+fn reset_rename_child_exclusive(
+    parent_fd: std::os::fd::RawFd,
+    from: &std::ffi::OsStr,
+    to: &std::ffi::OsStr,
+    from_display: &Path,
+    to_display: &Path,
+) -> anyhow::Result<()> {
+    if reset_child_stat(parent_fd, to, to_display).is_ok() {
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)).with_context(|| {
+            format!("private reset path already exists: {}", to_display.display())
+        });
+    }
+    let from = reset_child_c_string(from, from_display)?;
+    let to = reset_child_c_string(to, to_display)?;
+    loop {
+        // SAFETY: renameat reads nul-terminated names relative to a valid parent directory fd.
+        let result = unsafe { libc::renameat(parent_fd, from.as_ptr(), parent_fd, to.as_ptr()) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "move reset path {} to private path {}",
+                from_display.display(),
+                to_display.display()
+            )
+        });
+    }
+}
+
 #[cfg(unix)]
 fn reset_child_c_string(
     name: &std::ffi::OsStr,
@@ -1446,6 +1625,11 @@ fn reset_stat_is_dir(stat: &libc::stat) -> bool {
 #[cfg(unix)]
 fn reset_stat_is_file(stat: &libc::stat) -> bool {
     stat.st_mode & libc::S_IFMT == libc::S_IFREG
+}
+
+#[cfg(unix)]
+fn reset_stat_kind(stat: &libc::stat) -> libc::mode_t {
+    stat.st_mode & libc::S_IFMT
 }
 
 #[cfg(unix)]
@@ -4035,6 +4219,10 @@ static RESET_RENAME_SYNC_FAILURE_ROOT: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
 #[cfg(test)]
 static RESET_DELETE_AFTER_MANIFEST_FILE: std::sync::Mutex<Option<(PathBuf, PathBuf)>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(test)]
+static RESET_DELETE_AFTER_CHILD_VERIFY_FILE: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {

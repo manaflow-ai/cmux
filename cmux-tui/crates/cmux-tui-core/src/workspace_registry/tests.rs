@@ -252,6 +252,35 @@ fn reset_delete_rejects_file_added_after_manifest_check() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn reset_delete_rejects_child_replaced_after_verification() {
+    let root = temp_root("reset-delete-rejects-replaced-child");
+    let session = "reset-delete-rejects-replaced-child";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let target = session_dir.join("replace-after-verify");
+    fs::write(&target, b"previewed").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+    *RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().unwrap() = Some(target.clone());
+
+    let error = remove_reset_dir_all(
+        &session_dir,
+        "workspace session state",
+        "session",
+        &expected_fingerprint,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert_eq!(fs::read(&target).unwrap(), b"replacement");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn reset_device_boundary_rejects_nested_device_change() {
     let error = ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(2)).unwrap_err();
