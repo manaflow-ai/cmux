@@ -16,16 +16,38 @@ public struct ClaudeTaskSnapshotLoader {
     /// The directory containing Claude's per-session task directories.
     public let tasksRootURL: URL
 
-    private let fileManager: FileManager
+    private let fileSystem: any ClaudeTaskFileSystem
+    private let operationDeadline: ClaudeTaskOperationDeadline
 
     /// Creates a loader rooted at a specific Claude tasks directory.
     ///
     /// - Parameters:
     ///   - tasksRootURL: The directory that contains session task directories.
-    ///   - fileManager: The filesystem implementation used to read snapshots.
-    public init(tasksRootURL: URL, fileManager: FileManager = .default) {
-        self.tasksRootURL = tasksRootURL
-        self.fileManager = fileManager
+    ///   - fileManager: The filesystem implementation used to enumerate snapshots.
+    ///   - deadlineUptime: An optional absolute monotonic deadline for all reads.
+    ///   - uptime: The injectable monotonic clock used to enforce the deadline.
+    public init(
+        tasksRootURL: URL,
+        fileManager: any ClaudeTaskFileSystem = FileManager(),
+        deadlineUptime: TimeInterval? = nil,
+        uptime: @escaping @Sendable () -> TimeInterval = {
+            ProcessInfo.processInfo.systemUptime
+        }
+    ) {
+        self.tasksRootURL = tasksRootURL.canonicalClaudeTaskStoreDirectoryURL
+        fileSystem = fileManager
+        operationDeadline = ClaudeTaskOperationDeadline(
+            deadlineUptime: deadlineUptime,
+            uptime: uptime
+        )
+    }
+
+    /// Returns the direct-child directory name Claude derives from a task-list identifier.
+    ///
+    /// - Parameter taskListID: Claude's raw `CLAUDE_CODE_TASK_LIST_ID` value.
+    /// - Returns: The canonical directory name, or `nil` for an empty identifier.
+    public func canonicalDirectoryName(forTaskListID taskListID: String) -> String? {
+        ClaudeTaskListDirectoryName(taskListID: taskListID)?.rawValue
     }
 
     /// Reads the authoritative tasks persisted for a configured task-list identifier.
@@ -40,12 +62,112 @@ public struct ClaudeTaskSnapshotLoader {
     ///   is empty or its direct child directory does not exist.
     /// - Throws: A filesystem or resource-bound error while reading the directory.
     public func loadConfiguredTaskList(taskListID: String) throws -> ClaudeTaskSnapshot? {
+        try operationDeadline.check()
         guard !taskListID.isEmpty,
-              let directoryName = taskDirectoryName(taskListID: taskListID),
-              let taskListDirectory = directoryURL(named: directoryName) else {
+              let directoryName = canonicalDirectoryName(forTaskListID: taskListID),
+              let taskListDirectory = try directoryURL(named: directoryName) else {
             return nil
         }
         return try snapshot(in: taskListDirectory)
+    }
+
+    /// Reads a task list whose shared identity was configured or proven earlier.
+    ///
+    /// Unlike ``loadConfiguredTaskList(taskListID:)``, a missing direct child is
+    /// returned as an authoritative empty snapshot. Claude removes completed
+    /// shared task directories without emitting a later task-tool hook, so a
+    /// known identity must remain usable long enough to clear its owned rows.
+    ///
+    /// - Parameter taskListID: A configured or previously proven shared list ID.
+    /// - Returns: The known list snapshot, including an empty snapshot when its
+    ///   canonical direct child no longer exists, or `nil` for an empty ID.
+    /// - Throws: A filesystem or resource-bound error while reading the directory.
+    public func loadKnownTaskList(taskListID: String) throws -> ClaudeTaskSnapshot? {
+        try operationDeadline.check()
+        guard !taskListID.isEmpty,
+              let directoryName = canonicalDirectoryName(forTaskListID: taskListID) else {
+            return nil
+        }
+        guard let taskListDirectory = try directoryURL(named: directoryName) else {
+            return ClaudeTaskSnapshot(directoryName: directoryName, todos: [])
+        }
+        do {
+            let loadedSnapshot = try snapshot(in: taskListDirectory)
+            try operationDeadline.check()
+            guard try directoryURL(named: directoryName) != nil else {
+                return ClaudeTaskSnapshot(directoryName: directoryName, todos: [])
+            }
+            return loadedSnapshot
+        } catch ClaudeTaskSnapshotLoaderError.cannotEnumerateSessionDirectory {
+            try operationDeadline.check()
+            guard try directoryURL(named: directoryName) == nil else {
+                throw ClaudeTaskSnapshotLoaderError.cannotEnumerateSessionDirectory
+            }
+            return ClaudeTaskSnapshot(directoryName: directoryName, todos: [])
+        }
+    }
+
+    /// Reads only one previously proven direct-child binding.
+    ///
+    /// A mismatched current task identity fails closed instead of scanning a
+    /// neighboring list. Callers may separately choose the exact-identity
+    /// compatibility scan only when they have no durable binding.
+    ///
+    /// - Parameters:
+    ///   - directoryName: The direct-child name proven by an earlier hook.
+    ///   - taskIdentity: The exact current task identity, when available.
+    /// - Returns: The bound snapshot, or `nil` when the directory is absent or
+    ///   does not contain the current task identity.
+    /// - Throws: A filesystem or resource-bound error while reading the directory.
+    public func loadBoundTaskList(
+        directoryName: String,
+        taskIdentity: ClaudeTaskIdentity? = nil
+    ) throws -> ClaudeTaskSnapshot? {
+        try operationDeadline.check()
+        guard let directory = try directoryURL(named: directoryName) else { return nil }
+        if let taskIdentity {
+            guard try taskFile(
+                in: directory,
+                matches: taskIdentity,
+                decoder: JSONDecoder()
+            ) else { return nil }
+        }
+        return try snapshot(in: directory)
+    }
+
+    /// Reads only the deterministic task directory candidates for one session.
+    ///
+    /// This method never scans neighboring task directories. Callers use it
+    /// after authoritative automatic-team resolution, because task IDs are
+    /// list-local and a stale personal directory cannot disprove team
+    /// membership. When an exact hook identity is available, the direct
+    /// directory must contain the matching task record.
+    ///
+    /// - Parameters:
+    ///   - sessionID: Claude's hook `session_id` value.
+    ///   - taskIdentity: The exact task identity reported by the current hook,
+    ///     when available.
+    /// - Returns: The direct session snapshot, or `nil` when no deterministic
+    ///   candidate contains the current task identity.
+    /// - Throws: A filesystem or resource-bound error while reading the directory.
+    public func loadDirectSessionTaskList(
+        sessionID: String,
+        taskIdentity: ClaudeTaskIdentity? = nil
+    ) throws -> ClaudeTaskSnapshot? {
+        try operationDeadline.check()
+        guard let sessionDirectory = try sessionDirectoryURL(sessionID: sessionID) else {
+            return nil
+        }
+        if let taskIdentity {
+            guard try taskFile(
+                in: sessionDirectory,
+                matches: taskIdentity,
+                decoder: JSONDecoder()
+            ) else {
+                return nil
+            }
+        }
+        return try snapshot(in: sessionDirectory)
     }
 
     /// Resolves and reads the authoritative tasks currently persisted for a session.
@@ -76,11 +198,12 @@ public struct ClaudeTaskSnapshotLoader {
         boundDirectoryName: String? = nil,
         taskIdentity: ClaudeTaskIdentity? = nil
     ) throws -> ClaudeTaskSnapshot? {
+        try operationDeadline.check()
         let decoder = JSONDecoder()
         if let boundDirectoryName,
-           let boundDirectory = directoryURL(named: boundDirectoryName) {
+           let boundDirectory = try directoryURL(named: boundDirectoryName) {
             if let taskIdentity {
-                if taskFile(in: boundDirectory, matches: taskIdentity, decoder: decoder) {
+                if try taskFile(in: boundDirectory, matches: taskIdentity, decoder: decoder) {
                     return try snapshot(in: boundDirectory)
                 }
             } else {
@@ -88,10 +211,11 @@ public struct ClaudeTaskSnapshotLoader {
             }
         }
 
-        if let taskIdentity,
-           let sessionDirectory = sessionDirectoryURL(sessionID: sessionID),
-           taskFile(in: sessionDirectory, matches: taskIdentity, decoder: decoder) {
-            return try snapshot(in: sessionDirectory)
+        if let directSnapshot = try loadDirectSessionTaskList(
+            sessionID: sessionID,
+            taskIdentity: taskIdentity
+        ) {
+            return directSnapshot
         }
 
         if let taskIdentity,
@@ -102,30 +226,33 @@ public struct ClaudeTaskSnapshotLoader {
             return try snapshot(in: matchedDirectory)
         }
 
-        guard taskIdentity == nil,
-              let sessionDirectory = sessionDirectoryURL(sessionID: sessionID) else {
-            return nil
-        }
-        return try snapshot(in: sessionDirectory)
+        return nil
     }
 
     private func snapshot(in sessionDirectory: URL) throws -> ClaudeTaskSnapshot {
+        try operationDeadline.check()
         var enumerationError: Error?
-        guard let enumerator = fileManager.enumerator(
+        let candidateEnumerator = fileSystem.enumerator(
             at: sessionDirectory,
             includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
             errorHandler: { _, error in
+                if error.isClaudeTaskFilesystemItemMissing {
+                    return true
+                }
                 enumerationError = error
                 return false
             }
-        ) else {
+        )
+        try operationDeadline.check()
+        guard let enumerator = candidateEnumerator else {
             throw ClaudeTaskSnapshotLoaderError.cannotEnumerateSessionDirectory
         }
         let decoder = JSONDecoder()
         var todos: [WorkstreamTaskTodo] = []
         var entryCount = 0
         while let fileURL = enumerator.nextObject() as? URL {
+            try operationDeadline.check()
             entryCount += 1
             guard entryCount <= Self.maximumDirectoryEntryCount else {
                 throw ClaudeTaskSnapshotLoaderError.tooManyDirectoryEntries(
@@ -133,14 +260,29 @@ public struct ClaudeTaskSnapshotLoader {
                 )
             }
             guard fileURL.pathExtension.lowercased() == "json" else { continue }
-            let values = try fileURL.resourceValues(
-                forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
-            )
+            let values: URLResourceValues
+            do {
+                values = try fileSystem.resourceValues(
+                    for: fileURL,
+                    keys: [.isRegularFileKey, .isSymbolicLinkKey]
+                )
+            } catch {
+                guard error.isClaudeTaskFilesystemItemMissing else { throw error }
+                continue
+            }
+            try operationDeadline.check()
             guard values.isRegularFile == true, values.isSymbolicLink != true else { continue }
-            let data = try boundedTaskData(
-                at: fileURL,
-                maximumByteCount: Self.maximumTaskFileByteCount
-            )
+            let data: Data
+            do {
+                data = try boundedTaskData(
+                    at: fileURL,
+                    maximumByteCount: Self.maximumTaskFileByteCount
+                )
+            } catch {
+                guard error.isClaudeTaskFilesystemItemMissing else { throw error }
+                continue
+            }
+            try operationDeadline.check()
             guard let record = try? decoder.decode(ClaudeTaskRecord.self, from: data),
                   let taskID = validPathComponent(record.id),
                   taskID == record.id,
@@ -154,14 +296,18 @@ public struct ClaudeTaskSnapshotLoader {
                 state: state
             ))
         }
+        try operationDeadline.check()
         if let enumerationError { throw enumerationError }
+        let sortedTodos = todos.sorted(by: taskSort)
+        try operationDeadline.check()
         return ClaudeTaskSnapshot(
             directoryName: sessionDirectory.lastPathComponent,
-            todos: todos.sorted(by: taskSort)
+            todos: sortedTodos
         )
     }
 
-    private func sessionDirectoryURL(sessionID: String) -> URL? {
+    private func sessionDirectoryURL(sessionID: String) throws -> URL? {
+        try operationDeadline.check()
         guard let trimmed = validPathComponent(sessionID) else { return nil }
         let bareID = trimmed.hasPrefix("session-")
             ? String(trimmed.dropFirst("session-".count))
@@ -169,7 +315,8 @@ public struct ClaudeTaskSnapshotLoader {
         let names = [trimmed, bareID, "session-\(bareID)"]
         var seen = Set<String>()
         for name in names where !name.isEmpty && seen.insert(name).inserted {
-            if let candidate = directoryURL(named: name) {
+            try operationDeadline.check()
+            if let candidate = try directoryURL(named: name) {
                 return candidate
             }
         }
@@ -180,43 +327,64 @@ public struct ClaudeTaskSnapshotLoader {
         for identity: ClaudeTaskIdentity,
         decoder: JSONDecoder
     ) throws -> URL? {
+        try operationDeadline.check()
         guard validPathComponent(identity.id) == identity.id,
               !identity.subject.isEmpty else { return nil }
         var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: tasksRootURL.path, isDirectory: &isDirectory),
+        let rootExists = fileSystem.fileExists(
+            atPath: tasksRootURL.path,
+            isDirectory: &isDirectory
+        )
+        try operationDeadline.check()
+        guard rootExists,
               isDirectory.boolValue else { return nil }
 
         var enumerationError: Error?
-        guard let enumerator = fileManager.enumerator(
+        let candidateEnumerator = fileSystem.enumerator(
             at: tasksRootURL,
             includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants],
             errorHandler: { _, error in
+                if error.isClaudeTaskFilesystemItemMissing {
+                    return true
+                }
                 enumerationError = error
                 return false
             }
-        ) else {
+        )
+        try operationDeadline.check()
+        guard let enumerator = candidateEnumerator else {
             throw ClaudeTaskSnapshotLoaderError.cannotEnumerateTasksRoot
         }
 
         var entryCount = 0
         var match: URL?
         while let candidate = enumerator.nextObject() as? URL {
+            try operationDeadline.check()
             entryCount += 1
             guard entryCount <= Self.maximumTaskRootEntryCount else {
                 throw ClaudeTaskSnapshotLoaderError.tooManyTaskRootEntries(
                     limit: Self.maximumTaskRootEntryCount
                 )
             }
-            let values = try candidate.resourceValues(
-                forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
-            )
+            let values: URLResourceValues
+            do {
+                values = try fileSystem.resourceValues(
+                    for: candidate,
+                    keys: [.isDirectoryKey, .isSymbolicLinkKey]
+                )
+            } catch {
+                guard error.isClaudeTaskFilesystemItemMissing else { throw error }
+                continue
+            }
+            try operationDeadline.check()
             guard values.isDirectory == true,
                   values.isSymbolicLink != true,
-                  taskFile(in: candidate, matches: identity, decoder: decoder) else { continue }
+                  try taskFile(in: candidate, matches: identity, decoder: decoder) else { continue }
             guard match == nil else { return nil }
             match = candidate
         }
+        try operationDeadline.check()
         if let enumerationError { throw enumerationError }
         return match
     }
@@ -225,45 +393,58 @@ public struct ClaudeTaskSnapshotLoader {
         in directory: URL,
         matches identity: ClaudeTaskIdentity,
         decoder: JSONDecoder
-    ) -> Bool {
+    ) throws -> Bool {
+        try operationDeadline.check()
         guard let taskID = validPathComponent(identity.id), taskID == identity.id else { return false }
         let fileURL = directory.appendingPathComponent("\(taskID).json", isDirectory: false)
-        guard let values = try? fileURL.resourceValues(
-            forKeys: [.isRegularFileKey, .isSymbolicLinkKey]
-        ), values.isRegularFile == true, values.isSymbolicLink != true,
-              let data = try? boundedTaskData(
-                  at: fileURL,
-                  maximumByteCount: Self.maximumTaskFileByteCount
-              ),
-              let record = try? decoder.decode(ClaudeTaskRecord.self, from: data) else {
+        let values: URLResourceValues
+        do {
+            values = try fileSystem.resourceValues(
+                for: fileURL,
+                keys: [.isRegularFileKey, .isSymbolicLinkKey]
+            )
+        } catch {
+            guard error.isClaudeTaskFilesystemItemMissing else { throw error }
             return false
         }
+        try operationDeadline.check()
+        guard values.isRegularFile == true, values.isSymbolicLink != true else { return false }
+        let data: Data
+        do {
+            data = try boundedTaskData(
+                at: fileURL,
+                maximumByteCount: Self.maximumTaskFileByteCount
+            )
+        } catch {
+            guard error.isClaudeTaskFilesystemItemMissing else { throw error }
+            return false
+        }
+        try operationDeadline.check()
+        guard let record = try? decoder.decode(ClaudeTaskRecord.self, from: data) else { return false }
         return record.id == identity.id && record.subject == identity.subject
     }
 
-    private func directoryURL(named name: String) -> URL? {
+    private func directoryURL(named name: String) throws -> URL? {
+        try operationDeadline.check()
         guard let name = validPathComponent(name) else { return nil }
         let candidate = tasksRootURL.appendingPathComponent(name, isDirectory: true)
-        guard let values = try? candidate.resourceValues(
-            forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
-        ), values.isDirectory == true, values.isSymbolicLink != true else {
+        let values: URLResourceValues
+        do {
+            values = try fileSystem.resourceValues(
+                for: candidate,
+                keys: [.isDirectoryKey, .isSymbolicLinkKey]
+            )
+        } catch {
+            guard error.isClaudeTaskFilesystemItemMissing else { throw error }
             return nil
         }
-        return candidate
-    }
-
-    /// Mirrors Claude's `[^a-zA-Z0-9_-]` replacement on UTF-16 code units.
-    private func taskDirectoryName(taskListID: String) -> String? {
-        let hyphen: UInt16 = 0x2D
-        let codeUnits = taskListID.utf16.map { codeUnit in
-            switch codeUnit {
-            case 0x61...0x7A, 0x41...0x5A, 0x30...0x39, 0x5F, hyphen:
-                return codeUnit
-            default:
-                return hyphen
-            }
+        try operationDeadline.check()
+        guard values.isDirectory == true, values.isSymbolicLink != true else {
+            throw ClaudeTaskSnapshotLoaderError.invalidTaskDirectory(
+                directoryName: name
+            )
         }
-        return validPathComponent(String(decoding: codeUnits, as: UTF16.self))
+        return candidate
     }
 
     private func validPathComponent(_ value: String) -> String? {
@@ -291,9 +472,11 @@ public struct ClaudeTaskSnapshotLoader {
     }
 
     private func boundedTaskData(at fileURL: URL, maximumByteCount: Int) throws -> Data {
+        try operationDeadline.check()
         let handle = try FileHandle(forReadingFrom: fileURL)
         defer { try? handle.close() }
         let data = try handle.read(upToCount: maximumByteCount + 1) ?? Data()
+        try operationDeadline.check()
         guard data.count <= maximumByteCount else {
             throw ClaudeTaskSnapshotLoaderError.taskFileTooLarge(
                 fileName: fileURL.lastPathComponent,

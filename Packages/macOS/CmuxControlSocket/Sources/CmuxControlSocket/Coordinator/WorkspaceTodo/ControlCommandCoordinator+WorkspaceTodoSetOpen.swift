@@ -116,7 +116,9 @@ extension ControlCommandCoordinator {
     }
 
     /// `workspace.todo.reconcile` — atomically replaces one owner's items
-    /// while preserving user entries and other owners' entries.
+    /// while preserving user entries and other owners' entries. A
+    /// `workspace_ids` array batches up to 64 destinations into one socket
+    /// round trip and reports each workspace independently.
     func workspaceTodoReconcile(_ params: [String: JSONValue]) -> ControlCallResult {
         guard let context else {
             return workspaceTodoSetResult(.tabManagerUnavailable)
@@ -143,6 +145,68 @@ extension ControlCommandCoordinator {
             return error
         case .items(let parsed):
             items = parsed
+        }
+        if hasNonNull(params, "workspace_ids") {
+            let workspaceStrings = context.controlWorkspaceStrings()
+            guard case .array(let rawWorkspaceIDs)? = params["workspace_ids"],
+                  (1...64).contains(rawWorkspaceIDs.count) else {
+                return .err(
+                    code: "invalid_params",
+                    message: workspaceStrings.reorderManyInvalidWorkspace,
+                    data: nil
+                )
+            }
+            var destinations: [(rawID: String, workspaceID: UUID)] = []
+            var seenWorkspaceIDs: Set<UUID> = []
+            destinations.reserveCapacity(rawWorkspaceIDs.count)
+            for rawWorkspaceID in rawWorkspaceIDs {
+                guard case .string(let rawID) = rawWorkspaceID else {
+                    return .err(
+                        code: "invalid_params",
+                        message: workspaceStrings.reorderManyInvalidWorkspace,
+                        data: nil
+                    )
+                }
+                let trimmedID = rawID.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let workspaceID = uuid(
+                    ["workspace_id": .string(trimmedID)],
+                    "workspace_id"
+                ) else {
+                    return .err(
+                        code: "invalid_params",
+                        message: workspaceStrings.reorderManyInvalidWorkspace,
+                        data: nil
+                    )
+                }
+                guard seenWorkspaceIDs.insert(workspaceID).inserted else { continue }
+                destinations.append((trimmedID, workspaceID))
+            }
+            let routing = routingSelectors(params)
+            let results = destinations.map { destination -> JSONValue in
+                let result = workspaceTodoSetResult(context.controlWorkspaceTodoReconcile(
+                    routing: routing,
+                    workspaceID: destination.workspaceID,
+                    ownerID: ownerID,
+                    items: items
+                ))
+                var payload: [String: JSONValue] = [
+                    "workspace_id": .string(destination.rawID),
+                ]
+                switch result {
+                case .ok:
+                    payload["ok"] = .bool(true)
+                case .err(let code, let message, let data):
+                    var error: [String: JSONValue] = [
+                        "code": .string(code),
+                        "message": .string(message),
+                    ]
+                    if let data { error["data"] = data }
+                    payload["ok"] = .bool(false)
+                    payload["error"] = .object(error)
+                }
+                return .object(payload)
+            }
+            return .ok(.object(["results": .array(results)]))
         }
         return workspaceTodoSetResult(context.controlWorkspaceTodoReconcile(
             routing: routingSelectors(params),

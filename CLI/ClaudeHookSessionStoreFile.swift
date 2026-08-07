@@ -13,6 +13,12 @@ struct ClaudeHookSessionStoreFile: Codable {
     // session in this pane is stale. Keyed by surface id.
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
+    // Automatic-team task identity is list-scoped rather than session-scoped:
+    // leader and teammate hooks can run in independent Claude sessions.
+    var claudeTeamTaskBindings: [String: ClaudeHookTeamTaskBindingRecord] = [:]
+    // Explicitly configured lists can span independent sessions without a
+    // team config, so their deletion destinations are retained separately.
+    var claudeTaskListDestinations: [String: ClaudeHookTaskListDestinationRecord] = [:]
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
 
     enum CodingKeys: String, CodingKey {
@@ -21,6 +27,8 @@ struct ClaudeHookSessionStoreFile: Codable {
         case pendingSupersededSessionCleanup
         case activeSessionsByWorkspace
         case activeSessionsBySurface
+        case claudeTeamTaskBindings
+        case claudeTaskListDestinations
         case agentHookFailureReportTimestamps
     }
 
@@ -42,6 +50,14 @@ struct ClaudeHookSessionStoreFile: Codable {
             [String: ClaudeHookActiveSessionRecord].self,
             forKey: .activeSessionsBySurface
         ) ?? [:]
+        claudeTeamTaskBindings = try container.decodeIfPresent(
+            [String: ClaudeHookTeamTaskBindingRecord].self,
+            forKey: .claudeTeamTaskBindings
+        ) ?? [:]
+        claudeTaskListDestinations = try container.decodeIfPresent(
+            [String: ClaudeHookTaskListDestinationRecord].self,
+            forKey: .claudeTaskListDestinations
+        ) ?? [:]
         agentHookFailureReportTimestamps = try container.decodeIfPresent(
             [String: TimeInterval].self,
             forKey: .agentHookFailureReportTimestamps
@@ -60,6 +76,12 @@ struct ClaudeHookSessionStoreFile: Codable {
         }
         if !activeSessionsBySurface.isEmpty {
             try container.encode(activeSessionsBySurface, forKey: .activeSessionsBySurface)
+        }
+        if !claudeTeamTaskBindings.isEmpty {
+            try container.encode(claudeTeamTaskBindings, forKey: .claudeTeamTaskBindings)
+        }
+        if !claudeTaskListDestinations.isEmpty {
+            try container.encode(claudeTaskListDestinations, forKey: .claudeTaskListDestinations)
         }
         if !agentHookFailureReportTimestamps.isEmpty {
             try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)

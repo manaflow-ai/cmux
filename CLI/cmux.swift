@@ -178,6 +178,10 @@ struct ClaudeHookSessionRecord: Codable {
     var hadPendingBackgroundWorkAtStop: Bool?
     /// Direct child name under Claude's task-store root proven for this session.
     var claudeTaskDirectoryName: String?
+    /// Opaque Claude task-store namespace that proved the directory binding.
+    var claudeTaskStoreID: String?
+    /// Whether the pre-profile checklist owner for this binding was cleared.
+    var claudeTaskLegacyOwnerCleared: Bool?
 }
 
 struct ClaudeHookActiveSessionRecord: Codable {
@@ -210,6 +214,7 @@ final class ClaudeHookSessionStore {
     private let fileManager: FileManager
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
+    private var lockDeadlineUptime: TimeInterval?
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
@@ -230,6 +235,15 @@ final class ClaudeHookSessionStore {
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
+    /// Tightens every subsequent state-lock acquisition for this hook process.
+    func enforceLockDeadline(untilUptime deadlineUptime: TimeInterval) {
+        if let lockDeadlineUptime {
+            self.lockDeadlineUptime = min(lockDeadlineUptime, deadlineUptime)
+        } else {
+            self.lockDeadlineUptime = deadlineUptime
+        }
+    }
+
     func lookup(sessionId: String) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
@@ -238,8 +252,96 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Persists a task-directory binding proven by a deterministic path or an
-    /// exact task id-and-subject match.
+    /// Serializes task snapshot publication across every Claude config root
+    /// that shares this durable hook store, without waiting past the hook's
+    /// absolute deadline.
+    func withClaudeTaskSyncLock<T>(
+        deadlineUptime: TimeInterval,
+        _ body: () throws -> T
+    ) throws -> T {
+        try checkLockDeadline()
+        let lockPath = statePath + ".task-sync.lock"
+        let parentPath = URL(fileURLWithPath: lockPath).deletingLastPathComponent()
+        try fileManager.createDirectory(
+            at: parentPath,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
+        try checkLockDeadline()
+        return try withExclusiveFileLock(
+            atPath: lockPath,
+            deadlineUptime: deadlineUptime,
+            body
+        )
+    }
+
+    /// Holds one cross-process file lock, bounded when a deadline is present.
+    private func withExclusiveFileLock<T>(
+        atPath lockPath: String,
+        deadlineUptime: TimeInterval?,
+        _ body: () throws -> T
+    ) throws -> T {
+        guard let deadlineUptime else {
+            let descriptor = open(
+                lockPath,
+                O_CREAT | O_RDWR,
+                mode_t(S_IRUSR | S_IWUSR)
+            )
+            guard descriptor >= 0 else { throw POSIXError(.EIO) }
+            defer { Darwin.close(descriptor) }
+            guard flock(descriptor, LOCK_EX) == 0 else { throw POSIXError(.EIO) }
+            defer { _ = flock(descriptor, LOCK_UN) }
+            return try body()
+        }
+        let remainingSeconds = deadlineUptime - ProcessInfo.processInfo.systemUptime
+        // macOS 14's lockf accepts only `file command`, not descriptor locking.
+        // Whole-second timeout granularity cannot honor a sub-second remainder.
+        guard remainingSeconds >= 1 else { throw POSIXError(.ETIMEDOUT) }
+        let timeoutSeconds = max(1, Int(remainingSeconds.rounded(.down)))
+        let leaseInput = Pipe()
+        let readyOutput = Pipe()
+        let lockProcess = Process()
+        lockProcess.executableURL = URL(fileURLWithPath: "/usr/bin/lockf")
+        lockProcess.arguments = [
+            "-k",
+            "-s",
+            "-t",
+            String(timeoutSeconds),
+            lockPath,
+            "/bin/sh",
+            "-c",
+            "printf .; /bin/cat >/dev/null",
+        ]
+        lockProcess.standardInput = leaseInput
+        lockProcess.standardOutput = readyOutput
+        lockProcess.standardError = FileHandle.nullDevice
+        try lockProcess.run()
+        try leaseInput.fileHandleForReading.close()
+        try readyOutput.fileHandleForWriting.close()
+        let readyByte = readyOutput.fileHandleForReading.readData(ofLength: 1)
+        guard readyByte == Data(".".utf8),
+              lockProcess.isRunning,
+              ProcessInfo.processInfo.systemUptime < deadlineUptime else {
+            try? leaseInput.fileHandleForWriting.close()
+            lockProcess.waitUntilExit()
+            throw POSIXError(.ETIMEDOUT)
+        }
+        defer {
+            try? leaseInput.fileHandleForWriting.close()
+            lockProcess.waitUntilExit()
+        }
+        return try body()
+    }
+
+    /// Rejects state I/O after the task hook's monotonic budget expires.
+    private func checkLockDeadline() throws {
+        guard let lockDeadlineUptime else { return }
+        guard ProcessInfo.processInfo.systemUptime < lockDeadlineUptime else {
+            throw POSIXError(.ETIMEDOUT)
+        }
+    }
+
+    /// Persists a session-owned task-directory binding.
     ///
     /// Claude launches asynchronous hooks in separate CLI processes, so the
     /// binding is updated inside the existing cross-process session-store
@@ -247,6 +349,7 @@ final class ClaudeHookSessionStore {
     func bindClaudeTaskDirectory(
         sessionId: String,
         directoryName: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
         workspaceId: String,
         surfaceId: String
     ) throws {
@@ -267,11 +370,614 @@ final class ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
-            guard record.claudeTaskDirectoryName != normalizedDirectoryName else { return }
+            guard record.claudeTaskDirectoryName != normalizedDirectoryName
+                    || record.claudeTaskStoreID != taskStoreIdentity.rawValue else { return }
             record.claudeTaskDirectoryName = normalizedDirectoryName
+            record.claudeTaskStoreID = taskStoreIdentity.rawValue
+            record.claudeTaskLegacyOwnerCleared = nil
             record.updatedAt = now
             state.sessions[normalizedSessionId] = record
         }
+    }
+
+    /// Returns every recorded workspace still carrying one pre-profile owner.
+    func legacyClaudeTaskOwnerWorkspaceIDs(
+        directoryName: String,
+        including workspaceIDs: [String],
+        includeFallbackDestinations: Bool = false
+    ) throws -> [String] {
+        let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDirectoryName.isEmpty,
+              normalizedDirectoryName != ".",
+              normalizedDirectoryName != "..",
+              !normalizedDirectoryName.contains("/"),
+              !normalizedDirectoryName.contains("\0") else { return [] }
+        return try withLockedState { state in
+            let records = Array(state.sessions.values)
+                + Array(state.pendingSupersededSessionCleanup.values)
+            let pendingRecords = records.filter {
+                $0.claudeTaskDirectoryName == normalizedDirectoryName
+                    && $0.claudeTaskStoreID == nil
+                    && $0.claudeTaskLegacyOwnerCleared != true
+            }
+            guard !pendingRecords.isEmpty || includeFallbackDestinations else { return [] }
+            return Set(
+                pendingRecords.compactMap { normalizeOptional($0.workspaceId) }
+                    + workspaceIDs.compactMap(normalizeOptional)
+            ).sorted()
+        }
+    }
+
+    /// Marks every recorded copy of one legacy owner only after app cleanup succeeds.
+    func markLegacyClaudeTaskOwnerCleared(directoryName: String) throws {
+        let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedDirectoryName.isEmpty,
+              normalizedDirectoryName != ".",
+              normalizedDirectoryName != "..",
+              !normalizedDirectoryName.contains("/"),
+              !normalizedDirectoryName.contains("\0") else { return }
+        try withLockedState { state in
+            let now = Date.now.timeIntervalSince1970
+            for sessionId in Array(state.sessions.keys) {
+                guard var record = state.sessions[sessionId],
+                      record.claudeTaskDirectoryName == normalizedDirectoryName,
+                      record.claudeTaskStoreID == nil else { continue }
+                record.claudeTaskLegacyOwnerCleared = true
+                record.updatedAt = now
+                state.sessions[sessionId] = record
+            }
+            for sessionId in Array(state.pendingSupersededSessionCleanup.keys) {
+                guard var record = state.pendingSupersededSessionCleanup[sessionId],
+                      record.claudeTaskDirectoryName == normalizedDirectoryName,
+                      record.claudeTaskStoreID == nil else { continue }
+                record.claudeTaskLegacyOwnerCleared = true
+                // Preserve the pending record's immutable cleanup age anchors.
+                state.pendingSupersededSessionCleanup[sessionId] = record
+            }
+        }
+    }
+
+    /// Namespaces one legacy session binding after its old checklist owner was cleared.
+    ///
+    /// The caller performs the app reconciliation first. Keeping the compare-and-set
+    /// inside the session-store lock ensures a failed cleanup remains retryable and a
+    /// concurrently replaced binding is never stamped with the wrong profile.
+    func markLegacyClaudeTaskDirectoryMigrated(
+        sessionId: String,
+        directoryName: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> Bool {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        let normalizedDirectoryName = directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty,
+              !normalizedDirectoryName.isEmpty,
+              normalizedDirectoryName != ".",
+              normalizedDirectoryName != "..",
+              !normalizedDirectoryName.contains("/"),
+              !normalizedDirectoryName.contains("\0") else { return false }
+        return try withLockedState { state in
+            guard var record = state.sessions[normalizedSessionId],
+                  record.claudeTaskDirectoryName == normalizedDirectoryName else {
+                return false
+            }
+            if let existingTaskStoreID = record.claudeTaskStoreID {
+                return existingTaskStoreID == taskStoreIdentity.rawValue
+            }
+            guard record.claudeTaskLegacyOwnerCleared == true else { return false }
+            record.claudeTaskStoreID = taskStoreIdentity.rawValue
+            record.claudeTaskLegacyOwnerCleared = nil
+            record.updatedAt = Date.now.timeIntervalSince1970
+            state.sessions[normalizedSessionId] = record
+            return true
+        }
+    }
+
+    /// Plans configured-list destinations and any owner cleanup needed for capacity.
+    func claudeTaskListDestinationTransition(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        including workspaceIDs: [String]
+    ) throws -> (
+        workspaceIDs: [String],
+        retiredRecords: [ClaudeHookTaskListDestinationRecord]
+    ) {
+        let normalizedTaskListID = taskListID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkspaceIDs = Set(workspaceIDs.compactMap(normalizeOptional))
+        guard !normalizedTaskListID.isEmpty,
+              normalizedTaskListID != ".",
+              normalizedTaskListID != "..",
+              !normalizedTaskListID.contains("/"),
+              !normalizedTaskListID.contains("\0"),
+              !normalizedWorkspaceIDs.isEmpty else {
+            throw POSIXError(.EINVAL)
+        }
+        return try withLockedState { state in
+            guard state.claudeTaskListDestinations.count
+                    <= ClaudeHookTaskListDestinationRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            let storageKey = claudeTaskListStorageKey(
+                taskListID: normalizedTaskListID,
+                taskStoreIdentity: taskStoreIdentity
+            )
+            var destinationWorkspaceIDs = normalizedWorkspaceIDs
+            var retiredRecords: [ClaudeHookTaskListDestinationRecord] = []
+            if let record = state.claudeTaskListDestinations[storageKey] {
+                guard record.taskStoreIdentity == taskStoreIdentity,
+                      record.taskListID == normalizedTaskListID else {
+                    throw POSIXError(.EINVAL)
+                }
+                destinationWorkspaceIDs.formUnion(record.workspaceIDs)
+            } else {
+                if let legacyRecord = state.claudeTaskListDestinations[normalizedTaskListID],
+                   legacyRecord.taskStoreIdentity == nil,
+                   legacyRecord.taskListID == normalizedTaskListID {
+                    guard legacyRecord.workspaceIDs.count
+                            <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+                        throw POSIXError(.E2BIG)
+                    }
+                    destinationWorkspaceIDs.formUnion(legacyRecord.workspaceIDs)
+                    retiredRecords.append(legacyRecord)
+                }
+                let projectedCount = state.claudeTaskListDestinations.count
+                    - retiredRecords.count
+                    + 1
+                let retirementCount = max(
+                    0,
+                    projectedCount - ClaudeHookTaskListDestinationRecord.maximumRecordCount
+                )
+                if retirementCount > 0 {
+                    let retiredKeys = Set(retiredRecords.map {
+                        claudeTaskListStorageKey($0)
+                    })
+                    let capacityRetirements = state.claudeTaskListDestinations.values
+                        .filter { !retiredKeys.contains(claudeTaskListStorageKey($0)) }
+                        .sorted { lhs, rhs in
+                            if lhs.updatedAt != rhs.updatedAt {
+                                return lhs.updatedAt < rhs.updatedAt
+                            }
+                            return claudeTaskListStorageKey(lhs)
+                                < claudeTaskListStorageKey(rhs)
+                        }
+                    guard capacityRetirements.count >= retirementCount else {
+                        throw POSIXError(.E2BIG)
+                    }
+                    retiredRecords.append(
+                        contentsOf: capacityRetirements.prefix(retirementCount)
+                    )
+                }
+            }
+            guard destinationWorkspaceIDs.count
+                    <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+                throw POSIXError(.E2BIG)
+            }
+            return (destinationWorkspaceIDs.sorted(), retiredRecords)
+        }
+    }
+
+    /// Commits configured-list destinations after the app accepts reconciliation.
+    func commitClaudeTaskListDestinations(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        workspaceIDs: [String]
+    ) throws {
+        let normalizedTaskListID = taskListID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkspaceIDs = Set(workspaceIDs.compactMap(normalizeOptional)).sorted()
+        guard !normalizedTaskListID.isEmpty,
+              !normalizedWorkspaceIDs.isEmpty,
+              normalizedWorkspaceIDs.count
+                <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+            throw POSIXError(.EINVAL)
+        }
+        try withLockedState { state in
+            guard state.claudeTaskListDestinations.count
+                    <= ClaudeHookTaskListDestinationRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            let storageKey = claudeTaskListStorageKey(
+                taskListID: normalizedTaskListID,
+                taskStoreIdentity: taskStoreIdentity
+            )
+            guard state.claudeTaskListDestinations[storageKey] != nil
+                || state.claudeTaskListDestinations.count
+                    < ClaudeHookTaskListDestinationRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            state.claudeTaskListDestinations[storageKey] = ClaudeHookTaskListDestinationRecord(
+                taskStoreIdentity: taskStoreIdentity,
+                taskListID: normalizedTaskListID,
+                workspaceIDs: normalizedWorkspaceIDs,
+                updatedAt: Date.now.timeIntervalSince1970
+            )
+        }
+    }
+
+    /// Returns the exact configured-list cleanup proof, including legacy state.
+    func claudeTaskListDestinationRecord(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> ClaudeHookTaskListDestinationRecord? {
+        try withLockedState { state in
+            guard state.claudeTaskListDestinations.count
+                    <= ClaudeHookTaskListDestinationRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            let storageKey = claudeTaskListStorageKey(
+                taskListID: taskListID,
+                taskStoreIdentity: taskStoreIdentity
+            )
+            let record = state.claudeTaskListDestinations[storageKey]
+                ?? state.claudeTaskListDestinations[taskListID]
+            guard let record,
+                  record.taskListID == taskListID,
+                  record.taskStoreIdentity == taskStoreIdentity
+                    || record.taskStoreIdentity == nil else {
+                return nil
+            }
+            guard record.workspaceIDs.count
+                    <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+                throw POSIXError(.E2BIG)
+            }
+            return record
+        }
+    }
+
+    /// Retains unresolved configured-list destinations after cleanup attempts.
+    func retainClaudeTaskListDestinations(
+        _ retainedWorkspaceIDs: [String],
+        for record: ClaudeHookTaskListDestinationRecord
+    ) throws {
+        let retainedWorkspaceIDSet = Set(retainedWorkspaceIDs.compactMap(normalizeOptional))
+        guard retainedWorkspaceIDSet.count
+                <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+            throw POSIXError(.E2BIG)
+        }
+        try withLockedState { state in
+            let storageKey = claudeTaskListStorageKey(record)
+            guard state.claudeTaskListDestinations[storageKey] == record else { return }
+            let remainingWorkspaceIDs = record.workspaceIDs.filter {
+                retainedWorkspaceIDSet.contains($0)
+            }.sorted()
+            if remainingWorkspaceIDs.isEmpty {
+                state.claudeTaskListDestinations.removeValue(forKey: storageKey)
+            } else {
+                state.claudeTaskListDestinations[storageKey] = ClaudeHookTaskListDestinationRecord(
+                    taskStoreIdentity: record.taskStoreIdentity,
+                    taskListID: record.taskListID,
+                    workspaceIDs: remainingWorkspaceIDs,
+                    updatedAt: record.updatedAt
+                )
+            }
+        }
+    }
+
+    /// Removes one configured-list proof after every owner destination is clear.
+    func removeClaudeTaskListDestinationRecord(
+        _ record: ClaudeHookTaskListDestinationRecord
+    ) throws {
+        try withLockedState { state in
+            let storageKey = claudeTaskListStorageKey(record)
+            guard state.claudeTaskListDestinations[storageKey] == record else { return }
+            state.claudeTaskListDestinations.removeValue(forKey: storageKey)
+        }
+    }
+
+    /// Returns the unique retained automatic-team proof for a hook identity.
+    ///
+    /// Team proofs are stored outside individual sessions because process-based
+    /// teammates and their leader can emit hooks under different session IDs.
+    func claudeTeamTaskBindingRecord(
+        sessionId: String,
+        agentId: String?,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> ClaudeHookTeamTaskBindingRecord? {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        let normalizedAgentId = normalizeOptional(agentId)
+        guard !normalizedSessionId.isEmpty || normalizedAgentId != nil else { return nil }
+        return try withLockedState { state in
+            guard state.claudeTeamTaskBindings.count
+                    <= ClaudeHookTeamTaskBindingRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            let identityMatches = state.claudeTeamTaskBindings.values.compactMap { record in
+                record.binding.matches(
+                    sessionID: normalizedSessionId,
+                    agentID: normalizedAgentId
+                ) ? record : nil
+            }
+            let exactMatches = identityMatches.filter {
+                $0.binding.taskStoreIdentity == taskStoreIdentity
+            }
+            let legacyMatches = identityMatches.filter {
+                $0.binding.taskStoreIdentity == nil
+            }
+            let match: ClaudeHookTeamTaskBindingRecord?
+            if exactMatches.count == 1 {
+                match = exactMatches[0]
+            } else if exactMatches.isEmpty, legacyMatches.count == 1 {
+                match = legacyMatches[0]
+            } else {
+                match = nil
+            }
+            guard let match else { return nil }
+            guard match.workspaceIDs.count <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+                throw POSIXError(.E2BIG)
+            }
+            return match
+        }
+    }
+
+    /// Returns the exact durable owner record for a canonical task list.
+    ///
+    /// TeamDelete can arrive after Claude has already replaced the session or
+    /// agent identity, so final cleanup must resolve by the owner storage key.
+    func claudeTeamTaskBindingRecord(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) throws -> ClaudeHookTeamTaskBindingRecord? {
+        try withLockedState { state in
+            guard state.claudeTeamTaskBindings.count
+                    <= ClaudeHookTeamTaskBindingRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            let storageKey = claudeTeamTaskBindingStorageKey(
+                taskListID: taskListID,
+                taskStoreIdentity: taskStoreIdentity
+            )
+            let record: ClaudeHookTeamTaskBindingRecord
+            if let exactRecord = state.claudeTeamTaskBindings[storageKey] {
+                guard exactRecord.binding.taskStoreIdentity == taskStoreIdentity,
+                      exactRecord.binding.taskListID == taskListID else {
+                    return nil
+                }
+                record = exactRecord
+            } else {
+                guard let legacyRecord = state.claudeTeamTaskBindings[taskListID],
+                      legacyRecord.binding.taskStoreIdentity == nil,
+                      legacyRecord.binding.taskListID == taskListID else {
+                    return nil
+                }
+                record = legacyRecord
+            }
+            guard record.workspaceIDs.count
+                    <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+                throw POSIXError(.E2BIG)
+            }
+            return record
+        }
+    }
+
+    /// Plans the exact owner cleanup required before persisting a team proof.
+    func claudeTeamTaskBindingTransition(
+        _ binding: ClaudeTeamTaskListBinding,
+        workspaceId: String
+    ) throws -> (
+        workspaceIDs: [String],
+        retiredRecords: [ClaudeHookTeamTaskBindingRecord]
+    ) {
+        let normalizedWorkspaceId = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedWorkspaceId.isEmpty else {
+            throw POSIXError(.EINVAL)
+        }
+        return try withLockedState { state in
+            guard state.claudeTeamTaskBindings.count <= ClaudeHookTeamTaskBindingRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            var workspaceIDs: Set<String> = [normalizedWorkspaceId]
+            var retiredRecords: [ClaudeHookTeamTaskBindingRecord] = []
+            for record in state.claudeTeamTaskBindings.values {
+                if sameClaudeTeam(record.binding, binding) {
+                    workspaceIDs.formUnion(record.workspaceIDs)
+                    continue
+                }
+                guard conflictingClaudeTeams(record.binding, binding) else { continue }
+                retiredRecords.append(record)
+                if record.binding.leaderSessionID != nil,
+                   record.binding.leaderSessionID == binding.leaderSessionID {
+                    workspaceIDs.formUnion(record.workspaceIDs)
+                }
+            }
+            let newStorageKey = claudeTeamTaskBindingStorageKey(binding)
+            let retiredStorageKeys = Set(retiredRecords.map {
+                claudeTeamTaskBindingStorageKey($0.binding)
+            })
+            let newRecordSurvives = state.claudeTeamTaskBindings[newStorageKey] != nil
+                && !retiredStorageKeys.contains(newStorageKey)
+            let projectedCount = state.claudeTeamTaskBindings.count
+                - retiredRecords.count
+                + (newRecordSurvives ? 0 : 1)
+            if projectedCount > ClaudeHookTeamTaskBindingRecord.maximumRecordCount {
+                let capacityRetirements = state.claudeTeamTaskBindings.values
+                    .filter { record in
+                        !retiredStorageKeys.contains(
+                            claudeTeamTaskBindingStorageKey(record.binding)
+                        )
+                    }
+                    .sorted { lhs, rhs in
+                        if lhs.updatedAt != rhs.updatedAt {
+                            return lhs.updatedAt < rhs.updatedAt
+                        }
+                        return claudeTeamTaskBindingStorageKey(lhs.binding)
+                            < claudeTeamTaskBindingStorageKey(rhs.binding)
+                    }
+                let retirementCount = projectedCount
+                    - ClaudeHookTeamTaskBindingRecord.maximumRecordCount
+                guard capacityRetirements.count >= retirementCount else {
+                    throw POSIXError(.E2BIG)
+                }
+                retiredRecords.append(contentsOf: capacityRetirements.prefix(retirementCount))
+            }
+            workspaceIDs.insert(normalizedWorkspaceId)
+            guard workspaceIDs.count <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+                throw POSIXError(.E2BIG)
+            }
+            return (workspaceIDs.sorted(), retiredRecords)
+        }
+    }
+
+    /// Commits a planned team transition after every retired owner was cleared.
+    func commitClaudeTeamTaskListBinding(
+        _ binding: ClaudeTeamTaskListBinding,
+        workspaceIDs: [String],
+        retiredRecords: [ClaudeHookTeamTaskBindingRecord]
+    ) throws -> [String] {
+        let normalizedWorkspaceIDs = Set(workspaceIDs.compactMap(normalizeOptional)).sorted()
+        guard !normalizedWorkspaceIDs.isEmpty,
+              normalizedWorkspaceIDs.count <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+            throw POSIXError(.E2BIG)
+        }
+        return try withLockedState { state in
+            guard state.claudeTeamTaskBindings.count <= ClaudeHookTeamTaskBindingRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            for retiredRecord in retiredRecords {
+                let retiredStorageKey = claudeTeamTaskBindingStorageKey(
+                    retiredRecord.binding
+                )
+                guard state.claudeTeamTaskBindings[retiredStorageKey] == retiredRecord else {
+                    throw POSIXError(.EAGAIN)
+                }
+            }
+            let retiredStorageKeys = Set(retiredRecords.map {
+                claudeTeamTaskBindingStorageKey($0.binding)
+            })
+            for (storageKey, record) in state.claudeTeamTaskBindings
+                where !retiredStorageKeys.contains(storageKey) {
+                guard sameClaudeTeam(record.binding, binding)
+                    || !conflictingClaudeTeams(record.binding, binding) else {
+                    throw POSIXError(.EAGAIN)
+                }
+            }
+            for storageKey in retiredStorageKeys {
+                state.claudeTeamTaskBindings.removeValue(forKey: storageKey)
+            }
+            let storageKey = claudeTeamTaskBindingStorageKey(binding)
+            guard state.claudeTeamTaskBindings[storageKey] != nil
+                || state.claudeTeamTaskBindings.count
+                    < ClaudeHookTeamTaskBindingRecord.maximumRecordCount else {
+                throw POSIXError(.E2BIG)
+            }
+            state.claudeTeamTaskBindings[storageKey] = ClaudeHookTeamTaskBindingRecord(
+                binding: binding,
+                workspaceIDs: normalizedWorkspaceIDs,
+                updatedAt: Date.now.timeIntervalSince1970
+            )
+            return normalizedWorkspaceIDs
+        }
+    }
+
+    /// Drops workspace destinations that the app authoritatively reported as closed.
+    func retainClaudeTeamTaskBindingWorkspaces(
+        _ retainedWorkspaceIDs: [String],
+        for binding: ClaudeTeamTaskListBinding
+    ) throws {
+        let retainedWorkspaceIDSet = Set(retainedWorkspaceIDs.compactMap(normalizeOptional))
+        guard retainedWorkspaceIDSet.count
+                <= ClaudeHookTeamTaskBindingRecord.maximumWorkspaceCount else {
+            throw POSIXError(.E2BIG)
+        }
+        try withLockedState { state in
+            let storageKey = claudeTeamTaskBindingStorageKey(binding)
+            guard let record = state.claudeTeamTaskBindings[storageKey],
+                  record.binding == binding else {
+                return
+            }
+            let remainingWorkspaceIDs = record.workspaceIDs.filter {
+                retainedWorkspaceIDSet.contains($0)
+            }.sorted()
+            guard remainingWorkspaceIDs != record.workspaceIDs else { return }
+            state.claudeTeamTaskBindings[storageKey] = ClaudeHookTeamTaskBindingRecord(
+                binding: record.binding,
+                workspaceIDs: remainingWorkspaceIDs,
+                updatedAt: record.updatedAt
+            )
+        }
+    }
+
+    private func sameClaudeTeam(
+        _ lhs: ClaudeTeamTaskListBinding,
+        _ rhs: ClaudeTeamTaskListBinding
+    ) -> Bool {
+        guard lhs.taskStoreIdentity == rhs.taskStoreIdentity else { return false }
+        guard lhs.taskListID == rhs.taskListID else { return false }
+        if lhs.leaderSessionID != nil || rhs.leaderSessionID != nil {
+            return lhs.leaderSessionID == rhs.leaderSessionID
+        }
+        // Older/leaderless Claude configs have no stable leader field. An
+        // overlapping exact member proves continuity across membership edits;
+        // a fully disjoint member set is a same-named replacement instead.
+        return !Set(lhs.agentIDs).isDisjoint(with: rhs.agentIDs)
+    }
+
+    private func conflictingClaudeTeams(
+        _ lhs: ClaudeTeamTaskListBinding,
+        _ rhs: ClaudeTeamTaskListBinding
+    ) -> Bool {
+        if let lhsTaskStoreIdentity = lhs.taskStoreIdentity,
+           let rhsTaskStoreIdentity = rhs.taskStoreIdentity,
+           lhsTaskStoreIdentity != rhsTaskStoreIdentity {
+            return false
+        }
+        if lhs.taskListID == rhs.taskListID { return true }
+        if let leaderSessionID = lhs.leaderSessionID,
+           leaderSessionID == rhs.leaderSessionID {
+            return true
+        }
+        return !Set(lhs.agentIDs).isDisjoint(with: rhs.agentIDs)
+    }
+
+    /// Retires one consumed cleanup proof after its empty owner sync succeeds.
+    func removeClaudeTeamTaskListBinding(
+        _ binding: ClaudeTeamTaskListBinding
+    ) throws {
+        try withLockedState { state in
+            let storageKey = claudeTeamTaskBindingStorageKey(binding)
+            guard state.claudeTeamTaskBindings[storageKey]?.binding == binding else {
+                return
+            }
+            state.claudeTeamTaskBindings.removeValue(forKey: storageKey)
+        }
+    }
+
+    private func claudeTeamTaskBindingStorageKey(
+        _ binding: ClaudeTeamTaskListBinding
+    ) -> String {
+        guard let taskStoreIdentity = binding.taskStoreIdentity else {
+            return binding.taskListID
+        }
+        return claudeTeamTaskBindingStorageKey(
+            taskListID: binding.taskListID,
+            taskStoreIdentity: taskStoreIdentity
+        )
+    }
+
+    private func claudeTeamTaskBindingStorageKey(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) -> String {
+        claudeTaskListStorageKey(
+            taskListID: taskListID,
+            taskStoreIdentity: taskStoreIdentity
+        )
+    }
+
+    private func claudeTaskListStorageKey(
+        _ record: ClaudeHookTaskListDestinationRecord
+    ) -> String {
+        guard let taskStoreIdentity = record.taskStoreIdentity else {
+            return record.taskListID
+        }
+        return claudeTaskListStorageKey(
+            taskListID: record.taskListID,
+            taskStoreIdentity: taskStoreIdentity
+        )
+    }
+
+    private func claudeTaskListStorageKey(
+        taskListID: String,
+        taskStoreIdentity: ClaudeTaskStoreIdentity
+    ) -> String {
+        "\(taskStoreIdentity.rawValue):\(taskListID)"
     }
 
     /// Records the hook-observed permission mode on an existing session record.
@@ -1537,23 +2243,21 @@ final class ClaudeHookSessionStore {
     }
 
     func withLockedState<T>(_ body: (inout ClaudeHookSessionStoreFile) throws -> T) throws -> T {
+        try checkLockDeadline()
         let lockPath = statePath + ".lock"
-        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
-        if fd < 0 {
-            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+        return try withExclusiveFileLock(
+            atPath: lockPath,
+            deadlineUptime: lockDeadlineUptime
+        ) {
+            var state = loadUnlocked()
+            try checkLockDeadline()
+            pruneExpired(&state)
+            let result = try body(&state)
+            try checkLockDeadline()
+            try saveUnlocked(state)
+            try checkLockDeadline()
+            return result
         }
-        defer { Darwin.close(fd) }
-
-        if flock(fd, LOCK_EX) != 0 {
-            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
-        }
-        defer { _ = flock(fd, LOCK_UN) }
-
-        var state = loadUnlocked()
-        pruneExpired(&state)
-        let result = try body(&state)
-        try saveUnlocked(state)
-        return result
     }
 
     private func loadUnlocked() -> ClaudeHookSessionStoreFile {
@@ -1634,6 +2338,9 @@ final class ClaudeHookSessionStore {
         state.activeSessionsBySurface = state.activeSessionsBySurface.filter { surfaceId, active in
             active.updatedAt >= cutoff && normalizeOptional(state.sessions[active.sessionId]?.surfaceId) == surfaceId
         }
+        // Team bindings are bounded cleanup proofs, not activity cache entries.
+        // Only a successful owner reconciliation or an explicit transition may
+        // retire them; age-based eviction would strand workspace rows forever.
     }
 
     private func normalizeSessionId(_ value: String) -> String {
@@ -1836,6 +2543,7 @@ final class SocketClient {
     private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
+    private var responseDeadlineUptime: TimeInterval?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let receiveTimeoutReconfigurationToleranceSeconds: TimeInterval = 0.001
@@ -1883,6 +2591,19 @@ final class SocketClient {
 
     var socketPath: String {
         path
+    }
+
+    /// Tightens every subsequent socket operation to one monotonic deadline.
+    ///
+    /// - Returns: The effective deadline after preserving any earlier bound.
+    @discardableResult
+    func enforceResponseDeadline(untilUptime deadlineUptime: TimeInterval) -> TimeInterval {
+        if let existingDeadline = responseDeadlineUptime {
+            responseDeadlineUptime = min(existingDeadline, deadlineUptime)
+        } else {
+            responseDeadlineUptime = deadlineUptime
+        }
+        return responseDeadlineUptime ?? deadlineUptime
     }
 
     var isRelayBacked: Bool {
@@ -1951,13 +2672,23 @@ final class SocketClient {
     }
 
     func connect() throws {
-        try connectWithRetry(deadline: nil)
+        try connectWithRetry(deadline: try enforcedResponseDeadlineDate())
     }
 
     /// Connects using the remaining absolute deadline for both the socket
     /// operation timeout and the existing short retry window.
     func connect(deadline: Date) throws {
-        try connectWithRetry(deadline: deadline)
+        let enforcedDeadline = try enforcedResponseDeadlineDate()
+        try connectWithRetry(deadline: enforcedDeadline.map { min(deadline, $0) } ?? deadline)
+    }
+
+    /// Converts the monotonic response bound at the point of each operation.
+    private func enforcedResponseDeadlineDate() throws -> Date? {
+        guard let responseDeadlineUptime else { return nil }
+        let remainingSeconds = responseDeadlineUptime
+            - ProcessInfo.processInfo.systemUptime
+        guard remainingSeconds > 0 else { throw POSIXError(.ETIMEDOUT) }
+        return Date.now.addingTimeInterval(remainingSeconds)
     }
 
     private func connectWithRetry(deadline: Date?) throws {
@@ -2009,7 +2740,11 @@ final class SocketClient {
     ) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
         let relativeDeadline = Date.now.addingTimeInterval(requestedResponseTimeout)
-        let operationDeadline = deadline.map { min($0, relativeDeadline) } ?? relativeDeadline
+        let callerDeadline = deadline.map { min($0, relativeDeadline) } ?? relativeDeadline
+        let enforcedDeadline = try enforcedResponseDeadlineDate()
+        let operationDeadline = enforcedDeadline.map {
+            min(callerDeadline, $0)
+        } ?? callerDeadline
         if relayEndpoint != nil, socketFD < 0 {
             try connect(deadline: operationDeadline)
         }
@@ -2851,7 +3586,24 @@ final class SocketClient {
             throw CLIError(message: "Failed to encode v2 request")
         }
 
-        let raw = try send(command: requestLine, responseTimeout: responseTimeout)
+        let effectiveResponseTimeout: TimeInterval?
+        if let responseDeadlineUptime {
+            let remainingSeconds = responseDeadlineUptime
+                - ProcessInfo.processInfo.systemUptime
+            guard remainingSeconds > 0 else {
+                throw POSIXError(.ETIMEDOUT)
+            }
+            effectiveResponseTimeout = min(
+                responseTimeout ?? remainingSeconds,
+                remainingSeconds
+            )
+        } else {
+            effectiveResponseTimeout = responseTimeout
+        }
+        let raw = try send(
+            command: requestLine,
+            responseTimeout: effectiveResponseTimeout
+        )
 
         // The server may return plain-text errors (e.g., "ERROR: Access denied ...")
         // before the JSON protocol starts. Surface these directly instead of letting
@@ -3537,6 +4289,13 @@ struct CMUXCLI {
             idFormatArg = parsedIDFormat
         }
         let commandArgs = presentationOptions.remaining
+        let claudeTaskSyncDeadlineUptime = Self.isClaudeTaskSyncHookCommand(
+            command: command,
+            commandArgs: commandArgs
+        ) ? (
+            ProcessInfo.processInfo.systemUptime
+                + Self.claudeTaskSyncResponseBudgetSeconds
+        ) : nil
 
         if command == "version" {
             print(versionSummary())
@@ -3862,6 +4621,11 @@ struct CMUXCLI {
         )
         try validateWorkspaceLoadingCommandBeforeSocket(command: command, commandArgs: commandArgs)
         let client = SocketClient(path: resolvedSocketPath)
+        if let claudeTaskSyncDeadlineUptime {
+            client.enforceResponseDeadline(
+                untilUptime: claudeTaskSyncDeadlineUptime
+            )
+        }
         if resolvedSocketPath != socketPath {
             cliTelemetry.breadcrumb(
                 "socket.path.autodiscovered",
@@ -3884,6 +4648,10 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
+            if claudeTaskSyncDeadlineUptime != nil {
+                printClaudeHookAck()
+                return
+            }
             if command == "restore", explicitSocketPath == nil {
                 throw loggedRestoreError(
                     stage: "socket.startup",
@@ -3898,11 +4666,20 @@ struct CMUXCLI {
         }
         defer { client.close() }
 
-        try authenticateClientIfNeeded(
-            client,
-            explicitPassword: socketPasswordArg,
-            socketPath: resolvedSocketPath
-        )
+        do {
+            try authenticateClientIfNeeded(
+                client,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            )
+        } catch {
+            guard claudeTaskSyncDeadlineUptime == nil else {
+                cliTelemetry.breadcrumb("claude-hook.task-sync.authentication-failed")
+                printClaudeHookAck()
+                return
+            }
+            throw error
+        }
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
         // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
@@ -24695,6 +25472,13 @@ struct CMUXCLI {
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let parsedInput = parseClaudeHookInput(rawInput: rawInput)
         let sessionStore = ClaudeHookSessionStore()
+        if subcommand == "task-sync" {
+            let deadlineUptime = client.enforceResponseDeadline(
+                untilUptime: ProcessInfo.processInfo.systemUptime
+                    + Self.claudeTaskSyncResponseBudgetSeconds
+            )
+            sessionStore.enforceLockDeadline(untilUptime: deadlineUptime)
+        }
         // Record the hook-observed permission mode (shift+tab auto-accept, plan
         // mode, bypass toggle): it is runtime state that never appears in the
         // captured launch argv, and session restore re-applies it as

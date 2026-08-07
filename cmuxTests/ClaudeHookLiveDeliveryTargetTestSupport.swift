@@ -47,6 +47,11 @@ enum ClaudeHookLiveDeliveryHarness {
         let timedOut: Bool
     }
 
+    struct TaskSyncDeliverySignals {
+        let feed = DispatchSemaphore(value: 0)
+        let reconciliation = DispatchSemaphore(value: 0)
+    }
+
     static func makeContext(name: String) throws -> Context {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-\(name)-\(UUID().uuidString)", isDirectory: true)
@@ -169,41 +174,77 @@ enum ClaudeHookLiveDeliveryHarness {
     static func startTaskSyncServer(
         context: Context,
         workspaceId: String,
-        surfaceId: String
-    ) -> DispatchSemaphore {
-        let mutationSeen = DispatchSemaphore(value: 0)
+        surfaceId: String,
+        workspaceIDsBySurface: [String: String] = [:],
+        missingWorkspaceIDs: Set<String> = []
+    ) -> TaskSyncDeliverySignals {
+        let deliveries = TaskSyncDeliverySignals()
         _ = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
                   let method = payload["method"] as? String else {
                 return "OK"
             }
             if method == "feed.push" {
-                mutationSeen.signal()
+                deliveries.feed.signal()
                 return "OK"
             }
             guard let id = payload["id"] as? String else {
                 return "OK"
             }
+            let params = payload["params"] as? [String: Any] ?? [:]
             switch method {
             case "agent.resolve_delivery_target":
+                let requestedSurfaceID = params["surface_id"] as? String
+                let resolvedWorkspaceID = requestedSurfaceID.flatMap {
+                    workspaceIDsBySurface[$0]
+                } ?? workspaceId
                 return v2Response(id: id, ok: true, result: [
-                    "workspace_id": workspaceId,
-                    "surface_id": surfaceId,
+                    "workspace_id": resolvedWorkspaceID,
+                    "surface_id": requestedSurfaceID ?? surfaceId,
                     "source": "surface",
                 ])
             case "surface.list":
+                let requestedWorkspaceID = params["workspace_id"] as? String
+                let resolvedSurfaceID = workspaceIDsBySurface.first {
+                    $0.value == requestedWorkspaceID
+                }?.key ?? surfaceId
                 return v2Response(id: id, ok: true, result: [
-                    "surfaces": [["id": surfaceId, "ref": "surface:1", "focused": true]],
+                    "surfaces": [["id": resolvedSurfaceID, "ref": "surface:1", "focused": true]],
                 ])
             case "workspace.todo.reconcile":
-                mutationSeen.signal()
-                let params = payload["params"] as? [String: Any]
-                let items = params?["items"] as? [[String: Any]] ?? []
+                let items = params["items"] as? [[String: Any]] ?? []
                 if items.count > 50 {
+                    let destinationCount = (params["workspace_ids"] as? [String])?.count ?? 1
+                    for _ in 0..<destinationCount {
+                        deliveries.reconciliation.signal()
+                    }
                     return v2Response(
                         id: id,
                         ok: false,
                         error: ["code": "invalid_params", "message": "checklist cap exceeded"]
+                    )
+                }
+                if let destinationWorkspaceIDs = params["workspace_ids"] as? [String] {
+                    let results: [[String: Any]] = destinationWorkspaceIDs.map { workspaceID in
+                        deliveries.reconciliation.signal()
+                        if missingWorkspaceIDs.contains(workspaceID) {
+                            return [
+                                "workspace_id": workspaceID,
+                                "ok": false,
+                                "error": ["code": "not_found", "message": "workspace closed"],
+                            ]
+                        }
+                        return ["workspace_id": workspaceID, "ok": true]
+                    }
+                    return v2Response(id: id, ok: true, result: ["results": results])
+                }
+                deliveries.reconciliation.signal()
+                if let destinationWorkspaceID = params["workspace_id"] as? String,
+                   missingWorkspaceIDs.contains(destinationWorkspaceID) {
+                    return v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "not_found", "message": "workspace closed"]
                     )
                 }
                 return v2Response(id: id, ok: true, result: [:])
@@ -215,7 +256,27 @@ enum ClaudeHookLiveDeliveryHarness {
                 )
             }
         }
-        return mutationSeen
+        return deliveries
+    }
+
+    static func taskSyncReconcileRequests(in context: Context) -> [[String: Any]] {
+        context.state.snapshot().compactMap { command -> [String: Any]? in
+            guard let request = jsonObject(command),
+                  request["method"] as? String == "workspace.todo.reconcile" else {
+                return nil
+            }
+            return request["params"] as? [String: Any]
+        }.flatMap { params -> [[String: Any]] in
+            guard let workspaceIDs = params["workspace_ids"] as? [String] else {
+                return [params]
+            }
+            return workspaceIDs.map { workspaceID in
+                var expanded = params
+                expanded.removeValue(forKey: "workspace_ids")
+                expanded["workspace_id"] = workspaceID
+                return expanded
+            }
+        }
     }
 
     static func resumeBindingParams(in context: Context) -> [[String: Any]] {
@@ -235,6 +296,8 @@ enum ClaudeHookLiveDeliveryHarness {
         surfaceId: String,
         cwd: String,
         pid: Int? = nil,
+        claudeTaskDirectoryName: String? = nil,
+        claudeTaskStoreID: String? = nil,
         markActive: Bool = false
     ) throws {
         let now = Date().timeIntervalSince1970
@@ -248,6 +311,12 @@ enum ClaudeHookLiveDeliveryHarness {
             "updatedAt": now,
         ]
         if let pid { record["pid"] = pid }
+        if let claudeTaskDirectoryName {
+            record["claudeTaskDirectoryName"] = claudeTaskDirectoryName
+        }
+        if let claudeTaskStoreID {
+            record["claudeTaskStoreID"] = claudeTaskStoreID
+        }
         var store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],

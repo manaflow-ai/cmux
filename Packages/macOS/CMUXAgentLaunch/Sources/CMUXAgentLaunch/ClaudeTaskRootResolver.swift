@@ -23,6 +23,23 @@ public struct ClaudeTaskRootResolver {
     ///
     /// - Returns: The configured Claude tasks directory.
     public func resolve() -> URL {
+        configRootURL().appendingPathComponent("tasks", isDirectory: true)
+            .canonicalClaudeTaskStoreDirectoryURL
+    }
+
+    /// Resolves the team-config sibling from the logical profile root.
+    ///
+    /// The `tasks` leaf may itself be a symlink to another volume. Team configs
+    /// remain relative to the configured profile, so they must be canonicalized
+    /// independently instead of derived from the resolved tasks URL.
+    ///
+    /// - Returns: The configured Claude teams directory.
+    public func resolveTeamsRoot() -> URL {
+        configRootURL().appendingPathComponent("teams", isDirectory: true)
+            .canonicalClaudeTaskStoreDirectoryURL
+    }
+
+    private func configRootURL() -> URL {
         let configuredDirectory = environment["CLAUDE_CONFIG_DIR"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let environmentHome = nonEmptyEnvironmentValue(environment["HOME"]).map {
@@ -44,7 +61,7 @@ public struct ClaudeTaskRootResolver {
         } else {
             configURL = hookHomeURL.appendingPathComponent(".claude", isDirectory: true)
         }
-        return configURL.appendingPathComponent("tasks", isDirectory: true)
+        return configURL
     }
 
     private func nonEmptyEnvironmentValue(_ value: String?) -> String? {

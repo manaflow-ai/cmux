@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Dispatch
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ struct ClaudeTaskSyncHookTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "task-sync-session"
-        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
             context: context,
             workspaceId: workspaceId,
             surfaceId: surfaceId
@@ -43,11 +44,14 @@ struct ClaudeTaskSyncHookTests {
         #expect(!firstResult.timedOut, Comment(rawValue: firstResult.stderr))
         #expect(firstResult.status == 0, Comment(rawValue: firstResult.stderr))
         #expect(firstResult.stdout == "{}\n")
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
 
         let firstReconcile = try #require(reconcileRequests(in: context).last)
-        #expect(firstReconcile["owner_id"] as? String == "claude:\(sessionId)")
+        #expect(firstReconcile["owner_id"] as? String == taskOwnerID(
+            directoryName: sessionId,
+            tasksRootURL: taskDirectory.deletingLastPathComponent()
+        ))
         let firstItems = try #require(firstReconcile["items"] as? [[String: Any]])
         #expect(firstItems.count == 2)
         #expect(firstItems.compactMap { $0["text"] as? String } == ["Running first task", "Second task"])
@@ -79,8 +83,8 @@ struct ClaudeTaskSyncHookTests {
         )
         #expect(!secondResult.timedOut, Comment(rawValue: secondResult.stderr))
         #expect(secondResult.status == 0, Comment(rawValue: secondResult.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
 
         let secondReconcile = try #require(reconcileRequests(in: context).last)
         let secondItems = try #require(secondReconcile["items"] as? [[String: Any]])
@@ -95,10 +99,232 @@ struct ClaudeTaskSyncHookTests {
         let latestTodos = try #require(latestInput["todos"] as? [[String: Any]])
         #expect(latestTodos.compactMap { $0["id"] as? String } == ["1", "3"])
 
-        let lockFiles = try FileManager.default.contentsOfDirectory(
-            atPath: context.root.appendingPathComponent(".claude/tasks").path
-        ).filter { $0.hasPrefix(".cmux-task-sync") }
-        #expect(lockFiles == [".cmux-task-sync.lock"])
+        #expect(FileManager.default.fileExists(
+            atPath: context.storeURL.path + ".task-sync.lock"
+        ))
+    }
+
+    @Test("Namespaced delivery removes a legacy owner exactly once")
+    func migratesLegacyChecklistOwnerBeforeDelivery() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-owner-migration")
+        defer { context.cleanup() }
+        let workspaceId = "13131313-1313-1313-1313-131313131313"
+        let surfaceId = "14141414-1414-1414-1414-141414141414"
+        let teammateWorkspaceId = "15151515-1515-1515-1515-151515151515"
+        let teammateSurfaceId = "16161616-1616-1616-1616-161616161616"
+        let sessionId = "legacy-owner-session"
+        let teammateSessionId = "legacy-owner-teammate"
+        let tasksRoot = context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        let taskDirectory = tasksRoot.appendingPathComponent(sessionId, isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Migrated task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            claudeTaskDirectoryName: sessionId,
+            markActive: true
+        )
+        try addLegacyTaskSessionRecord(
+            to: context.storeURL,
+            sourceSessionId: sessionId,
+            sessionId: teammateSessionId,
+            workspaceId: teammateWorkspaceId,
+            surfaceId: teammateSurfaceId
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let firstResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskList"
+        )
+
+        #expect(!firstResult.timedOut, Comment(rawValue: firstResult.stderr))
+        #expect(firstResult.status == 0, Comment(rawValue: firstResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let firstRequests = reconcileRequests(in: context)
+        #expect(firstRequests.count == 3)
+        let legacyRequests = firstRequests.prefix(2)
+        #expect(Set(legacyRequests.compactMap { $0["workspace_id"] as? String }) == [
+            workspaceId,
+            teammateWorkspaceId,
+        ])
+        #expect(legacyRequests.allSatisfy {
+            $0["owner_id"] as? String == "claude:\(sessionId)"
+                && ($0["items"] as? [[String: Any]])?.isEmpty == true
+        })
+        let namespacedOwnerID = taskOwnerID(
+            directoryName: sessionId,
+            tasksRootURL: tasksRoot
+        )
+        #expect(firstRequests[2]["owner_id"] as? String == namespacedOwnerID)
+        #expect((firstRequests[2]["items"] as? [[String: Any]])?.count == 1)
+        let migratedRecord = try #require(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: sessionId
+            )
+        )
+        #expect(
+            migratedRecord["claudeTaskStoreID"] as? String
+                == ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot).rawValue
+        )
+        let teammateRecord = try #require(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: teammateSessionId
+            )
+        )
+        #expect(teammateRecord["claudeTaskStoreID"] == nil)
+        #expect(teammateRecord["claudeTaskLegacyOwnerCleared"] as? Bool == true)
+
+        let secondResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskList"
+        )
+
+        #expect(!secondResult.timedOut, Comment(rawValue: secondResult.stderr))
+        #expect(secondResult.status == 0, Comment(rawValue: secondResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let allRequests = reconcileRequests(in: context)
+        #expect(allRequests.count == 4)
+        #expect(allRequests.last?["owner_id"] as? String == namespacedOwnerID)
+    }
+
+    @Test("TeamDelete clears session-only legacy owners from every workspace")
+    func teamDeleteClearsLegacySessionDestinations() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-legacy-delete")
+        defer { context.cleanup() }
+        let workspaceId = "19191919-1919-1919-1919-191919191919"
+        let surfaceId = "20202020-2020-2020-2020-202020202020"
+        let teammateWorkspaceId = "21212121-2121-2121-2121-212121212121"
+        let teammateSurfaceId = "22212121-2121-2121-2121-212121212121"
+        let legacySessionId = "legacy-delete-leader"
+        let teammateSessionId = "legacy-delete-teammate"
+        let teamName = "Legacy-Deleted-Team"
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: legacySessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            claudeTaskDirectoryName: teamName,
+            markActive: true
+        )
+        try addLegacyTaskSessionRecord(
+            to: context.storeURL,
+            sourceSessionId: legacySessionId,
+            sessionId: teammateSessionId,
+            workspaceId: teammateWorkspaceId,
+            surfaceId: teammateSurfaceId
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: "replacement-delete-session",
+            toolName: "TeamDelete",
+            standardInput: #"{"session_id":"replacement-delete-session","hook_event_name":"PostToolUse","tool_name":"TeamDelete","tool_input":{"team_name":"Legacy-Deleted-Team"},"tool_response":{"success":true}}"#
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let requests = reconcileRequests(in: context)
+        #expect(requests.count == 3)
+        let legacyRequests = requests.prefix(2)
+        #expect(Set(legacyRequests.compactMap { $0["workspace_id"] as? String }) == [
+            workspaceId,
+            teammateWorkspaceId,
+        ])
+        #expect(legacyRequests.allSatisfy {
+            $0["owner_id"] as? String == "claude:\(teamName)"
+                && ($0["items"] as? [[String: Any]])?.isEmpty == true
+        })
+        #expect(requests.last?["owner_id"] as? String == taskOwnerID(
+            directoryName: teamName,
+            tasksRootURL: context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        ))
+        for sessionId in [legacySessionId, teammateSessionId] {
+            let record = try #require(
+                try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                    in: context.storeURL,
+                    sessionId: sessionId
+                )
+            )
+            #expect(record["claudeTaskLegacyOwnerCleared"] as? Bool == true)
+        }
+    }
+
+    @Test("Structured TeamDelete clears a legacy owner after session proof expires")
+    func teamDeleteClearsLegacyOwnerWithoutSessionRecord() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-expired-delete")
+        defer { context.cleanup() }
+        let workspaceId = "25252525-2525-2525-2525-252525252525"
+        let surfaceId = "26262626-2626-2626-2626-262626262626"
+        let teamName = "Expired-Legacy-Team"
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: "expired-delete-session",
+            toolName: "TeamDelete",
+            standardInput: #"{"session_id":"expired-delete-session","hook_event_name":"PostToolUse","tool_name":"TeamDelete","tool_input":{"team_name":"Expired-Legacy-Team"},"tool_response":{"success":true}}"#
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let requests = reconcileRequests(in: context)
+        #expect(requests.count == 2)
+        #expect(requests[0]["owner_id"] as? String == "claude:\(teamName)")
+        #expect((requests[0]["items"] as? [[String: Any]])?.isEmpty == true)
+        #expect(requests[1]["owner_id"] as? String == taskOwnerID(
+            directoryName: teamName,
+            tasksRootURL: context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        ))
     }
 
     @Test("Snapshots over the checklist cap are sent whole for atomic rejection")
@@ -108,7 +334,7 @@ struct ClaudeTaskSyncHookTests {
         let workspaceId = "33333333-3333-3333-3333-333333333333"
         let surfaceId = "44444444-4444-4444-4444-444444444444"
         let sessionId = "task-sync-cap-session"
-        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
             context: context,
             workspaceId: workspaceId,
             surfaceId: surfaceId
@@ -137,8 +363,8 @@ struct ClaudeTaskSyncHookTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
         #expect(result.stdout == "{}\n")
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let request = try #require(reconcileRequests(in: context).last)
         let items = try #require(request["items"] as? [[String: Any]])
         #expect(items.count == 51)
@@ -151,7 +377,7 @@ struct ClaudeTaskSyncHookTests {
         let workspaceId = "55555555-5555-5555-5555-555555555555"
         let surfaceId = "66666666-6666-6666-6666-666666666666"
         let sessionId = "unrelated-hook-session"
-        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
             context: context,
             workspaceId: workspaceId,
             surfaceId: surfaceId
@@ -193,8 +419,8 @@ struct ClaudeTaskSyncHookTests {
 
         #expect(!createResult.timedOut, Comment(rawValue: createResult.stderr))
         #expect(createResult.status == 0, Comment(rawValue: createResult.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let createdItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
         #expect(createdItems.compactMap { $0["text"] as? String } == ["Running team task"])
         let boundRecord = try #require(
@@ -222,11 +448,10 @@ struct ClaudeTaskSyncHookTests {
 
         #expect(!updateResult.timedOut, Comment(rawValue: updateResult.stderr))
         #expect(updateResult.status == 0, Comment(rawValue: updateResult.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let updatedItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
-        #expect(updatedItems.compactMap { $0["text"] as? String } == ["Team task"])
-        #expect(updatedItems.compactMap { $0["state"] as? String } == ["completed"])
+        #expect(updatedItems.isEmpty)
 
         try FileManager.default.removeItem(at: teamDirectory.appendingPathComponent("1.json"))
         let deleteResult = runHook(
@@ -239,8 +464,8 @@ struct ClaudeTaskSyncHookTests {
 
         #expect(!deleteResult.timedOut, Comment(rawValue: deleteResult.stderr))
         #expect(deleteResult.status == 0, Comment(rawValue: deleteResult.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let deletedItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
         #expect(deletedItems.isEmpty)
     }
@@ -308,12 +533,15 @@ struct ClaudeTaskSyncHookTests {
         defer { context.cleanup() }
         let workspaceId = "99999999-9999-9999-9999-999999999999"
         let surfaceId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let teammateWorkspaceId = "17171717-1717-1717-1717-171717171717"
+        let teammateSurfaceId = "18181818-1818-1818-1818-181818181818"
         let taskListID = "shared/task list"
         let taskDirectoryName = "shared-task-list"
-        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
             context: context,
             workspaceId: workspaceId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            workspaceIDsBySurface: [teammateSurfaceId: teammateWorkspaceId]
         )
         let taskDirectory = context.root
             .appendingPathComponent(".claude/tasks/\(taskDirectoryName)", isDirectory: true)
@@ -345,8 +573,8 @@ struct ClaudeTaskSyncHookTests {
         )
         #expect(!leaderResult.timedOut, Comment(rawValue: leaderResult.stderr))
         #expect(leaderResult.status == 0, Comment(rawValue: leaderResult.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
 
         try writeTask(
             #"{"id":"1","subject":"Shared task","activeForm":"Updating shared task","status":"in_progress"}"#,
@@ -355,6 +583,8 @@ struct ClaudeTaskSyncHookTests {
         )
         var nestedEnvironment = environment
         nestedEnvironment["CMUX_AGENT_MANAGED_SUBAGENT"] = "1"
+        nestedEnvironment["CMUX_WORKSPACE_ID"] = teammateWorkspaceId
+        nestedEnvironment["CMUX_SURFACE_ID"] = teammateSurfaceId
         let teammateSessionId = "shared-list-teammate"
         let teammateResult = runHook(
             context: context,
@@ -364,8 +594,9 @@ struct ClaudeTaskSyncHookTests {
         )
         #expect(!teammateResult.timedOut, Comment(rawValue: teammateResult.stderr))
         #expect(teammateResult.status == 0, Comment(rawValue: teammateResult.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
 
         try FileManager.default.removeItem(at: taskDirectory.appendingPathComponent("1.json"))
         let deletionSessionId = "shared-list-deletion"
@@ -378,19 +609,50 @@ struct ClaudeTaskSyncHookTests {
         )
         #expect(!deletionResult.timedOut, Comment(rawValue: deletionResult.stderr))
         #expect(deletionResult.status == 0, Comment(rawValue: deletionResult.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
 
         let reconciliations = reconcileRequests(in: context)
-        #expect(reconciliations.count == 3)
+        #expect(reconciliations.count == 5)
+        let sharedOwnerID = taskOwnerID(
+            directoryName: taskDirectoryName,
+            tasksRootURL: taskDirectory.deletingLastPathComponent()
+        )
         #expect(reconciliations.allSatisfy {
-            $0["owner_id"] as? String == "claude:\(taskDirectoryName)"
+            $0["owner_id"] as? String == sharedOwnerID
         })
         let leaderItems = try #require(reconciliations.first?["items"] as? [[String: Any]])
-        let teammateItems = try #require(reconciliations.dropFirst().first?["items"] as? [[String: Any]])
+        let teammateItems = try #require(reconciliations[1]["items"] as? [[String: Any]])
         let deletionItems = try #require(reconciliations.last?["items"] as? [[String: Any]])
         #expect(leaderItems.first?["id"] as? String == teammateItems.first?["id"] as? String)
         #expect(deletionItems.isEmpty)
+
+        var teamDeleteEnvironment = environment
+        teamDeleteEnvironment.removeValue(forKey: "CLAUDE_CODE_TASK_LIST_ID")
+        let teamDeleteSessionId = "shared-list-team-delete"
+        let teamDeleteResult = runHook(
+            context: context,
+            environment: teamDeleteEnvironment,
+            sessionId: teamDeleteSessionId,
+            toolName: "TeamDelete",
+            standardInput: #"{"session_id":"shared-list-team-delete","hook_event_name":"PostToolUse","tool_name":"TeamDelete","tool_input":{"team_name":"shared/task list"},"tool_response":{"success":true}}"#
+        )
+        #expect(!teamDeleteResult.timedOut, Comment(rawValue: teamDeleteResult.stderr))
+        #expect(teamDeleteResult.status == 0, Comment(rawValue: teamDeleteResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let teamDeleteRequests = reconcileRequests(in: context).suffix(2)
+        #expect(Set(teamDeleteRequests.compactMap { $0["workspace_id"] as? String }) == [
+            workspaceId,
+            teammateWorkspaceId,
+        ])
+        #expect(teamDeleteRequests.allSatisfy {
+            $0["owner_id"] as? String == sharedOwnerID
+                && ($0["items"] as? [[String: Any]])?.isEmpty == true
+        })
+        #expect(try taskListDestinationRecords(in: context.storeURL).isEmpty)
 
         let feedSessionIds = context.state.snapshot().compactMap(feedEvent)
             .compactMap { $0["session_id"] as? String }
@@ -398,29 +660,110 @@ struct ClaudeTaskSyncHookTests {
             "claude-\(leaderSessionId)",
             "claude-\(teammateSessionId)",
             "claude-\(deletionSessionId)",
+            "claude-\(teamDeleteSessionId)",
         ])
-        for sessionId in [leaderSessionId, teammateSessionId, deletionSessionId] {
-            let record = try #require(
-                try ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        let leaderRecord = try #require(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: leaderSessionId
             )
-            #expect(record["claudeTaskDirectoryName"] as? String == taskDirectoryName)
-        }
+        )
+        #expect(leaderRecord["claudeTaskDirectoryName"] == nil)
     }
 
-    @Test("Automatic teams resolve their shared task list from the hook agent id")
-    func resolvesAutomaticTeamTaskListFromAgentID() throws {
+    @Test("Configured-list capacity clears the oldest owner before admission")
+    func retiresOldestConfiguredTaskDestinationAtCapacity() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-list-capacity")
+        defer { context.cleanup() }
+        let workspaceId = "23232323-2323-2323-2323-232323232323"
+        let surfaceId = "24242424-2424-2424-2424-242424242424"
+        let sessionId = "configured-capacity-session"
+        let taskListID = "NewestList"
+        let tasksRoot = context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        let taskDirectory = tasksRoot.appendingPathComponent(taskListID, isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Newest configured task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(tasksRootURL: tasksRoot)
+        try seedConfiguredTaskDestinations(
+            count: 128,
+            taskStoreIdentity: taskStoreIdentity,
+            workspaceId: workspaceId,
+            storeURL: context.storeURL
+        )
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CLAUDE_CODE_TASK_LIST_ID"] = taskListID
+
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskList"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let requests = reconcileRequests(in: context)
+        #expect(requests.count == 2)
+        #expect(requests[0]["owner_id"] as? String == taskOwnerID(
+            directoryName: "ArchivedList0",
+            tasksRootURL: tasksRoot
+        ))
+        #expect((requests[0]["items"] as? [[String: Any]])?.isEmpty == true)
+        #expect(requests[1]["owner_id"] as? String == taskOwnerID(
+            directoryName: taskListID,
+            tasksRootURL: tasksRoot
+        ))
+        let records = try taskListDestinationRecords(in: context.storeURL)
+        #expect(records.count == 128)
+        #expect(!records.values.contains {
+            $0["taskListID"] as? String == "ArchivedList0"
+        })
+        #expect(records.values.contains {
+            $0["taskListID"] as? String == taskListID
+        })
+    }
+
+    @Test("Automatic team cleanup does not consume the first personal task hook")
+    func transitionsFromAutomaticTeamToPersonalTasksInOneHook() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-auto-team")
         defer { context.cleanup() }
         let workspaceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
         let surfaceId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        let teammateWorkspaceId = "12121212-1212-1212-1212-121212121212"
+        let teammateSurfaceId = "34343434-3434-3434-3434-343434343434"
         let leaderSessionId = "automatic-team-leader"
         let teammateSessionId = "automatic-team-teammate"
+        let leaderAgentId = "agent-leader"
         let teammateAgentId = "agent-teammate"
-        let teamName = "session-automatic-team"
-        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+        let teamName = "Session_Automatic_Team"
+        let teamDirectoryName = "session-automatic-team"
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
             context: context,
             workspaceId: workspaceId,
-            surfaceId: surfaceId
+            surfaceId: surfaceId,
+            workspaceIDsBySurface: [teammateSurfaceId: teammateWorkspaceId]
         )
         try ClaudeHookLiveDeliveryHarness.writeSessionStore(
             to: context.storeURL,
@@ -440,15 +783,15 @@ struct ClaudeTaskSyncHookTests {
             in: taskDirectory
         )
         let teamDirectory = context.root
-            .appendingPathComponent(".claude/teams/\(teamName)", isDirectory: true)
+            .appendingPathComponent(".claude/teams/\(teamDirectoryName)", isDirectory: true)
         try FileManager.default.createDirectory(at: teamDirectory, withIntermediateDirectories: true)
         try Data(
-            #"{"name":"\#(teamName)","members":[{"agentId":"\#(teammateAgentId)"}]}"#.utf8
+            #"{"name":"\#(teamName)","leadAgentId":"\#(leaderAgentId)","leadSessionId":"\#(leaderSessionId)","members":[{"agentId":"\#(leaderAgentId)"},{"agentId":"\#(teammateAgentId)"}]}"#.utf8
         ).write(to: teamDirectory.appendingPathComponent("config.json"))
 
         var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
-        environment["CMUX_WORKSPACE_ID"] = workspaceId
-        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_WORKSPACE_ID"] = teammateWorkspaceId
+        environment["CMUX_SURFACE_ID"] = teammateSurfaceId
         environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "1"
         let result = runHook(
             context: context,
@@ -460,19 +803,102 @@ struct ClaudeTaskSyncHookTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let reconciliation = try #require(reconcileRequests(in: context).last)
-        #expect(reconciliation["owner_id"] as? String == "claude:\(teamName)")
+        #expect(reconciliation["workspace_id"] as? String == teammateWorkspaceId)
+        let teamOwnerID = taskOwnerID(
+            directoryName: teamName,
+            tasksRootURL: taskDirectory.deletingLastPathComponent()
+        )
+        #expect(reconciliation["owner_id"] as? String == teamOwnerID)
         let items = try #require(reconciliation["items"] as? [[String: Any]])
         #expect(items.compactMap { $0["text"] as? String } == ["Claiming shared task"])
-        let record = try #require(
-            try ClaudeHookLiveDeliveryHarness.sessionRecord(
-                in: context.storeURL,
-                sessionId: teammateSessionId
-            )
+
+        var leaderEnvironment = environment
+        leaderEnvironment["CMUX_WORKSPACE_ID"] = workspaceId
+        leaderEnvironment["CMUX_SURFACE_ID"] = surfaceId
+        leaderEnvironment.removeValue(forKey: "CMUX_AGENT_MANAGED_SUBAGENT")
+        let personalTaskDirectory = context.root
+            .appendingPathComponent(".claude/tasks/\(leaderSessionId)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: personalTaskDirectory,
+            withIntermediateDirectories: true
         )
-        #expect(record["claudeTaskDirectoryName"] as? String == teamName)
+        try writeTask(
+            #"{"id":"1","subject":"Stale personal task","status":"pending"}"#,
+            named: "1.json",
+            in: personalTaskDirectory
+        )
+        let leaderTeamResult = runHook(
+            context: context,
+            environment: leaderEnvironment,
+            sessionId: leaderSessionId,
+            toolName: "TaskList"
+        )
+
+        #expect(!leaderTeamResult.timedOut, Comment(rawValue: leaderTeamResult.stderr))
+        #expect(leaderTeamResult.status == 0, Comment(rawValue: leaderTeamResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        let sharedDestinations = Array(reconcileRequests(in: context).suffix(2))
+        #expect(Set(sharedDestinations.compactMap { $0["workspace_id"] as? String }) == [
+            workspaceId,
+            teammateWorkspaceId,
+        ])
+        #expect(sharedDestinations.allSatisfy {
+            $0["owner_id"] as? String == teamOwnerID
+        })
+
+        try FileManager.default.removeItem(at: teamDirectory)
+        try FileManager.default.removeItem(at: taskDirectory)
+        try setTeamBindingUpdatedAt(
+            0,
+            taskListID: teamName,
+            storeURL: context.storeURL
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Personal follow-up","status":"pending"}"#,
+            named: "1.json",
+            in: personalTaskDirectory
+        )
+        let personalResult = runHook(
+            context: context,
+            environment: leaderEnvironment,
+            sessionId: leaderSessionId,
+            toolName: "TaskCreate",
+            standardInput: #"{"session_id":"\#(leaderSessionId)","hook_event_name":"PostToolUse","tool_name":"TaskCreate","tool_input":{"subject":"Personal follow-up"},"tool_response":{"task":{"id":"1","subject":"Personal follow-up"}}}"#
+        )
+
+        #expect(!personalResult.timedOut, Comment(rawValue: personalResult.stderr))
+        #expect(personalResult.status == 0, Comment(rawValue: personalResult.stderr))
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
+
+        let transitionReconciliations = Array(reconcileRequests(in: context).suffix(3))
+        #expect(transitionReconciliations.count == 3)
+        let cleanupReconciliations = transitionReconciliations.prefix(2)
+        #expect(Set(cleanupReconciliations.compactMap { $0["workspace_id"] as? String }) == [
+            workspaceId,
+            teammateWorkspaceId,
+        ])
+        #expect(cleanupReconciliations.allSatisfy { reconciliation in
+            reconciliation["owner_id"] as? String == teamOwnerID
+                && (reconciliation["items"] as? [[String: Any]])?.isEmpty == true
+        })
+
+        let personalReconciliation = transitionReconciliations[2]
+        #expect(personalReconciliation["workspace_id"] as? String == workspaceId)
+        #expect(personalReconciliation["owner_id"] as? String == taskOwnerID(
+            directoryName: leaderSessionId,
+            tasksRootURL: personalTaskDirectory.deletingLastPathComponent()
+        ))
+        let personalItems = try #require(personalReconciliation["items"] as? [[String: Any]])
+        #expect(personalItems.compactMap { $0["text"] as? String } == ["Personal follow-up"])
     }
 
     @Test("An all-completed snapshot preserves Feed history and clears workspace-owned todos")
@@ -483,7 +909,7 @@ struct ClaudeTaskSyncHookTests {
         let surfaceId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
         let sessionId = "completed-list-session"
         let taskListID = "completed-list"
-        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+        let deliveries = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
             context: context,
             workspaceId: workspaceId,
             surfaceId: surfaceId
@@ -510,8 +936,8 @@ struct ClaudeTaskSyncHookTests {
 
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
-        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.feed.wait(timeout: .now() + 5) == .success)
+        #expect(deliveries.reconciliation.wait(timeout: .now() + 5) == .success)
         let feedTodos = context.state.snapshot().compactMap(feedEvent)
             .compactMap { $0["tool_input"] as? [String: Any] }
             .compactMap { $0["todos"] as? [[String: Any]] }
@@ -543,12 +969,108 @@ struct ClaudeTaskSyncHookTests {
         try Data(json.utf8).write(to: directory.appendingPathComponent(name))
     }
 
-    private func reconcileRequests(in context: ClaudeHookLiveDeliveryHarness.Context) -> [[String: Any]] {
-        context.state.snapshot().compactMap { line in
-            guard let request = jsonObject(line),
-                  request["method"] as? String == "workspace.todo.reconcile" else { return nil }
-            return request["params"] as? [String: Any]
+    private func setTeamBindingUpdatedAt(
+        _ updatedAt: TimeInterval,
+        taskListID: String,
+        storeURL: URL
+    ) throws {
+        let data = try Data(contentsOf: storeURL)
+        var state = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        var bindings = try #require(
+            state["claudeTeamTaskBindings"] as? [String: [String: Any]]
+        )
+        let bindingEntry = try #require(bindings.first { _, record in
+            let binding = record["binding"] as? [String: Any]
+            return binding?["taskListID"] as? String == taskListID
+        })
+        var record = bindingEntry.value
+        record["updatedAt"] = updatedAt
+        bindings[bindingEntry.key] = record
+        state["claudeTeamTaskBindings"] = bindings
+        let updatedData = try JSONSerialization.data(
+            withJSONObject: state,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try updatedData.write(to: storeURL)
+    }
+
+    private func addLegacyTaskSessionRecord(
+        to storeURL: URL,
+        sourceSessionId: String,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String
+    ) throws {
+        let data = try Data(contentsOf: storeURL)
+        var state = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        var sessions = try #require(state["sessions"] as? [String: [String: Any]])
+        var record = try #require(sessions[sourceSessionId])
+        record["sessionId"] = sessionId
+        record["workspaceId"] = workspaceId
+        record["surfaceId"] = surfaceId
+        sessions[sessionId] = record
+        state["sessions"] = sessions
+        let updatedData = try JSONSerialization.data(
+            withJSONObject: state,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try updatedData.write(to: storeURL)
+    }
+
+    private func taskOwnerID(
+        directoryName: String,
+        tasksRootURL: URL
+    ) -> String {
+        let taskStoreIdentity = ClaudeTaskStoreIdentity(
+            tasksRootURL: tasksRootURL
+        )
+        return "claude:\(taskStoreIdentity.rawValue):\(directoryName)"
+    }
+
+    private func taskListDestinationRecords(
+        in storeURL: URL
+    ) throws -> [String: [String: Any]] {
+        let data = try Data(contentsOf: storeURL)
+        let state = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        return state["claudeTaskListDestinations"] as? [String: [String: Any]] ?? [:]
+    }
+
+    private func seedConfiguredTaskDestinations(
+        count: Int,
+        taskStoreIdentity: ClaudeTaskStoreIdentity,
+        workspaceId: String,
+        storeURL: URL
+    ) throws {
+        let data = try Data(contentsOf: storeURL)
+        var state = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        var records: [String: [String: Any]] = [:]
+        for index in 0..<count {
+            let taskListID = "ArchivedList\(index)"
+            records["\(taskStoreIdentity.rawValue):\(taskListID)"] = [
+                "taskStoreIdentity": ["rawValue": taskStoreIdentity.rawValue],
+                "taskListID": taskListID,
+                "workspaceIDs": [workspaceId],
+                "updatedAt": TimeInterval(index),
+            ]
         }
+        state["claudeTaskListDestinations"] = records
+        let updatedData = try JSONSerialization.data(
+            withJSONObject: state,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try updatedData.write(to: storeURL)
+    }
+
+    private func reconcileRequests(in context: ClaudeHookLiveDeliveryHarness.Context) -> [[String: Any]] {
+        ClaudeHookLiveDeliveryHarness.taskSyncReconcileRequests(in: context)
     }
 
     private func feedEvent(_ line: String) -> [String: Any]? {

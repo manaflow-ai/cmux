@@ -107,6 +107,68 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(snapshot.directoryName == "plain-session")
     }
 
+    @Test("Direct session loading never scans neighboring task directories")
+    func directSessionLoadingDoesNotScanNeighbors() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-direct-only-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let neighboringDirectory = root.appendingPathComponent("shared-team", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: neighboringDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Shared task","status":"pending"}"#,
+            named: "1.json",
+            in: neighboringDirectory
+        )
+        let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
+        let identity = ClaudeTaskIdentity(id: "1", subject: "Shared task")
+
+        #expect(try loader.loadDirectSessionTaskList(
+            sessionID: "personal-session",
+            taskIdentity: identity
+        ) == nil)
+        let fallbackSnapshot = try #require(try loader.load(
+            sessionID: "personal-session",
+            taskIdentity: identity
+        ))
+        #expect(fallbackSnapshot.directoryName == "shared-team")
+    }
+
+    @Test("A proven binding never falls through to a neighboring identity match")
+    func boundTaskListDoesNotScanNeighbors() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-bound-only-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let boundDirectory = root.appendingPathComponent("former-team", isDirectory: true)
+        let neighboringDirectory = root.appendingPathComponent("neighbor-team", isDirectory: true)
+        try FileManager.default.createDirectory(at: boundDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: neighboringDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Former task","status":"pending"}"#,
+            named: "1.json",
+            in: boundDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Current task","status":"pending"}"#,
+            named: "1.json",
+            in: neighboringDirectory
+        )
+        let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
+        let identity = ClaudeTaskIdentity(id: "1", subject: "Current task")
+
+        #expect(try loader.loadBoundTaskList(
+            directoryName: "former-team",
+            taskIdentity: identity
+        ) == nil)
+        let compatibilitySnapshot = try #require(try loader.load(
+            sessionID: "unrelated-session",
+            taskIdentity: identity
+        ))
+        #expect(compatibilitySnapshot.directoryName == "neighbor-team")
+    }
+
     @Test("Resolves an unrelated team directory by one exact task identity")
     func resolvesUniqueTeamDirectory() throws {
         let root = FileManager.default.temporaryDirectory
@@ -176,6 +238,103 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(unicodeSnapshot.directoryName == "shared----list")
         #expect(unicodeSnapshot.todos.map(\.content) == ["UTF-16 task"])
         #expect(try loader.loadConfiguredTaskList(taskListID: "missing/list") == nil)
+        let cleanedUpSnapshot = try #require(
+            try loader.loadKnownTaskList(taskListID: "missing/list")
+        )
+        #expect(cleanedUpSnapshot.directoryName == "missing-list")
+        #expect(cleanedUpSnapshot.todos.isEmpty)
+    }
+
+    @Test("A known task-list path must remain a direct non-symlink directory")
+    func rejectsInvalidKnownTaskListPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-known-task-list-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let knownPath = root.appendingPathComponent("shared-list", isDirectory: true)
+        let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
+
+        try Data().write(to: knownPath)
+        #expect(throws: ClaudeTaskSnapshotLoaderError.invalidTaskDirectory(
+            directoryName: "shared-list"
+        )) {
+            try loader.loadKnownTaskList(taskListID: "shared/list")
+        }
+
+        try FileManager.default.removeItem(at: knownPath)
+        let target = root.appendingPathComponent("target", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: knownPath, withDestinationURL: target)
+        #expect(throws: ClaudeTaskSnapshotLoaderError.invalidTaskDirectory(
+            directoryName: "shared-list"
+        )) {
+            try loader.loadKnownTaskList(taskListID: "shared/list")
+        }
+    }
+
+    @Test("A known task list disappearing before enumeration becomes empty")
+    func treatsKnownTaskListDeletionRaceAsEmpty() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-known-task-race-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let knownDirectory = root.appendingPathComponent("shared-list", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: knownDirectory,
+            withIntermediateDirectories: true
+        )
+        let fileManager = DisappearingTaskDirectoryFileManager(
+            disappearingDirectoryURL: knownDirectory
+        )
+
+        let snapshot = try #require(try ClaudeTaskSnapshotLoader(
+            tasksRootURL: root,
+            fileManager: fileManager
+        ).loadKnownTaskList(taskListID: "shared/list"))
+
+        #expect(snapshot.directoryName == "shared-list")
+        #expect(snapshot.todos.isEmpty)
+    }
+
+    @Test("A known task list disappearing after enumeration becomes empty")
+    func treatsPostEnumerationTaskListDeletionAsEmpty() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-known-task-post-race-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let knownDirectory = root.appendingPathComponent("shared-list", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: knownDirectory,
+            withIntermediateDirectories: true
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Must not survive deletion","status":"pending"}"#,
+            named: "1.json",
+            in: knownDirectory
+        )
+        let fileManager = DisappearingTaskDirectoryFileManager(
+            disappearingDirectoryURL: knownDirectory,
+            deletesAfterEnumeration: true
+        )
+
+        let snapshot = try #require(try ClaudeTaskSnapshotLoader(
+            tasksRootURL: root,
+            fileManager: fileManager
+        ).loadKnownTaskList(taskListID: "shared/list"))
+
+        #expect(snapshot.directoryName == "shared-list")
+        #expect(snapshot.todos.isEmpty)
+    }
+
+    @Test("Task snapshot reads honor an injected monotonic deadline")
+    func rejectsExpiredOperationDeadline() {
+        let loader = ClaudeTaskSnapshotLoader(
+            tasksRootURL: URL(fileURLWithPath: "/unused", isDirectory: true),
+            deadlineUptime: 10,
+            uptime: { 10 }
+        )
+
+        #expect(throws: ClaudeTaskSnapshotLoaderError.operationDeadlineExceeded) {
+            try loader.loadKnownTaskList(taskListID: "shared-list")
+        }
     }
 
     @Test("Rejects an ambiguous team-directory identity")
@@ -227,25 +386,96 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(ClaudeTaskRootResolver(
             environment: ["HOME": "/tmp/hook-home"],
             homeDirectoryURL: home
-        ).resolve().path == "/tmp/hook-home/.claude/tasks")
+        ).resolve().path == URL(
+            fileURLWithPath: "/tmp/hook-home/.claude/tasks",
+            isDirectory: true
+        ).resolvingSymlinksInPath().standardizedFileURL.path)
         #expect(ClaudeTaskRootResolver(
             environment: [
                 "HOME": "/tmp/hook-home",
                 "CLAUDE_CONFIG_DIR": "/tmp/claude-profile",
             ],
             homeDirectoryURL: home
-        ).resolve().path == "/tmp/claude-profile/tasks")
+        ).resolve().path == URL(
+            fileURLWithPath: "/tmp/claude-profile/tasks",
+            isDirectory: true
+        ).resolvingSymlinksInPath().standardizedFileURL.path)
         #expect(ClaudeTaskRootResolver(
             environment: [
                 "HOME": "/tmp/hook-home",
                 "CLAUDE_CONFIG_DIR": "~/claude-profile",
             ],
             homeDirectoryURL: home
-        ).resolve().path == "/tmp/hook-home/claude-profile/tasks")
+        ).resolve().path == URL(
+            fileURLWithPath: "/tmp/hook-home/claude-profile/tasks",
+            isDirectory: true
+        ).resolvingSymlinksInPath().standardizedFileURL.path)
         #expect(ClaudeTaskRootResolver(
             environment: ["HOME": "  "],
             homeDirectoryURL: home
-        ).resolve().path == "/Users/example/.claude/tasks")
+        ).resolve().path == URL(
+            fileURLWithPath: "/Users/example/.claude/tasks",
+            isDirectory: true
+        ).resolvingSymlinksInPath().standardizedFileURL.path)
+    }
+
+    @Test("Canonical task-root aliases share filesystem access and identity")
+    func canonicalizesTaskRootAliases() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-task-root-alias-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let realConfigRoot = root.appendingPathComponent("real-profile", isDirectory: true)
+        let aliasedConfigRoot = root.appendingPathComponent("linked-profile", isDirectory: true)
+        let realTasksRoot = realConfigRoot.appendingPathComponent("tasks", isDirectory: true)
+        let taskDirectory = realTasksRoot.appendingPathComponent("shared-list", isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: aliasedConfigRoot,
+            withDestinationURL: realConfigRoot
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Canonical task","status":"pending"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let aliasedTasksRoot = aliasedConfigRoot.appendingPathComponent("tasks", isDirectory: true)
+        let realLoader = ClaudeTaskSnapshotLoader(tasksRootURL: realTasksRoot)
+        let aliasedLoader = ClaudeTaskSnapshotLoader(tasksRootURL: aliasedTasksRoot)
+
+        #expect(aliasedLoader.tasksRootURL == realLoader.tasksRootURL)
+        #expect(
+            ClaudeTaskStoreIdentity(tasksRootURL: aliasedTasksRoot)
+                == ClaudeTaskStoreIdentity(tasksRootURL: realTasksRoot)
+        )
+        let snapshot = try #require(
+            try aliasedLoader.loadKnownTaskList(taskListID: "shared/list")
+        )
+        #expect(snapshot.todos.map(\.content) == ["Canonical task"])
+    }
+
+    @Test("A tasks-leaf symlink does not relocate the logical teams sibling")
+    func resolvesTaskAndTeamRootsIndependently() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-independent-roots-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profileRoot = root.appendingPathComponent("profile", isDirectory: true)
+        let externalTasksRoot = root.appendingPathComponent("external-tasks", isDirectory: true)
+        let logicalTasksRoot = profileRoot.appendingPathComponent("tasks", isDirectory: true)
+        let logicalTeamsRoot = profileRoot.appendingPathComponent("teams", isDirectory: true)
+        try FileManager.default.createDirectory(at: profileRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: externalTasksRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: logicalTeamsRoot, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: logicalTasksRoot,
+            withDestinationURL: externalTasksRoot
+        )
+        let resolver = ClaudeTaskRootResolver(
+            environment: ["CLAUDE_CONFIG_DIR": profileRoot.path],
+            homeDirectoryURL: root
+        )
+
+        #expect(resolver.resolve() == externalTasksRoot.canonicalClaudeTaskStoreDirectoryURL)
+        #expect(resolver.resolveTeamsRoot() == logicalTeamsRoot.canonicalClaudeTaskStoreDirectoryURL)
     }
 
     @Test("Task snapshots accept the entry and file-size boundaries")

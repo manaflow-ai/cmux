@@ -10,4 +10,20 @@ enum ClaudeTaskSnapshotLoaderError: Error, Equatable {
     case tooManyDirectoryEntries(limit: Int)
     /// A task file exceeded its hard byte limit.
     case taskFileTooLarge(fileName: String, limit: Int)
+    /// A known task-list path existed but was not a direct, non-symlink directory.
+    case invalidTaskDirectory(directoryName: String)
+    /// The team-store root could not be enumerated while resolving an agent.
+    case cannotEnumerateTeamsRoot
+    /// The shallow team-root scan exceeded its hard entry limit.
+    case tooManyTeamRootEntries(limit: Int)
+    /// A team configuration file exceeded its hard byte limit.
+    case teamConfigFileTooLarge(fileName: String, limit: Int)
+    /// More than one team configuration claimed the same exact hook agent.
+    case ambiguousTeamMembership
+    /// A matching team configuration did not own its canonical directory.
+    case invalidTeamDirectoryBinding
+    /// Team metadata changed while one bounded identity scan was in progress.
+    case teamConfigurationChangedDuringScan
+    /// The caller's monotonic task-operation deadline elapsed.
+    case operationDeadlineExceeded
 }
