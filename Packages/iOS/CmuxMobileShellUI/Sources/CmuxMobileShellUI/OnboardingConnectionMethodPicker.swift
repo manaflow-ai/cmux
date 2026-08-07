@@ -8,10 +8,11 @@ import SwiftUI
 /// Settings picker shows the same value afterward.
 struct OnboardingConnectionMethodPicker: View {
     let method: MobileConnectionMethod
+    let density: OnboardingConnectionVisualDensity
     let onSelect: (MobileConnectionMethod) -> Void
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: density.pickerOptionSpacing) {
             optionCard(
                 .automatic,
                 title: L10n.string(
@@ -29,11 +30,11 @@ struct OnboardingConnectionMethodPicker: View {
                 .tailscale,
                 title: L10n.string(
                     "mobile.onboarding.connect.method.tailscale",
-                    defaultValue: "Tailscale"
+                    defaultValue: "Tailscale Only"
                 ),
                 subtitle: L10n.string(
                     "mobile.onboarding.connect.method.tailscaleDetail",
-                    defaultValue: "Uses your Tailscale network. Scan the pairing code on your Mac."
+                    defaultValue: "Uses only your Tailscale network. Scan the pairing code on your Mac."
                 ),
                 systemImage: "qrcode",
                 accessibilityIdentifier: "MobileOnboardingConnectionMethodTailscale"
@@ -54,11 +55,11 @@ struct OnboardingConnectionMethodPicker: View {
         return Button {
             onSelect(option)
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: density.pickerRowSpacing) {
                 Image(systemName: systemImage)
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                    .frame(width: 26)
+                    .frame(width: density.pickerIconWidth)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
@@ -73,14 +74,14 @@ struct OnboardingConnectionMethodPicker: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isSelected ? Color.accentColor : Color.secondary.opacity(0.5))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, density.pickerHorizontalPadding)
+            .padding(.vertical, density.pickerVerticalPadding)
             .background(
                 .regularMaterial,
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                in: RoundedRectangle(cornerRadius: density.pickerCornerRadius, style: .continuous)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: density.pickerCornerRadius, style: .continuous)
                     .stroke(
                         isSelected ? Color.accentColor.opacity(0.75) : Color.primary.opacity(0.08),
                         lineWidth: isSelected ? 1.5 : 1
@@ -90,6 +91,50 @@ struct OnboardingConnectionMethodPicker: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+private extension OnboardingConnectionVisualDensity {
+    var pickerOptionSpacing: CGFloat {
+        switch self {
+        case .regular: 10
+        case .compact: 4
+        }
+    }
+
+    var pickerRowSpacing: CGFloat {
+        switch self {
+        case .regular: 12
+        case .compact: 6
+        }
+    }
+
+    var pickerIconWidth: CGFloat {
+        switch self {
+        case .regular: 26
+        case .compact: 20
+        }
+    }
+
+    var pickerHorizontalPadding: CGFloat {
+        switch self {
+        case .regular: 16
+        case .compact: 10
+        }
+    }
+
+    var pickerVerticalPadding: CGFloat {
+        switch self {
+        case .regular: 12
+        case .compact: 6
+        }
+    }
+
+    var pickerCornerRadius: CGFloat {
+        switch self {
+        case .regular: 16
+        case .compact: 14
+        }
     }
 }
 #endif

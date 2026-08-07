@@ -51,14 +51,19 @@ The private bootstrap pipe uses:
 1. Parent sends `Bootstrap`.
 2. Host returns `Ready`, echoing the request id and creating the incarnation.
 3. Parent sends `Launch`.
-4. Host starts the PTY, publishes its discovery record, then returns `Ready`.
+4. On success, the host starts the PTY, publishes its discovery record, then
+   returns `Ready`. If the PTY cannot be launched, it returns `LaunchFailed`
+   with the same request id and exits without publishing a discovery record.
 
 | Payload | Exact layout |
 | --- | --- |
 | `Bootstrap`, 52 bytes | `min_version:u16, max_version:u16, terminal_id:[u8;16], owner_token:[u8;32]` |
 | `Ready`, 34 bytes | `selected_version:u16, terminal_id:[u8;16], incarnation:[u8;16]` |
+| `LaunchFailed`, 5 to 4,100 bytes | `version:u16=1, kind:u16, message:UTF-8[1..4096]` |
 
 A zero owner token is invalid. Negotiation selects the highest common version.
+`LaunchFailed.kind` is 1 for exhausted PTY capacity and 2 for another launch
+failure. The message is bounded diagnostic text for the local parent.
 
 Every Unix-socket client sends `ClientHello`; the host replies with
 `HostHello`, then `Snapshot`, then a full `Colors` frame at the snapshot's
@@ -106,6 +111,10 @@ indexes are fatal.
 | 14 | `Launch` | parent to host | private pipe | launch layout |
 | 15 | `Capability` | host to client | response | 32-byte token |
 | 16 | `ResizeAck` | host to client | response | `cols:u16, rows:u16, result_flags:u32` |
+| 17 | `ClearHistoryAck` | host to client | response | one status byte |
+| 18 | `CellPixelSizeAck` | host to client | response | `width_px:u16, height_px:u16` |
+| 19 | `KittyGraphicsLimitsAck` | host to client | response | four little-endian `u64` limits |
+| 20 | `LaunchFailed` | host to parent | private pipe | versioned launch failure |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -113,6 +122,9 @@ indexes are fatal.
 | 104 | `Terminate` | client to host | `TERMINATE` | empty |
 | 105 | `MintCapability` | client to host | `MINT_CAPABILITY` | `rights:u32, ttl_ms:u32` |
 | 106 | `SetDefaults` | client to host | `MINT_CAPABILITY` | default-color layout |
+| 107 | `ClearHistory` | client to host | `INPUT` | encoded optional fallback key |
+| 108 | `SetCellPixelSize` | client to host | `RESIZE` | `width_px:u16, height_px:u16` |
+| 109 | `SetKittyGraphicsLimits` | client to host | `MINT_CAPABILITY` | four little-endian `u64` limits |
 
 `ResizeAck.result_flags & 1` means the request changed canonical geometry;
 other bits are invalid. Acknowledgements require negotiated
@@ -139,6 +151,11 @@ defaults:DefaultColors
 ```
 
 `argc` is from 1 through 256. `envc` is at most 1,024.
+
+`LaunchFailed` starts with little-endian `version:u16=1, kind:u16`, followed
+by 1 through 4,096 bytes of UTF-8 diagnostic text. Kind 1 means PTY capacity
+is exhausted. Kind 2 covers another launch failure. Unknown versions, kinds,
+empty messages, invalid UTF-8, and oversized messages are malformed.
 
 `Exit` starts with little-endian
 `version:u16=1, outcome_kind:u8, flags:u8, exited_at_ms:u64`. Exit-code
@@ -274,7 +291,8 @@ Terminal-host protocol changes use their own version and do not change `identify
 - Per-client outbound queue: 256 frames and 8 MiB including headers.
 - Renderer grant TTL: 60 seconds maximum.
 
-There is no wire error frame. Invalid magic, zero or unsupported version,
+`LaunchFailed` is the only typed failure frame and is valid only as the
+private-pipe response to `Launch`. Invalid magic, zero or unsupported version,
 unknown kind, oversized or truncated payload, malformed handshake, denied
 rights, malformed control payload, unknown flags, invalid sequence, or queue
 overflow closes or rejects the connection. A client reconnects, authenticates
