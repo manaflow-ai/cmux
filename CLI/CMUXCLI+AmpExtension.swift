@@ -561,10 +561,18 @@ export default function (amp: PluginAPI) {
     scopeId: string;
     observationId: string;
   };
+  type AmpStatusPresentation = {
+    label: string;
+    icon: string;
+    color: string;
+  };
+  type AmpActiveToolStatus = AmpStatusPresentation & {
+    sequence: number;
+  };
   type AmpTurnState = {
     sessionId: string;
     turnId: string;
-    activeToolUseIds: Set<string>;
+    activeTools: Map<string, AmpActiveToolStatus>;
     pendingEnd: PendingTurnEnd | null;
     nativeStateObservable: AmpThreadStateObservable | null;
     nativeStateSubscription: AmpThreadStateSubscription | null;
@@ -578,6 +586,7 @@ export default function (amp: PluginAPI) {
     nativeAttentionRetryCount: number;
     nativeAttentionIdentityRetryTimer: ReturnType<typeof setTimeout> | null;
     nativeAttentionIdentityRetryCount: number;
+    nativeAttentionOwnsSharedStatus: boolean;
   };
 
   // Amp plugin processes are long-lived and may serve multiple threads
@@ -585,7 +594,10 @@ export default function (amp: PluginAPI) {
   // to a thread/turn, never to one process-global counter.
   const turnStates = new Map<string, AmpTurnState>();
   let turnSequence = 0;
+  let activeToolStatusSequence = 0;
   let nativeAttentionEpisodeSequence = 0;
+  let nativeAttentionStatusOwnerCount = 0;
+  let inactiveStatus: AmpStatusPresentation | null = null;
 
   const makeNativeAttentionEpisode = (): NativeAttentionEpisodeIdentity => {
     const sequence = ++nativeAttentionEpisodeSequence;
@@ -607,7 +619,7 @@ export default function (amp: PluginAPI) {
         forcedTurnId
         || firstString(event.id)
         || `${process.pid}:${threadId}:${Date.now()}:${sequence}`,
-      activeToolUseIds: new Set(),
+      activeTools: new Map(),
       pendingEnd: null,
       nativeStateObservable: null,
       nativeStateSubscription: null,
@@ -621,6 +633,7 @@ export default function (amp: PluginAPI) {
       nativeAttentionRetryCount: 0,
       nativeAttentionIdentityRetryTimer: null,
       nativeAttentionIdentityRetryCount: 0,
+      nativeAttentionOwnsSharedStatus: false,
     };
   };
 
@@ -630,6 +643,50 @@ export default function (amp: PluginAPI) {
   const nativeStateSnapshotDeadlineMilliseconds = 1_000;
   const activeNativeStateObservationLeaseMilliseconds = 30 * 60 * 1_000;
   const maximumRetainedTurnStateCount = 128;
+
+  const refreshNativeAttentionStatusOwnership = (
+    state: AmpTurnState,
+  ): void => {
+    const shouldOwn = state.nativeThreadState === "awaiting-approval"
+      || state.nativeAttentionDesiredEpisode !== null
+      || state.nativeAttentionConfirmedEpisode !== null
+      || state.nativeAttentionUnconfirmedBeginEpisode !== null
+      || state.nativeAttentionInFlight;
+    if (shouldOwn === state.nativeAttentionOwnsSharedStatus) return;
+    state.nativeAttentionOwnsSharedStatus = shouldOwn;
+    nativeAttentionStatusOwnerCount += shouldOwn ? 1 : -1;
+  };
+
+  const publishAggregateStatus = (): void => {
+    // Feed owns the localized Needs input presentation. Do not let an event
+    // from another thread overwrite it until every possibly visible native
+    // approval has been acknowledged as concluded.
+    if (nativeAttentionStatusOwnerCount > 0) return;
+
+    let activeTool: AmpActiveToolStatus | null = null;
+    for (const state of turnStates.values()) {
+      for (const candidate of state.activeTools.values()) {
+        if (!activeTool || candidate.sequence > activeTool.sequence) {
+          activeTool = candidate;
+        }
+      }
+    }
+    if (activeTool) {
+      setStatus(activeTool.label, activeTool.icon, activeTool.color);
+      return;
+    }
+    if (turnStates.size > 0) {
+      setStatus("thinking", "brain", COLOR.thinking);
+      return;
+    }
+    if (inactiveStatus) {
+      setStatus(
+        inactiveStatus.label,
+        inactiveStatus.icon,
+        inactiveStatus.color,
+      );
+    }
+  };
 
   const synchronizeNativeAttention = (state: AmpTurnState): void => {
     if (state.nativeAttentionInFlight) return;
@@ -684,6 +741,7 @@ export default function (amp: PluginAPI) {
       return state.nativeAttentionConfirmedEpisode === attemptedEpisode;
     };
     state.nativeAttentionInFlight = true;
+    refreshNativeAttentionStatusOwnership(state);
     void loadNativeAttentionProcessGeneration().then((processGeneration) => {
       if (!processGeneration) {
         state.nativeAttentionInFlight = false;
@@ -707,6 +765,8 @@ export default function (amp: PluginAPI) {
           state.nativeAttentionIdentityRetryCount = 0;
           synchronizeNativeAttention(state);
         }
+        refreshNativeAttentionStatusOwnership(state);
+        publishAggregateStatus();
         return;
       }
       if (state.nativeAttentionIdentityRetryTimer) {
@@ -717,6 +777,8 @@ export default function (amp: PluginAPI) {
       if (!transitionIsStillNeeded()) {
         state.nativeAttentionInFlight = false;
         synchronizeNativeAttention(state);
+        refreshNativeAttentionStatusOwnership(state);
+        publishAggregateStatus();
         return;
       }
       const action = attemptedVisibility ? "begin" : "end";
@@ -784,6 +846,8 @@ export default function (amp: PluginAPI) {
               state.nativeAttentionRetryCount += 1;
             } else {
               state.nativeAttentionRetryCount = 0;
+              refreshNativeAttentionStatusOwnership(state);
+              publishAggregateStatus();
               return;
             }
           } else {
@@ -791,6 +855,8 @@ export default function (amp: PluginAPI) {
           }
         }
         synchronizeNativeAttention(state);
+        refreshNativeAttentionStatusOwnership(state);
+        publishAggregateStatus();
       });
     });
   };
@@ -804,7 +870,9 @@ export default function (amp: PluginAPI) {
       state.nativeAttentionIdentityRetryCount = 0;
       state.nativeAttentionDesiredEpisode = makeNativeAttentionEpisode();
     }
+    refreshNativeAttentionStatusOwnership(state);
     synchronizeNativeAttention(state);
+    publishAggregateStatus();
   };
 
   const endNativeAttention = (state: AmpTurnState): void => {
@@ -814,7 +882,9 @@ export default function (amp: PluginAPI) {
     }
     state.nativeAttentionIdentityRetryCount = 0;
     state.nativeAttentionDesiredEpisode = null;
+    refreshNativeAttentionStatusOwnership(state);
     synchronizeNativeAttention(state);
+    publishAggregateStatus();
   };
 
   const clearNativeStateObservation = (state: AmpTurnState): void => {
@@ -893,7 +963,7 @@ export default function (amp: PluginAPI) {
     // lease would discard durable work evidence from long-running tools.
     if (
       state.pendingEnd
-      || state.activeToolUseIds.size > 0
+      || state.activeTools.size > 0
       || state.nativeThreadState === "awaiting-approval"
     ) {
       return;
@@ -910,6 +980,7 @@ export default function (amp: PluginAPI) {
       // settled boundary. Retire our observer and turn ownership without
       // publishing a false completion; a later agent event starts fresh.
       discardTurnState(threadId, state);
+      publishAggregateStatus();
     }, activeNativeStateObservationLeaseMilliseconds);
     state.nativeStateObservationLease.unref?.();
   };
@@ -924,23 +995,35 @@ export default function (amp: PluginAPI) {
     if (activeSiblingTurnCount === 0) {
       switch (pendingEnd.event.status) {
         case "done":
-          setStatus("done", "checkmark.circle", COLOR.done);
+          inactiveStatus = {
+            label: "done",
+            icon: "checkmark.circle",
+            color: COLOR.done,
+          };
           wsLog("turn complete", "success");
           break;
         case "error":
-          setStatus("error", "xmark.circle", COLOR.error);
+          inactiveStatus = {
+            label: "error",
+            icon: "xmark.circle",
+            color: COLOR.error,
+          };
           wsLog("turn errored", "error");
           break;
         case "cancelled":
-          setStatus("interrupted", "pause.circle", COLOR.interrupted);
+          inactiveStatus = {
+            label: "interrupted",
+            icon: "pause.circle",
+            color: COLOR.interrupted,
+          };
           wsLog("turn interrupted", "warning");
           break;
         default:
-          setStatus(
-            String(pendingEnd.event.status ?? "done"),
-            "questionmark.circle",
-            COLOR.interrupted,
-          );
+          inactiveStatus = {
+            label: String(pendingEnd.event.status ?? "done"),
+            icon: "questionmark.circle",
+            color: COLOR.interrupted,
+          };
           wsLog(
             `turn ended with unexpected status: ${pendingEnd.event.status}`,
             "warning",
@@ -948,6 +1031,7 @@ export default function (amp: PluginAPI) {
           break;
       }
     }
+    publishAggregateStatus();
     sendHook("stop", pendingEnd.sessionId, pendingEnd.cwd, {
       turn_id: state.turnId,
       cmux_turn_boundary: "settled",
@@ -961,7 +1045,7 @@ export default function (amp: PluginAPI) {
     state: AmpTurnState,
   ): void => {
     const pendingEnd = state.pendingEnd;
-    if (!pendingEnd || state.activeToolUseIds.size > 0) return;
+    if (!pendingEnd || state.activeTools.size > 0) return;
     if (
       state.nativeStateObservable
       && state.nativeThreadState !== "idle"
@@ -1021,9 +1105,12 @@ export default function (amp: PluginAPI) {
       if (nativeState === "error") {
         // Amp can terminate an errored/cancelled turn without emitting a final
         // tool.result. Its terminal native state closes those tool lifetimes.
-        state.activeToolUseIds.clear();
+        state.activeTools.clear();
       }
       tryPublishSettledTurn(threadId, state);
+      if (turnStates.get(threadId) === state) {
+        publishAggregateStatus();
+      }
     };
 
     state.nativeStateObservable = observable;
@@ -1126,7 +1213,12 @@ export default function (amp: PluginAPI) {
     if (sessionId) {
       discardTurnState(sessionId, turnStates.get(sessionId));
     }
-    setStatus("idle", "circle", COLOR.idle);
+    inactiveStatus = {
+      label: "idle",
+      icon: "circle",
+      color: COLOR.idle,
+    };
+    publishAggregateStatus();
     if (!sessionId) return;
     sendHook("session-start", sessionId, cwdFromEnv());
   });
@@ -1137,7 +1229,7 @@ export default function (amp: PluginAPI) {
     discardTurnState(sessionId, turnStates.get(sessionId));
     const state = makeTurnState(event, sessionId);
     retainTurnState(sessionId, state);
-    setStatus("thinking", "brain", COLOR.thinking);
+    publishAggregateStatus();
     wsLog("prompt received");
     sendHook("prompt-submit", sessionId, cwdFromEnv(), {
       turn_id: state.turnId,
@@ -1148,17 +1240,20 @@ export default function (amp: PluginAPI) {
   amp.on("tool.call", async (event: ToolCallEvent, ctx) => {
     const sessionId = threadIdFrom(event, ctx);
     const state = sessionId ? turnStates.get(sessionId) : undefined;
+    const { label, icon } = detailedToolStatus(event, helpers);
     if (state) {
-      state.activeToolUseIds.add(event.toolUseID);
+      state.activeTools.set(event.toolUseID, {
+        label,
+        icon,
+        color: COLOR.active,
+        sequence: ++activeToolStatusSequence,
+      });
       renewNativeStateObservationLease(
         state.sessionId,
         state,
         state.nativeStateObservationEpoch,
       );
-    }
-    const { label, icon } = detailedToolStatus(event, helpers);
-    if (state) {
-      setStatus(label, icon, COLOR.active);
+      publishAggregateStatus();
     }
     return { action: "allow" as const };
   });
@@ -1167,7 +1262,7 @@ export default function (amp: PluginAPI) {
     const sessionId = threadIdFrom(event, ctx);
     const state = sessionId ? turnStates.get(sessionId) : undefined;
     if (state) {
-      state.activeToolUseIds.delete(event.toolUseID);
+      state.activeTools.delete(event.toolUseID);
       renewNativeStateObservationLease(
         state.sessionId,
         state,
@@ -1179,8 +1274,9 @@ export default function (amp: PluginAPI) {
     }
     if (sessionId && state?.pendingEnd) {
       tryPublishSettledTurn(sessionId, state);
-    } else if (state && state.activeToolUseIds.size === 0) {
-      setStatus("thinking", "brain", COLOR.thinking);
+    }
+    if (state && turnStates.get(state.sessionId) === state) {
+      publishAggregateStatus();
     }
   });
 
@@ -1216,7 +1312,7 @@ export default function (amp: PluginAPI) {
     sendHook("stop", sessionId, cwd, {
       turn_id: state.turnId,
       cmux_turn_boundary: "turn_end",
-      cmux_active_background_work_count: state.activeToolUseIds.size,
+      cmux_active_background_work_count: state.activeTools.size,
     });
     await observeNativeThreadState(sessionId, state, ctx);
   });

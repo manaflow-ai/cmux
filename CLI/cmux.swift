@@ -35841,7 +35841,6 @@ export default CMUXSessionRestore;
             data.append(chunk)
         }
         guard data.count <= maxBytes else {
-            while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
             return BoundedFeedHookStdinRead(
                 data: data,
                 isComplete: false

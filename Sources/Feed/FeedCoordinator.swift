@@ -812,12 +812,12 @@ extension FeedCoordinator {
         return matchingRecords.count
     }
 
-    /// Reconciles an accepted idle hook with native approval observations.
+    /// Reconciles an accepted lifecycle hook with native approval observations.
     ///
-    /// An idle hook for the exact process generation is authoritative evidence
-    /// that its panel is no longer waiting on a native prompt. This gives
-    /// remote sessions a second deterministic conclusion path without a local
-    /// PID monitor or a timing-based expiry.
+    /// A newer exact process generation supersedes every older observation for
+    /// the same target. Within one generation, only an idle hook concludes its
+    /// native prompt. This gives relay sessions deterministic replacement and
+    /// settlement paths without a local PID monitor or timing-based expiry.
     @MainActor
     func reconcileObservedAgentAttention(
         workspaceId: UUID,
@@ -826,13 +826,15 @@ extension FeedCoordinator {
         lifecycle: AgentHibernationLifecycleState,
         processGeneration: AgentPIDProcessIdentity?
     ) {
-        guard lifecycle == .idle, let processGeneration else { return }
+        guard let processGeneration else { return }
         let matchingRecords = observedAttentionRegistry.remove { record in
             record.target.panelId == panelId
                 && record.target.statusKey == statusKey
-                && record.key.processGeneration == processGeneration
                 && pendingAttentionStates[record.target]?.statusOwnerId
                     == workspaceId
+                && (record.key.processGeneration < processGeneration
+                    || (lifecycle == .idle
+                        && record.key.processGeneration == processGeneration))
         }
         retireObservedAgentAttentionRecords(
             matchingRecords,
@@ -1010,10 +1012,15 @@ extension FeedCoordinator {
                 panelID: $0
             )
         }
-        guard let panelId = directOwner == nil
-            ? Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab)
-                ?? tab.focusedPanelId
-            : resolved.surfaceId else {
+        let panelId: UUID?
+        if directOwner != nil {
+            panelId = resolved.surfaceId
+        } else if let surfaceId = resolved.surfaceId {
+            panelId = Self.resolvePanelId(surfaceId: surfaceId, tab: tab)
+        } else {
+            panelId = tab.focusedPanelId
+        }
+        guard let panelId else {
             return nil
         }
         let owner = directOwner
