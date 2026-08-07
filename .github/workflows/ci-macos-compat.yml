@@ -2,9 +2,16 @@ name: macOS Compatibility
 
 on:
   workflow_dispatch:
+    inputs:
+      nested_topology_only:
+        description: Run only the nested-topology package suite on macOS 26
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   compat-tests:
+    if: ${{ !inputs.nested_topology_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -242,3 +249,24 @@ jobs:
           set -euo pipefail
           chmod +x scripts/smoke-test-ci.sh
           scripts/smoke-test-ci.sh
+
+  nested-topology-tahoe-tests:
+    name: Nested topology tests (macOS 26)
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 15
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Select Xcode and verify Tahoe runtime
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+          test "$(sw_vers -productVersion | cut -d. -f1)" = "26"
+          sw_vers
+
+      - name: Run nested topology package tests
+        run: swift test --package-path Packages/macOS/CmuxNestedTopology
