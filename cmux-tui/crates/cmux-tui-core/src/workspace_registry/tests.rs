@@ -132,6 +132,18 @@ fn reset_keeps_selected_session_guard_file() {
 
 #[cfg(unix)]
 #[test]
+fn reset_manifest_path_key_preserves_invalid_utf8_bytes() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let first = Path::new(std::ffi::OsStr::from_bytes(b"\xff"));
+    let second = Path::new(std::ffi::OsStr::from_bytes(b"\xfe"));
+
+    assert_eq!(first.display().to_string(), second.display().to_string());
+    assert_ne!(reset_manifest_path_key(first), reset_manifest_path_key(second));
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_does_not_restrict_supplied_state_root() {
     use std::os::unix::fs::PermissionsExt;
 

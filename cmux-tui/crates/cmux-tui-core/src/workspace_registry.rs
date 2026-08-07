@@ -842,9 +842,9 @@ fn reset_confirmation_snapshot(
     let mut budget = ResetFingerprintBudget::default();
     update_reset_confirmation_part(&mut hash, "cmux-session-reset-v1");
     update_reset_confirmation_part(&mut hash, session_name);
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path(state_root));
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path(session_dir));
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path(terminal_host_root));
+    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(state_root));
+    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(session_dir));
+    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(terminal_host_root));
     let session_fingerprint = session_reset_target_fingerprint(session_dir, &mut budget)?;
     update_reset_confirmation_part(&mut hash, &session_fingerprint);
     let terminal_host_fingerprint =
@@ -852,7 +852,7 @@ fn reset_confirmation_snapshot(
     update_reset_confirmation_part(&mut hash, &terminal_host_fingerprint);
     let mut pending_reset_dir_fingerprints = Vec::with_capacity(pending_reset_dirs.len());
     for reset_dir in pending_reset_dirs {
-        update_reset_confirmation_part(&mut hash, &canonical_reset_path(&reset_dir.path));
+        update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(&reset_dir.path));
         let fingerprint = reset_dir_fingerprint("pending", &reset_dir.path, &mut budget)?;
         update_reset_confirmation_part(&mut hash, &fingerprint);
         pending_reset_dir_fingerprints.push(fingerprint);
@@ -871,8 +871,46 @@ fn update_reset_confirmation_part(hash: &mut Sha256, value: &str) {
     hash.update(value.as_bytes());
 }
 
-fn canonical_reset_path(path: &Path) -> String {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
+fn canonical_reset_path_token(path: &Path) -> String {
+    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    reset_path_token(&path)
+}
+
+#[cfg(unix)]
+fn reset_path_token(path: &Path) -> String {
+    use std::os::unix::ffi::OsStrExt;
+
+    format!("unix-hex:{}", hex_bytes(path.as_os_str().as_bytes()))
+}
+
+#[cfg(windows)]
+fn reset_path_token(path: &Path) -> String {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut bytes = Vec::new();
+    for unit in path.as_os_str().encode_wide() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
+    format!("windows-utf16le-hex:{}", hex_bytes(&bytes))
+}
+
+#[cfg(all(not(unix), not(windows)))]
+fn reset_path_token(path: &Path) -> String {
+    format!("display:{}", path.display())
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+fn reset_manifest_path_key(relative_path: &Path) -> String {
+    reset_path_token(relative_path)
 }
 
 fn session_reset_target_fingerprint(
@@ -991,7 +1029,7 @@ fn collect_reset_path_fingerprints(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             push_reset_manifest_entry(
                 entries,
-                format!("{}=missing", relative_path.display()),
+                format!("{}=missing", reset_manifest_path_key(relative_path)),
                 budget,
                 path,
             )?;
@@ -1007,7 +1045,7 @@ fn collect_reset_path_fingerprints(
     budget.add_entry(path)?;
     let entry = format!(
         "{}={}",
-        relative_path.display(),
+        reset_manifest_path_key(relative_path),
         reset_path_fingerprint(
             path,
             &metadata,
@@ -1412,7 +1450,7 @@ fn reset_child_fingerprint_entry(
             budget,
         )?);
     }
-    Ok(format!("{}={fingerprint}", relative_path.display()))
+    Ok(format!("{}={fingerprint}", reset_manifest_path_key(relative_path)))
 }
 
 #[cfg(unix)]
@@ -4451,7 +4489,7 @@ fn prepare_terminal_host_root_for_reset(
         }
     }
     #[cfg(test)]
-    inject_legacy_terminal_host_record_removal_before_liveness()?;
+    inject_legacy_terminal_host_record_removal_before_liveness(root)?;
     for (record_path, record) in &records {
         match crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record)? {
             TerminalHostLiveness::Dead => {
@@ -4475,11 +4513,15 @@ fn prepare_terminal_host_root_for_reset(
 }
 
 #[cfg(all(unix, test))]
-fn inject_legacy_terminal_host_record_removal_before_liveness() -> anyhow::Result<()> {
+fn inject_legacy_terminal_host_record_removal_before_liveness(root: &Path) -> anyhow::Result<()> {
     let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap();
-    let Some(path) = record.take() else {
+    let Some(path) = record.as_ref() else {
         return Ok(());
     };
+    if path.parent() != Some(root) {
+        return Ok(());
+    }
+    let path = record.take().expect("record path was checked");
     fs::remove_file(&path)
         .with_context(|| format!("remove injected terminal-host record {}", path.display()))?;
     Ok(())
