@@ -23,12 +23,20 @@ echo "App-host xcodebuild idle timeout: ${CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TI
 # and drop the test-runner channel. Enforce one app-host test at a time PER
 # MACHINE with a real kernel lock (fcntl.flock via app_host_test_lock.py): the
 # kernel releases it automatically when the holder exits, even on crash, so there
-# is no stale lock to detect and no recovery race. We re-exec ourselves under the
-# lock holder, which inherits the held lock fd across exec and keeps it for this
-# script's whole lifetime. Different machines use different local lock files, so
-# cross-machine parallelism is preserved.
+# is no stale lock to detect and no recovery race. The lock helper runs this
+# script as its child and retains the lock for the child's whole lifetime.
+# Different machines use different local lock files, so cross-machine
+# parallelism is preserved.
 if [ -z "${CMUX_APP_HOST_TEST_LOCK_ACTIVE:-}" ]; then
-  lock_file="${CMUX_APP_HOST_TEST_LOCK_FILE:-${TMPDIR:-/tmp}/cmux-app-host-test.lock}"
+  app_host_lock_root="$(cd /tmp 2>/dev/null && pwd -P)" || {
+    echo "FAIL: canonical app-host lock root is unavailable" >&2
+    exit 1
+  }
+  if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
+    lock_file="${CMUX_APP_HOST_TEST_LOCK_FILE:-${RUNNER_TEMP:-$app_host_lock_root}/cmux-app-host-test.lock}"
+  else
+    lock_file="${app_host_lock_root%/}/cmux-app-host-test.lock"
+  fi
   lock_wait_seconds="${CMUX_APP_HOST_TEST_LOCK_WAIT_SECONDS:-3600}"
   export CMUX_APP_HOST_TEST_LOCK_ACTIVE=1
   exec python3 "$(dirname "$0")/app_host_test_lock.py" \
@@ -93,10 +101,13 @@ fi
 
 kill_stale_app_host() {
   [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ] || return 0
-  cmux_terminate_stale_receipted_app_hosts \
+  cmux_validate_app_host_derived_data "$CMUX_DERIVED_DATA_PATH" || return 1
+  cmux_recover_owned_app_host_attempt \
+    "$app_host_receipt_dir" \
+    "$app_host_key" \
+    "$CMUX_VALIDATED_APP_HOST_DERIVED_DATA" \
     "$CMUX_RESOLVED_RUNNER_WORK_ROOT" \
-    "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT" \
-    "$app_host_key"
+    "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT"
 }
 
 validate_app_host_config_paths() {
@@ -157,11 +168,9 @@ attempt=1
 while [ "$attempt" -le "$max_attempts" ]; do
   log_path="${log_stem}-attempt-${attempt}.log"
   : >"$log_path"
-  # Self-hosted macOS runners reuse the GUI session. A stale "cmux DEV" app-host
-  # left running by a prior job (or another job sharing the machine) contends for
-  # the single foreground session and testmanagerd, a top cause of the "Failed to
-  # establish communication with the test runner" flake. Start each attempt from
-  # a clean slate.
+  # Recover only this run key's prior attempt. A live foreign key fails the
+  # complete preflight without signaling any PID, so one runner service cannot
+  # terminate another service's healthy app host.
   kill_stale_app_host
   set +e
   env \

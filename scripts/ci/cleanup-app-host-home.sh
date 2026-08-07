@@ -72,6 +72,23 @@ if [ -L "$app_host_receipt_dir" ]; then
 fi
 cmux_validate_app_host_cleanup_confirmation
 
+# Preparation publishes the external confirmation before either mutable root.
+# If interruption happens in that narrow window, the authenticated claim is the
+# only target and no app host could have launched without a receipt directory.
+if [ ! -e "$app_host_home" ] \
+  && [ ! -L "$app_host_home" ] \
+  && [ ! -e "$app_host_receipt_dir" ] \
+  && [ ! -L "$app_host_receipt_dir" ]; then
+  rm -f -- "$app_host_confirmation_file"
+  if [ -e "$app_host_confirmation_file" ] \
+    || [ -L "$app_host_confirmation_file" ]; then
+    echo "FAIL: partial app-host confirmation remains after cleanup" >&2
+    exit 1
+  fi
+  echo "Removed confirmation-only partial app-host scope: $app_host_confirmation_file"
+  exit 0
+fi
+
 if [ -e "$app_host_home" ]; then
   resolved_home="$(cd "$app_host_home" 2>/dev/null && pwd -P)" || {
     echo "FAIL: app-host isolation directory is unavailable" >&2

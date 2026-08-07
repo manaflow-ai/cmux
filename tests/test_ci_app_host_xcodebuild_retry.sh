@@ -72,6 +72,7 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(cd "$TMP_DIR" && pwd -P)"
 APP_HOST_HOME=""
 APP_HOST_RECEIPT_DIR=""
 APP_HOST_CONFIRMATION_FILE=""
@@ -98,6 +99,8 @@ export CMUX_APP_HOST_SHARD="4"
 export CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1
 export CMUX_APP_HOST_LSOF="$TMP_DIR/fake-lsof"
 mkdir -p "$RUNNER_TEMP_DIR"
+export CMUX_DERIVED_DATA_PATH="$RUNNER_TEMP_DIR/cmux-derived-data-tests-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-shard-$CMUX_APP_HOST_SHARD"
+mkdir -p "$CMUX_DERIVED_DATA_PATH"
 : > "$GITHUB_ENV"
 bash "$ROOT_DIR/scripts/ci/prepare-app-host-home.sh"
 set -a

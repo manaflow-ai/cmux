@@ -487,8 +487,8 @@ def main() -> int:
     )
     require(
         APP_HOST_PROCESSES,
-        "cmux_remove_terminated_stale_app_host_scopes",
-        "terminated stale-scope reclamation",
+        "cmux_recover_owned_app_host_attempt",
+        "current-run retry recovery",
     )
     require(
         APP_HOST_PROCESSES,

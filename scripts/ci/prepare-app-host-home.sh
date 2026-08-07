@@ -42,23 +42,10 @@ if [ -e "$app_host_home" ] \
   exit 1
 fi
 
-# Claim both durable scope roots without following or replacing anything that
-# appears after the check above. A failed partial preparation remains available
-# for investigation; this script never destroys the receipts that authorize
-# process cleanup.
-mkdir -m 700 "$app_host_home"
-mkdir -m 700 "$app_host_receipt_dir"
-mkdir -p \
-  "$app_host_xdg_config_home/cmux" \
-  "$app_host_xdg_config_home/ghostty" \
-  "$app_host_home/Library/Application Support/com.mitchellh.ghostty" \
-  "$app_host_home/Library/Caches" \
-  "$app_host_home/Library/Logs/DiagnosticReports" \
-  "$app_host_home/Library/Preferences"
-printf '# cmux CI app-host isolation sentinel\n' > "$app_host_config_sentinel"
-chmod -R u+rwX,go-rwx "$app_host_home"
-chmod 700 "$app_host_receipt_dir"
-
+# Publish deletion authority before claiming either mutable root. If setup is
+# interrupted after this point, always-running teardown can authenticate and
+# remove the exact partial scope. The final hard link is exclusive, so a
+# concurrent or reused run key cannot replace an existing claim.
 confirmation_tmp="$(mktemp "${app_host_confirmation_file}.tmp.XXXXXX")"
 trap 'rm -f -- "$confirmation_tmp"' EXIT
 cmux_app_host_confirmation_record > "$confirmation_tmp"
@@ -69,3 +56,19 @@ if ! ln -- "$confirmation_tmp" "$app_host_confirmation_file"; then
 fi
 rm -f -- "$confirmation_tmp"
 trap - EXIT
+
+# Claim the receipt root first. Once the home exists, every later partial setup
+# therefore retains both the external confirmation and the receipt boundary
+# needed for fail-closed process inspection.
+mkdir -m 700 "$app_host_receipt_dir"
+mkdir -m 700 "$app_host_home"
+mkdir -p \
+  "$app_host_xdg_config_home/cmux" \
+  "$app_host_xdg_config_home/ghostty" \
+  "$app_host_home/Library/Application Support/com.mitchellh.ghostty" \
+  "$app_host_home/Library/Caches" \
+  "$app_host_home/Library/Logs/DiagnosticReports" \
+  "$app_host_home/Library/Preferences"
+printf '# cmux CI app-host isolation sentinel\n' > "$app_host_config_sentinel"
+chmod -R u+rwX,go-rwx "$app_host_home"
+chmod 700 "$app_host_receipt_dir"
