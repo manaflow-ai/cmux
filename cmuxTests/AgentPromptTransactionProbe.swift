@@ -44,7 +44,7 @@ nonisolated final class AgentPromptTransactionProbe: @unchecked Sendable {
     @MainActor
     func pendingPromptMessages(for target: SurfaceTarget) -> [String] {
         let surface = surface(for: target)
-        surface.pendingSocketInputQueue.compactMap { item -> String? in
+        return surface.pendingSocketInputQueue.compactMap { item -> String? in
             guard case .promptSubmission(let text, _, _, _) = item else {
                 return nil
             }
