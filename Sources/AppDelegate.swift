@@ -545,6 +545,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var aboutTitlebarDebugStore: AboutTitlebarDebugStore { debugWindowsCoordinator.aboutTitlebarStore }
     /// Coordinates remote tmux (`ssh … tmux -CC`) mirroring; composition-root owned.
     let remoteTmuxController = RemoteTmuxController()
+    /// Owns every main-window registration, recovery, and close phase.
+    let mainWindowLifecycleCoordinator = MainWindowLifecycleCoordinator()
     /// Composition-root lifetime owner shared by every window's font-size
     /// queue. Window coordinators receive this dependency explicitly; no
     /// coordinator reaches back through `AppDelegate.shared`.
@@ -1029,7 +1031,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    var mainWindowContexts: [ObjectIdentifier: MainWindowContext] {
+        mainWindowLifecycleCoordinator.registeredContextsByLookupKey
+    }
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -4104,18 +4108,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             previouslyPersistedWindowIds: lastPersistedSessionWindowIds,
             maximumFingerprintWindows: SessionPersistencePolicy.maxWindowsPerSnapshot
         )
+        hasher.combine(mainWindowLifecycleCoordinator.persistenceTopologyRevision)
         hasher.combine(routeProjection.orderedWindowIds.count)
 
-        // All routes contribute bounded selection metadata so topology,
-        // restorable-workspace, and crash-pruning-relevant changes trigger a
-        // save. Only the windows selected by the previous snapshot receive the
-        // expensive full manager fingerprint below.
+        // Lifecycle topology is cached by the coordinator. Per-route work here
+        // stays constant-time; deep workspace/panel fingerprints are reserved
+        // for the bounded persisted-window projection below.
         for route in routes {
-            route.combineAutosaveSelectionMetadata(
-                into: &hasher,
-                restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: surfaceResumeBindingIndex
-            )
+            hasher.combine(route.windowId)
+            hasher.combine(route.tabManager.tabs.count)
+            hasher.combine(route.tabManager.selectedTabId)
+            hasher.combine(route.dock != nil)
         }
 
         let routesByWindowId = Dictionary(
@@ -4799,7 +4802,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         cmuxConfigStore: CmuxConfigStore? = nil
     ) {
         let key = ObjectIdentifier(window)
-        forgetRecoverableMainWindowRoute(windowId: windowId)
         #if DEBUG
         let priorManagerToken = debugManagerToken(self.tabManager)
         #endif
@@ -4872,7 +4874,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workspaceTerminalFontSizeArbiter:
                     workspaceTerminalFontSizeArbiter
             )
-            mainWindowContexts[key] = context
+            mainWindowLifecycleCoordinator.register(context, lookupKey: key)
             context.closeObserver = WindowCloseObserver(window: window) { [weak self] in self?.unregisterMainWindow($0) }
         }
         commandPaletteWindowStore.registerWindow(windowId)
@@ -6103,24 +6105,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func reindexMainWindowContextIfNeeded(_ context: MainWindowContext, for window: NSWindow) {
         let desiredKey = ObjectIdentifier(window)
-        if mainWindowContexts[desiredKey] === context {
+        if mainWindowLifecycleCoordinator.registeredContext(for: desiredKey) === context {
             context.window = window
             return
         }
 
-        let contextKeys = mainWindowContexts.compactMap { key, value in
-            value === context ? key : nil
-        }
-        for key in contextKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
-
-        if let conflicting = mainWindowContexts[desiredKey], conflicting !== context {
+        if let conflicting = mainWindowLifecycleCoordinator.registeredContext(for: desiredKey),
+           conflicting !== context {
             context.window = window
             return
         }
 
-        mainWindowContexts[desiredKey] = context
+        guard mainWindowLifecycleCoordinator.reindex(context, lookupKey: desiredKey) else {
+            return
+        }
         context.window = window
         notifyMainWindowContextsDidChange()
     }
@@ -6162,14 +6160,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func unregisterMainWindowContext(for window: NSWindow) -> MainWindowContext? {
         guard let removed = contextForMainTerminalWindow(window, reindex: false) else { return nil }
-        rememberRecoverableMainWindowRoute(removed, purpose: .teardownOnly)
+        guard transitionMainWindowContextToClosing(removed, window: window) else { return nil }
         removed.teardownWindowDock()
-        let removedKeys = mainWindowContexts.compactMap { key, value in
-            value === removed ? key : nil
-        }
-        for key in removedKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
         removeMobileWorkspaceListObserverIfUnused(for: removed.tabManager)
         notifyMainWindowContextsDidChange()
         return removed
@@ -6177,28 +6169,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // Internal (not private): see notifyMainWindowContextsDidChange.
     func discardOrphanedMainWindowContext(_ context: MainWindowContext, allowWindowlessFallback: Bool = false) {
-        rememberRecoverableMainWindowRoute(context, purpose: .liveRecovery)
+        guard transitionMainWindowContextToOrphaned(context) else { return }
         context.teardownWindowDock()
-        let contextKeys = mainWindowContexts.compactMap { key, value in
-            value === context ? key : nil
-        }
-        for key in contextKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
         removeMobileWorkspaceListObserverIfUnused(for: context.tabManager)
         notifyMainWindowContextsDidChange()
 
-        commandPaletteWindowStore.removeWindow(context.windowId)
-
         if tabManager === context.tabManager {
             activateMainWindowContext(Array(mainWindowContexts.values).first { resolvedWindow(for: $0) != nil } ?? (allowWindowlessFallback ? mainWindowContexts.values.first : nil))
-        }
-
-        if let store = notificationStore {
-            store.clearNotifications(forTabId: context.windowId)
-            for tab in context.tabManager.tabs {
-                store.clearNotifications(forTabId: tab.id)
-            }
         }
     }
 
@@ -15828,13 +15805,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         debugDetachedContextWindows.append(detachedWindow)
 
-        let contextKeys = mainWindowContexts.compactMap { key, value in
-            value === context ? key : nil
+        guard mainWindowLifecycleCoordinator.reindex(
+            context,
+            lookupKey: ObjectIdentifier(detachedWindow)
+        ) else {
+            return false
         }
-        for key in contextKeys {
-            mainWindowContexts.removeValue(forKey: key)
-        }
-        mainWindowContexts[ObjectIdentifier(detachedWindow)] = context
         context.window = window
         return true
     }

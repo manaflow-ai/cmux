@@ -1,8 +1,8 @@
 import Foundation
 
-/// Keeps expensive autosave fingerprints aligned with the windows emitted by
-/// the previous snapshot while retaining a cheap signature for the full route
-/// topology. Newly available slots are filled in current persistence order.
+/// Keeps expensive autosave fingerprints aligned with the bounded set emitted
+/// by the previous snapshot. Newly available slots are filled in current
+/// persistence order; lifecycle topology itself is revisioned by its owner.
 struct MainWindowRouteAutosaveProjection: Equatable, Sendable {
     let orderedWindowIds: [UUID]
     let fingerprintWindowIds: [UUID]

@@ -3,13 +3,13 @@ import AppKit
 @MainActor
 final class RecoverableMainWindowRoute {
     let windowId: UUID
-    weak var tabManager: TabManager?
+    private weak var weakTabManager: TabManager?
+    private var retainedTabManager: TabManager?
+    var tabManager: TabManager? { retainedTabManager ?? weakTabManager }
     weak var window: NSWindow?
     let sidebar: SidebarState
     let sidebarSelection: SidebarSelectionState
     private(set) var frozenWindowDockSnapshot: SessionSplitContainerSnapshot?
-    let order: UInt64
-    private(set) var purpose: RecoverableMainWindowRoutePurpose
     var closeObserver: WindowCloseObserver?
 
     init(
@@ -19,21 +19,20 @@ final class RecoverableMainWindowRoute {
         sidebar: SidebarState,
         sidebarSelection: SidebarSelectionState,
         frozenWindowDockSnapshot: SessionSplitContainerSnapshot?,
-        purpose: RecoverableMainWindowRoutePurpose,
-        order: UInt64
+        retainTabManager: Bool
     ) {
         self.windowId = windowId
-        self.tabManager = tabManager
+        weakTabManager = tabManager
+        retainedTabManager = retainTabManager ? tabManager : nil
         self.window = window
         self.sidebar = sidebar
         self.sidebarSelection = sidebarSelection
         self.frozenWindowDockSnapshot = frozenWindowDockSnapshot
-        self.purpose = purpose
-        self.order = order
     }
 
     func markForTeardown() {
-        purpose = .teardownOnly
+        retainedTabManager = nil
         frozenWindowDockSnapshot = nil
+        closeObserver = nil
     }
 }
