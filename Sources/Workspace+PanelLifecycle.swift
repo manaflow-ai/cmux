@@ -35,6 +35,14 @@ extension Workspace {
         set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
     }
 
+    /// Remote hook PIDs remain opaque after a panel moves into a workspace
+    /// that does not adopt the source workspace's remote configuration.
+    func agentRuntimeUsesRemoteProcessNamespace(panelId: UUID) -> Bool {
+        isRemoteTerminalSurface(panelId)
+            || surfaceRegistry.remoteTTYReportOriginWorkspaceIDs[panelId] != nil
+            || transferredRemoteCleanupConfigurationsByPanelId[panelId] != nil
+    }
+
     /// Returns exact-session runtime identities that still match their recorded process generation.
     func confirmedRuntimeAgentProcessIdentities(
         for agent: SessionRestorableAgentSnapshot,
@@ -58,7 +66,7 @@ extension Workspace {
     ) -> Set<AgentPIDProcessIdentity> {
         // A hook running inside a remote terminal reports a PID from the SSH
         // host. Never compare that opaque value with this Mac's process table.
-        guard !isRemoteTerminalSurface(panelId) else { return [] }
+        guard !agentRuntimeUsesRemoteProcessNamespace(panelId: panelId) else { return [] }
         // Claude's `claude_code` key identifies only a panel, not a session, so it
         // cannot prove that a live process supersedes this cached session generation.
         guard kind != .claude else { return [] }
@@ -179,7 +187,9 @@ extension Workspace {
         )
         var didClearOtherStructuredAgentRuntime = false
         if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
-        let storesLocalProcess = panelId.map { !isRemoteTerminalSurface($0) } ?? true
+        let storesLocalProcess = panelId.map {
+            !agentRuntimeUsesRemoteProcessNamespace(panelId: $0)
+        } ?? true
         let storedPID: pid_t? = storesLocalProcess ? pid : nil
         let processIdentity = storesLocalProcess ? Self.agentPIDProcessIdentity(pid: pid) : nil
         agentPIDs[key] = storedPID
@@ -198,7 +208,8 @@ extension Workspace {
     func clearStaleAgentPIDs(refreshPorts: Bool = true) -> Bool {
         var didChange = false
         for (key, pid) in agentPIDs {
-            if let panelId = agentPIDPanelIdsByKey[key], isRemoteTerminalSurface(panelId) {
+            if let panelId = agentPIDPanelIdsByKey[key],
+               agentRuntimeUsesRemoteProcessNamespace(panelId: panelId) {
                 continue
             }
             guard !isRecordedAgentPIDLive(key: key, pid: pid) else { continue }
@@ -217,7 +228,7 @@ extension Workspace {
     func clearStaleAgentPIDs(panelId: UUID, refreshPorts: Bool = true) -> Bool {
         // Remote PID values are owned and retired by their terminal lifecycle;
         // they are not inspectable through this Mac's process table.
-        guard !isRemoteTerminalSurface(panelId) else { return false }
+        guard !agentRuntimeUsesRemoteProcessNamespace(panelId: panelId) else { return false }
         let keys = agentPIDKeysByPanelId[panelId] ?? []
         var didChange = false
         for key in keys {
@@ -253,10 +264,12 @@ extension Workspace {
         }
     }
 
-    /// Consumes remote agent runtime after its prompt or terminal lifecycle
-    /// proves that no agent command still owns the PTY.
+    /// Consumes structured remote-agent runtime after its prompt or terminal
+    /// lifecycle ends, without touching unrelated panel runtime state.
     func clearRemoteAgentRuntime(panelId: UUID) {
-        let keys = agentPIDKeysByPanelId[panelId] ?? []
+        let keys = (agentPIDKeysByPanelId[panelId] ?? []).filter {
+            isStructuredAgentHookPIDKey($0)
+        }
         var didChange = false
         for key in keys {
             if clearAgentPID(
@@ -268,16 +281,8 @@ extension Workspace {
                 didChange = true
             }
         }
-        if agentLifecycleStatesByPanelId[panelId] != nil {
-            clearAgentLifecycleStates(panelId: panelId)
-            didChange = true
-        }
         if didChange {
             refreshTrackedAgentPorts()
-            AppDelegate.shared?.notificationStore?.clearNotifications(
-                forTabId: id,
-                surfaceId: panelId
-            )
         }
     }
 
@@ -387,7 +392,9 @@ extension Workspace {
         // process tree; eagerly clearing here made every PID refresh flicker.
         let remainingAgentRoots = Set(agentPIDs.compactMap { key, pid -> AgentPortRootIdentity? in
             guard pid > 0,
-                  agentPIDPanelIdsByKey[key].map({ !isRemoteTerminalSurface($0) }) ?? true else {
+                  agentPIDPanelIdsByKey[key].map({
+                      !agentRuntimeUsesRemoteProcessNamespace(panelId: $0)
+                  }) ?? true else {
                 return nil
             }
             return AgentPortRootIdentity(

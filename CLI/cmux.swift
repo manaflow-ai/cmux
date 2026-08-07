@@ -25526,7 +25526,7 @@ struct CMUXCLI {
                 setClaudeAgentLifecycle(
                     client: client,
                     sessionId: parsedInput.sessionId,
-                    pid: claudePid,
+                    pid: nil,
                     lifecycle: .needsInput,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId
@@ -25591,7 +25591,7 @@ struct CMUXCLI {
             setClaudeAgentLifecycle(
                 client: client,
                 sessionId: parsedInput.sessionId,
-                pid: claudePid,
+                pid: nil,
                 lifecycle: .running,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId

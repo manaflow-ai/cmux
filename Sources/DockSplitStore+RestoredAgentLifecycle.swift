@@ -54,22 +54,23 @@ extension DockSplitStore {
         }
     }
 
-    /// Consumes remote agent runtime after its prompt or terminal lifecycle
-    /// proves that no agent command still owns the PTY.
+    /// Consumes structured remote-agent runtime after its prompt or terminal
+    /// lifecycle ends, without touching unrelated panel runtime state.
     func clearRemoteAgentRuntime(panelId: UUID) {
-        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
-              transfer.isRemoteTerminal else {
+        guard detachedSurfaceTransfersByPanelId[panelId]?.isRemoteTerminal == true else {
             return
         }
-        let hadRuntime = agentRuntimeByPanelId[panelId] != nil || transfer.agentRuntime != nil
-        agentRuntimeByPanelId.removeValue(forKey: panelId)
-        transfer.agentRuntime = nil
-        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
-        if hadRuntime {
-            AppDelegate.shared?.notificationStore?.clearNotifications(
-                forTabId: workspaceId,
-                surfaceId: panelId
-            )
+        mutateAgentRuntime(panelId: panelId) { runtime in
+            let keys = runtime.agentPIDKeys.filter {
+                Self.isStructuredAgentHookPIDKey($0, runtime: runtime)
+            }
+            for key in keys {
+                Self.clearAgentPID(
+                    key: key,
+                    clearStatus: true,
+                    runtime: &runtime
+                )
+            }
         }
     }
 

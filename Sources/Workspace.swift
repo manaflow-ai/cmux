@@ -5042,7 +5042,7 @@ final class Workspace: Identifiable, ObservableObject {
             updateBindingOnlyRestoredAgentResumeState(panelId: panelId, shellState: state)
         }
         if state == .promptIdle {
-            if isRemoteTerminalSurface(panelId) {
+            if agentRuntimeUsesRemoteProcessNamespace(panelId: panelId) {
                 clearRemoteAgentRuntime(panelId: panelId)
             } else {
                 _ = clearStaleAgentPIDs(panelId: panelId, refreshPorts: true)
