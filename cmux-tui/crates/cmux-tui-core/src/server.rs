@@ -94,7 +94,8 @@ const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
 pub const PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION: u32 = 10;
-pub const PROTOCOL_VERSION: u32 = PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION;
+pub const TERMINAL_LIFECYCLE_PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = TERMINAL_LIFECYCLE_PROTOCOL_VERSION;
 const PROTOCOL_KEY_TEXT_MAX_BYTES: usize = CLEAR_HISTORY_KEY_TEXT_MAX_BYTES;
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -700,6 +701,14 @@ enum Command {
     /// daemon's durable owner capability.
     MintTerminalRenderer {
         surface: SurfaceId,
+        #[serde(default = "default_renderer_capability_ttl_ms")]
+        ttl_ms: u64,
+    },
+    /// Mint a renderer credential from the stable public terminal identity.
+    /// Remote clients must not depend on this daemon generation's local
+    /// numeric surface handle.
+    MintTerminalRendererByTerminal {
+        terminal: String,
         #[serde(default = "default_renderer_capability_ttl_ms")]
         ttl_ms: u64,
     },
@@ -8906,6 +8915,21 @@ fn handle_command(
     handle_command_with_cancellation(mux, client, cmd, writer, None)
 }
 
+fn terminal_renderer_grant_json(
+    grant: crate::terminal_host_runtime::RendererGrant,
+    ttl_ms: u64,
+) -> Value {
+    json!({
+        "endpoint": grant.endpoint,
+        "terminal_id": grant.terminal_id,
+        "incarnation": grant.incarnation,
+        "token": grant.token,
+        "rights": grant.rights.bits(),
+        "protocol_version": grant.protocol_version,
+        "ttl_ms": ttl_ms,
+    })
+}
+
 fn handle_command_with_cancellation(
     mux: &Arc<Mux>,
     client: u64,
@@ -9384,15 +9408,17 @@ fn handle_command_with_cancellation(
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
             let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
-            Ok(json!({
-                "endpoint": grant.endpoint,
-                "terminal_id": grant.terminal_id,
-                "incarnation": grant.incarnation,
-                "token": grant.token,
-                "rights": grant.rights.bits(),
-                "protocol_version": grant.protocol_version,
-                "ttl_ms": ttl_ms,
-            }))
+            Ok(terminal_renderer_grant_json(grant, ttl_ms))
+        }
+        Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
+            let terminal = TerminalPublicId::parse(terminal)?;
+            let surface = mux
+                .resource_surface_for_terminal(&terminal)
+                .ok_or_else(|| anyhow::anyhow!("terminal {terminal} is not live"))?;
+            let surface = get_surface(mux, surface)?;
+            require_pty(&surface)?;
+            let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms))?;
+            Ok(terminal_renderer_grant_json(grant, ttl_ms))
         }
         Command::ResolveTerminal { terminal_id } => {
             let Some(resolution) = mux.resolve_terminal(&terminal_id)? else {
@@ -15023,7 +15049,8 @@ mod tests {
         assert_eq!(STABLE_SPLIT_IDS_PROTOCOL_VERSION, 8);
         assert_eq!(STACK_LAYOUT_PROTOCOL_VERSION, 9);
         assert_eq!(PER_SURFACE_CLIENT_SIZING_PROTOCOL_VERSION, 10);
-        assert_eq!(PROTOCOL_VERSION, 10);
+        assert_eq!(TERMINAL_LIFECYCLE_PROTOCOL_VERSION, 11);
+        assert_eq!(PROTOCOL_VERSION, 11);
         assert!(
             identity["capabilities"].as_array().is_some_and(|capabilities| capabilities
                 .iter()

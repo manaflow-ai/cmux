@@ -1,5 +1,5 @@
 import { env } from "../../../env";
-import { hasActiveStripeProSubscription } from "../../../../services/billing/pro";
+import { hasActiveCoderouterSubscription } from "../../../../services/billing/pro";
 import {
   authenticateRouteToken,
   issueRouteToken,
@@ -18,14 +18,14 @@ export const dynamic = "force-dynamic";
 
 type SessionDependencies = {
   readonly resolveContext: typeof resolveCodeRouterRequestContext;
-  readonly hasActivePro: typeof hasActiveStripeProSubscription;
+  readonly hasActiveEntitlement: typeof hasActiveCoderouterSubscription;
   readonly issueToken: typeof issueRouteToken;
   readonly hostedProRequired: () => boolean;
 };
 
 const defaultDependencies: SessionDependencies = {
   resolveContext: resolveCodeRouterRequestContext,
-  hasActivePro: hasActiveStripeProSubscription,
+  hasActiveEntitlement: hasActiveCoderouterSubscription,
   issueToken: issueRouteToken,
   hostedProRequired: () => env.CODEROUTER_HOSTED_PRO_REQUIRED === "1",
 };
@@ -73,12 +73,17 @@ export function makeCoderouterSessionPostHandler(
     const userId = resolved.value.user.id;
     if (dependencies.hostedProRequired()) {
       try {
-        if (!(await dependencies.hasActivePro(userId))) {
+        if (
+          !(await dependencies.hasActiveEntitlement(
+            userId,
+            resolved.value.team.teamId,
+          ))
+        ) {
           return Response.json(
             {
               error: "pro_required",
               message:
-                "Hosted coderouter requires cmux Pro. Upgrade or connect a self-hosted server.",
+                "Hosted coderouter requires cmux Pro or Team. Upgrade or connect a self-hosted server.",
               retryable: false,
             },
             {

@@ -1860,13 +1860,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
+            "value": "Turn a computer off to hide its workspaces on this iPhone. It stays signed in to your account."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アカウントにサインインしているコンピュータ。ワークスペースのタイトルピッカーで 1 台のコンピュータに絞り込むか、すべてのコンピュータを表示できます。"
+            "value": "コンピュータをオフにすると、このiPhoneでそのワークスペースを非表示にできます。コンピュータはアカウントにサインインしたままです。"
           }
         }
       }
@@ -2122,6 +2122,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "再表示"
+          }
+        }
+      }
+    },
+    "mobile.computers.visibilityToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show this computer on this iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneにこのコンピュータを表示"
+          }
+        }
+      }
+    },
+    "mobile.computers.visibilityToggle.named": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show %@ on this iPhone"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneに%@を表示"
           }
         }
       }
@@ -3033,13 +3067,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap a computer to reconnect. Swipe left to hide one."
+            "value": "Tap a shown computer to reconnect. Use its switch to show or hide it on this iPhone."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータをタップすると再接続します。左にスワイプすると非表示にできます。"
+            "value": "表示中のコンピュータをタップすると再接続します。スイッチでこのiPhoneでの表示と非表示を切り替えられます。"
           }
         }
       }
@@ -9806,6 +9840,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sendFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t send. Check the connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sendFailed.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信に失敗しました"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信中"
           }
         }
       }
