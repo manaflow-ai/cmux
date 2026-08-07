@@ -260,6 +260,73 @@ final class WorkspaceContentViewVisibilityTests {
 
     @Test
     @MainActor
+    func testUnrelatedEnvironmentChangeDoesNotReevaluateSidebarRenderContext() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewEnvironmentTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            CmuxExtensionSidebarSelection.defaultProviderId,
+            forKey: CmuxExtensionSidebarSelection.defaultsKey
+        )
+
+        let state = SidebarUnrelatedEnvironmentHarnessState()
+        let counts = MinimalModeBodyProbeCounts()
+        let root = SidebarUnrelatedEnvironmentHarness(
+            state: state,
+            updateViewModel: UpdateStateModel(),
+            fileExplorerState: FileExplorerState(),
+            sidebarUnread: SidebarUnreadModel(),
+            titlebarControlsLayoutModel: TitlebarControlsLayoutModel(),
+            windowId: UUID(),
+            observedWindowReference: WeakWindowReference()
+        )
+        .environmentObject(TabManager())
+        .environmentObject(CmuxConfigStore())
+        .environmentObject(TerminalNotificationStore.shared)
+        .environmentObject(SidebarState())
+        .environmentObject(SidebarSelectionState())
+        .environment(
+            \.minimalModeInvalidationProbe,
+            MinimalModeInvalidationProbe(
+                verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+            )
+        )
+        .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        #expect(
+            counts.verticalTabsSidebarBody > 0,
+            "The sidebar body probe must observe the initial render."
+        )
+
+        counts.reset()
+        state.noise.toggle()
+        await Self.drainMainRunLoop(for: window)
+
+        #expect(
+            counts.verticalTabsSidebarBody == 0,
+            "An unrelated environment key must stop at the compact palette reader."
+        )
+    }
+
+    @Test
+    @MainActor
     func testUnreadChangeUpdatesOnlyAffectedSidebarRow() async throws {
         _ = NSApplication.shared
 
@@ -716,5 +783,56 @@ final class WorkspaceContentViewVisibilityTests {
             ) ==
             [CGRect(x: 677.5, y: 28, width: 500, height: 292)]
         )
+    }
+}
+
+private struct SidebarUnrelatedEnvironmentKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+private extension EnvironmentValues {
+    var sidebarUnrelatedEnvironmentNoise: Bool {
+        get { self[SidebarUnrelatedEnvironmentKey.self] }
+        set { self[SidebarUnrelatedEnvironmentKey.self] = newValue }
+    }
+}
+
+@MainActor
+@Observable
+private final class SidebarUnrelatedEnvironmentHarnessState {
+    var noise = false
+}
+
+@MainActor
+private struct SidebarUnrelatedEnvironmentHarness: View {
+    let state: SidebarUnrelatedEnvironmentHarnessState
+    let updateViewModel: UpdateStateModel
+    let fileExplorerState: FileExplorerState
+    let sidebarUnread: SidebarUnreadModel
+    let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
+    let windowId: UUID
+    let observedWindowReference: WeakWindowReference
+
+    var body: some View {
+        SidebarWorkspaceTableEnvironmentReader { tableEnvironment in
+            let sidebar = VerticalTabsSidebar(
+                updateViewModel: updateViewModel,
+                fileExplorerState: fileExplorerState,
+                sidebarUnread: sidebarUnread,
+                titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+                windowId: windowId,
+                onSendFeedback: {},
+                onToggleSidebar: {},
+                onNewTab: {},
+                observedWindowReference: observedWindowReference,
+                tableEnvironment: tableEnvironment,
+                selection: .constant(.tabs),
+                selectedTabIds: .constant([]),
+                lastSidebarSelectionIndex: .constant(nil),
+                sidebarRenderWorkerClient: .constant(nil)
+            )
+            sidebar
+        }
+        .environment(\.sidebarUnrelatedEnvironmentNoise, state.noise)
     }
 }

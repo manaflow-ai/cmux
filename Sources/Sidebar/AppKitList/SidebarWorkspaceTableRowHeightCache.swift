@@ -184,6 +184,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             defer { prototypeRowView.suspendPresentation() }
             prototypeRowView.configure(
                 model: rowModel,
+                environment: row.environment,
                 actions: actions,
                 isPointerHovering: false,
                 contextMenuDidOpen: {},

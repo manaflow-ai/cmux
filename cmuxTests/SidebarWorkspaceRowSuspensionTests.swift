@@ -2,12 +2,21 @@ import AppKit
 import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
 @Suite
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
+    private static var tableEnvironment: SidebarWorkspaceTableEnvironmentSnapshot {
+        SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .dark),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+    }
+
     private static func makeSnapshot(
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = []
@@ -97,7 +106,6 @@ struct SidebarWorkspaceRowSuspensionTests {
             isFirstRow: true,
             shortcutHintText: nil,
             showsShortcutHints: false,
-            colorSchemeIsDark: true,
             globalFontMagnificationPercent: 100,
             isChecklistExpanded: isChecklistExpanded,
             checklistAddFieldActivationToken: checklistAddFieldActivationToken,
@@ -178,6 +186,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         weak var retainedWorkspace = workspace
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(model: model, workspace: workspace!),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -197,6 +206,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         var committedTitle: String?
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(model: model, onCommitRename: { committedTitle = $0 }),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -220,6 +230,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(model: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -230,6 +241,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         cell.suspendPresentation()
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(model: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -259,6 +271,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         }
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(model: model),
             isPointerHovering: false,
             contextMenuDidOpen: {},
@@ -311,6 +324,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         let existingWindowIds = Set(application.windows.map(ObjectIdentifier.init))
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: model,
                 onConsumeChecklistAddFieldActivation: { tokenConsumptions += 1 },
@@ -345,6 +359,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: model,
                 onConsumeChecklistAddFieldActivation: { consumptions += 1 },
@@ -393,7 +408,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         window.contentView = cell
         defer { window.close() }
         cell.configure(
-            model: firstModel, actions: actions, isPointerHovering: false,
+            model: firstModel, environment: Self.tableEnvironment,
+            actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
         let field = try #require(
@@ -404,7 +420,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         field.stringValue = "  Updated first item  "
 
         cell.configure(
-            model: secondModel, actions: actions, isPointerHovering: false,
+            model: secondModel, environment: Self.tableEnvironment,
+            actions: actions, isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
 
@@ -426,6 +443,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: model,
                 onChecklistEditItem: { edits.append(($0, $1)) },
@@ -466,6 +484,7 @@ struct SidebarWorkspaceRowSuspensionTests {
         let cell = SidebarWorkspaceRowTableCellView()
         cell.configure(
             model: model,
+            environment: Self.tableEnvironment,
             actions: Self.makeActions(
                 model: model,
                 onChecklistEditItem: { edits.append(($0, $1)) },

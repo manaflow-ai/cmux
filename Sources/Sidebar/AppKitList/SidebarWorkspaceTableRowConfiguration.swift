@@ -47,7 +47,7 @@ struct SidebarWorkspaceTableRowConfiguration {
     let appKitWorkspaceUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarWorkspaceRowModel)?
     let appKitGroupHeaderUnreadRebuild: (@MainActor (SidebarUnreadSnapshot) -> SidebarGroupHeaderRowModel)?
 
-    private let environment: SidebarWorkspaceTableEnvironmentSnapshot
+    let environment: SidebarWorkspaceTableEnvironmentSnapshot
     private let equivalenceValue: Any
     private let isEquivalentValue: (Any) -> Bool
 

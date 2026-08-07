@@ -33,7 +33,6 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// Resolved modifier-hold hint text (nil hides the pill).
     let shortcutHintText: String?
     let showsShortcutHints: Bool
-    let colorSchemeIsDark: Bool
     let globalFontMagnificationPercent: Int
     let isChecklistExpanded: Bool
     let checklistAddFieldActivationToken: Int

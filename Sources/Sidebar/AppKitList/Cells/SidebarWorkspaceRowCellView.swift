@@ -60,6 +60,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var lastStatusPopoverModel: SidebarWorkspaceStatusPopoverModel?
 
     private var model: SidebarWorkspaceRowModel?
+    private var environment: SidebarWorkspaceTableEnvironmentSnapshot?
     private var actions: SidebarAppKitRowActions?
     private var isPointerHovering = false
     private var contextMenuVisible = false
@@ -99,9 +100,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     /// Measurement/apply entry used by the pump path.
     func applyRebuiltModel(_ model: SidebarWorkspaceRowModel) {
-        guard self.model != model else { return }
+        guard let environment, self.model != model else { return }
         self.model = model
-        applyModel(model)
+        applyModel(model, environment: environment)
         needsLayout = true
     }
 
@@ -114,11 +115,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// swap. The stored model stays authoritative; the next configure()
     /// reconciles (or reverts if the selection did not land).
     func showOptimisticSelectionHighlight() {
-        guard let model, !model.isActive else { return }
+        guard let model, let environment, !model.isActive else { return }
         var optimistic = model
         optimistic.isActive = true
         optimistic.isMultiSelected = false
-        applyModel(optimistic)
+        applyModel(optimistic, environment: environment)
         needsLayout = true
     }
 
@@ -127,11 +128,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// together while the authoritative render sits behind the terminal-view
     /// swap. configure() reconciles right after.
     func showOptimisticDeselection() {
-        guard let model, model.isActive || model.isMultiSelected else { return }
+        guard let model, let environment, model.isActive || model.isMultiSelected else { return }
         var optimistic = model
         optimistic.isActive = false
         optimistic.isMultiSelected = false
-        applyModel(optimistic)
+        applyModel(optimistic, environment: environment)
         needsLayout = true
     }
 
@@ -140,10 +141,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// treatment made every cmd-click flash bright blue and then settle
     /// dim once the authoritative state landed.
     func showOptimisticMultiSelection() {
-        guard let model, !model.isActive, !model.isMultiSelected else { return }
+        guard let model, let environment, !model.isActive, !model.isMultiSelected else { return }
         var optimistic = model
         optimistic.isMultiSelected = true
-        applyModel(optimistic)
+        applyModel(optimistic, environment: environment)
         needsLayout = true
     }
 
@@ -151,8 +152,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// optimistic treatment. Used by the preview bailout when no
     /// authoritative apply arrives to reconcile.
     func restoreStoredModelPaint() {
-        guard let model else { return }
-        applyModel(model)
+        guard let model, let environment else { return }
+        applyModel(model, environment: environment)
         needsLayout = true
     }
 
@@ -251,6 +252,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         super.prepareForReuse()
         suspendPresentation()
         model = nil
+        environment = nil
         hintPill.resetForReuse()
     }
 
@@ -292,11 +294,18 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         return postUpdateActions
     }
 
-    func configurePresentation(model: SidebarWorkspaceRowModel) {
+    func configurePresentation(
+        model: SidebarWorkspaceRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) {
         suspendPresentation()
-        guard self.model != model else { return }
+        let environmentChanged = self.environment.map {
+            !$0.hasEquivalentPresentation(to: environment)
+        } ?? true
+        guard self.model != model || environmentChanged else { return }
         self.model = model
-        applyModel(model)
+        self.environment = environment
+        applyModel(model, environment: environment)
         needsLayout = true
     }
 
@@ -312,6 +321,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     func configure(
         model: SidebarWorkspaceRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot,
         actions: SidebarAppKitRowActions,
         isPointerHovering: Bool,
         contextMenuDidOpen: @escaping () -> Void,
@@ -319,7 +329,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     ) {
         let requiresFullApply = self.actions == nil
         let previous = self.model
+        let environmentChanged = self.environment.map {
+            !$0.hasEquivalentPresentation(to: environment)
+        } ?? true
         self.actions = actions
+        self.environment = environment
         self.contextMenuDidOpen = contextMenuDidOpen
         self.contextMenuDidClose = contextMenuDidClose
         let hoverChanged = self.isPointerHovering != isPointerHovering
@@ -331,17 +345,23 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
             lastStatusPopoverModel = nil
         }
-        guard requiresFullApply || previous != model || hoverChanged else { return }
+        guard requiresFullApply || previous != model || hoverChanged || environmentChanged else { return }
         self.model = model
-        applyModel(model)
+        applyModel(model, environment: environment)
         needsLayout = true
     }
 
-    private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
-        SidebarRowPalette(model: model)
+    private func palette(
+        _ model: SidebarWorkspaceRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) -> SidebarRowPalette {
+        SidebarRowPalette(environment: environment, model: model)
     }
 
-    private func applyModel(_ model: SidebarWorkspaceRowModel) {
+    private func applyModel(
+        _ model: SidebarWorkspaceRowModel,
+        environment: SidebarWorkspaceTableEnvironmentSnapshot
+    ) {
 #if DEBUG
         applyModelProbeForTesting?(model)
 #endif
@@ -352,7 +372,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let palette = palette(model)
+        let palette = palette(model, environment: environment)
         let snapshot = model.snapshot
         let settings = model.settings
 
@@ -368,7 +388,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.5).cgColor
+            backgroundView.layer?.borderColor = palette.semanticPrimaryText.withAlphaComponent(0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -481,12 +501,16 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 descriptionView.attributedStringValue = SidebarRowPalette.attributed(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                    color: model.isActive
+                        ? palette.secondary(0.84)
+                        : palette.semanticSecondary(multiplyingOpacity: 0.95)
                 )
             } else {
                 descriptionView.stringValue = display
                 descriptionView.font = .systemFont(ofSize: model.scaled(10.5))
-                descriptionView.textColor = model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                descriptionView.textColor = model.isActive
+                    ? palette.secondary(0.84)
+                    : palette.semanticSecondary(multiplyingOpacity: 0.95)
             }
         }
 
@@ -559,6 +583,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             text: model.shortcutHintText,
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
+            textColor: palette.semanticPrimaryText,
+            materialEnvironment: environment,
             representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
@@ -625,7 +651,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         let spinnerColor: NSColor = model.isActive
             ? palette.selectedForeground(0.55)
-            : .secondaryLabelColor
+            : palette.semanticSecondaryText
         leadingSpinner = Self.updateSpinner(
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
@@ -694,8 +720,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         // Full re-apply: hover gates more than the close button (the
         // trailing badge and spinner hide while the close button shows), and
         // re-deriving that subset here would drift from applyModel.
-        if let model {
-            applyModel(model)
+        if let model, let environment {
+            applyModel(model, environment: environment)
             needsLayout = true
         } else {
             updateCloseVisibility()
@@ -719,7 +745,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     ? palette.selectedForeground(1.0)
                     : palette.secondary(0.95).withAlphaComponent(0.84)
             } else {
-                entryColor = explicitColor ?? .secondaryLabelColor
+                entryColor = explicitColor ?? palette.semanticSecondaryText
             }
             metadataRows[index].configureMetadataEntry(
                 entry,
@@ -733,7 +759,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         let toggleColor = model.isActive
             ? palette.secondary(0.9)
-            : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+            : palette.semanticSecondary(multiplyingOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
@@ -765,12 +791,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 view.attributedStringValue = SidebarRowPalette.attributed(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10)),
-                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                    color: model.isActive ? palette.secondary(0.8) : palette.semanticSecondaryText
                 )
             } else {
                 view.stringValue = display
                 view.font = .systemFont(ofSize: model.scaled(10))
-                view.textColor = model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                view.textColor = model.isActive ? palette.secondary(0.8) : palette.semanticSecondaryText
             }
         }
     }
@@ -788,7 +814,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: model.isActive ? palette.selectedForeground(0.15) : NSColor.secondaryLabelColor.withAlphaComponent(0.2),
+                trackColor: model.isActive
+                    ? palette.selectedForeground(0.15)
+                    : palette.semanticSecondary(multiplyingOpacity: 0.2),
                 fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(),
                 labelText: progress.label,
                 labelFont: labelFont,
@@ -995,11 +1023,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     func beginInlineRename() {
-        guard let model else { return }
+        guard let model, let environment else { return }
         isEditing = true
         renameField.stringValue = model.snapshot.title
         renameField.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
-        renameField.textColor = palette(model).selectedForeground(1.0)
+        renameField.textColor = palette(model, environment: environment).selectedForeground(1.0)
         renameField.isHidden = false
         titleView.isHidden = true
         renameField.onCommit = { [weak self] text in

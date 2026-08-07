@@ -81,7 +81,7 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
-    func rowHeightCacheInvalidatesWhenColumnWidthChanges() {
+    func rowHeightCacheRemeasuresAndServesFreshestHeightWhenColumnWidthChanges() {
         let cache = SidebarWorkspaceTableRowHeightCache()
         let row = makeRowConfiguration()
         var measurementCount = 0
@@ -95,7 +95,10 @@ struct SidebarWorkspaceTableTests {
 
         #expect(measurementCount == 2)
         #expect(changed == IndexSet(integer: 0))
-        #expect(cache.height(for: row, columnWidth: 200) == nil)
+        // During live resize, AppKit can still ask using the last settled
+        // width. The cache intentionally serves the freshest content-matched
+        // measurement until the settle pass catches every row up.
+        #expect(cache.height(for: row, columnWidth: 200) == 60)
         #expect(cache.height(for: row, columnWidth: 240) == 60)
     }
 
@@ -497,13 +500,13 @@ struct SidebarWorkspaceTableTests {
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: colorScheme,
+            environment: .sidebarTableTestValues(colorScheme: colorScheme),
             globalFontMagnificationPercent: fontMagnificationPercent,
             lazyContractProbe: SidebarLazyContractProbe()
         )
 #else
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: colorScheme,
+            environment: .sidebarTableTestValues(colorScheme: colorScheme),
             globalFontMagnificationPercent: fontMagnificationPercent
         )
 #endif

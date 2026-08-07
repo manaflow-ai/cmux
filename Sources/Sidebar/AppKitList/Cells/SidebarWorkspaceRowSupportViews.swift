@@ -8,9 +8,12 @@ import SwiftUI
 /// active/inactive foreground rules in SidebarAppearanceSupport).
 @MainActor
 struct SidebarRowPalette {
+    let environment: SidebarWorkspaceTableEnvironmentSnapshot
     let model: SidebarWorkspaceRowModel
 
-    var colorScheme: ColorScheme { model.colorSchemeIsDark ? .dark : .light }
+    var colorScheme: ColorScheme { environment.colorScheme }
+    var semanticPrimaryText: NSColor { environment.primaryTextColor }
+    var semanticSecondaryText: NSColor { environment.secondaryTextColor }
 
     var selectedBackground: NSColor {
         sidebarSelectedWorkspaceBackgroundNSColor(
@@ -24,11 +27,17 @@ struct SidebarRowPalette {
     }
 
     var primaryText: NSColor {
-        model.isActive ? selectedForeground(1.0) : .labelColor
+        model.isActive ? selectedForeground(1.0) : semanticPrimaryText
     }
 
     func secondary(_ opacity: CGFloat = 0.75) -> NSColor {
-        model.isActive ? selectedForeground(opacity) : .secondaryLabelColor
+        model.isActive ? selectedForeground(opacity) : semanticSecondaryText
+    }
+
+    /// Applies SwiftUI-style opacity without replacing the semantic color's
+    /// resolved alpha (including its accessibility-contrast adjustment).
+    func semanticSecondary(multiplyingOpacity opacity: CGFloat) -> NSColor {
+        semanticSecondaryText.withAlphaComponent(semanticSecondaryText.alphaComponent * opacity)
     }
 
     static func attributed(_ source: AttributedString, font: NSFont, color: NSColor) -> NSAttributedString {
@@ -350,7 +359,7 @@ final class SidebarRowIconTextLine: NSView {
             }
         } else {
             switch log.level {
-            case .info: color = .secondaryLabelColor
+            case .info: color = palette.semanticSecondaryText
             case .progress: color = .systemBlue
             case .success: color = .systemGreen
             case .warning: color = .systemOrange
@@ -524,7 +533,7 @@ final class SidebarRowPullRequestLine: NSView {
         clickable: Bool,
         onOpen: @escaping () -> Void
     ) {
-        let color = model.isActive ? palette.secondary(0.75) : NSColor.secondaryLabelColor
+        let color = model.isActive ? palette.secondary(0.75) : palette.semanticSecondaryText
         let font = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
         iconView.configure(status: display.status, color: color, fontScale: model.fontScale)
         iconSize = SidebarRowPullRequestIconView.size(status: display.status, fontScale: model.fontScale)
