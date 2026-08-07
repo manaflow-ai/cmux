@@ -5,8 +5,8 @@ extension CMUXCLI {
     /// ExitPlanMode. Those tools can publish Needs input without a
     /// PermissionRequest in bypass mode; clear that state when the blocking
     /// tool itself finishes, without observing every ordinary tool call. The
-    /// wrapper runs the targeted PreToolUse and PostToolUse hooks synchronously
-    /// so this completion cannot overtake the next blocking-tool transition.
+    /// wrapper runs each targeted hook synchronously with its tool, while the
+    /// session store correlates parallel callbacks by Claude's `tool_use_id`.
     func runClaudeInputResolvedHook(
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
@@ -18,6 +18,9 @@ extension CMUXCLI {
         telemetry.breadcrumb("claude-hook.input-resolved")
         markFeedTelemetryHandled()
 
+        // Each hook is a short-lived CLI process with no app/UI main thread.
+        // Read fresh locked state because a process-local cache cannot observe
+        // parallel hook processes and would break completion correlation.
         let mappedSession = parsedInput.sessionId.flatMap {
             try? sessionStore.lookup(sessionId: $0)
         }
@@ -60,15 +63,41 @@ extension CMUXCLI {
             return
         }
 
+        let resolution: ClaudeHookSessionStore.BlockingToolResolution
         if let sessionId = parsedInput.sessionId {
-            _ = try? sessionStore.upsert(
-                sessionId: sessionId,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                cwd: parsedInput.cwd,
-                transcriptPath: parsedInput.transcriptPath,
-                agentLifecycle: .running
-            )
+            do {
+                resolution = try sessionStore.resolveBlockingToolInput(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
+                    toolUseId: extractClaudeHookToolUseId(from: parsedInput.rawObject)
+                )
+            } catch {
+                telemetry.breadcrumb(
+                    "claude-hook.input-resolved.store-error",
+                    data: ["error": String(describing: error)]
+                )
+                // Preserve the pre-correlation fail-open behavior: a store I/O
+                // failure must not strand a pane in Needs input forever.
+                resolution = .restoreRunning
+            }
+        } else {
+            resolution = .restoreRunning
+        }
+
+        switch resolution {
+        case .keepNeedsInput:
+            telemetry.breadcrumb("claude-hook.input-resolved.pending")
+            printClaudeHookAck()
+            return
+        case .ignoreUnmatched:
+            telemetry.breadcrumb("claude-hook.input-resolved.unmatched")
+            printClaudeHookAck()
+            return
+        case .restoreRunning:
+            break
         }
         _ = try? sendV1Command(
             "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",

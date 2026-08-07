@@ -239,6 +239,20 @@ extension CMUXCLI {
         return nil
     }
 
+    func extractClaudeHookToolUseId(from object: [String: Any]?) -> String? {
+        // IDs are opaque correlation tokens, not content. Reject pathological
+        // hook input instead of persisting an unbounded value in session state.
+        guard let object,
+              let toolUseId = firstString(
+                  in: object,
+                  keys: ["tool_use_id", "toolUseId", "toolUseID"]
+              ),
+              toolUseId.utf8.count <= 256 else {
+            return nil
+        }
+        return toolUseId
+    }
+
     func extractHookTranscriptPath(from object: [String: Any]) -> String? {
         let transcriptPathKeys = ["transcript_path", "transcriptPath"]
         if let transcriptPath = firstString(in: object, keys: transcriptPathKeys) {

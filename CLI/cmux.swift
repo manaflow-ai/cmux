@@ -58,7 +58,7 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-enum AgentHookRuntimeStatus: String, Codable {
+enum AgentHookRuntimeStatus: String, Codable, Equatable {
     case running
     case idle
     case needsInput
@@ -127,7 +127,7 @@ private func agentHookDebugSocketName(_ socketPath: String?) -> String {
 }
 #endif
 
-struct ClaudeHookSessionRecord: Codable {
+struct ClaudeHookSessionRecord: Codable, Equatable {
     var sessionId: String
     var workspaceId: String
     var surfaceId: String
@@ -142,6 +142,10 @@ struct ClaudeHookSessionRecord: Codable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// Sorted, unique Claude `tool_use_id` values for blocking tools that have
+    /// entered Needs input but have not completed. `nil` keeps compatibility
+    /// with session records written before completion correlation existed.
+    var pendingBlockingToolUseIds: [String]? = nil
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
@@ -178,7 +182,7 @@ struct ClaudeHookSessionRecord: Codable {
     var hadPendingBackgroundWorkAtStop: Bool?
 }
 
-struct ClaudeHookActiveSessionRecord: Codable {
+struct ClaudeHookActiveSessionRecord: Codable, Equatable {
     var sessionId: String
     var turnId: String?
     var allowsNewSessionReplacement: Bool?
@@ -1512,12 +1516,13 @@ final class ClaudeHookSessionStore {
         defer { _ = flock(fd, LOCK_UN) }
 
         var state = loadUnlocked()
-        let originalData = try encoder.encode(state)
+        // A COW value snapshot makes read-only transactions encode nothing;
+        // changed state is serialized once below.
+        let originalState = state
         pruneExpired(&state)
         let result = try body(&state)
-        let updatedData = try encoder.encode(state)
-        if updatedData != originalData {
-            try saveUnlocked(updatedData)
+        if state != originalState {
+            try saveUnlocked(try encoder.encode(state))
         }
         return result
     }
@@ -25521,13 +25526,13 @@ struct CMUXCLI {
                 let existingSurfaceId = resolvedSurface.isAuthoritative
                     ? surfaceId
                     : (nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId)
-                _ = try? sessionStore.upsert(
+                try? sessionStore.recordBlockingToolNeedsInput(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    toolUseId: extractClaudeHookToolUseId(from: parsedInput.rawObject),
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
