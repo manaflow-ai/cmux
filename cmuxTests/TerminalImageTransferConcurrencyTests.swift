@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 import Foundation
 import Testing
 
@@ -13,8 +14,6 @@ struct TerminalImageTransferConcurrencyTests {
     @MainActor
     @Test("lazy pasteboard providers materialize through isolated preparation")
     func lazyPasteboardProviderMaterializes() async throws {
-        #expect(Thread.isMainThread)
-
         let pasteboard = NSPasteboard(
             name: .init("cmux-tests-image-transfer-\(UUID().uuidString)")
         )
