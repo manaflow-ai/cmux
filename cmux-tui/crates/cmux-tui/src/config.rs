@@ -118,10 +118,11 @@
 //! keys.
 
 use std::collections::{HashMap, HashSet};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(all(test, unix))]
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
@@ -2629,13 +2630,10 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
-    let parsed = resolved_ghostty_defaults()
-        .or_else(|| {
-            let text = platform::ghostty_config_paths()
-                .iter()
-                .find_map(|path| std::fs::read_to_string(path).ok())?;
-            Some(parse_ghostty_defaults(&text))
-        })
+    let parsed = platform::ghostty_config_paths()
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())
+        .map(|text| parse_ghostty_defaults(&text))
         .unwrap_or_default();
     resolve_ghostty_application_defaults(parsed)
 }
@@ -2649,19 +2647,7 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
     defaults
 }
 
-/// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
-/// same theme-loading behavior as the graphical terminal. A failed or slow
-/// invocation is deliberately ignored; startup then uses the file fallback.
-fn resolved_ghostty_defaults() -> Option<DefaultColors> {
-    resolved_ghostty_defaults_from(&platform::ghostty_installations())
-}
-
-fn resolved_ghostty_defaults_from(
-    installations: &[platform::GhosttyInstallation],
-) -> Option<DefaultColors> {
-    resolved_ghostty_defaults_from_with(installations, run_ghostty_show_config)
-}
-
+#[cfg(test)]
 fn resolved_ghostty_defaults_from_with(
     installations: &[platform::GhosttyInstallation],
     mut resolve: impl FnMut(&platform::GhosttyInstallation) -> Option<String>,
@@ -2677,6 +2663,7 @@ fn resolved_ghostty_defaults_from_with(
     })
 }
 
+#[cfg(all(test, unix))]
 fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> Command {
     let mut command = Command::new(&installation.binary);
     command
@@ -2688,30 +2675,6 @@ fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> 
         command.env("GHOSTTY_RESOURCES_DIR", resources_dir);
     }
     command
-}
-
-fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
-    let mut command = ghostty_show_config_command(installation);
-    let mut child = command.spawn().ok()?;
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let status = loop {
-        match child.try_wait().ok()? {
-            Some(status) => break status,
-            None if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            None => std::thread::sleep(Duration::from_millis(10)),
-        }
-    };
-    if !status.success() {
-        return None;
-    }
-
-    let mut output = String::new();
-    child.stdout.take()?.read_to_string(&mut output).ok()?;
-    Some(output)
 }
 
 /// Parse the subset of Ghostty's `key = value` config used by cmux-tui.
