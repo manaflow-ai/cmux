@@ -3208,13 +3208,19 @@ impl GhosttyThemeMode {
     }
 }
 
-fn system_ghostty_theme_mode(platform_appearance: Option<GhosttyThemeMode>) -> GhosttyThemeMode {
+fn system_ghostty_theme_mode(deadline_at: Option<Instant>) -> GhosttyThemeMode {
+    system_ghostty_theme_mode_with_platform(|| platform_appearance_theme_mode(deadline_at))
+}
+
+fn system_ghostty_theme_mode_with_platform(
+    mut platform_appearance: impl FnMut() -> Option<GhosttyThemeMode>,
+) -> GhosttyThemeMode {
     if let Some(mode) =
         std::env::var_os("AppleInterfaceStyle").as_deref().and_then(GhosttyThemeMode::parse)
     {
         return mode;
     }
-    if let Some(mode) = platform_appearance {
+    if let Some(mode) = platform_appearance() {
         return mode;
     }
     GhosttyThemeMode::Light
@@ -3783,9 +3789,7 @@ fn selected_ghostty_theme<'a>(
     let Some((light, dark)) = conditional_ghostty_themes(value) else {
         return value;
     };
-    let mode = *theme_mode.get_or_insert_with(|| {
-        system_ghostty_theme_mode(platform_appearance_theme_mode(deadline_at))
-    });
+    let mode = *theme_mode.get_or_insert_with(|| system_ghostty_theme_mode(deadline_at));
     match mode {
         GhosttyThemeMode::Light => light,
         GhosttyThemeMode::Dark => dark,
@@ -5465,11 +5469,30 @@ mod tests {
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::remove_var("AppleInterfaceStyle") };
 
-        let mode = system_ghostty_theme_mode(Some(GhosttyThemeMode::Light));
+        let mode = system_ghostty_theme_mode_with_platform(|| Some(GhosttyThemeMode::Light));
 
         restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
 
         assert_eq!(mode, GhosttyThemeMode::Light);
+    }
+
+    #[test]
+    fn ghostty_system_theme_uses_environment_before_platform_probe() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let mut platform_calls = 0;
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Dark") };
+
+        let mode = system_ghostty_theme_mode_with_platform(|| {
+            platform_calls += 1;
+            Some(GhosttyThemeMode::Light)
+        });
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+
+        assert_eq!(mode, GhosttyThemeMode::Dark);
+        assert_eq!(platform_calls, 0);
     }
 
     #[test]
