@@ -1,6 +1,6 @@
 package com.cmux.internal;
 
-/** Exact protocol-v1 operation spellings and classes. */
+/** Exact protocol-v2 operation spellings and classes. */
 public enum Operations {
     MACHINE_LIST("machine.list", Class.READ),
     MACHINE_GET("machine.get", Class.READ),
@@ -85,6 +85,7 @@ public enum Operations {
     TERMINAL_VIEWER_RELEASE("terminal.viewer.release", Class.CONNECTION_CONTROL),
     TERMINAL_VIEWPORT_SCROLL("terminal.viewport.scroll", Class.MUTATION),
     TERMINAL_MOVE("terminal.move", Class.MUTATION),
+    TERMINAL_PROJECT("terminal.project", Class.MUTATION),
     TERMINAL_ATTACH("terminal.attach", Class.STREAM_OPEN),
     TERMINAL_CLOSE("terminal.close", Class.MUTATION),
     BROWSER_LIST("browser.list", Class.READ),

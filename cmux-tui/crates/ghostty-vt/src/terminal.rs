@@ -271,6 +271,25 @@ pub struct Scrollbar {
     pub len: u64,
 }
 
+/// An owned terminal cell anchor that follows its row through scrollback
+/// growth, pruning, and reflow. Callers must serialize access with the
+/// originating [`Terminal`].
+pub struct TrackedScreenPoint {
+    raw: sys::GhosttyTrackedGridRef,
+    terminal_instance_id: u64,
+}
+
+// The C handle is owned by this value and Ghostty permits freeing it after
+// its terminal is gone. All other access requires the originating Terminal,
+// whose callers already serialize mutation.
+unsafe impl Send for TrackedScreenPoint {}
+
+impl Drop for TrackedScreenPoint {
+    fn drop(&mut self) {
+        unsafe { sys::ghostty_tracked_grid_ref_free(self.raw) };
+    }
+}
+
 impl Scrollbar {
     /// Whether the viewport is scrolled away from the live bottom.
     pub fn scrolled_back(&self) -> bool {
@@ -2866,6 +2885,55 @@ impl Terminal {
             return None;
         }
         Some(Scrollbar { total: raw.total, offset: raw.offset, len: raw.len })
+    }
+
+    /// Track one cell in full-screen coordinates. The anchor continues to
+    /// identify that cell as history grows or older rows are pruned.
+    pub fn track_screen_point(&mut self, x: u16, y: u32) -> Result<TrackedScreenPoint> {
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_SCREEN,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        let mut raw: sys::GhosttyTrackedGridRef = ptr::null_mut();
+        check(unsafe { sys::ghostty_terminal_grid_ref_track(self.raw, point, &mut raw) })?;
+        if raw.is_null() {
+            return Err(Error::NoValue);
+        }
+        Ok(TrackedScreenPoint { raw, terminal_instance_id: self.instance_id })
+    }
+
+    /// Resolve an anchor into the current full-screen coordinate space.
+    /// `None` means its row was pruned or belongs to a replaced terminal.
+    pub fn tracked_screen_point(&self, point: &TrackedScreenPoint) -> Option<(u16, u32)> {
+        if point.terminal_instance_id != self.instance_id || point.raw.is_null() {
+            return None;
+        }
+        let mut coordinate = sys::GhosttyPointCoordinate::default();
+        (unsafe {
+            sys::ghostty_tracked_grid_ref_point(
+                point.raw,
+                sys::GHOSTTY_POINT_TAG_SCREEN,
+                &mut coordinate,
+            )
+        } == sys::GHOSTTY_SUCCESS)
+            .then_some((coordinate.x, coordinate.y))
+    }
+
+    /// Move an existing anchor to a new full-screen coordinate.
+    pub fn set_tracked_screen_point(
+        &mut self,
+        tracked: &mut TrackedScreenPoint,
+        x: u16,
+        y: u32,
+    ) -> Result<()> {
+        if tracked.terminal_instance_id != self.instance_id || tracked.raw.is_null() {
+            return Err(Error::InvalidValue);
+        }
+        let point = sys::GhosttyPoint {
+            tag: sys::GHOSTTY_POINT_TAG_SCREEN,
+            value: sys::GhosttyPointValue { coordinate: sys::GhosttyPointCoordinate { x, y } },
+        };
+        check(unsafe { sys::ghostty_tracked_grid_ref_set(tracked.raw, self.raw, point) })
     }
 
     /// Plain text of a selection range given in viewport coordinates

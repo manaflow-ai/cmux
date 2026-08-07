@@ -182,6 +182,94 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
+    func visibleRowClickWhileRevealApplyIsPendingRequestsAuthoritativeApply() async throws {
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        let initiallySelectedWorkspace = try #require(tabManager.selectedWorkspace)
+        let clickedWorkspace = tabManager.addWorkspace(
+            select: false,
+            autoWelcomeIfNeeded: false,
+            autoRefreshMetadata: false
+        )
+        let model = SidebarWorkspaceRowSuspensionTests.makeModel(
+            workspaceId: clickedWorkspace.id
+        )
+        let row = SidebarWorkspaceTableRowConfiguration(
+            workspaceRowModel: model,
+            actions: SidebarWorkspaceRowSuspensionTests.makeActions(
+                model: model,
+                workspace: clickedWorkspace,
+                tabManager: tabManager
+            ),
+            groupId: nil,
+            isPinned: false,
+            environment: SidebarWorkspaceTableEnvironmentSnapshot(
+                colorScheme: .light,
+                globalFontMagnificationPercent: 100,
+                lazyContractProbe: SidebarLazyContractProbe()
+            )
+        )
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        var applyRequests = 0
+        controller.onDeferredRowClickAwaitingApply = { applyRequests += 1 }
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+
+        controller.setPresentationActive(false, workspaceIds: [clickedWorkspace.id])
+        controller.setPresentationActive(true, workspaceIds: [clickedWorkspace.id])
+
+        let table = container.tableView
+        let action = try #require(table.action)
+        let target = try #require(table.target)
+        table.setValue(0, forKey: "clickedRow")
+        defer { table.setValue(-1, forKey: "clickedRow") }
+        #expect(table.sendAction(action, to: target))
+
+        #expect(
+            applyRequests == 1,
+            """
+            A click parked on a reveal-time row must request an authoritative \
+            apply: the park mutates no SwiftUI-tracked state, so nothing else \
+            re-evaluates the Equatable-gated sidebar and the click stays \
+            parked until unrelated invalidation (issue #9690: taps only \
+            landed after an app focus cycle).
+            """
+        )
+
+        // Respond to the request the way production SwiftUI does — with a
+        // fresh authoritative apply — and confirm the parked click lands.
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [clickedWorkspace.id],
+            selectedWorkspaceId: initiallySelectedWorkspace.id,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        #expect(tabManager.selectedTabId == clickedWorkspace.id)
+    }
+
+    @Test
     func hidingRetiresNativeReorderSession() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()

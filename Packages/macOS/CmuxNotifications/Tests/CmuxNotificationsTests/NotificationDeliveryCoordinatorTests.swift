@@ -8,12 +8,46 @@ private final class FakeNotificationCenter: UserNotificationCenterConfiguring {
     private(set) var categories: Set<UNNotificationCategory> = []
     private(set) var delegate: (any UNUserNotificationCenterDelegate)?
 
-    func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {
+    /// When true, category installation suspends until
+    /// ``releaseCategoryInstall()``, modeling the framework's unbounded wait
+    /// on a wedged daemon.
+    var stallCategoryInstall = false
+    private var stallWaiters: [CheckedContinuation<Void, Never>] = []
+    private var categoryInstallWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func setNotificationCategories(
+        _ categories: Set<UNNotificationCategory>
+    ) async -> Result<Void, UserNotificationCenterFailure> {
+        if stallCategoryInstall {
+            await withCheckedContinuation { stallWaiters.append($0) }
+        }
         self.categories = categories
+        let waiters = categoryInstallWaiters
+        categoryInstallWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        return .success(())
     }
 
     func setDelegate(_ delegate: (any UNUserNotificationCenterDelegate)?) {
         self.delegate = delegate
+    }
+
+    /// Suspends until the fire-and-forget category install has landed.
+    func waitForCategoryInstall() async {
+        guard categories.isEmpty else { return }
+        await withCheckedContinuation { categoryInstallWaiters.append($0) }
+    }
+
+    /// Lets a stalled category installation proceed.
+    func releaseCategoryInstall() {
+        stallCategoryInstall = false
+        let waiters = stallWaiters
+        stallWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
     }
 }
 
@@ -96,15 +130,16 @@ private final class DummyNotificationDelegate: NSObject, UNUserNotificationCente
 @MainActor
 struct NotificationDeliveryCoordinatorTests {
     @Test("configure installs terminal and Feed categories and delegate")
-    func configureInstallsCategoriesAndDelegate() throws {
+    func configureInstallsCategoriesAndDelegate() async throws {
         let center = FakeNotificationCenter()
         let delegate = DummyNotificationDelegate()
         let coordinator = makeCoordinator(center: center)
 
         coordinator.configureUserNotifications(delegate: delegate)
+        #expect((center.delegate as AnyObject?) === delegate)
+        await center.waitForCategoryInstall()
 
         let categories = categoriesByIdentifier(center.categories)
-        #expect((center.delegate as AnyObject?) === delegate)
         let terminalCategory = try #require(categories["terminal.category"])
         #expect(terminalCategory.actions.map(\.identifier) == ["terminal.show"])
         #expect(terminalCategory.actions.map(\.title) == ["Show"])
@@ -132,6 +167,26 @@ struct NotificationDeliveryCoordinatorTests {
         let question = try #require(categories["CMUXFeedQuestion"])
         #expect(question.actions.map(\.identifier) == ["feed.question.open"])
         #expect(question.actions.first?.options.contains(.foreground) == true)
+    }
+
+    @Test("configuration never blocks its caller on notification-center entry")
+    func configureDoesNotBlockCallingExecutor() async {
+        let center = FakeNotificationCenter()
+        // Category installation cannot finish until the test releases it, so
+        // the assertion below is causal: it can only pass when configure hands
+        // control back without waiting on the (wedged) center entry.
+        center.stallCategoryInstall = true
+        let coordinator = makeCoordinator(center: center)
+
+        coordinator.configureUserNotifications(delegate: DummyNotificationDelegate())
+
+        #expect(
+            center.categories.isEmpty,
+            "configure must return before category installation completes"
+        )
+        center.releaseCategoryInstall()
+        await center.waitForCategoryInstall()
+        #expect(!center.categories.isEmpty)
     }
 
     @Test("presentation options include sound only when the notification has sound")

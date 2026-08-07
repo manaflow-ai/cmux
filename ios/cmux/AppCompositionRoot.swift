@@ -26,6 +26,7 @@ final class AppCompositionRoot {
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
     let displaySettings: MobileDisplaySettings
+    private var pushReachabilityTask: Task<Void, Never>? = nil
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     let connectionMethodStore: MobileConnectionMethodStore
@@ -98,15 +99,18 @@ final class AppCompositionRoot {
         )
         let pushCoordinator = MobilePushCoordinator(
             registration: auth.pushRegistration,
-            analytics: analytics.emitter
+            analytics: analytics.emitter,
+            phoneAPIOrigin: auth.config.apiBaseURL
         )
         self.pushCoordinator = pushCoordinator
         self.signOutHook = MobileSignOutHook {
+            let signingOutAccountID = auth.coordinator.currentUser?.id
             let preparation = iroh.beginSignOutPreparation()
             return { accessToken, refreshToken in
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(
+                            accountID: signingOutAccountID,
                             accessToken: accessToken,
                             refreshToken: refreshToken
                         )
@@ -143,6 +147,17 @@ final class AppCompositionRoot {
             forceComplete: bypassOnboarding
         )
         self.tailscaleStatusMonitor = TailscaleStatusMonitorAdapter(monitor: TailscaleStatusMonitor())
+        self.pushReachabilityTask = Task { @MainActor [weak pushCoordinator] in
+            for await _ in reachability.pathChanges() {
+                guard let pushCoordinator, !Task.isCancelled else { return }
+                guard await reachability.isOnline else { continue }
+                await pushCoordinator.networkDidBecomeReachable()
+            }
+        }
+    }
+
+    deinit {
+        pushReachabilityTask?.cancel()
     }
 
     /// Bundle-owned build identity used in explicit diagnostic exports.
@@ -189,6 +204,7 @@ final class AppCompositionRoot {
         switch phase {
         case .active:
             iroh.didBecomeActive()
+            Task { await pushCoordinator.refreshReadiness() }
             let now = Date()
             let decision = analytics.sessionizer.resolveForeground(
                 now: now,
