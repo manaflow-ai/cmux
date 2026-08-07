@@ -314,6 +314,61 @@ struct TerminalImageTransferConcurrencyTests {
     }
 
     @MainActor
+    @Test("queued preparation deadline begins at admission")
+    func queuedPreparationDeadlineBeginsAtAdmission() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let failures = PastePreparationFailureProbe()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { failures.record($0) }
+        )
+        var admitted = operation.admittedEvents().makeAsyncIterator()
+        var started = operation.startedEvents().makeAsyncIterator()
+        var reportedFailures = failures.events().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "admission-deadline-first")
+        let queuedRequest = makeReadRequest(label: "admission-deadline-queued")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == firstRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(1)
+        #expect(await started.next() == firstRequest.pasteboardName)
+
+        let queuedTask = Task {
+            await service.prepare(request: queuedRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == queuedRequest.pasteboardName)
+        let arrivalCount = await deadlines.currentArrivalCount()
+        guard arrivalCount == 2 else {
+            Issue.record("Queued preparation did not arm its admission deadline")
+            await operation.release(queuedRequest.pasteboardName)
+            await operation.release(firstRequest.pasteboardName)
+            _ = await firstTask.value
+            _ = await queuedTask.value
+            return
+        }
+
+        #expect(await deadlines.fireLast())
+        #expect(await queuedTask.value == .reject)
+        #expect(await reportedFailures.next() == .deadlineExceeded)
+        #expect(
+            await operation.snapshot().startedNames
+                == [firstRequest.pasteboardName]
+        )
+        await operation.release(firstRequest.pasteboardName)
+        #expect(
+            await firstTask.value
+                == .insertText(firstRequest.pasteboardName)
+        )
+    }
+
+    @MainActor
     @Test("timed-out workers remain serialized while the queue advances")
     func timedOutWorkersRemainSerialized() async {
         let operation = ControlledPastePreparationOperation()

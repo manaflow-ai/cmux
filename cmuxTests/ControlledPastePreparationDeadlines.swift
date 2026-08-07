@@ -55,6 +55,13 @@ actor ControlledPastePreparationDeadlines {
         return true
     }
 
+    @discardableResult
+    func fireLast() -> Bool {
+        guard let sleeper = sleepers.popLast() else { return false }
+        sleeper.continuation.resume()
+        return true
+    }
+
     private func cancel(id: UUID) {
         guard let index = sleepers.firstIndex(where: { $0.id == id }) else {
             return
