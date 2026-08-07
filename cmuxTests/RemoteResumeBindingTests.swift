@@ -712,6 +712,74 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func customPersistentSSHAgentRuntimeEndsWithItsPrompt() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let configuration = remoteConfiguration()
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let panelID = try #require(workspace.focusedPanelId)
+        let authority = try #require(WorkspaceRemoteTerminalAuthority(configuration: configuration))
+        #expect(workspace.markRemoteTerminalSessionConnected(
+            surfaceId: panelID,
+            authority: authority
+        ))
+
+        let remotePTYSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: workspace.id,
+            panelId: panelID
+        )
+        workspace.remotePTYSessionIDsByPanelId[panelID] = remotePTYSessionID
+        let sessionID = "campfire-remote-session"
+        let runtimeKey = "campfire.\(sessionID)"
+        let unrelatedRuntimeKey = "remote-build-helper"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Campfire",
+            kind: "campfire",
+            command: "campfire resume \(sessionID)",
+            cwd: "/srv/project",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                workspaceID: workspace.id,
+                surfaceID: panelID,
+                persistentPTYSessionID: remotePTYSessionID
+            ))
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        workspace.recordAgentPID(
+            key: runtimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.recordAgentPID(
+            key: unrelatedRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+        #expect(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelID }?.terminal?.wasAgentRunning == true
+        )
+
+        workspace.updatePanelShellActivityState(panelId: panelID, state: .promptIdle)
+
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(runtimeKey) == false)
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(unrelatedRuntimeKey) == true)
+
+        // A later unrelated command must not revive the ended custom agent
+        // from an exact-session runtime key left behind by prompt cleanup.
+        workspace.updatePanelShellActivityState(panelId: panelID, state: .commandRunning)
+        #expect(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelID }?.terminal?.wasAgentRunning == false
+        )
+    }
+
+    @Test
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
         let mismatchedSnapshot = try snapshotByReplacingRemoteContext(

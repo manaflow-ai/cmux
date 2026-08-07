@@ -126,13 +126,16 @@ extension DockSocketLifecycleTests {
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
     }
 
-    @Test("Only a live persistent SSH agent hook survives a Dock snapshot")
+    @Test(
+        "Only a live persistent SSH agent hook survives a Dock snapshot",
+        arguments: ["codex", "campfire"]
+    )
     @MainActor
-    func persistentSSHAgentHookOwnershipSurvivesDockSnapshot() throws {
+    func persistentSSHAgentHookOwnershipSurvivesDockSnapshot(agentKind: String) throws {
         let sourceWorkspaceId = UUID()
         let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
         let remotePTYSessionID = "cmux-remote-pty-\(UUID().uuidString)"
-        let runtimeKey = "codex.remote-session"
+        let runtimeKey = "\(agentKind).remote-session"
         let unrelatedStatusKey = "remote-build-status"
         let unrelatedLifecycleKey = "remote-build-lifecycle"
         let unrelatedStatus = SidebarStatusEntry(
@@ -143,9 +146,9 @@ extension DockSocketLifecycleTests {
             timestamp: .distantPast
         )
         let binding = SurfaceResumeBindingSnapshot(
-            name: "Codex",
-            kind: "codex",
-            command: "codex resume remote-session",
+            name: agentKind,
+            kind: agentKind,
+            command: "\(agentKind) resume remote-session",
             cwd: "/srv/project",
             checkpointId: "remote-session",
             source: "agent-hook",
@@ -174,7 +177,7 @@ extension DockSocketLifecycleTests {
                 agentPIDProcessIdentities: [:],
                 agentPIDKeys: [runtimeKey],
                 agentLifecycleStates: [
-                    "codex": .unknown,
+                    agentKind: .unknown,
                     unrelatedLifecycleKey: .running,
                 ]
             ),
@@ -243,7 +246,7 @@ extension DockSocketLifecycleTests {
         // A later unrelated command plus a kind-only lifecycle write cannot
         // revive the consumed session-scoped runtime key.
         store.setAgentLifecycle(
-            key: "codex",
+            key: agentKind,
             panelId: panel.id,
             lifecycle: .running
         )
@@ -260,7 +263,7 @@ extension DockSocketLifecycleTests {
         // prior command/lifecycle evidence has not yet been reconciled.
         store.recordAgentPID(key: runtimeKey, pid: .max, panelId: panel.id)
         store.setAgentLifecycle(
-            key: "codex",
+            key: agentKind,
             panelId: panel.id,
             lifecycle: .running
         )
