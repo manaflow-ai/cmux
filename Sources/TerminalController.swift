@@ -307,6 +307,12 @@ class TerminalController {
     /// `init`; its `context` is wired to `self` once `self` is available.
     let controlCommandCoordinator = ControlCommandCoordinator()
 
+    /// The coordinator's stable-to-runtime identity table, cached by reference
+    /// so the `nonisolated` param parse can map a pasted `cmux://` link's ids
+    /// without a main-actor hop. Same instance the coordinator reads; assigned
+    /// in `init`, never replaced.
+    nonisolated let controlStableIdentities: ControlStableIdentityTable
+
     private struct V2BrowserElementRefEntry {
         let surfaceId: UUID
         let selector: String
@@ -386,6 +392,7 @@ class TerminalController {
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker()
     ) {
         self.passwordStore = passwordStore
+        self.controlStableIdentities = controlCommandCoordinator.stableIdentities
         let socketPasswordFileWatcher = passwordStore.passwordFileURL.map {
             FileWatcher(path: $0.path)
         }
@@ -3703,6 +3710,13 @@ class TerminalController {
     func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
+        // Rebuilt from scratch each refresh so a closed workspace's stable id
+        // stops resolving rather than routing to a dead runtime id.
+        var workspaceStableAliases: [UUID: UUID] = [:]
+        var surfaceStableAliases: [UUID: UUID] = [:]
+        var workspaceRuntimeIds: Set<UUID> = []
+        var surfaceRuntimeIds: Set<UUID> = []
+
         let windows = app.listMainWindowSummaries()
         for item in windows {
             _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
@@ -3710,6 +3724,13 @@ class TerminalController {
                 for ws in tm.tabs {
                     _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
                     v2RefreshRemoteTmuxAwarePaneAndSurfaceRefs(workspace: ws)
+                    v2CollectStableAliases(
+                        workspace: ws,
+                        workspaces: &workspaceStableAliases,
+                        surfaces: &surfaceStableAliases,
+                        workspaceRuntimeIds: &workspaceRuntimeIds,
+                        surfaceRuntimeIds: &surfaceRuntimeIds
+                    )
                 }
                 // Mint workspace_group refs for groups that exist before any
                 // workspace.group.* call so callers can pass `workspace_group:N`
@@ -3719,6 +3740,39 @@ class TerminalController {
                     _ = v2EnsureHandleRef(kind: .workspaceGroup, uuid: group.id)
                 }
             }
+        }
+
+        controlCommandCoordinator.setStableAliases(
+            kind: .workspace,
+            workspaceStableAliases,
+            runtimeIds: workspaceRuntimeIds
+        )
+        controlCommandCoordinator.setStableAliases(
+            kind: .surface,
+            surfaceStableAliases,
+            runtimeIds: surfaceRuntimeIds
+        )
+    }
+
+    /// Records one workspace's restart-stable identities for the socket's
+    /// alias table.
+    ///
+    /// Reads the same ``Workspace/cmuxNavigationDescriptor`` snapshot that
+    /// `cmux://` navigation resolves against, so a link resolves to the same
+    /// object whether it is opened or passed to the CLI.
+    private func v2CollectStableAliases(
+        workspace: Workspace,
+        workspaces: inout [UUID: UUID],
+        surfaces: inout [UUID: UUID],
+        workspaceRuntimeIds: inout Set<UUID>,
+        surfaceRuntimeIds: inout Set<UUID>
+    ) {
+        let descriptor = workspace.cmuxNavigationDescriptor
+        workspaceRuntimeIds.insert(descriptor.workspaceId)
+        workspaces[descriptor.stableId] = descriptor.workspaceId
+        for surface in descriptor.surfaces {
+            surfaceRuntimeIds.insert(surface.panelId)
+            surfaces[surface.stableSurfaceId] = surface.panelId
         }
     }
 
