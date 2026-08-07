@@ -1,41 +1,6 @@
 import AppKit
 import ObjectiveC
 
-@MainActor
-private final class PortalViewHierarchyMutationRegistration {
-    let onChange: @MainActor () -> Void
-
-    init(onChange: @escaping @MainActor () -> Void) {
-        self.onChange = onChange
-    }
-}
-
-@MainActor
-private final class WeakPortalViewHierarchyMutationRegistration {
-    weak var value: PortalViewHierarchyMutationRegistration?
-
-    init(_ value: PortalViewHierarchyMutationRegistration) {
-        self.value = value
-    }
-}
-
-@MainActor
-private final class PortalViewHierarchyMutationHub: NSObject {
-    private var registrations: [WeakPortalViewHierarchyMutationRegistration] = []
-
-    func add(_ registration: PortalViewHierarchyMutationRegistration) {
-        registrations.removeAll { $0.value == nil }
-        registrations.append(WeakPortalViewHierarchyMutationRegistration(registration))
-    }
-
-    func notify() {
-        registrations.removeAll { $0.value == nil }
-        for registration in registrations {
-            registration.value?.onChange()
-        }
-    }
-}
-
 private extension NSView {
     @objc func cmux_portalDidAddSubview(_ subview: NSView) {
         cmux_portalDidAddSubview(subview)
@@ -57,6 +22,41 @@ private extension NSView {
 
 @MainActor
 final class PortalSplitDividerCacheInvalidator {
+    @MainActor
+    private final class ViewHierarchyMutationRegistration {
+        let onChange: @MainActor () -> Void
+
+        init(onChange: @escaping @MainActor () -> Void) {
+            self.onChange = onChange
+        }
+    }
+
+    @MainActor
+    private final class WeakViewHierarchyMutationRegistration {
+        weak var value: ViewHierarchyMutationRegistration?
+
+        init(_ value: ViewHierarchyMutationRegistration) {
+            self.value = value
+        }
+    }
+
+    @MainActor
+    private final class ViewHierarchyMutationHub: NSObject {
+        private var registrations: [WeakViewHierarchyMutationRegistration] = []
+
+        func add(_ registration: ViewHierarchyMutationRegistration) {
+            registrations.removeAll { $0.value == nil }
+            registrations.append(WeakViewHierarchyMutationRegistration(registration))
+        }
+
+        func notify() {
+            registrations.removeAll { $0.value == nil }
+            for registration in registrations {
+                registration.value?.onChange()
+            }
+        }
+    }
+
     private static let hierarchyMutationHubAssociationKey = NSObject()
 
     /// AppKit does not document `subviews` as KVO-compliant, but it does provide
@@ -90,7 +90,7 @@ final class PortalSplitDividerCacheInvalidator {
     // after all main-thread use has ceased.
     private nonisolated(unsafe) var observations: [NSKeyValueObservation] = []
     private nonisolated(unsafe) var notificationObservers: [NSObjectProtocol] = []
-    private var hierarchyMutationRegistration: PortalViewHierarchyMutationRegistration?
+    private var hierarchyMutationRegistration: ViewHierarchyMutationRegistration?
 
     init() {
         _ = Self.installViewHierarchyMutationHooks
@@ -109,7 +109,7 @@ final class PortalSplitDividerCacheInvalidator {
         invalidate()
         let geometryViews = Self.uniqueViews(geometryViews)
         let subviewObservedViews = Self.uniqueViews(geometryViews + structureViews)
-        let hierarchyMutationRegistration = PortalViewHierarchyMutationRegistration(onChange: onChange)
+        let hierarchyMutationRegistration = ViewHierarchyMutationRegistration(onChange: onChange)
         self.hierarchyMutationRegistration = hierarchyMutationRegistration
         Self.hierarchyMutationHub(for: rootView, createIfNeeded: true)?.add(hierarchyMutationRegistration)
 
@@ -162,7 +162,7 @@ final class PortalSplitDividerCacheInvalidator {
     /// changed parent. Relevance is classified once even when several portals
     /// share a root, avoiding process-wide observer fanout and repeated scans.
     fileprivate static func viewHierarchyDidMutate(parentView: NSView, changedSubview: NSView) {
-        var hubs: [PortalViewHierarchyMutationHub] = []
+        var hubs: [ViewHierarchyMutationHub] = []
         var ancestor: NSView? = parentView
         while let view = ancestor {
             if let hub = hierarchyMutationHub(for: view, createIfNeeded: false) {
@@ -183,14 +183,14 @@ final class PortalSplitDividerCacheInvalidator {
     private static func hierarchyMutationHub(
         for rootView: NSView,
         createIfNeeded: Bool
-    ) -> PortalViewHierarchyMutationHub? {
+    ) -> ViewHierarchyMutationHub? {
         let key = Unmanaged.passUnretained(hierarchyMutationHubAssociationKey).toOpaque()
-        if let hub = objc_getAssociatedObject(rootView, key) as? PortalViewHierarchyMutationHub {
+        if let hub = objc_getAssociatedObject(rootView, key) as? ViewHierarchyMutationHub {
             return hub
         }
         guard createIfNeeded else { return nil }
 
-        let hub = PortalViewHierarchyMutationHub()
+        let hub = ViewHierarchyMutationHub()
         objc_setAssociatedObject(rootView, key, hub, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return hub
     }
