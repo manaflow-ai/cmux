@@ -3577,12 +3577,11 @@ fn resolve_ghostty_theme_defaults(
     if ghostty_config_deadline_expired(deadline_at) {
         return DefaultColors::default();
     }
-    let theme_mode = system_ghostty_theme_mode(platform_appearance_theme_mode(deadline_at));
     for candidate in theme_candidates {
         if ghostty_config_deadline_expired(deadline_at) {
             return DefaultColors::default();
         }
-        if let Some(defaults) = load_ghostty_theme(candidate, theme_dirs, theme_mode, deadline_at) {
+        if let Some(defaults) = load_ghostty_theme(candidate, theme_dirs, deadline_at) {
             return defaults;
         }
     }
@@ -3713,14 +3712,16 @@ fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
 fn load_ghostty_theme(
     candidate: &GhosttyThemeCandidate,
     theme_dirs: &[PathBuf],
-    theme_mode: GhosttyThemeMode,
     deadline_at: Option<Instant>,
 ) -> Option<DefaultColors> {
     if ghostty_config_deadline_expired(deadline_at) {
         return None;
     }
     let value = candidate.value.trim_matches('"');
-    let theme = selected_ghostty_theme(value, theme_mode);
+    let theme = selected_ghostty_theme(value, deadline_at);
+    if ghostty_config_deadline_expired(deadline_at) {
+        return None;
+    }
     let path = resolve_ghostty_theme_path(theme, candidate.base_dir.as_deref(), theme_dirs)?;
     let text = read_ghostty_regular_file(&path, GHOSTTY_CONFIG_MAX_BYTES)?;
     Some(parse_resolved_ghostty_defaults(&text))
@@ -3770,11 +3771,17 @@ fn expand_home_relative_path(value: &str) -> Option<PathBuf> {
     }
 }
 
-fn selected_ghostty_theme(value: &str, theme_mode: GhosttyThemeMode) -> &str {
-    selected_conditional_ghostty_theme(value, theme_mode).unwrap_or(value)
+fn selected_ghostty_theme(value: &str, deadline_at: Option<Instant>) -> &str {
+    let Some((light, dark)) = conditional_ghostty_themes(value) else {
+        return value;
+    };
+    match system_ghostty_theme_mode(platform_appearance_theme_mode(deadline_at)) {
+        GhosttyThemeMode::Light => light,
+        GhosttyThemeMode::Dark => dark,
+    }
 }
 
-fn selected_conditional_ghostty_theme(value: &str, theme_mode: GhosttyThemeMode) -> Option<&str> {
+fn conditional_ghostty_themes(value: &str) -> Option<(&str, &str)> {
     let mut light = None;
     let mut dark = None;
     for part in value.split(',') {
@@ -3786,11 +3793,7 @@ fn selected_conditional_ghostty_theme(value: &str, theme_mode: GhosttyThemeMode)
             _ => return None,
         }
     }
-    match theme_mode {
-        GhosttyThemeMode::Light if light.is_some() && dark.is_some() => light,
-        GhosttyThemeMode::Dark if light.is_some() && dark.is_some() => dark,
-        _ => None,
-    }
+    Some((light?, dark?))
 }
 
 fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColors) {
@@ -5403,6 +5406,15 @@ mod tests {
         assert_eq!(defaults.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
         assert_eq!(defaults.fg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
         assert_eq!(defaults.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+    }
+
+    #[test]
+    fn ghostty_fixed_theme_selection_does_not_require_appearance_budget() {
+        let expired = Instant::now().checked_sub(Duration::from_millis(1)).unwrap();
+
+        let selected = selected_ghostty_theme("Monokai", Some(expired));
+
+        assert_eq!(selected, "Monokai");
     }
 
     #[test]
