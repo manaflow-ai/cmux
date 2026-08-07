@@ -178,11 +178,6 @@ final class FrontendModel {
                 refreshRequested = false
                 do {
                     try await refreshNow()
-                    // Resource notifications are identity-less at the C ABI
-                    // boundary, so cap full-snapshot reconciliation to 10 Hz.
-                    if refreshRequested {
-                        try await Task.sleep(for: .milliseconds(100))
-                    }
                 } catch {
                     errorMessage = error.localizedDescription
                 }

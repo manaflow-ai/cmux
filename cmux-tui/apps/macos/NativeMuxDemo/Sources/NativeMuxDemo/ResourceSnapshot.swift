@@ -94,6 +94,7 @@ struct ResourceSnapshot: Decodable, Sendable {
     let machine: ResourceIdentity
     let session: ResourceIdentity
     let workspaces: [WorkspaceSnapshot]
+    let orderedWorkspaces: [WorkspaceSnapshot]
     let screens: [ScreenSnapshot]
     let panes: [PaneSnapshot]
     let tabs: [TabSnapshot]
@@ -128,6 +129,7 @@ struct ResourceSnapshot: Decodable, Sendable {
         machine = try container.decode(ResourceIdentity.self, forKey: .machine)
         session = try container.decode(ResourceIdentity.self, forKey: .session)
         workspaces = try container.decode([WorkspaceSnapshot].self, forKey: .workspaces)
+        orderedWorkspaces = workspaces.sorted { $0.index < $1.index }
         screens = try container.decode([ScreenSnapshot].self, forKey: .screens)
         panes = try container.decode([PaneSnapshot].self, forKey: .panes)
         tabs = try container.decode([TabSnapshot].self, forKey: .tabs)

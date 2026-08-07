@@ -49,6 +49,7 @@ final class NativeTerminalModel {
   @ObservationIgnored private var inputTask: Task<Void, Never>?
   @ObservationIgnored private var attachTask: Task<Void, Never>?
   @ObservationIgnored private var resizeTask: Task<Void, Never>?
+  @ObservationIgnored private var drainContinuationScheduled = false
   @ObservationIgnored private var resizeQueue = NewestResizeQueue()
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
@@ -64,7 +65,7 @@ final class NativeTerminalModel {
   ) {
     self.terminalID = terminalID
     self.service = service
-    let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingNewest(256))
+    let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingOldest(256))
     inputStream = input.stream
     inputContinuation = input.continuation
     let inputRelay = GhosttyTerminalInputRelay(continuation: input.continuation)
@@ -139,13 +140,17 @@ final class NativeTerminalModel {
   }
 
   private func consumeUpdates(from handle: TerminalHandle) async {
-    var batch = await handle.drainRenderEvents()
-    repeat {
-      for event in batch.events { surfaceView.apply(event) }
-      guard batch.hasMore else { break }
-      await Task.yield()
-      batch = await handle.drainRenderEvents()
-    } while !Task.isCancelled
+    let batch = await handle.drainRenderEvents()
+    for event in batch.events { surfaceView.apply(event) }
+    if batch.hasMore, !drainContinuationScheduled {
+      drainContinuationScheduled = true
+      Task { [weak self, weak handle] in
+        await Task.yield()
+        guard let self, let handle else { return }
+        self.drainContinuationScheduled = false
+        await self.consumeUpdates(from: handle)
+      }
+    }
     if let rendererError = surfaceView.initializationError {
       errorMessage = rendererError
     }
@@ -157,7 +162,9 @@ final class NativeTerminalModel {
 
   func submit(_ input: TerminalInput) {
     guard isAttached, !didExit else { return }
-    inputContinuation.yield(input)
+    if case .dropped = inputContinuation.yield(input) {
+      errorMessage = L10n.text("error.terminal_input_overloaded", "Terminal input is busy; try again.")
+    }
   }
 
   func resize(_ geometry: TerminalGeometry) {
