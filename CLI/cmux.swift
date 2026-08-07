@@ -374,6 +374,8 @@ final class ClaudeHookSessionStore {
             let turnIsTerminal = normalizedTurnId.map { terminalTurnId in
                 terminalPromptTurnSet(from: record).contains(terminalTurnId)
             } ?? false
+            let turnHasDeferredSettlement =
+                deferredSettlementsByTurn[turnKey] != nil
             switch eventName {
             case "SubagentStart":
                 if let normalizedWorkId,
@@ -424,16 +426,17 @@ final class ClaudeHookSessionStore {
                 activeWorkIdsByTurn[turnKey] = activeWorkIds.sorted()
             }
             if eventName == "SubagentStop",
-               turnIsTerminal,
+               turnIsTerminal || turnHasDeferredSettlement,
                activeWorkIds.isEmpty {
-                // Once a terminal turn has drained every retained id, its
-                // final completion is the recovery boundary for a bounded-id
-                // overflow. This keeps overflow fail-closed while work may
-                // still be active without latching the session forever.
+                // A provisional Stop is terminal evidence for structured-work
+                // recovery even though prompt freshness stays active until its
+                // settled replay. Once that turn drains every retained id, its
+                // final completion clears a bounded-id overflow without
+                // latching the session forever.
                 overflowTurnKeys.remove(turnKey)
             }
             if eventName == "SubagentStop",
-               turnIsTerminal,
+               turnIsTerminal || turnHasDeferredSettlement,
                activeWorkIdsByTurn.isEmpty,
                overflowTurnKeys.isEmpty,
                deferredSettlementsByTurn.keys.allSatisfy({ $0 == turnKey }) {
@@ -32571,6 +32574,10 @@ export default CMUXSessionRestore;
                 input.rawObject?["cmux_active_background_work_count"]
                     ?? input.object?["cmux_active_background_work_count"]
             ) ?? 0
+            let payloadSiblingTurnCount = Self.intValue(
+                input.rawObject?["cmux_active_sibling_turn_count"]
+                    ?? input.object?["cmux_active_sibling_turn_count"]
+            ) ?? 0
             let processLiveness = AgentTurnProcessLiveness.observe(
                 pid: pid,
                 expectedStartSeconds:
@@ -32666,10 +32673,14 @@ export default CMUXSessionRestore;
                 evidence: AgentTurnSettlementEvidence(
                     boundary: turnBoundary,
                     activeBackgroundWorkCount: activeBackgroundWorkCount,
+                    activeSiblingTurnCount: payloadSiblingTurnCount,
                     processLiveness: processLiveness,
                     turnFreshness: turnFreshness
                 )
             )
+            let settledTurnKeepsProcessRunning =
+                turnSettlementDecision
+                    == .settleTurnKeepingProcessRunning
             switch turnSettlementDecision {
             case .keepRunning:
                 // A provisional end is negative evidence: it prevents
@@ -32706,7 +32717,7 @@ export default CMUXSessionRestore;
                 )
                 print("{}")
                 return
-            case .settle:
+            case .settle, .settleTurnKeepingProcessRunning:
                 break
             }
             if def.integration == .codex, !sessionId.isEmpty {
@@ -32823,7 +32834,9 @@ export default CMUXSessionRestore;
                 terminalActivePromptTurnIdsForStop = []
             }
             let nestedPromptStop: Bool
-            if !sessionId.isEmpty, !staleIdleStopHasNewerRunningSession {
+            if !sessionId.isEmpty,
+               !staleIdleStopHasNewerRunningSession
+                    || settledTurnKeepsProcessRunning {
                 nestedPromptStop = (try? store.recordPromptStop(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -32852,6 +32865,7 @@ export default CMUXSessionRestore;
                 nestedPromptEvent: nestedPromptStop,
                 env: env
             ) || staleIdleStopHasNewerRunningSession
+                || settledTurnKeepsProcessRunning
             let suppressCompletionNotification = suppressVisibleMutations
 
             if !sessionId.isEmpty, !suppressVisibleMutations {
@@ -32912,9 +32926,11 @@ export default CMUXSessionRestore;
                 && !suppressCompletionNotification
             if suppressVisibleMutations {
                 telemetry.breadcrumb(
-                    staleIdleStopHasNewerRunningSession
-                        ? "\(def.name)-hook.stop.stale-idle-suppressed"
-                        : "\(def.name)-hook.stop.nested-suppressed"
+                    settledTurnKeepsProcessRunning
+                        ? "\(def.name)-hook.stop.sibling-active-suppressed"
+                        : staleIdleStopHasNewerRunningSession
+                            ? "\(def.name)-hook.stop.stale-idle-suppressed"
+                            : "\(def.name)-hook.stop.nested-suppressed"
                 )
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
