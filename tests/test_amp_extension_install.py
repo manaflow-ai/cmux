@@ -257,7 +257,19 @@ export function spawn(command, args, options) {
     const observationId = call.args[observationIndex + 1] || "missing";
     const attempt = nativeAttentionEndAttempts.get(observationId) || 0;
     nativeAttentionEndAttempts.set(observationId, attempt + 1);
-    if (attempt === 0) hangs = true;
+    if (globalThis.__cmuxAmpSkipNextEndTimeout === true) {
+      globalThis.__cmuxAmpSkipNextEndTimeout = false;
+    } else if (attempt === 0) {
+      hangs = true;
+    }
+  }
+  if (
+    call.args.slice(0, 4).join(" ")
+      === "hooks amp __native-attention begin"
+    && globalThis.__cmuxAmpHangNextBegin === true
+  ) {
+    globalThis.__cmuxAmpHangNextBegin = false;
+    hangs = true;
   }
   const handlers = new Map();
   const stdoutHandlers = new Map();
@@ -511,6 +523,33 @@ for (const attemptedEnd of attentionCalls("end").slice(2)) {
       } end=${JSON.stringify(attemptedEnd.args)}`
     );
   }
+}
+globalThis.__cmuxAmpHangNextBegin = true;
+globalThis.__cmuxAmpSkipNextEndTimeout = true;
+thread.setState("awaiting-approval");
+await waitFor(
+  () => attentionCalls("begin").length === 3,
+  "Amp did not start the acknowledgement-timeout approval episode"
+);
+const unacknowledgedBegin = attentionCalls("begin")[2].args;
+thread.setState("running");
+await waitFor(
+  () => attentionCalls("end").length === 5
+    && attentionCalls("end")[4].closedWith === 0,
+  "Amp did not conservatively conclude an unacknowledged approval begin"
+);
+const unacknowledgedConclusion = attentionCalls("end")[4].args;
+if (
+  option(unacknowledgedConclusion, "--scope-id")
+    !== option(unacknowledgedBegin, "--scope-id")
+  || option(unacknowledgedConclusion, "--observation-id")
+    !== option(unacknowledgedBegin, "--observation-id")
+) {
+  throw new Error(
+    `Amp concluded the wrong unacknowledged approval episode: begin=${
+      JSON.stringify(unacknowledgedBegin)
+    } end=${JSON.stringify(unacknowledgedConclusion)}`
+  );
 }
 await handlers.get("tool.call")({
   toolUseID: "tool-main",
