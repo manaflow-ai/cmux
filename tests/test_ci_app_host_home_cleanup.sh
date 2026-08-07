@@ -75,6 +75,9 @@ cleanup() {
   fi
   [ -z "$APP_HOST_HOME" ] || rm -rf -- "$APP_HOST_HOME"
   [ -z "$OUTSIDE_HOME" ] || rm -rf -- "$OUTSIDE_HOME"
+  [ -z "${RUNNER_TEMP_DIR:-}" ] || chmod u+rwx "$RUNNER_TEMP_DIR" 2>/dev/null || true
+  [ -z "${CMUX_APP_HOST_RECEIPT_DIR:-}" ] || rm -rf -- "$CMUX_APP_HOST_RECEIPT_DIR"
+  [ -z "${CMUX_APP_HOST_CONFIRMATION_FILE:-}" ] || rm -f -- "$CMUX_APP_HOST_CONFIRMATION_FILE"
   rm -rf -- "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -130,10 +133,14 @@ printf 'version=1\nkey=%s\npid=%s\nexecutable=%s\n' \
   "$CMUX_APP_HOST_KEY" "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" \
   > "$CMUX_APP_HOST_RECEIPT_DIR/app-host-$APP_HOST_PID.receipt"
 
+# Model the supported split-account runner: the console user owns the exact
+# app-host targets but cannot modify the runner account's RUNNER_TEMP parent.
+chmod 0555 "$RUNNER_TEMP_DIR"
 PATH="$FAKE_BIN:$PATH" \
   bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
     scripts/ci/cleanup-app-host-home.sh \
     > "$TMP_DIR/success.log" 2>&1
+chmod 0755 "$RUNNER_TEMP_DIR"
 wait "$APP_HOST_PID" 2>/dev/null || true
 APP_HOST_PID=""
 if [ -e "$CMUX_APP_HOST_HOME" ] \

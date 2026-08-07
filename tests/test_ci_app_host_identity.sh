@@ -12,9 +12,17 @@ fi
 
 TMP_DIR="$(mktemp -d)"
 APP_HOST_HOME=""
+APP_HOST_RECEIPT_DIR=""
+APP_HOST_CONFIRMATION_FILE=""
 cleanup() {
   if [ -n "$APP_HOST_HOME" ]; then
     rm -rf -- "$APP_HOST_HOME"
+  fi
+  if [ -n "$APP_HOST_RECEIPT_DIR" ]; then
+    rm -rf -- "$APP_HOST_RECEIPT_DIR"
+  fi
+  if [ -n "$APP_HOST_CONFIRMATION_FILE" ]; then
+    rm -f -- "$APP_HOST_CONFIRMATION_FILE"
   fi
   rm -rf -- "$TMP_DIR"
 }
@@ -34,6 +42,8 @@ set -a
 source "$GITHUB_ENV"
 set +a
 APP_HOST_HOME="$CMUX_APP_HOST_HOME"
+APP_HOST_RECEIPT_DIR="$CMUX_APP_HOST_RECEIPT_DIR"
+APP_HOST_CONFIRMATION_FILE="$CMUX_APP_HOST_CONFIRMATION_FILE"
 
 # shellcheck source=scripts/ci/app-host-isolation.sh
 source "$ISOLATION_SCRIPT"
@@ -45,11 +55,27 @@ if [ "$CMUX_RESOLVED_APP_HOST_HOME" != "$(cd /tmp && pwd -P)/cmux-ah-$CMUX_APP_H
   echo "FAIL: app-host home must be derived from the run identity"
   exit 1
 fi
-RESOLVED_RUNNER_TEMP="$(cd "$RUNNER_TEMP" && pwd -P)"
-if [ "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR" != "$RESOLVED_RUNNER_TEMP/cmux-app-host-$CMUX_APP_HOST_KEY-receipts" ]; then
-  echo "FAIL: process receipts must live outside the deletable app-host home"
+SYSTEM_TEMP_ROOT="$(cd /tmp && pwd -P)"
+if [ "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR" != "$SYSTEM_TEMP_ROOT/cmux-ah-$CMUX_APP_HOST_KEY-receipts" ]; then
+  echo "FAIL: process receipts must survive GitHub's RUNNER_TEMP cleanup"
   exit 1
 fi
+if [ "$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE" != "$SYSTEM_TEMP_ROOT/cmux-ah-$CMUX_APP_HOST_KEY.confirm" ]; then
+  echo "FAIL: cleanup confirmation must share the durable sticky-owner boundary"
+  exit 1
+fi
+case "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR" in
+  "$RUNNER_TEMP"/*)
+    echo "FAIL: process receipts must not be children of ephemeral RUNNER_TEMP"
+    exit 1
+    ;;
+esac
+rm -rf -- "$RUNNER_TEMP"
+if [ ! -d "$CMUX_APP_HOST_RECEIPT_DIR" ] || [ ! -f "$CMUX_APP_HOST_CONFIRMATION_FILE" ]; then
+  echo "FAIL: job-temporary cleanup removed cross-job process authority"
+  exit 1
+fi
+mkdir -p "$RUNNER_TEMP"
 
 REAL_HOME="$CMUX_APP_HOST_HOME"
 REAL_XDG="$CMUX_APP_HOST_XDG_CONFIG_HOME"

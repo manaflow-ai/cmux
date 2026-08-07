@@ -29,6 +29,12 @@ PREPARE_APP_HOST_PATH = ROOT / "scripts/ci/prepare-app-host-home.sh"
 APP_HOST_RECEIPT_CONSTRUCTOR = (
     ROOT / "cmuxTests/CmuxTestWindowReleaseGuard.m"
 ).read_text(encoding="utf-8")
+APP_HOST_RECEIPT_WRITER_PATH = ROOT / "Sources/AppHostProcessReceipt.swift"
+APP_HOST_RECEIPT_WRITER = (
+    APP_HOST_RECEIPT_WRITER_PATH.read_text(encoding="utf-8")
+    if APP_HOST_RECEIPT_WRITER_PATH.is_file()
+    else ""
+)
 APP_ENTRYPOINT = (ROOT / "Sources/cmuxApp.swift").read_text(encoding="utf-8")
 UNIT_SCHEME = (
     ROOT / "cmux.xcodeproj/xcshareddata/xcschemes/cmux-unit.xcscheme"
@@ -395,13 +401,17 @@ def main() -> int:
         require(APP_HOST_RECEIPT_CONSTRUCTOR, needle, context)
 
     for context, needle in {
-        "pre-XCTest app-host receipt hook": "AppHostProcessReceipt.writeIfRequired()",
         "early receipt isolation marker": "CMUX_APP_HOST_ISOLATION_REQUIRED",
         "early receipt external directory": "CMUX_APP_HOST_RECEIPT_DIR",
         "early receipt run-derived key": "CMUX_APP_HOST_KEY",
         "early receipt atomic write": "options: .atomic",
     }.items():
-        require(APP_ENTRYPOINT, needle, context)
+        require(APP_HOST_RECEIPT_WRITER, needle, context)
+    require(
+        APP_ENTRYPOINT,
+        "AppHostProcessReceipt.writeIfRequired()",
+        "pre-XCTest app-host receipt hook",
+    )
     if APP_ENTRYPOINT.index("AppHostProcessReceipt.writeIfRequired()") > APP_ENTRYPOINT.index(
         "CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()"
     ):

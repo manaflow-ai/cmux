@@ -206,18 +206,21 @@ fi
 grep -Fq "has no verified receipt" "$TMP_DIR/unreceipted.err" \
   || fail "missing receipt failure did not identify the live target"
 
-empty_runner_temp="$TMP_DIR/empty-runner"
-mkdir -p "$empty_runner_temp"
+empty_runner_root="$TMP_DIR/empty-runner-work"
+empty_receipt_root="$TMP_DIR/empty-receipts"
+mkdir -p "$empty_runner_root" "$empty_receipt_root"
 : > "$CMUX_FAKE_LSOF_STATE"
-cmux_terminate_stale_receipted_app_hosts "$empty_runner_temp" \
+cmux_terminate_stale_receipted_app_hosts \
+  "$empty_runner_root" "$empty_receipt_root" \
   || fail "stale receipt cleanup was unsafe when no receipts existed"
 
-preflight_runner_temp="$TMP_DIR/preflight-runner"
+preflight_runner_root="$TMP_DIR/preflight-runner-work"
+preflight_receipt_root="$TMP_DIR/preflight-receipts"
 preflight_key=13579bdf0246
-preflight_receipt_dir="$preflight_runner_temp/cmux-app-host-$preflight_key-receipts"
-preflight_receipted_executable="$preflight_runner_temp/receipted/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
-preflight_unreceipted_executable="$preflight_runner_temp/unreceipted/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
-mkdir -p "$preflight_receipt_dir"
+preflight_receipt_dir="$preflight_receipt_root/cmux-ah-$preflight_key-receipts"
+preflight_receipted_executable="$preflight_runner_root/old-job/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
+preflight_unreceipted_executable="$preflight_runner_root/current-job/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
+mkdir -p "$preflight_runner_root" "$preflight_receipt_dir"
 spawn_process
 preflight_receipted_pid="$CMUX_TEST_SPAWNED_PID"
 spawn_process
@@ -229,23 +232,27 @@ printf '%s|%s\n%s|%s\n' \
 write_receipt \
   "$preflight_receipt_dir" "$preflight_key" \
   "$preflight_receipted_pid" "$preflight_receipted_executable"
-if cmux_terminate_stale_receipted_app_hosts "$preflight_runner_temp" \
+if cmux_terminate_stale_receipted_app_hosts \
+  "$preflight_runner_root" "$preflight_receipt_root" \
   > "$TMP_DIR/stale-unreceipted.out" 2> "$TMP_DIR/stale-unreceipted.err"; then
   fail "stale cleanup accepted a live unreceipted runner target"
 fi
-grep -Fq "has no verified receipt beneath" "$TMP_DIR/stale-unreceipted.err" \
-  || fail "stale cleanup did not identify the unreceipted runner target"
+grep -Fq "has no verified receipt beneath" "$TMP_DIR/stale-unreceipted.err" || {
+  cat "$TMP_DIR/stale-unreceipted.err" >&2
+  fail "stale cleanup did not identify the unreceipted runner target"
+}
 /bin/kill -0 "$preflight_receipted_pid" 2>/dev/null \
   || fail "stale cleanup signaled a verified target before completing preflight"
 /bin/kill -0 "$preflight_unreceipted_pid" 2>/dev/null \
   || fail "stale cleanup signaled an unreceipted target"
 
-deleted_runner_temp="$TMP_DIR/deleted-runner"
+deleted_runner_root="$TMP_DIR/deleted-runner-work"
+deleted_receipt_root="$TMP_DIR/deleted-receipts"
 deleted_key=2468ace01357
-deleted_receipt_dir="$deleted_runner_temp/cmux-app-host-$deleted_key-receipts"
-deleted_derived_data="$deleted_runner_temp/deleted-derived-data"
+deleted_receipt_dir="$deleted_receipt_root/cmux-ah-$deleted_key-receipts"
+deleted_derived_data="$deleted_runner_root/old-job/deleted-derived-data"
 deleted_executable="$deleted_derived_data/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
-mkdir -p "$deleted_receipt_dir"
+mkdir -p "$deleted_runner_root" "$deleted_receipt_dir"
 spawn_process
 deleted_stale_pid="$CMUX_TEST_SPAWNED_PID"
 printf '%s|%s (deleted)\n' \
@@ -253,16 +260,18 @@ printf '%s|%s (deleted)\n' \
 write_receipt \
   "$deleted_receipt_dir" "$deleted_key" \
   "$deleted_stale_pid" "$deleted_executable"
-cmux_terminate_stale_receipted_app_hosts "$deleted_runner_temp" \
+cmux_terminate_stale_receipted_app_hosts \
+  "$deleted_runner_root" "$deleted_receipt_root" \
   || fail "deleted stale product was not verified and terminated"
 wait "$deleted_stale_pid" 2>/dev/null || true
 [ ! -e "$deleted_derived_data" ] \
   || fail "deleted stale verification recreated the missing DerivedData root"
 
-stale_runner_temp="$TMP_DIR/stale-runner"
+stale_runner_root="$TMP_DIR/stale-runner-work"
+stale_receipt_root="$TMP_DIR/stale-receipts"
 stale_key=abcdef012345
-stale_receipt_dir="$stale_runner_temp/cmux-app-host-$stale_key-receipts"
-stale_derived_data="$stale_runner_temp/derived-data"
+stale_receipt_dir="$stale_receipt_root/cmux-ah-$stale_key-receipts"
+stale_derived_data="$stale_runner_root/old-job/derived-data"
 stale_executable="$stale_derived_data/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
 mkdir -p "$stale_receipt_dir" "$(dirname "$stale_executable")"
 : > "$stale_executable"
@@ -270,7 +279,8 @@ spawn_process
 stale_pid="$CMUX_TEST_SPAWNED_PID"
 printf '%s|%s\n' "$stale_pid" "$stale_executable" > "$CMUX_FAKE_LSOF_STATE"
 write_receipt "$stale_receipt_dir" "$stale_key" "$stale_pid" "$stale_executable"
-cmux_terminate_stale_receipted_app_hosts "$stale_runner_temp" \
+cmux_terminate_stale_receipted_app_hosts \
+  "$stale_runner_root" "$stale_receipt_root" \
   || fail "verified stale receipt was not terminated"
 wait "$stale_pid" 2>/dev/null || true
 
