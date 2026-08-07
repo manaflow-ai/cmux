@@ -170,6 +170,38 @@ struct CmuxDurableDeepLinkRestoreTests {
         #expect(resolution == .surface(workspaceId: workspace.id, panelId: panel.id))
     }
 
+    @Test func copiedSurfaceLinkMatchesCopyIdsLiveIdentity() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panel = try #require(workspace.newTerminalSurface(inPane: pane, focus: true))
+        let identifiers = WorkspaceSurfaceIdentifierClipboardText.makeWorkspacePaneSurfaceIdentifiers(
+            workspaceId: workspace.id,
+            paneId: workspace.paneId(forPanelId: panel.id)?.id,
+            surfaceId: panel.id,
+            includeRefs: false
+        )
+
+        let link = try #require(
+            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspace: workspace,
+                panelId: panel.id
+            )
+        )
+        let target = try parsedTarget(link)
+
+        #expect(identifiers.contains("workspace_id=\(workspace.id.uuidString)"))
+        #expect(identifiers.contains("surface_id=\(panel.id.uuidString)"))
+        #expect(
+            link == CmuxNavigationURLRequest.surfaceLink(
+                workspaceId: workspace.id,
+                surfaceId: panel.id,
+                scheme: scheme
+            )
+        )
+        #expect(target == .surface(workspaceId: workspace.id, surfaceId: panel.id))
+    }
+
     @Test func closedPanelRestoreWithLiveDockIdentityMintsFreshStableSurfaceId() throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
