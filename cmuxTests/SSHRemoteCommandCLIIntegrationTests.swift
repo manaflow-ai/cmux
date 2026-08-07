@@ -180,7 +180,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
             .split(separator: "\n")
             .map(String.init)
         let ttyIndex = try #require(sshArguments.firstIndex(of: "-t"))
-        let destinationIndex = try #require(sshArguments.firstIndex(of: "cmux-macmini"))
+        let destinationIndex = try #require(sshArguments.firstIndex(of: "example.test"))
         #expect(
             ttyIndex < destinationIndex,
             "The OpenSSH PTY flag must precede the SSH destination: \(sshArguments)"
