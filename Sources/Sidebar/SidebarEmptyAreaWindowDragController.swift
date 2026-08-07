@@ -22,9 +22,11 @@ struct SidebarEmptyAreaWindowDragController {
         dragThreshold: CGFloat = 4,
         nextEvent: @escaping @MainActor (NSWindow) -> SidebarEmptyAreaWindowDragTrackingEvent? = { window in
             var eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
+            #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 eventMask.insert(.mouseCancelled)
             }
+            #endif
             guard let event = window.nextEvent(
                 matching: eventMask,
                 until: .distantFuture,
@@ -32,9 +34,11 @@ struct SidebarEmptyAreaWindowDragController {
                 dequeue: true
             ) else { return nil }
 
+            #if compiler(>=6.2)
             if #available(macOS 26.0, *), event.type == .mouseCancelled {
                 return .cancelled
             }
+            #endif
             if event.type == .leftMouseUp {
                 return .mouseUp(event)
             }

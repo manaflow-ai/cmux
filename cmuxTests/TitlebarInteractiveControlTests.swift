@@ -390,6 +390,7 @@ struct SidebarEmptyAreaWindowDragTests {
         try Self.expectReplayedMouseUp(in: window, matches: up)
     }
 
+    #if compiler(>=6.2)
     /// Invalid thresholds fail at construction instead of encoding an unusable drag policy.
     @Test func invalidThresholdsFailFast() async {
         await #expect(processExitsWith: .failure) {
@@ -408,6 +409,7 @@ struct SidebarEmptyAreaWindowDragTests {
             }
         }
     }
+    #endif
 
     /// A detached view declines the drag without consulting the injected event source.
     @Test func viewWithoutWindowIsNotADrag() {
