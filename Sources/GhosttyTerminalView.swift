@@ -323,6 +323,11 @@ extension TerminalSurfaceRegistry {
     func allTerminalSurfaces() -> [TerminalSurface] {
         allSurfaces().compactMap { $0 as? TerminalSurface }
     }
+
+    /// Concrete hot-path snapshot for consumers that apply their own ranking.
+    func allTerminalSurfacesUnordered() -> [TerminalSurface] {
+        allSurfacesUnordered().compactMap { $0 as? TerminalSurface }
+    }
 }
 
 // TerminalSurfaceRuntimeTeardownCoordinator moved to CmuxTerminal
@@ -406,7 +411,11 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey, globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
+        scrollbackReplayEnvironmentKey:
+            SessionScrollbackReplayStore.environmentKey,
+        globalFontMagnificationPercent: {
+            GhosttyApp.shared.appliedGlobalFontMagnificationPercent
+        }
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
@@ -445,12 +454,83 @@ class GhosttyApp {
     private(set) var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference = .dark
     private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
     private var runtimeColorSchemeSynchronizationDepth = 0
-    private var reloadConfigurationDepth = 0
+    private var nativeReloadActionSuppressionDepth = 0
+    typealias ConfigurationReloadCompletion =
+        @MainActor () -> Void
+    private let configurationReloadCoordinator =
+        TerminalConfigurationReloadCoordinator()
+    private let terminalFontConfigurationReloadReconciler =
+        TerminalFontConfigurationReloadReconciler()
+    private(set) var appliedGlobalFontMagnificationPercent =
+        GlobalFontMagnification.storedPercent
+    private(set) var terminalFontConfigurationGeneration: UInt64 = 0
     private var pendingAppearanceSynchronization: PendingAppearanceSynchronization?
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private(set) var hasUserGhosttyCommand = false
     private(set) var resolvedUserShell: String?
+
+    func storedShortcut(
+        forBindingAction action: String
+    ) -> StoredShortcut? {
+        guard let config else { return nil }
+        let trigger = action.withCString { pointer in
+            ghostty_config_trigger(
+                config,
+                pointer,
+                UInt(action.utf8.count)
+            )
+        }
+        let tag: GhosttyTriggerInput.Tag
+        switch trigger.tag {
+        case GHOSTTY_TRIGGER_PHYSICAL:
+            tag = .physical(
+                GhosttyTriggerPhysicalKey(
+                    ghosttyPhysicalKey:
+                        trigger.key.physical
+                )
+            )
+        case GHOSTTY_TRIGGER_UNICODE:
+            tag = .unicode(
+                UnicodeScalar(trigger.key.unicode)
+            )
+        case GHOSTTY_TRIGGER_CATCH_ALL:
+            tag = .catchAll
+        default:
+            return nil
+        }
+
+        let input = GhosttyTriggerInput(
+            tag: tag,
+            modifiers: GhosttyModifierMask(
+                rawValue: trigger.mods.rawValue
+            )
+        )
+        guard let shortcut =
+                GhosttyTriggerShortcut(decoding: input) else {
+            return nil
+        }
+        return StoredShortcut(
+            key: shortcut.key,
+            command: shortcut.command,
+            shift: shortcut.shift,
+            option: shortcut.option,
+            control: shortcut.control
+        )
+    }
+
+    @MainActor
+    func deferRuntimeSurfaceCreationForConfigurationReload(
+        _ action: @escaping @MainActor () -> Void
+    ) -> Bool {
+        terminalFontConfigurationReloadReconciler
+            .enqueuePostConfigurationWork(
+                .init(attempt: {
+                    action()
+                    return true
+                })
+            )
+    }
 
     static func retainTickNotifications() -> () -> Void {
         // The legacy release closure decremented on every call; a retention
@@ -674,30 +754,28 @@ class GhosttyApp {
     private let scrollLagMinimumAverageMs: Double = 12
     private let scrollLagReportCooldownSeconds: TimeInterval = 300
     private var lastScrollLagReportUptime: TimeInterval?
-    private var scrollEndTimer: DispatchWorkItem?
+    @MainActor private lazy var scrollEndTimer = MainActorCoalescingDeadlineTimer(owner: self) { owner in
+        owner.endScrollSession()
+    }
 
+    @MainActor
     func markScrollActivity(hasMomentum: Bool, momentumEnded: Bool) {
-        // Cancel any pending scroll-end timer
-        scrollEndTimer?.cancel()
-        scrollEndTimer = nil
-
         if momentumEnded {
             // Trackpad momentum ended - scrolling is done
+            scrollEndTimer.cancel()
             endScrollSession()
         } else if hasMomentum {
             // Trackpad scrolling with momentum - wait for momentum to end
+            scrollEndTimer.cancel()
             isScrolling = true
         } else {
             // Mouse wheel or non-momentum scroll - use timeout
             isScrolling = true
-            let timer = DispatchWorkItem { [weak self] in
-                self?.endScrollSession()
-            }
-            scrollEndTimer = timer
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: timer)
+            scrollEndTimer.schedule(after: .milliseconds(150))
         }
     }
 
+    @MainActor
     private func endScrollSession() {
         guard isScrolling else { return }
         isScrolling = false
@@ -1081,7 +1159,9 @@ class GhosttyApp {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
+            _ = MainActor.assumeIsolated {
+                self?.reloadConfiguration(source: "settings.terminal.copyOnSelect")
+            }
         })
 
         #endif
@@ -1307,10 +1387,11 @@ class GhosttyApp {
     }
 
     private func loadCmuxOwnedGhosttyKeybindOverrides(_ config: ghostty_config_t) {
-        // cmux owns these split and close shortcuts through KeyboardShortcutSettings.
+        // cmux owns these split, close, and workspace font-size shortcuts through
+        // KeyboardShortcutSettings.
         // Remove Ghostty's default fallbacks so remapped or cleared shortcuts
-        // can reach the focused terminal instead of splitting or closing outside
-        // the remappable shortcut layer.
+        // can reach the focused terminal instead of running actions outside the
+        // remappable shortcut layer.
         loadInlineGhosttyConfig(
             """
             keybind = super+d=unbind
@@ -1318,6 +1399,7 @@ class GhosttyApp {
             keybind = super+w=unbind
             keybind = super+alt+w=unbind
             keybind = super+shift+w=unbind
+            keybind = super+ctrl+==unbind
             \(Self.numberedWorkspaceGhosttyUnbinds)
             """,
             into: config,
@@ -1774,36 +1856,128 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
+    @discardableResult
     func reloadConfiguration(
         soft: Bool = false,
         source: String = "unspecified",
         reloadSettingsFromFile: Bool = true,
-        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
-    ) {
-        guard reloadConfigurationDepth == 0 else {
-            logThemeAction("reload skipped source=\(source) soft=\(soft) reason=reentrant")
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil,
+        completion: ConfigurationReloadCompletion? = nil
+    ) -> Bool {
+        let request = TerminalPendingConfigurationReload(
+            soft: soft,
+            source: source,
+            reloadSettingsFromFile: reloadSettingsFromFile,
+            preferredColorScheme: preferredColorScheme,
+            completions: completion.map { [$0] } ?? []
+        )
+        return enqueueConfigurationReload(request)
+    }
+
+    @MainActor
+    private func enqueueConfigurationReload(
+        _ request: TerminalPendingConfigurationReload
+    ) -> Bool {
+        let result =
+            configurationReloadCoordinator.enqueue(request)
+        if result.needsFontWorkBarrier {
+            schedulePendingConfigurationReload()
+        }
+        return result.retainedAllCompletions
+    }
+
+    @MainActor
+    private func schedulePendingConfigurationReload() {
+        guard configurationReloadCoordinator
+                .isWaitingForFontWork else {
             return
         }
-        reloadConfigurationDepth += 1
-        defer {
-            reloadConfigurationDepth -= 1
-            drainPendingAppearanceSynchronization()
+        guard let arbiter =
+                AppDelegate.shared?.workspaceTerminalFontSizeArbiter else {
+            performPendingConfigurationReload(completion: {})
+            return
         }
-        if reloadSettingsFromFile {
-            KeyboardShortcutSettings.settingsFileStore.reload()
-        }
-        if Thread.isMainThread {
-            MainActor.assumeIsolated {
-                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
+        arbiter.performWhenFontSizeWorkIsIdle {
+            [weak self, weak arbiter] in
+            guard let self else { return }
+            guard let arbiter else {
+                self.performPendingConfigurationReload(completion: {})
+                return
             }
-        } else {
-            DispatchQueue.main.sync {
-                AppDelegate.shared?.reloadCmuxConfigStores(source: source)
-            }
+            let releaseBarrier =
+                arbiter.extendCurrentFontSizeWorkIdleBarrier()
+            self.performPendingConfigurationReload(
+                completion: releaseBarrier
+            )
         }
+    }
+
+    @MainActor
+    private func performPendingConfigurationReload(
+        completion: @escaping @MainActor () -> Void
+    ) {
+        guard let request =
+                configurationReloadCoordinator
+                    .takePendingRequest() else {
+            completion()
+            return
+        }
+        performConfigurationReload(request) { [weak self] in
+            guard let self else {
+                request.completions.forEach { $0() }
+                completion()
+                return
+            }
+            let shouldScheduleNext =
+                self.configurationReloadCoordinator
+                    .finishReload()
+            self.drainPendingAppearanceSynchronization()
+            request.completions.forEach { $0() }
+            if shouldScheduleNext {
+                self.schedulePendingConfigurationReload()
+            }
+            completion()
+        }
+    }
+
+    @MainActor
+    private func performConfigurationReload(
+        _ request: TerminalPendingConfigurationReload,
+        completion: @escaping @MainActor () -> Void
+    ) {
+        let requestedSoft = request.soft
+        let source = request.source
+        let reloadSettingsFromFile = request.reloadSettingsFromFile
+        let preferredColorScheme = request.preferredColorScheme
+        let fontTransaction =
+            TerminalFontConfigurationReloadTransaction.prepare(
+                appliedMagnificationPercent:
+                    appliedGlobalFontMagnificationPercent,
+                reloadSettings: {
+                    if reloadSettingsFromFile {
+                        KeyboardShortcutSettings
+                            .settingsFileStore.reload()
+                    }
+                    AppDelegate.shared?
+                        .reloadCmuxConfigStores(source: source)
+                },
+                storedMagnificationPercent: {
+                    GlobalFontMagnification.storedPercent
+                }
+            )
+        let reloadMagnificationPercent =
+            fontTransaction.targetMagnificationPercent
+        // Reusing the old Ghostty config cannot apply an imported scale.
+        // Promote this transaction. A reload requested by the magnification
+        // observer is queued behind this transaction by the coordinator.
+        let soft =
+            requestedSoft
+            && !fontTransaction.magnificationDidChange
         let reloadColorScheme = preferredColorScheme ?? appearanceBackedColorSchemePreference()
         guard let app else {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
+            completion()
             return
         }
         // Use the appearance preference while loading conditional theme pairs. For cmux
@@ -1815,85 +1989,317 @@ class GhosttyApp {
             effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
             cmuxThemeValue: currentCmuxAppSupportThemeValue()
         )
+        let previousRuntimeColorScheme =
+            appliedGhosttyRuntimeColorScheme
+        let previousEffectiveColorScheme =
+            effectiveTerminalColorSchemePreference
         synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
             let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
             synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-            ghostty_app_update_config(app, config)
+            suppressGhosttyReloadActions {
+                ghostty_app_update_config(app, config)
+            }
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-            scheduleSurfaceRefreshAfterConfigurationReload(
+            refreshSurfacesAfterConfigurationReload(
                 source: source,
                 preferredColorScheme: effectiveReloadColorScheme
             )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
+            completion()
             return
         }
 
         guard let newConfig = ghostty_config_new() else {
+            if let previousRuntimeColorScheme {
+                synchronizeGhosttyRuntimeColorScheme(
+                    previousRuntimeColorScheme,
+                    colorScheme:
+                        previousEffectiveColorScheme,
+                    source:
+                        "reloadConfiguration:\(source):restore"
+                )
+            }
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=config_alloc_failed")
+            completion()
             return
         }
         let renderingModeChanged = loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
-        updateDefaultBackground(
-            from: newConfig,
-            source: "reloadConfiguration(source=\(source))",
-            scope: .unscoped,
-            forceNotify: renderingModeChanged
-        )
+        let stagedBaselineAppearance =
+            defaultBackgroundValues(from: newConfig)
         GhosttyConfig.invalidateLoadCache()
-        updateDefaultBackgroundFromResolvedGhosttyConfig(
-            source: "reloadConfiguration(source=\(source))",
-            preferredColorScheme: reloadColorScheme,
-            baselineConfig: newConfig,
-            scope: .unscoped,
-            forceNotify: renderingModeChanged
-        )
-        let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
-        synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
-        ghostty_app_update_config(app, newConfig)
-        DispatchQueue.main.async {
-            self.applyBackgroundToKeyWindow()
+        let stagedResolvedAppearance =
+            resolvedDefaultBackgroundValues(
+                preferredColorScheme: reloadColorScheme,
+                baselineConfig: newConfig
+            )
+        let effectiveReloadColorScheme =
+            Self.terminalRuntimeColorSchemePreference(
+                forBackgroundColor:
+                    stagedResolvedAppearance
+                        .backgroundColor
+            )
+        // Ghostty consults its runtime scheme while loading conditional
+        // themes. Restore the applied scheme before incremental capture so
+        // neither the renderer nor surrounding UI exposes the staged theme.
+        if let previousRuntimeColorScheme {
+            synchronizeGhosttyRuntimeColorScheme(
+                previousRuntimeColorScheme,
+                colorScheme:
+                    previousEffectiveColorScheme,
+                source:
+                    "reloadConfiguration:\(source):staged"
+            )
         }
-        if let oldConfig = config {
-            ghostty_config_free(oldConfig)
-        }
-        config = newConfig
-        lastAppearanceColorScheme = reloadColorScheme
-        NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-        scheduleSurfaceRefreshAfterConfigurationReload(
-            source: source,
-            preferredColorScheme: effectiveReloadColorScheme
-        )
-        logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
+        let terminalFontConfiguration =
+            terminalFontConfigurationSnapshot(
+                config: newConfig,
+                magnificationPercent:
+                    reloadMagnificationPercent
+            )
+        AppDelegate.shared?
+            .workspaceTerminalFontSizeArbiter
+            .setCurrentFontSizeWorkIdleBarrierProjectionConfiguration(
+                terminalFontConfiguration
+            )
+        let registryTraversal =
+            Self.terminalSurfaceRegistry
+                .makeIncrementalTraversal()
+        configurationReloadCoordinator
+            .beginReconciliation()
+        terminalFontConfigurationReloadReconciler
+            .reconcileIncrementally(
+                captureNextWork: {
+                    guard let visit =
+                            registryTraversal.nextVisit() else {
+                        return nil
+                    }
+                    guard let surface =
+                            visit.surface as? TerminalSurface else {
+                        return .init(attempt: { true })
+                    }
+                    let reloadState =
+                        surface
+                            .captureFontSizeConfigurationReloadState(
+                                magnificationPercent:
+                                    fontTransaction
+                                        .previousMagnificationPercent,
+                                targetConfiguredRuntimePoints:
+                                    terminalFontConfiguration
+                                        .configuredRuntimePoints,
+                                targetMagnificationPercent:
+                                    terminalFontConfiguration
+                                        .magnificationPercent
+                            )
+                    return .init(
+                        attempt: { [weak surface] in
+                            guard let surface else {
+                                return true
+                            }
+                            guard Self.terminalSurfaceRegistry
+                                    .isRegistered(surface) else {
+                                surface
+                                    .abandonFontSizeConfigurationReloadReconciliation(
+                                        from: reloadState,
+                                        magnificationPercent:
+                                            terminalFontConfiguration
+                                                .magnificationPercent
+                                    )
+                                return true
+                            }
+                            let outcome =
+                                surface
+                                    .reconcileFontSizeAfterConfigurationReload(
+                                        from: reloadState,
+                                        configuredRuntimePoints:
+                                            terminalFontConfiguration
+                                                .configuredRuntimePoints,
+                                        magnificationPercent:
+                                            terminalFontConfiguration
+                                                .magnificationPercent
+                                    )
+                            if outcome == .failed {
+                                Self.initializationLogger.error(
+                                    "Terminal font reconciliation attempt failed after config reload surface=\(surface.id.uuidString, privacy: .public)"
+                                )
+                            }
+                            return outcome.didSucceed
+                        },
+                        abandon: { [weak surface] in
+                            guard let surface else { return }
+                            surface
+                                .abandonFontSizeConfigurationReloadReconciliation(
+                                    from: reloadState,
+                                    magnificationPercent:
+                                        terminalFontConfiguration
+                                            .magnificationPercent
+                                )
+                            Self.initializationLogger.error(
+                                "Terminal font reconciliation rolled back after retry exhaustion surface=\(surface.id.uuidString, privacy: .public)"
+                            )
+                        }
+                    )
+                },
+                applyConfiguration: {
+                    self.suppressGhosttyReloadActions {
+                        ghostty_app_update_config(
+                            app,
+                            newConfig
+                        )
+                    }
+                    self.appliedGlobalFontMagnificationPercent =
+                        reloadMagnificationPercent
+                    self.terminalFontConfigurationGeneration &+= 1
+                    if let oldConfig = self.config {
+                        ghostty_config_free(oldConfig)
+                    }
+                    self.config = newConfig
+                    let appearanceSource =
+                        "reloadConfiguration(source=\(source))"
+                    self.applyDefaultBackground(
+                        stagedBaselineAppearance,
+                        source: appearanceSource,
+                        scope: .unscoped,
+                        forceNotify:
+                            renderingModeChanged
+                    )
+                    self.applyDefaultBackground(
+                        stagedResolvedAppearance,
+                        source:
+                            "\(appearanceSource).resolvedGhosttyConfig",
+                        scope: .unscoped,
+                        forceNotify:
+                            renderingModeChanged
+                    )
+                    self.synchronizeGhosttyRuntimeColorScheme(
+                        effectiveReloadColorScheme,
+                        source:
+                            "reloadConfiguration:\(source):resolved"
+                    )
+                    Task { @MainActor [weak self] in
+                        self?.applyBackgroundToKeyWindow()
+                    }
+                }
+            ) { [weak self] in
+                guard let self else {
+                    completion()
+                    return
+                }
+                self.lastAppearanceColorScheme = reloadColorScheme
+                NotificationCenter.default.post(
+                    name: .ghosttyConfigDidReload,
+                    object: nil
+                )
+                self.refreshSurfacesAfterConfigurationReload(
+                    source: source,
+                    preferredColorScheme:
+                        effectiveReloadColorScheme
+                )
+                self.logThemeAction(
+                    "reload end source=\(source) soft=\(soft) mode=full"
+                )
+                completion()
+            }
     }
 
-    private func scheduleSurfaceRefreshAfterConfigurationReload(
+    @MainActor
+    private func suppressGhosttyReloadActions<Result>(
+        _ body: () -> Result
+    ) -> Result {
+        nativeReloadActionSuppressionDepth += 1
+        defer {
+            nativeReloadActionSuppressionDepth -= 1
+        }
+        return body()
+    }
+
+    @MainActor
+    private func refreshSurfacesAfterConfigurationReload(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference
     ) {
-        DispatchQueue.main.async {
-            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
-                source: source,
-                preferredColorScheme: preferredColorScheme
+        AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
+            source: source,
+            preferredColorScheme: preferredColorScheme
+        )
+    }
+
+    @MainActor
+    var isConfigurationReloadActive: Bool {
+        configurationReloadCoordinator.isReloadActive
+    }
+
+    @MainActor
+    func terminalFontConfigurationSnapshot()
+        -> WorkspaceTerminalFontConfigurationSnapshot {
+        terminalFontConfigurationSnapshot(
+            config: config,
+            magnificationPercent:
+                appliedGlobalFontMagnificationPercent
+        )
+    }
+
+    @MainActor
+    private func terminalFontConfigurationSnapshot(
+        config: ghostty_config_t?,
+        magnificationPercent: Int
+    ) -> WorkspaceTerminalFontConfigurationSnapshot {
+        var configuredRuntimePoints: Float32 = 0
+        let key = "font-size"
+        if let config,
+           ghostty_config_get(
+                config,
+                &configuredRuntimePoints,
+                key,
+                UInt(key.lengthOfBytes(using: .utf8))
+           ),
+           configuredRuntimePoints.isFinite,
+           configuredRuntimePoints > 0 {
+            return WorkspaceTerminalFontConfigurationSnapshot(
+                configuredRuntimePoints: configuredRuntimePoints,
+                magnificationPercent: magnificationPercent
             )
         }
+
+        return WorkspaceTerminalFontConfigurationSnapshot(
+            configuredRuntimePoints: Float32(
+                GhosttyConfig.load(
+                    globalFontMagnificationPercent:
+                        magnificationPercent
+                ).fontSize
+            ),
+            magnificationPercent: magnificationPercent
+        )
     }
 
     func synchronizeThemeWithAppearance(_ appearance: NSAppearance?, source: String) {
-        let (currentColorScheme, colorSchemeSource) =
-            GhosttyConfig.appearanceSyncColorSchemePreference(passedAppearance: appearance)
-        synchronizeThemeWithResolvedAppearance(
-            currentColorScheme,
-            colorSchemeSource: colorSchemeSource,
-            source: source
-        )
+        let synchronize: @MainActor () -> Void = {
+            let (currentColorScheme, colorSchemeSource) =
+                GhosttyConfig.appearanceSyncColorSchemePreference(
+                    passedAppearance: appearance
+                )
+            self.synchronizeThemeWithResolvedAppearance(
+                currentColorScheme,
+                colorSchemeSource: colorSchemeSource,
+                source: source
+            )
+        }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                synchronize()
+            }
+        } else {
+            Task { @MainActor in
+                synchronize()
+            }
+        }
     }
 
     private struct PendingAppearanceSynchronization {
@@ -1902,6 +2308,7 @@ class GhosttyApp {
         let source: String
     }
 
+    @MainActor
     private func synchronizeThemeWithResolvedAppearance(
         _ currentColorScheme: GhosttyConfig.ColorSchemePreference,
         colorSchemeSource: String,
@@ -1910,7 +2317,9 @@ class GhosttyApp {
         let plan = Self.appearanceSynchronizationPlan(
             previousColorScheme: lastAppearanceColorScheme,
             currentColorScheme: currentColorScheme,
-            isConfigurationReloadInProgress: reloadConfigurationDepth > 0
+            isConfigurationReloadInProgress:
+                configurationReloadCoordinator
+                    .isReloadActive
         )
         if backgroundLogEnabled {
             let previousLabel: String
@@ -1954,8 +2363,10 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func drainPendingAppearanceSynchronization() {
-        guard reloadConfigurationDepth == 0,
+        guard !configurationReloadCoordinator
+                .isReloadActive,
               let pendingAppearanceSynchronization else { return }
         self.pendingAppearanceSynchronization = nil
         synchronizeThemeWithResolvedAppearance(
@@ -2013,7 +2424,7 @@ class GhosttyApp {
     }
 
     private func shouldProcessGhosttyReloadAction(source: String, soft: Bool) -> Bool {
-        guard reloadConfigurationDepth == 0,
+        guard nativeReloadActionSuppressionDepth == 0,
               runtimeColorSchemeSynchronizationDepth == 0 else {
             logThemeAction("reload request skipped source=\(source) soft=\(soft) reason=reentrant")
             return false
@@ -2091,16 +2502,8 @@ class GhosttyApp {
     ) {
         guard let config else { return }
 
-        let resolved = defaultBackgroundValues(from: config)
         applyDefaultBackground(
-            color: resolved.backgroundColor,
-            opacity: resolved.backgroundOpacity,
-            backgroundBlur: resolved.backgroundBlur,
-            foregroundColor: resolved.foregroundColor,
-            cursorColor: resolved.cursorColor,
-            cursorTextColor: resolved.cursorTextColor,
-            selectionBackground: resolved.selectionBackground,
-            selectionForeground: resolved.selectionForeground,
+            defaultBackgroundValues(from: config),
             source: source,
             scope: scope,
             forceNotify: forceNotify
@@ -2172,6 +2575,112 @@ class GhosttyApp {
         return unspecifiedFallbackValue
     }
 
+    private func resolvedDefaultBackgroundValues(
+        preferredColorScheme:
+            GhosttyConfig.ColorSchemePreference,
+        baselineConfig: ghostty_config_t?,
+        useOnDiskResolvedConfig: Bool = true
+    ) -> DefaultBackgroundValues {
+        let baseline =
+            defaultBackgroundValues(from: baselineConfig)
+        guard useOnDiskResolvedConfig else {
+            return baseline
+        }
+        let resolved = GhosttyConfig.load(
+            preferredColorScheme: preferredColorScheme,
+            useCache: false,
+            globalFontMagnificationPercent:
+                GlobalFontMagnification.storedPercent
+        )
+        let fallbackForUnspecified =
+            Self
+                .shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
+            ? defaultBackgroundValues(from: nil)
+            : baseline
+        return DefaultBackgroundValues(
+            backgroundColor: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundColor,
+                baselineValue: baseline.backgroundColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.backgroundColor,
+                hasParsedDirective:
+                    resolved.hasParsedBackgroundColor,
+                hasDirective:
+                    resolved.hasBackgroundColorDirective
+            ),
+            backgroundOpacity: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundOpacity,
+                baselineValue: baseline.backgroundOpacity,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.backgroundOpacity,
+                hasParsedDirective:
+                    resolved.hasParsedBackgroundOpacity,
+                hasDirective:
+                    resolved.hasBackgroundOpacityDirective
+            ),
+            backgroundBlur: resolvedAppearanceValue(
+                parsedValue: resolved.backgroundBlur,
+                baselineValue: baseline.backgroundBlur,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.backgroundBlur,
+                hasParsedDirective:
+                    resolved.hasParsedBackgroundBlur,
+                hasDirective:
+                    resolved.hasBackgroundBlurDirective
+            ),
+            foregroundColor: resolvedAppearanceValue(
+                parsedValue: resolved.foregroundColor,
+                baselineValue: baseline.foregroundColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.foregroundColor,
+                hasParsedDirective:
+                    resolved.hasParsedForegroundColor,
+                hasDirective:
+                    resolved.hasForegroundColorDirective
+            ),
+            cursorColor: resolvedAppearanceValue(
+                parsedValue: resolved.cursorColor,
+                baselineValue: baseline.cursorColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.cursorColor,
+                hasParsedDirective:
+                    resolved.hasParsedCursorColor,
+                hasDirective:
+                    resolved.hasCursorColorDirective
+            ),
+            cursorTextColor: resolvedAppearanceValue(
+                parsedValue: resolved.cursorTextColor,
+                baselineValue: baseline.cursorTextColor,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.cursorTextColor,
+                hasParsedDirective:
+                    resolved.hasParsedCursorTextColor,
+                hasDirective:
+                    resolved.hasCursorTextColorDirective
+            ),
+            selectionBackground: resolvedAppearanceValue(
+                parsedValue: resolved.selectionBackground,
+                baselineValue: baseline.selectionBackground,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.selectionBackground,
+                hasParsedDirective:
+                    resolved.hasParsedSelectionBackground,
+                hasDirective:
+                    resolved.hasSelectionBackgroundDirective
+            ),
+            selectionForeground: resolvedAppearanceValue(
+                parsedValue: resolved.selectionForeground,
+                baselineValue: baseline.selectionForeground,
+                unspecifiedFallbackValue:
+                    fallbackForUnspecified.selectionForeground,
+                hasParsedDirective:
+                    resolved.hasParsedSelectionForeground,
+                hasDirective:
+                    resolved.hasSelectionForegroundDirective
+            )
+        )
+    }
+
     private func updateDefaultBackgroundFromResolvedGhosttyConfig(
         source: String,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
@@ -2180,83 +2689,12 @@ class GhosttyApp {
         useOnDiskResolvedConfig: Bool = true,
         forceNotify: Bool = false
     ) {
-        let baseline = defaultBackgroundValues(from: baselineConfig)
-        guard useOnDiskResolvedConfig else {
-            applyDefaultBackground(
-                color: baseline.backgroundColor,
-                opacity: baseline.backgroundOpacity,
-                backgroundBlur: baseline.backgroundBlur,
-                foregroundColor: baseline.foregroundColor,
-                cursorColor: baseline.cursorColor,
-                cursorTextColor: baseline.cursorTextColor,
-                selectionBackground: baseline.selectionBackground,
-                selectionForeground: baseline.selectionForeground,
-                source: source,
-                scope: scope,
-                forceNotify: forceNotify
-            )
-            return
-        }
-        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false, globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
-        let fallbackForUnspecified = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
-            ? defaultBackgroundValues(from: nil)
-            : baseline
         applyDefaultBackground(
-            color: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundColor,
-                baselineValue: baseline.backgroundColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundColor,
-                hasParsedDirective: resolved.hasParsedBackgroundColor,
-                hasDirective: resolved.hasBackgroundColorDirective
-            ),
-            opacity: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundOpacity,
-                baselineValue: baseline.backgroundOpacity,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundOpacity,
-                hasParsedDirective: resolved.hasParsedBackgroundOpacity,
-                hasDirective: resolved.hasBackgroundOpacityDirective
-            ),
-            backgroundBlur: resolvedAppearanceValue(
-                parsedValue: resolved.backgroundBlur,
-                baselineValue: baseline.backgroundBlur,
-                unspecifiedFallbackValue: fallbackForUnspecified.backgroundBlur,
-                hasParsedDirective: resolved.hasParsedBackgroundBlur,
-                hasDirective: resolved.hasBackgroundBlurDirective
-            ),
-            foregroundColor: resolvedAppearanceValue(
-                parsedValue: resolved.foregroundColor,
-                baselineValue: baseline.foregroundColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.foregroundColor,
-                hasParsedDirective: resolved.hasParsedForegroundColor,
-                hasDirective: resolved.hasForegroundColorDirective
-            ),
-            cursorColor: resolvedAppearanceValue(
-                parsedValue: resolved.cursorColor,
-                baselineValue: baseline.cursorColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.cursorColor,
-                hasParsedDirective: resolved.hasParsedCursorColor,
-                hasDirective: resolved.hasCursorColorDirective
-            ),
-            cursorTextColor: resolvedAppearanceValue(
-                parsedValue: resolved.cursorTextColor,
-                baselineValue: baseline.cursorTextColor,
-                unspecifiedFallbackValue: fallbackForUnspecified.cursorTextColor,
-                hasParsedDirective: resolved.hasParsedCursorTextColor,
-                hasDirective: resolved.hasCursorTextColorDirective
-            ),
-            selectionBackground: resolvedAppearanceValue(
-                parsedValue: resolved.selectionBackground,
-                baselineValue: baseline.selectionBackground,
-                unspecifiedFallbackValue: fallbackForUnspecified.selectionBackground,
-                hasParsedDirective: resolved.hasParsedSelectionBackground,
-                hasDirective: resolved.hasSelectionBackgroundDirective
-            ),
-            selectionForeground: resolvedAppearanceValue(
-                parsedValue: resolved.selectionForeground,
-                baselineValue: baseline.selectionForeground,
-                unspecifiedFallbackValue: fallbackForUnspecified.selectionForeground,
-                hasParsedDirective: resolved.hasParsedSelectionForeground,
-                hasDirective: resolved.hasSelectionForegroundDirective
+            resolvedDefaultBackgroundValues(
+                preferredColorScheme: preferredColorScheme,
+                baselineConfig: baselineConfig,
+                useOnDiskResolvedConfig:
+                    useOnDiskResolvedConfig
             ),
             source: "\(source).resolvedGhosttyConfig",
             scope: scope,
@@ -2349,6 +2787,27 @@ class GhosttyApp {
         if (features & (1 << 2)) != 0 {
             NSApp.requestUserAttention(.informationalRequest)
         }
+    }
+
+    private func applyDefaultBackground(
+        _ values: DefaultBackgroundValues,
+        source: String,
+        scope: GhosttyDefaultBackgroundUpdateScope,
+        forceNotify: Bool = false
+    ) {
+        applyDefaultBackground(
+            color: values.backgroundColor,
+            opacity: values.backgroundOpacity,
+            backgroundBlur: values.backgroundBlur,
+            foregroundColor: values.foregroundColor,
+            cursorColor: values.cursorColor,
+            cursorTextColor: values.cursorTextColor,
+            selectionBackground: values.selectionBackground,
+            selectionForeground: values.selectionForeground,
+            source: source,
+            scope: scope,
+            forceNotify: forceNotify
+        )
     }
 
     private func applyDefaultBackground(
@@ -2748,7 +3207,13 @@ class GhosttyApp {
                           let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                     let result = tabManager.cycleSplitFocus(tabId: tabId, forward: forward)
 #if DEBUG
-                    app.recordGotoSplitCycleMoveIfNeeded(tabId: tabId, forward: forward)
+                    if result {
+                        GotoSplitCycleUITestSupport().recordCycleMoveIfNeeded(
+                            tabManager: tabManager,
+                            tabId: tabId,
+                            forward: forward
+                        )
+                    }
 #endif
                     return result
                 }
@@ -2760,7 +3225,8 @@ class GhosttyApp {
                 return false
             }
             return performOnMain {
-                guard let tabManager = AppDelegate.shared?.tabManager else { return false }
+                guard let app = AppDelegate.shared,
+                      let tabManager = app.tabManagerFor(tabId: tabId) ?? app.tabManager else { return false }
                 return tabManager.moveSplitFocus(tabId: tabId, surfaceId: surfaceId, direction: direction)
             }
         case GHOSTTY_ACTION_RESIZE_SPLIT:
@@ -3083,16 +3549,13 @@ class GhosttyApp {
 
 // TerminalSurfaceFocusPlacement moved to CmuxTerminalCore (SurfaceRegistry/).
 
+@MainActor
 private func recordAgentHibernationTerminalInput(workspaceId: UUID, panelId: UUID) {
     guard AgentHibernationTrackingGate.isEnabled() else { return }
-    let recordedAt = Date()
-    Task { @MainActor in
-        AgentHibernationController.shared.recordTerminalInput(
-            workspaceId: workspaceId,
-            panelId: panelId,
-            recordedAt: recordedAt
-        )
-    }
+    AgentHibernationController.shared.recordTerminalInput(
+        workspaceId: workspaceId,
+        panelId: panelId
+    )
 }
 
 // TerminalSurface and its SearchState moved to the CmuxTerminal package
@@ -3344,6 +3807,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var wordPathHoverActive = false
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
+    private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
@@ -3815,8 +4279,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func updateSurfaceSize(
-        size: CGSize? = nil,
-        bypassLiveResizeCoalescing: Bool = false
+        size: CGSize? = nil, bypassLiveResizeCoalescing: Bool = false, caller: StaticString = #function
     ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
@@ -3950,7 +4413,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // would hold it at the pre-drag (larger) size and paint past the
             // shrinking pane. Re-pins at rest when the interactive flag clears.
             suppressAssignedGridPin: isWindowLiveResizeActive
-                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window)
+                || TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window),
+            caller: caller
         )
         return didChange || surfaceSizeChanged
     }
@@ -4596,9 +5060,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            _ = performBindingAction("navigate_search:next", repeatCount: count)
+            _ = TerminalSearchNavigation.next.perform { performBindingAction($0, repeatCount: count) }
         case .searchPrevious:
-            _ = performBindingAction("navigate_search:previous", repeatCount: count)
+            _ = TerminalSearchNavigation.previous.perform { performBindingAction($0, repeatCount: count) }
         case let .adjustSelection(direction):
             if keyboardCopyModeVisualLineActive {
                 adjustKeyboardCopyModeVisualLineSelection(direction, count: count, surface: surface)
@@ -4809,6 +5273,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         var shouldApplySurfaceFocus = false
         if result {
             imeConsumedKeyUps.removeAll()
+            manualNamedKeyConsumedKeyUps.removeAll()
             if let terminalSurface,
                AppDelegate.shared?.allowsTerminalKeyboardFocus(
                    workspaceId: terminalSurface.tabId,
@@ -4912,6 +5377,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let result = super.resignFirstResponder()
         if result {
             imeConsumedKeyUps.removeAll()
+            manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
@@ -5297,7 +5763,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                handled = ghostty_surface_key(surface, keyEvent)
+                handled = sendGhosttyKey(surface, keyEvent)
                 #endif
             } else {
                 #if DEBUG
@@ -5306,7 +5772,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 #endif
                 handled = text.withCString { ptr in
                     keyEvent.text = ptr
-                    return ghostty_surface_key(surface, keyEvent)
+                    return sendGhosttyKey(surface, keyEvent)
                 }
                 #if DEBUG
                 ghosttySendMs = (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
@@ -5499,7 +5965,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             }
@@ -5520,7 +5986,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
 #endif
             }
         } else {
@@ -5581,7 +6047,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     )
                     ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                     #else
-                    _ = ghostty_surface_key(surface, keyEvent)
+                    _ = sendGhosttyKey(surface, keyEvent)
                     #endif
                 }
             } else {
@@ -5597,7 +6063,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
                 ghosttySendMs += (ProcessInfo.processInfo.systemUptime - ghosttySendStart) * 1000.0
                 #else
-                _ = ghostty_surface_key(surface, keyEvent)
+                _ = sendGhosttyKey(surface, keyEvent)
                 #endif
             }
         }
@@ -5610,6 +6076,23 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         Self.debugGhosttySurfaceKeyEventObserver?(keyEvent)
 #endif
+        if !manualNamedKeyConsumedKeyUps.isEmpty,
+           keyEvent.action == GHOSTTY_ACTION_RELEASE,
+           let keyCode = UInt16(exactly: keyEvent.keycode),
+           manualNamedKeyConsumedKeyUps.remove(keyCode) != nil {
+            return true
+        }
+        if let keyName = terminalSurface?.manualInputKeyName(for: keyEvent) {
+            var bindingFlags = ghostty_binding_flags_e(0)
+            if !ghostty_surface_key_is_binding(surface, keyEvent, &bindingFlags) {
+                if terminalSurface?.enqueueManualInputNamedKey(keyName) == true {
+                    if let keyCode = UInt16(exactly: keyEvent.keycode) {
+                        manualNamedKeyConsumedKeyUps.insert(keyCode)
+                    }
+                    return true
+                }
+            }
+        }
         return ghostty_surface_key(surface, keyEvent)
     }
 
@@ -6064,7 +6547,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         guard let termSurface = terminalSurface,
               let workspace = termSurface.owningWorkspace(),
-              !workspace.isRemoteTerminalSurface(termSurface.id) else { return nil }
+              workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+                  surfaceID: termSurface.id
+              ) else { return nil }
 
         guard let cwd = resolvedWordPathWorkingDirectory(workspace: workspace, terminalSurface: termSurface) else {
             return nil
@@ -6266,13 +6751,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return convert(window.mouseLocationOutsideOfEventStream, from: nil)
     }
 
+    private func wordPathSnapshotTerminalPanel(
+        workspace: Workspace,
+        terminalSurface: TerminalSurface
+    ) -> TerminalPanel? {
+        guard workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+            surfaceID: terminalSurface.id
+        ) else { return nil }
+        return workspace.controlTerminalPanel(for: terminalSurface.id)
+    }
+
+#if DEBUG
+    func debugWordPathSnapshotTerminalPanelID() -> UUID? {
+        guard let terminalSurface,
+              let workspace = terminalSurface.owningWorkspace() else {
+            return nil
+        }
+        return wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        )?.id
+    }
+#endif
+
     private func resolveVisibleWordPathFromViewportOffset(
         _ viewportOffsetStart: Int,
         cwd: String,
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
+        guard let panel = wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        ),
               let surface else {
             return nil
         }
@@ -6312,7 +6823,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         workspace: Workspace,
         terminalSurface: TerminalSurface
     ) -> WordPathResolution? {
-        guard let panel = workspace.terminalPanel(for: terminalSurface.id),
+        guard let panel = wordPathSnapshotTerminalPanel(
+            workspace: workspace,
+            terminalSurface: terminalSurface
+        ),
               let surface else {
             return nil
         }
@@ -6473,7 +6987,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // editor so the click never silently no-ops.
         if let termSurface = terminalSurface,
            let workspace = termSurface.owningWorkspace(),
-           !workspace.isRemoteTerminalSurface(termSurface.id),
+           workspace.canResolveTerminalPathsAgainstLocalFilesystem(
+               surfaceID: termSurface.id
+           ),
            CommandClickFileOpenRouter.openInCmux(
                workspace: workspace,
                sourcePanelId: termSurface.id,
@@ -7689,8 +8205,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let imageTransferIndicatorSpinner: NSProgressIndicator
     private let imageTransferCancelButton: NSButton
     private var searchOverlayHostingView: NSHostingView<SurfaceSearchOverlay>?
-    private var deferredSearchOverlayMutationWorkItem: DispatchWorkItem?
-    private var imageTransferIndicatorShowWorkItem: DispatchWorkItem?
+    private let deferredSearchOverlayMutationScheduler = MainActorDeferredActionScheduler()
+    private let imageTransferIndicatorShowScheduler = MainActorDeferredActionScheduler()
     private var activeImageTransferOperation: TerminalImageTransferOperation?
     private var activeImageTransferCancelHandler: (() -> Void)?
     private var lastSearchOverlayStateID: ObjectIdentifier?
@@ -8290,8 +8806,6 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        deferredSearchOverlayMutationWorkItem?.cancel()
-        imageTransferIndicatorShowWorkItem?.cancel()
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -8803,28 +9317,22 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     private func cancelDeferredSearchOverlayMutation() {
-        deferredSearchOverlayMutationWorkItem?.cancel()
-        deferredSearchOverlayMutationWorkItem = nil
+        deferredSearchOverlayMutationScheduler.cancel()
     }
 
     private func scheduleDeferredSearchOverlayMutation(
         generation: UInt64,
         _ mutation: @escaping () -> Void
     ) {
-        cancelDeferredSearchOverlayMutation()
-        let work = DispatchWorkItem { [weak self] in
+        deferredSearchOverlayMutationScheduler.schedule { [weak self] in
             guard let self else { return }
             guard self.searchOverlayMutationGeneration == generation else { return }
-            self.deferredSearchOverlayMutationWorkItem = nil
             mutation()
         }
-        deferredSearchOverlayMutationWorkItem = work
-        DispatchQueue.main.async(execute: work)
     }
 
     private func cancelImageTransferIndicatorShow() {
-        imageTransferIndicatorShowWorkItem?.cancel()
-        imageTransferIndicatorShowWorkItem = nil
+        imageTransferIndicatorShowScheduler.cancel()
     }
 
     private func updateImageTransferIndicatorZOrder(relativeTo overlay: NSView?) {
@@ -8880,17 +9388,14 @@ final class GhosttySurfaceScrollView: NSView {
         imageTransferIndicatorSpinner.stopAnimation(nil)
         imageTransferIndicatorContainerView.isHidden = true
 
-        let work = DispatchWorkItem { [weak self] in
+        imageTransferIndicatorShowScheduler.schedule(after: .milliseconds(150)) { [weak self] in
             guard let self else { return }
             guard self.activeImageTransferOperation === operation else { return }
             guard !operation.isCancelled else { return }
-            self.imageTransferIndicatorShowWorkItem = nil
             self.imageTransferIndicatorSpinner.startAnimation(nil)
             self.imageTransferIndicatorContainerView.isHidden = false
             self.updateImageTransferIndicatorZOrder(relativeTo: self.searchOverlayHostingView)
         }
-        imageTransferIndicatorShowWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
     func endImageTransferIndicator(for operation: TerminalImageTransferOperation?) {
@@ -8923,8 +9428,8 @@ final class GhosttySurfaceScrollView: NSView {
             canApplyFocusRequest: { [weak self] in
                 self?.canApplyMountedSearchFieldFocusRequest() ?? false
             },
-            onNavigateSearch: { [weak terminalSurface] action in
-                _ = terminalSurface?.performExplicitInputBindingAction(action)
+            onNavigateSearch: { [weak terminalSurface] direction in
+                _ = direction.perform { terminalSurface?.performExplicitInputBindingAction($0) ?? false }
             },
             onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
@@ -8999,7 +9504,7 @@ final class GhosttySurfaceScrollView: NSView {
               let workspace = manager.tabs.first(where: { $0.id == terminalSurface.tabId }) else {
             return false
         }
-        return workspace.focusedPanelId == terminalSurface.id
+        return workspace.isFocusedTerminalInputSurface(terminalSurface.id)
     }
 
     private func requestMountedSearchFieldFocus(
@@ -9646,6 +10151,10 @@ final class GhosttySurfaceScrollView: NSView {
         return overlay.superview === self && !overlay.isHidden
     }
 
+    func debugCanApplyMountedSearchFieldFocusRequest() -> Bool {
+        canApplyMountedSearchFieldFocusRequest()
+    }
+
     func debugSearchOverlayHostingViewForTesting() -> NSView? {
         guard let overlay = searchOverlayHostingView,
               overlay.superview === self else {
@@ -9849,21 +10358,9 @@ final class GhosttySurfaceScrollView: NSView {
         }
 
         guard let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+              tab.isFocusedTerminalInputSurface(surfaceId) else {
             scheduleAutomaticFirstResponderApply(
-                reason: "ensureFocus.missingPane",
-                focusTransactionId: focusTransactionId
-            )
-            return
-        }
-
-        guard tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface,
-              tab.bonsplitController.focusedPaneId == paneId else {
-            scheduleAutomaticFirstResponderApply(
-                reason: "ensureFocus.unfocusedPane",
+                reason: "ensureFocus.notInputTarget",
                 focusTransactionId: focusTransactionId
             )
             return
@@ -9972,16 +10469,10 @@ final class GhosttySurfaceScrollView: NSView {
         guard let delegate = AppDelegate.shared,
               let tabManager = delegate.tabManagerFor(tabId: tabId) ?? delegate.tabManager,
               tabManager.selectedTabId == tabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let tabIdForSurface = tab.surfaceIdFromPanelId(surfaceId),
-              let paneId = tab.bonsplitController.allPaneIds.first(where: { paneId in
-                  tab.bonsplitController.tabs(inPane: paneId).contains(where: { $0.id == tabIdForSurface })
-              }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
             return false
         }
-
-        return tab.bonsplitController.selectedTab(inPane: paneId)?.id == tabIdForSurface &&
-            tab.bonsplitController.focusedPaneId == paneId
+        return tab.isFocusedTerminalInputSurface(surfaceId)
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during

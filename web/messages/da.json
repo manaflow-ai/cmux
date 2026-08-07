@@ -102,7 +102,7 @@
     "faqGhosttyQ": "Hvordan relaterer cmux sig til Ghostty?",
     "faqGhosttyA": "cmux er ikke en fork af Ghostty. Den bruger <link>libghostty</link> som bibliotek til terminal-rendering, på samme måde som apps bruger WebKit til webvisninger. Ghostty er en selvstændig terminal; cmux er en anden app bygget oven på dens renderingsmotor.",
     "faqPlatformQ": "Hvilke platforme understøttes?",
-    "faqPlatformA": "Kun macOS, indtil videre. cmux er en native Swift + AppKit-app.",
+    "faqPlatformA": "Se tilgængelige cmux-versioner i menuen Download. <waitlist>Tilmeld dig ventelisten</waitlist> for en platform, der endnu ikke er udgivet.",
     "faqAgentsQ": "Hvilke kodningsagenter fungerer cmux med?",
     "faqAgentsA": "Alle sammen. cmux er en terminal, så enhver agent der kører i en terminal fungerer direkte: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent og alt andet du kan starte fra kommandolinjen.",
     "faqNotificationsQ": "Hvordan fungerer notifikationer?",
@@ -867,6 +867,8 @@
       "concepts": "Koncepter",
       "anchorTitle": "Anker-workspace",
       "anchorDesc": "Hver gruppe ejes af præcis ét workspace kaldet ankeret. Gruppens header i sidebaren er ankerets repræsentation — der er ingen separat række til det. Klik på headerens navneområde fokuserer ankerets paneler; klik på chevronen skifter sammenklapning til/fra.",
+      "anchorNew": "En gruppes anker er altid et helt nyt workspace på oprettelsestidspunktet; gruppering af en markering eller oprettelse af en gruppe gør aldrig et af dine eksisterende workspaces til ankeret. (Hvis ankeret senere lukkes, bliver gruppens første tilbageværende medlem dog gjort til anker; se nedenfor.) Ankerets arbejdsmappe arves fra det første valgte workspace, når en markering grupperes, eller fra det aktive workspace ved oprettelse via CLI uden --cwd.",
+      "anchorClose": "Når anker-workspacet lukkes, lukkes kun dette workspace, og gruppens første tilbageværende medlem (det første, der stadig findes i gruppens rækkefølge) gøres til det nye anker, så gruppen og dens øvrige medlemmer forbliver intakte (det nye anker viser derefter gruppens navn som header). Når ankeret er gruppens eneste workspace, fjernes gruppen. Brug Opdel arbejdsområder til at opløse en gruppe til ugrupperede workspaces; brug Slet gruppe til at lukke alle workspaces i en gruppe.",
       "identityTitle": "Gruppeidentitet",
       "identityDesc": "En gruppe har et navn, et ikon (et SF Symbol, standard folder.fill) og en valgfri brugerdefineret farve. Disse er uafhængige af anker-workspacets egne tilpasninger. Ankerets farve og ikon udledes fra gruppen ved oprettelse, men de kan afvige bagefter.",
       "pinningTitle": "Fastgørelse",
@@ -1405,7 +1407,16 @@
     "changelog": {
       "title": "Ændringslog",
       "metaDescription": "cmux udgivelsesnoter og versionshistorik. Nye funktioner, fejlrettelser og ændringer for den native macOS-terminal.",
-      "metaTitle": "Ændringslog"
+      "metaTitle": "Ændringslog",
+      "versionTitle": "cmux {version} · Ændringslog",
+      "releaseNavLabel": "Udgivelser omkring cmux {version}",
+      "sections": {
+        "added": "Tilføjet",
+        "changed": "Ændret",
+        "fixed": "Rettet",
+        "removed": "Fjernet",
+        "contributors": "Bidragydere"
+      }
     },
     "navItems": {
       "gettingStarted": "Kom i gang",
@@ -3521,7 +3532,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere."
+    "billingUnavailable": "Betaling er ikke tilgængelig lige nu. Prøv igen senere.",
+    "signedOutNotice": "Du er ikke logget ind. Log ind for at se dit nuværende abonnement eller gendanne et tidligere køb.",
+    "signedOutSignIn": "Log ind"
   },
   "platforms": {
     "macos": "macOS",
@@ -3534,8 +3547,8 @@
     "title": "Tilmeld dig ventelisten til {platform}",
     "titleAny": "Tilmeld dig ventelisten",
     "description": "Understøttelse af {platform} er på vej. Efterlad din e-mail, så giver vi besked, så snart den er klar.",
-    "descriptionAny": "cmux er macOS-først lige nu. Efterlad din e-mail, så giver vi besked, så snart Linux, Windows eller Android er klar.",
-    "calloutText": "Kommer til Linux, Windows og Android.",
+    "descriptionAny": "Vælg en platform, der endnu ikke er udgivet, og skriv din e-mail. Vi giver dig besked, når versionen er klar.",
+    "calloutText": "Flere cmux-versioner er på vej.",
     "platformsLabel": "Hvilke platforme?",
     "selectPlatform": "Vælg mindst én platform.",
     "emailLabel": "E-mail",
@@ -3549,5 +3562,87 @@
     "successBody": "Vi sender dig en e-mail, når {platform}-versionen er klar.",
     "successBodyAny": "Vi sender dig en e-mail, når cmux er klar til din platform.",
     "done": "Færdig"
+  },
+  "browserDownloads": {
+    "eyebrow": "cmux-browser",
+    "title": "cmux til {platform}",
+    "tagline": "En Chromium-browser og et agentarbejdsområde, bygget som én helhed.",
+    "logoAlt": "cmux-appikon",
+    "featuresTitle": "Bygget til agentbaseret arbejde",
+    "features": {
+      "chromium": {
+        "title": "Ægte Chromium",
+        "description": ": faner, rendering, udvidelser og omnibox-adfærd i Chrome-kvalitet"
+      },
+      "workspaces": {
+        "title": "Opgavebaserede arbejdsområder",
+        "description": ": organiser webfaner og værktøjer omkring opgaven i stedet for én endeløs fanelinje"
+      },
+      "terminals": {
+        "title": "Terminalflader",
+        "description": ": behold shells og browserfaner i samme vindue og compositor"
+      },
+      "openSource": {
+        "title": "Gratis og open source",
+        "description": ": gennemse koden, rapporter problemer, og byg fra kildekoden på GitHub"
+      }
+    },
+    "installTitle": "Installation",
+    "releaseTitle": "Versioner og opdateringer",
+    "releaseBody": "Disse links peger altid på den nyeste nightly-version på <github>GitHub Releases</github>. cmux kontrollerer signerede opdateringsmanifester, før en opdatering installeres.",
+    "sourceLink": "Se kildekoden på GitHub",
+    "otherPlatform": "cmux til {platform}",
+    "macLink": "cmux-terminal til Mac",
+    "windows": {
+      "name": "Windows",
+      "metaTitle": "Download cmux til Windows",
+      "metaDescription": "Download cmux til Windows x64: en gratis open source Chromium-browser og et agentarbejdsområde med opgavebaserede faner og terminalflader.",
+      "subtitle": "En indbygget x64-version med Chromium-faner, cmux-arbejdsområder og velkendte Windows-tastaturgenveje.",
+      "primaryCta": "Download installationsprogram (.exe)",
+      "secondaryCta": "Transportabel ZIP",
+      "requirements": "Windows 10 eller nyere · x64",
+      "installBody": "Kør installationsprogrammet, og følg anvisningerne i Windows. Vælg den transportable ZIP, hvis du vil beholde cmux i en mappe uden en systemomfattende installation."
+    },
+    "linux": {
+      "name": "Linux",
+      "metaTitle": "Download cmux til Linux",
+      "metaDescription": "Download cmux til Linux x64: en gratis open source Chromium-browser og et agentarbejdsområde med opgavebaserede faner og terminalflader.",
+      "subtitle": "En indbygget x64-version med Chromium-faner, cmux-arbejdsområder og integrerede terminalflader.",
+      "primaryCta": "Download installationsprogram med automatiske opdateringer (.run)",
+      "secondaryCta": "Debian-pakke (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Kør installationsprogrammet én gang for din bruger. Det installerer cmux i ~/.local uden root-rettigheder og aktiverer signerede opdateringer i appen. Vælg i stedet Debian-pakken, hvis du vil have opdateringer administreret af din pakkehåndtering."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Velkommen til cmux Pro 🎉",
+      "fallbackName": "der",
+      "greeting": "Hej {name},",
+      "thanks": "Tak, fordi du har valgt cmux Pro! Vi er stadig ved at gøre hele Pro-oplevelsen klar, og cloudadgang er på vej.",
+      "cloudStatus": "Når cloudadgang lanceres, føjer vi brugskreditter til din konto baseret på, hvor mange måneder du har været abonnent.",
+      "currentBenefit": "Indtil da giver Pro dig tidlig adgang til cmux på iOS. Tilmeld dig via linket nedenfor, så sender Apple din TestFlight-invitation, når du er registreret.",
+      "testflightLink": "Tilmeld dig TestFlight: {url}",
+      "testflightLinkLabel": "Tilmeld dig TestFlight",
+      "signoff": "Dejligt at have dig med!\ncmux-teamet"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro er aktiv",
+    "title": "Velkommen til cmux Pro",
+    "body": "Pro-funktionerne er stadig under udvikling. Cloudadgang kommer snart med brugskreditter, der optjenes for hver måned, du abonnerer. Lige nu omfatter Pro adgang til cmux på iOS via TestFlight.",
+    "done": "Gå til kontrolpanelet",
+    "steps": {
+      "iosApp": {
+        "title": "cmux til iOS",
+        "body": "Brug cmux på din telefon.",
+        "action": "Deltag i iOS-betaen"
+      },
+      "billing": {
+        "title": "Administrer dit abonnement",
+        "body": "Se dit abonnement, dine fakturaer og muligheder for opsigelse.",
+        "action": "Administrer abonnement"
+      }
+    }
   }
 }

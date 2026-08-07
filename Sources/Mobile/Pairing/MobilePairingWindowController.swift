@@ -1,4 +1,6 @@
 import AppKit
+import Bonsplit
+import CmuxWorkspaces
 import SwiftUI
 
 /// Owns the single iOS pairing window and presents it on demand.
@@ -56,7 +58,7 @@ final class MobilePairingWindowController: ReleasingWindowController {
         let hostingController = NSHostingController(rootView: root)
 
         let window = NSWindow(contentViewController: hostingController)
-        window.title = String(localized: "mobile.pairing.window.title", defaultValue: "Pair iPhone")
+        window.title = String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
         window.identifier = NSUserInterfaceItemIdentifier(Self.windowIdentifier)
         // Resizable so the QR (which fills the window width) can be made even
         // larger for scanning at a distance.
@@ -124,5 +126,77 @@ final class MobilePairingWindowController: ReleasingWindowController {
             targetFrame.origin.y = visibleFrame.maxY - targetFrameHeight
         }
         window.setFrame(targetFrame, display: true)
+    }
+}
+
+/// Workspace-owned pane for the Tailscale pairing flow.
+@MainActor
+final class MobilePairingPanel: Panel {
+    let id = UUID()
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .mobilePairing
+
+    var displayTitle: String {
+        String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
+    }
+
+    var displayIcon: String? { "iphone" }
+
+    func focus() {}
+    func unfocus() {}
+    func close() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) { _ = reason }
+}
+
+struct MobilePairingPanelView: View {
+    let appearance: PanelAppearance
+    let onRequestPanelFocus: () -> Void
+
+    var body: some View {
+        MobilePairingView()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(nsColor: appearance.contentBackgroundColor))
+            .environment(\.colorScheme, appearance.backgroundColor.isLightColor ? .light : .dark)
+            .contentShape(Rectangle())
+            .onTapGesture { onRequestPanelFocus() }
+            .accessibilityIdentifier("MobilePairingPanel")
+    }
+}
+
+extension Workspace {
+    @discardableResult
+    func newMobilePairingSurface(inPane paneId: PaneID, focus: Bool = true) -> MobilePairingPanel? {
+        let panel = MobilePairingPanel()
+        panels[panel.id] = panel
+        panelTitles[panel.id] = panel.displayTitle
+
+        guard let tabId = bonsplitController.createTab(
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            kind: SurfaceKind.mobilePairing.rawValue,
+            isDirty: false,
+            isLoading: false,
+            isPinned: false,
+            inPane: paneId
+        ) else {
+            panels.removeValue(forKey: panel.id)
+            panelTitles.removeValue(forKey: panel.id)
+            return nil
+        }
+
+        bindSurface(tabId, toPanelId: panel.id)
+        publishCmuxSurfaceCreated(
+            panel.id,
+            paneId: paneId,
+            kind: SurfaceKind.mobilePairing.rawValue,
+            origin: "mobile_pairing_workspace",
+            focused: focus
+        )
+        if focus {
+            bonsplitController.focusPane(paneId)
+            bonsplitController.selectTab(tabId)
+            applyTabSelection(tabId: tabId, inPane: paneId)
+        }
+        return panel
     }
 }

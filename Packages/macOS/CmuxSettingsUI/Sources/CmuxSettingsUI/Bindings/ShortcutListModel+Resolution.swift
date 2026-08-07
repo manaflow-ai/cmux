@@ -4,15 +4,13 @@ extension ShortcutListModel {
     /// The effective shortcut for `action`, using the runtime's JSON, legacy
     /// UserDefaults, then built-in precedence.
     func effective(for action: ShortcutAction) -> StoredShortcut? {
-        let actionID = action.rawValue
-        let candidate: StoredShortcut?
-        if !managedBindingActionIDs.contains(actionID) {
-            candidate = latestBindings[actionID] ?? legacyBindings[actionID]
-        } else {
-            candidate = bindings[actionID]
-            if candidate == nil, action == .showHideAllWindows { return nil }
+        let candidate = explicitlyConfiguredShortcut(for: action)
+        if candidate == nil,
+           managedBindingActionIDs.contains(action.rawValue),
+           action == .showHideAllWindows {
+            return nil
         }
-        return action.effectivePersistedShortcut(
+        return action.effectivePersistedShortcutResolvingLegacyConflicts(
             candidate,
             normalizing: { shortcut in
                 guard action.shortcutBindingPolicyResult(for: shortcut) == .accepted else {
@@ -35,8 +33,35 @@ extension ShortcutListModel {
                     configured: systemWideShortcut,
                     configuredUsesNumberedDigitMatching: false
                 ).exists
+            },
+            explicitlyConfiguredShortcut: explicitlyConfiguredShortcut(for:),
+            bindingsConflict: { proposed, configuredAction, configured in
+                guard ShortcutWhenClause.bindingsCollide(
+                    whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause,
+                    lhsHasPriority: action.hasPriorityShortcutRouting,
+                    whenOverrideClauses[configuredAction.rawValue]
+                        ?? configuredAction.defaultFocusWhenClause,
+                    rhsHasPriority: configuredAction.hasPriorityShortcutRouting
+                ) else {
+                    return false
+                }
+                return ShortcutBindingConflict(
+                    proposed: proposed,
+                    proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
+                    configured: configured,
+                    configuredUsesNumberedDigitMatching:
+                        configuredAction.usesNumberedDigitMatching
+                ).exists
             }
         )
+    }
+
+    private func explicitlyConfiguredShortcut(for action: ShortcutAction) -> StoredShortcut? {
+        let actionID = action.rawValue
+        if managedBindingActionIDs.contains(actionID) {
+            return bindings[actionID]
+        }
+        return latestBindings[actionID] ?? legacyBindings[actionID]
     }
 
     /// Whether `action` is currently unbound but has a cached stroke available to

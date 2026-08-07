@@ -215,7 +215,6 @@ struct SidebarHiddenPresentationTests {
         )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
-            .environmentObject(notificationStore.sidebarUnread)
             .environmentObject(sidebarState)
             .environmentObject(SidebarSelectionState())
             .environmentObject(FileExplorerState())
@@ -426,6 +425,7 @@ struct SidebarHiddenPresentationTests {
             createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
+            movingWorkspaceCount: { _ in 1 },
             endWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: { _, _, _ in nil },
