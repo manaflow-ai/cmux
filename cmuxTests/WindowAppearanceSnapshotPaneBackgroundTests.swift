@@ -98,7 +98,7 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
 
     /// Verifies portal geometry and visibility remain the root mask's source of truth.
     @MainActor
-    @Test func portalReconcilesRootExclusionOnMoveResetAndHide() throws {
+    @Test func portalReconcilesRootExclusionOnNoninteractiveMoveResetAndHide() throws {
         let bounds = NSRect(x: 0, y: 0, width: 360, height: 180)
         let contentView = NSView(frame: bounds)
         let window = NSWindow(
@@ -150,8 +150,6 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         #expect(!(try rootMaskShowsBackdrop(atWindowPoint: initialPoint, in: root)))
 
         anchor.frame.origin.x += 150
-        TerminalWindowPortalRegistry.beginInteractiveGeometryResize(in: window)
-        defer { TerminalWindowPortalRegistry.endInteractiveGeometryResize(in: window) }
         portal.synchronizeHostedViewForAnchor(anchor)
         let movedPoint = anchor.convert(
             NSPoint(x: anchor.bounds.midX, y: anchor.bounds.midY),
