@@ -292,13 +292,12 @@ struct SidebarAppKitRowCellTests {
     private static func layoutCell(
         _ cell: SidebarWorkspaceRowTableCellView,
         model: SidebarWorkspaceRowModel,
-        width: CGFloat = 440,
-        styleMask: NSWindow.StyleMask = [.borderless]
+        width: CGFloat = 440
     ) -> NSWindow {
         let height = cell.layoutContent(model: model, width: width, apply: false)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-            styleMask: styleMask,
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
@@ -412,14 +411,14 @@ struct SidebarAppKitRowCellTests {
     func cancelingInlineRenameRestoresWorkspaceTitle() throws {
         let model = Self.makeModel()
         let cell = Self.configuredCell(model: model)
-        let window = Self.layoutCell(cell, model: model, styleMask: [.titled])
+        // This test owns the row state transition, not AppKit's field-editor
+        // lifecycle. Keeping the cell detached avoids an unrelated focus-loss
+        // commit when the headless CI process cannot make a test window key.
         let titleView = try #require(
             Self.descendants(of: cell)
                 .compactMap { $0 as? SidebarRowTextView }
                 .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
         )
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
 
         cell.beginInlineRename()
 
