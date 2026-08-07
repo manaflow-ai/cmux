@@ -223,6 +223,27 @@ actor FrontendService {
     return FrontendUpdateSubscription(generation: generation, stream: pair.stream)
   }
 
+  func drainResourceUpdates() async -> [Data] {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return [] }
+    return await enqueue {
+      let raw = OpaquePointer(bitPattern: rawAddress)!
+      var result: [Data] = []
+      while true {
+        var descriptor = CmuxFrontendResourceUpdate()
+        guard cmux_frontend_client_copy_resource_update(raw, &descriptor, nil, 0) else { break }
+        if descriptor.overflowed { return result }
+        guard descriptor.payload_length > 0 else { break }
+        var payload = Data(count: descriptor.payload_length)
+        let copied = payload.withUnsafeMutableBytes { bytes in
+          cmux_frontend_client_copy_resource_update(raw, &descriptor, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+        }
+        guard copied else { break }
+        result.append(payload)
+      }
+      return result
+    }
+  }
+
   func stopUpdates(generation: UInt64? = nil) async {
     if let generation, generation != updateGeneration { return }
     guard let sink = updateSink else { return }

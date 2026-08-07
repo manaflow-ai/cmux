@@ -35,6 +35,11 @@ typedef struct {
     size_t payload_length;
 } CmuxFrontendRenderEvent;
 
+typedef struct {
+    size_t payload_length;
+    bool overflowed;
+} CmuxFrontendResourceUpdate;
+
 // Native frontend API. One enrolled client owns resource control plus any
 // number of terminal renderer attachments. Disconnect every terminal before
 // disconnecting its client.
@@ -47,6 +52,11 @@ void cmux_frontend_client_set_update_callback(
     const CmuxFrontendClient *client,
     CmuxTerminalClientUpdateCallback callback,
     void *context);
+bool cmux_frontend_client_copy_resource_update(
+    const CmuxFrontendClient *client,
+    CmuxFrontendResourceUpdate *update,
+    uint8_t *buffer,
+    size_t capacity);
 char *cmux_frontend_client_request(
     CmuxFrontendClient *client,
     const char *operation,

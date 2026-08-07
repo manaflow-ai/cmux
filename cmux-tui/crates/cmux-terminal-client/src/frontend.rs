@@ -29,6 +29,8 @@ struct FrontendControlState {
     updates: Arc<ClientUpdates>,
     status: Mutex<String>,
     closed: AtomicBool,
+    resource_updates: Mutex<VecDeque<Vec<u8>>>,
+    resource_updates_overflowed: AtomicBool,
 }
 
 impl FrontendControlState {
@@ -38,7 +40,20 @@ impl FrontendControlState {
             updates,
             status: Mutex::new("ready".into()),
             closed: AtomicBool::new(false),
+            resource_updates: Mutex::new(VecDeque::new()),
+            resource_updates_overflowed: AtomicBool::new(false),
         }
+    }
+
+    fn push_resource_update(&self, value: &Value) {
+        let encoded = serde_json::to_vec(value).unwrap_or_default();
+        let mut queue = self.resource_updates.lock().unwrap();
+        if queue.len() >= 256 {
+            self.resource_updates_overflowed.store(true, Ordering::Release);
+            return;
+        }
+        queue.push_back(encoded);
+        self.updates.notify();
     }
 
     fn fail_pending(&self, message: String) {
@@ -93,6 +108,16 @@ pub struct CmuxFrontendTerminal {
     updates: Arc<ClientUpdates>,
     active: Mutex<Option<ActiveTerminal>>,
     next_request: AtomicU64,
+}
+
+/// Ordered session-event envelope. The payload is the original stream_item
+/// JSON, including kind, sequence, cursor, and delta changes. A false return
+/// with `overflowed` set requires a full snapshot resync.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub struct CmuxFrontendResourceUpdate {
+    pub payload_length: usize,
+    pub overflowed: bool,
 }
 
 /// Metadata for one ordered event consumed by a native terminal renderer.
@@ -167,6 +192,9 @@ fn handle_control_line(state: &FrontendControlState, line: &[u8]) {
     {
         let _ = sender.send(Ok(value));
         return;
+    }
+    if value.get("type").and_then(Value::as_str) == Some("stream_item") {
+        state.push_resource_update(&value);
     }
     if matches!(value.get("type").and_then(Value::as_str), Some("stream_item" | "stream_end")) {
         state.updates.notify();
@@ -443,6 +471,37 @@ pub unsafe extern "C" fn cmux_frontend_client_set_update_callback(
 ) {
     let Some(client) = (unsafe { client.as_ref() }) else { return };
     client.updates.set_callback(callback, context);
+}
+
+/// Copies and consumes one ordered session stream_item envelope.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_frontend_client_copy_resource_update(
+    client: *const CmuxFrontendClient,
+    update: *mut CmuxFrontendResourceUpdate,
+    buffer: *mut u8,
+    capacity: usize,
+) -> bool {
+    let Some(client) = (unsafe { client.as_ref() }) else { return false };
+    let Some(update) = (unsafe { update.as_mut() }) else { return false };
+    let state = &client.control_state;
+    let overflowed = state.resource_updates_overflowed.load(Ordering::Acquire);
+    let mut queue = state.resource_updates.lock().unwrap();
+    let Some(payload) = queue.front() else {
+        update.payload_length = 0;
+        update.overflowed = overflowed;
+        return overflowed;
+    };
+    update.payload_length = payload.len();
+    update.overflowed = overflowed;
+    if payload.len() > capacity || (payload.len() > 0 && buffer.is_null()) {
+        return true;
+    }
+    let payload = queue.pop_front().unwrap();
+    unsafe { std::ptr::copy_nonoverlapping(payload.as_ptr(), buffer, payload.len()) };
+    if queue.is_empty() {
+        state.resource_updates_overflowed.store(false, Ordering::Release);
+    }
+    true
 }
 
 /// Executes one public resource operation and returns allocated result JSON.
@@ -883,6 +942,27 @@ pub unsafe extern "C" fn cmux_frontend_client_disconnect(client: *mut CmuxFronte
 mod tests {
     use super::*;
     use crate::{NativeRenderEventKind, TerminalPublicId};
+
+    #[test]
+    fn resource_delta_queue_preserves_order_and_fails_closed_on_overflow() {
+        let updates = Arc::new(ClientUpdates::default());
+        let state = FrontendControlState::new(updates);
+        for sequence in 0..256 {
+            state.push_resource_update(&json!({"type":"stream_item","sequence":sequence}));
+        }
+        state.push_resource_update(&json!({"type":"stream_item","sequence":256}));
+        assert!(state.resource_updates_overflowed.load(Ordering::Acquire));
+        let queue = state.resource_updates.lock().unwrap();
+        assert_eq!(queue.len(), 256);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&queue.front().unwrap()).unwrap()["sequence"],
+            0
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&queue.back().unwrap()).unwrap()["sequence"],
+            255
+        );
+    }
 
     #[test]
     fn native_render_payload_copy_survives_resync() {

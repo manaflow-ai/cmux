@@ -158,7 +158,18 @@ final class FrontendModel {
             let updates = await service.updates()
             for await _ in updates.stream {
                 guard !Task.isCancelled else { break }
-                self?.scheduleRefresh()
+                guard let self else { continue }
+                let envelopes = await service.drainResourceUpdates()
+                if envelopes.isEmpty {
+                    self.scheduleRefresh()
+                    continue
+                }
+                // The projection accepts snapshots during bootstrap/resync.
+                // Delta application is deliberately fail-closed until every
+                // resource kind has a typed projection adapter.
+                if envelopes.contains(where: { self.applyResourceDelta($0) == false }) {
+                    self.scheduleRefresh()
+                }
             }
             await service.stopUpdates(generation: updates.generation)
             guard !Task.isCancelled else { return }
@@ -166,6 +177,15 @@ final class FrontendModel {
                 FrontendServiceError.message("The session event stream ended.")
             )
         }
+    }
+
+    private func applyResourceDelta(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let item = object["item"] as? [String: Any],
+              item["kind"] as? String == "delta",
+              let changes = item["changes"] as? [[String: Any]],
+              !changes.isEmpty else { return false }
+        return false
     }
 
     private func scheduleRefresh() {
