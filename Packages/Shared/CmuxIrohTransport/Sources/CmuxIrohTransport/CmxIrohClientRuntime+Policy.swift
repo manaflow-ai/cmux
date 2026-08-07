@@ -35,11 +35,11 @@ extension CmxIrohClientRuntime {
                 )
             }
 
-        // The supervisor snapshot and the live endpoint address are separate
-        // actor reads. Re-verify identity before every cached or online policy
-        // path so an endpoint replacement cannot inherit the old tuple.
-        let address = try await connectivityEngine.endpointAddress()
-        guard address.identity == expectedEndpointID else {
+        // Cached discovery may return before a registration payload is built.
+        // Verify the live endpoint address first so a replaced driver cannot
+        // inherit the prior generation's broker tuple.
+        let liveAddress = try await connectivityEngine.endpointAddress()
+        guard liveAddress.identity == expectedEndpointID else {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
 
@@ -75,25 +75,8 @@ extension CmxIrohClientRuntime {
             prefetchedDiscoveryRejectedCachedBinding = true
         }
 
-        let publicHints = Array(address.pathHints.compactMap {
-            $0.publicDisclosure(at: now())
-        }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
-        let directPorts = CmxIrohDirectPorts(
-            localDirectAddresses: try await connectivityEngine.localDirectAddresses()
-        )
-        let payload = try CmxIrohRegistrationPayload(
-            deviceID: configuration.deviceID,
-            appInstanceID: configuration.appInstanceID,
-            tag: configuration.tag,
-            platform: .ios,
-            displayName: configuration.displayName,
-            endpointID: expectedEndpointID.endpointID,
-            identityGeneration: configuration.identity.generation,
-            pairingEnabled: false,
-            capabilities: configuration.capabilities,
-            pathHints: publicHints,
-            directPorts: directPorts,
-            now: now()
+        let payload = try await registrationPayload(
+            expectedEndpointID: expectedEndpointID
         )
         let signer = try CmxIrohRegistrationSigner(
             identity: configuration.identity,
@@ -245,27 +228,62 @@ extension CmxIrohClientRuntime {
     }
 
     func shouldUseReadOnlyRegistrationRefresh(
-        _ state: RegistrationRefreshState,
+        _ state: CmxIrohRegistrationPublicationState,
         at now: Date
     ) -> Bool {
-        guard let lastRegistrationRefreshState,
-              lastRegistrationRefreshState.fingerprint == state.fingerprint else {
-            return false
+        !state.requiresPublication(after: lastRegistrationRefreshState, now: now)
+    }
+
+    func registrationRefreshState(
+        expectedEndpointID: CmxIrohPeerIdentity
+    ) async throws -> CmxIrohRegistrationPublicationState {
+        let timestamp = now()
+        return CmxIrohRegistrationPublicationState(
+            payload: try await registrationPayload(
+                expectedEndpointID: expectedEndpointID,
+                timestamp: timestamp
+            ),
+            now: timestamp
+        )
+    }
+
+    func registrationPayload(
+        expectedEndpointID: CmxIrohPeerIdentity,
+        timestamp: Date? = nil
+    ) async throws -> CmxIrohRegistrationPayload {
+        // The supervisor snapshot and live endpoint address are separate actor
+        // reads. Re-verify identity before comparing or publishing the tuple.
+        let address = try await connectivityEngine.endpointAddress()
+        guard address.identity == expectedEndpointID else {
+            throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
-        return now < lastRegistrationRefreshState.refreshAfter
+        let payloadTime = timestamp ?? now()
+        let publicHints = Array(address.pathHints.compactMap {
+            $0.publicDisclosure(at: payloadTime)
+        }.prefix(CmxAttachEndpoint.maximumIrohPathHintCount))
+        return try CmxIrohRegistrationPayload(
+            deviceID: configuration.deviceID,
+            appInstanceID: configuration.appInstanceID,
+            tag: configuration.tag,
+            platform: .ios,
+            displayName: configuration.displayName,
+            endpointID: expectedEndpointID.endpointID,
+            identityGeneration: configuration.identity.generation,
+            pairingEnabled: false,
+            capabilities: configuration.capabilities,
+            pathHints: publicHints,
+            directPorts: CmxIrohDirectPorts(
+                localDirectAddresses: try await connectivityEngine.localDirectAddresses()
+            ),
+            now: payloadTime
+        )
     }
 
     static func registrationRefreshState(
         payload: CmxIrohRegistrationPayload,
         now: Date
-    ) -> RegistrationRefreshState {
-        let hintRefreshAfter = payload.pathHints.compactMap(\.expiresAt).min()
-            .map { $0.addingTimeInterval(-registrationRefreshLeadTime) }
-        let intervalRefreshAfter = now.addingTimeInterval(registrationRefreshInterval)
-        return RegistrationRefreshState(
-            fingerprint: RegistrationRefreshFingerprint(payload: payload),
-            refreshAfter: min(hintRefreshAfter ?? intervalRefreshAfter, intervalRefreshAfter)
-        )
+    ) -> CmxIrohRegistrationPublicationState {
+        CmxIrohRegistrationPublicationState(payload: payload, now: now)
     }
 
     func preparePolicyResolution(revision: UInt64) async throws {

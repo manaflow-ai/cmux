@@ -137,7 +137,7 @@ extension CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func refreshAwaitsAlreadyScheduledSuccessorWithoutRequestingThirdMutation() async throws {
+    func concurrentLiveDiscoveryRequestSchedulesOneSuccessor() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let secondDiscovery = HostRuntimeRegistrationGate()
@@ -164,17 +164,15 @@ extension CmxIrohClientRuntimeTests {
         try await runtime.start()
         let refresh = Task { await runtime.refreshLiveDiscovery() }
         await broker.waitForDiscoveryCount(2)
-        await runtime.handleSupervisorNetworkChange(
-            revision: await runtime.lifecycleRevision
-        )
-        #expect(await runtime.registrationRefreshPending)
+        let successor = Task { await runtime.refreshLiveDiscovery() }
 
         await secondDiscovery.open()
         await broker.waitForDiscoveryCount(3)
         #expect(await runtime.registrationRefreshTaskID != nil)
         await thirdDiscovery.open()
 
-        #expect(await refresh.value)
+        _ = await refresh.value
+        #expect(await successor.value)
         #expect(await runtime.registrationRefreshTaskID == nil)
         #expect(!(await runtime.registrationRefreshPending))
         #expect(await broker.observedRegistrations().count == 1)
@@ -183,7 +181,7 @@ extension CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func networkChangeDuringRegistrationRequestsReadOnlyRefreshAfterStartup() async throws {
+    func networkChangeDuringRegistrationDoesNotRequestBrokerRefreshAfterStartup() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
@@ -204,7 +202,8 @@ extension CmxIrohClientRuntimeTests {
 
         try await runtime.start()
 
-        #expect(await broker.waitForDiscoveryCount(2, timeout: .seconds(1)))
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(await broker.observedDiscoveryCount() == 1)
         #expect(!(await broker.waitForRegistrationCount(2, timeout: .milliseconds(200))))
         await runtime.stop()
     }
@@ -237,7 +236,32 @@ extension CmxIrohClientRuntimeTests {
     }
 
     @Test
-    func networkChangeDuringActiveRefreshUsesReadOnlyDiscoveryForSameReachability() async throws {
+    func changedDirectPortPublishesImmediately() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+
+        await endpoint.setDirectAddresses(["0.0.0.0:50909"])
+        await endpoint.emit(.networkChanged)
+
+        #expect(await broker.waitForRegistrationCount(2, timeout: .seconds(1)))
+        await runtime.stop()
+    }
+
+    @Test
+    func networkChangeDuringActiveRefreshDoesNotRequestAnotherDiscovery() async throws {
         let fixture = try ClientRuntimeTestFixture()
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let gate = HostRuntimeRegistrationGate()
@@ -258,12 +282,14 @@ extension CmxIrohClientRuntimeTests {
         )
         try await runtime.start()
 
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.refreshLiveDiscoveryOutcome() }
         await broker.waitForDiscoveryCount(2)
         await endpoint.emit(.networkChanged)
         await gate.open()
 
-        #expect(await broker.waitForDiscoveryCount(3, timeout: .seconds(1)))
+        #expect(await refresh.value == .refreshed)
+        for _ in 0..<1_000 { await Task.yield() }
+        #expect(await broker.observedDiscoveryCount() == 2)
         #expect(!(await broker.waitForRegistrationCount(2, timeout: .milliseconds(200))))
         await runtime.stop()
     }
@@ -289,13 +315,12 @@ extension CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.refreshLiveDiscoveryOutcome() }
         await broker.waitForDiscoveryCount(2)
-        let refresh = await runtime.registrationRefreshTask
 
         await runtime.stop()
         await gate.open()
-        _ = try? await refresh?.value
+        _ = await refresh.value
 
         #expect(await runtime.snapshot().state == .inactive)
         #expect(await endpoint.observedCloseCallCount() == 1)
@@ -322,13 +347,12 @@ extension CmxIrohClientRuntimeTests {
             now: { fixture.now }
         )
         try await runtime.start()
-        await endpoint.emit(.networkChanged)
+        let refresh = Task { await runtime.refreshLiveDiscoveryOutcome() }
         await broker.waitForDiscoveryCount(2)
-        let refresh = await runtime.registrationRefreshTask
 
         let preparation = await runtime.deactivateForSignOut()
         await gate.open()
-        _ = try? await refresh?.value
+        _ = await refresh.value
 
         #expect(preparation.wasPersisted)
         #expect(await runtime.snapshot().state == .inactive)

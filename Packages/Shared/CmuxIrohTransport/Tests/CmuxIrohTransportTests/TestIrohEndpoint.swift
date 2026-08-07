@@ -4,7 +4,7 @@ import Foundation
 
 actor TestIrohEndpoint: CmxIrohEndpoint {
     private let peerIdentity: CmxIrohPeerIdentity
-    private let directAddresses: [String]
+    private var directAddresses: [String]
     private var pathHints: [CmxIrohPathHint]
     private let pathHintsAfterRelayReplacement: [CmxIrohPathHint]?
     private let healthStream: AsyncStream<CmxIrohEndpointHealthEvent>
@@ -39,6 +39,10 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
     }
 
     func localDirectAddresses() -> [String] { directAddresses }
+
+    func setDirectAddresses(_ addresses: [String]) {
+        directAddresses = addresses
+    }
 
     func connect(
         to _: CmxIrohEndpointAddress,

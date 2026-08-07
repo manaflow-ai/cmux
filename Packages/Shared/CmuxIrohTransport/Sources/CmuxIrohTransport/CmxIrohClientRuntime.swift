@@ -47,32 +47,6 @@ public actor CmxIrohClientRuntime {
         let task: Task<CmxIrohLiveDiscoveryRefreshOutcome, Never>
     }
 
-    struct RegistrationRefreshFingerprint: Equatable, Sendable {
-        let routeKeys: [String]
-        let directPorts: CmxIrohDirectPorts?
-
-        init(payload: CmxIrohRegistrationPayload) {
-            routeKeys = payload.pathHints.map(Self.routeKey).sorted()
-            directPorts = payload.directPorts
-        }
-
-        private static func routeKey(_ hint: CmxIrohPathHint) -> String {
-            [
-                hint.kind.rawValue,
-                hint.value,
-                hint.source.rawValue,
-                hint.privacyScope.rawValue,
-                hint.networkProfile?.source.rawValue ?? "",
-                hint.networkProfile?.profileID ?? "",
-            ].joined(separator: "\u{1F}")
-        }
-    }
-
-    struct RegistrationRefreshState: Equatable, Sendable {
-        let fingerprint: RegistrationRefreshFingerprint
-        let refreshAfter: Date
-    }
-
     enum LifecyclePhase: Equatable, Sendable {
         case inactive
         case starting
@@ -115,9 +89,6 @@ public actor CmxIrohClientRuntime {
     let handleLocalDeactivation: LocalDeactivationHandler
     let handlePolicyInvalidation: PolicyInvalidationHandler
 
-    static let registrationRefreshInterval: TimeInterval = 50 * 60
-    static let registrationRefreshLeadTime: TimeInterval = 5 * 60
-
     var lifecycleRevision: UInt64 = 0
     var lifecyclePhase = LifecyclePhase.inactive
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
@@ -128,11 +99,12 @@ public actor CmxIrohClientRuntime {
     private var connectivityReconciliationOperation: ConnectivityReconciliationOperation?
     private var pendingConnectivityRevision: UInt64?
     var registrationRefreshPending = false
+    var registrationRefreshPendingRequiresDiscovery = false
     var registrationRefreshEnabled = false
     var liveDiscoveryGeneration: UInt64 = 0
     var authoritativeDiscovery: CmxIrohDiscoveryResponse?
     var localBinding: CmxIrohBrokerBinding?
-    var lastRegistrationRefreshState: RegistrationRefreshState?
+    var lastRegistrationRefreshState: CmxIrohRegistrationPublicationState?
     var registryContextProvider: CmxIrohRegistryContextProvider?
     var currentSnapshot = CmxIrohClientRuntimeSnapshot(
         state: .inactive,
@@ -431,7 +403,10 @@ public actor CmxIrohClientRuntime {
         var mayScheduleFreshRequest = registrationRefreshTask != nil
         var latestOutcome: CmxIrohLiveDiscoveryRefreshOutcome = .failed(.superseded)
         if registrationRefreshTask == nil {
-            scheduleRegistrationRefresh(revision: lifecycleRevision)
+            scheduleRegistrationRefresh(
+                revision: lifecycleRevision,
+                requiresDiscovery: true
+            )
         }
         var lastAwaitedTaskID: UUID?
         while lifecyclePhase == .active,
@@ -450,7 +425,10 @@ public actor CmxIrohClientRuntime {
             }
             guard mayScheduleFreshRequest else { return latestOutcome }
             mayScheduleFreshRequest = false
-            scheduleRegistrationRefresh(revision: lifecycleRevision)
+            scheduleRegistrationRefresh(
+                revision: lifecycleRevision,
+                requiresDiscovery: true
+            )
         }
         return lifecyclePhase == .active
             ? latestOutcome
@@ -491,6 +469,7 @@ public actor CmxIrohClientRuntime {
         lifecycleRevision &+= 1
         let revision = lifecycleRevision
         registrationRefreshPending = false
+        registrationRefreshPendingRequiresDiscovery = false
         registrationRefreshEnabled = false
         currentSnapshot = CmxIrohClientRuntimeSnapshot(
             state: .starting,
@@ -627,6 +606,7 @@ public actor CmxIrohClientRuntime {
             }
             try requireCurrent(revision)
             registrationRefreshPending = false
+            registrationRefreshPendingRequiresDiscovery = false
             registrationRefreshEnabled = true
             _ = try await refreshLiveDiscoveryThrowing()
             try requireCurrent(revision)

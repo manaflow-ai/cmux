@@ -66,6 +66,7 @@ extension CmxIrohClientRuntime {
         registrationRefreshTask = nil
         registrationRefreshTaskID = nil
         registrationRefreshPending = false
+        registrationRefreshPendingRequiresDiscovery = false
         registrationRefreshEnabled = false
         supervisorEventTask?.cancel()
         supervisorEventTask = nil
