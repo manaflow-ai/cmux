@@ -775,15 +775,14 @@ export default function (amp: PluginAPI) {
     state.nativeStateObservationLease.unref?.();
   };
 
-  const hasOtherActiveTurn = (): boolean => turnStates.size > 0;
-
   const publishSettledTurn = (
     threadId: string,
     state: AmpTurnState,
     pendingEnd: PendingTurnEnd,
   ): void => {
     discardTurnState(threadId, state);
-    if (!hasOtherActiveTurn()) {
+    const activeSiblingTurnCount = turnStates.size;
+    if (activeSiblingTurnCount === 0) {
       switch (pendingEnd.event.status) {
         case "done":
           setStatus("done", "checkmark.circle", COLOR.done);
@@ -813,7 +812,7 @@ export default function (amp: PluginAPI) {
     sendHook("stop", pendingEnd.sessionId, pendingEnd.cwd, {
       turn_id: state.turnId,
       cmux_turn_boundary: "settled",
-      cmux_active_background_work_count: 0,
+      cmux_active_background_work_count: activeSiblingTurnCount,
     });
   };
 
