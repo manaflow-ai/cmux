@@ -15917,6 +15917,30 @@ mod tests {
         mux.close_terminal(&identity.terminal_id, &identity.incarnation).unwrap();
     }
 
+    fn runtime_attachment_event_payloads(mux: &Mux) -> Vec<Value> {
+        let registry = mux.workspace_registry.lock().unwrap();
+        registry
+            .session_journal_after(0, 1024)
+            .unwrap()
+            .records
+            .into_iter()
+            .filter(|record| record.kind == "runtime.attachment.updated")
+            .map(|record| record.payload)
+            .collect()
+    }
+
+    fn journal_event_kinds(mux: &Mux) -> Vec<String> {
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .session_journal_after(0, 1024)
+            .unwrap()
+            .records
+            .into_iter()
+            .map(|record| record.kind)
+            .collect()
+    }
+
     fn public_request(
         mux: &Arc<Mux>,
         id: &str,
@@ -19876,6 +19900,92 @@ mod tests {
         assert!(
             mux.terminal_exit_detaches.wait_until_finished(TERMINAL, deadline),
             "terminal detach retry worker did not release its ownership"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_terminal_attach_journals_runtime_attachment_without_live_capabilities() {
+        const TERMINAL: &str = "00000000000040008000000000000061";
+        const INCARNATION: &str = "10000000000040008000000000000061";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("runtime-attachment-source".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001061".into()),
+                None,
+            )
+            .unwrap();
+        let surface_id =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert_eq!(payloads.len(), 1);
+        let payload = &payloads[0];
+        assert_eq!(payload["format"], "cmux.runtime-attachment.v1");
+        assert_eq!(payload["terminal_id"], public_id.as_str());
+        assert_eq!(payload["runtime_id"], INCARNATION);
+        assert_eq!(payload["state"], "attached");
+        assert_eq!(payload["host_epoch"], INCARNATION);
+        assert_eq!(payload["lease_generation"], INCARNATION);
+
+        let serialized = serde_json::to_string(payload).unwrap();
+        for forbidden in [
+            "pid",
+            "host_pid",
+            "owner_token",
+            "host_start_nonce",
+            "endpoint",
+            "socket",
+            "command",
+            "env",
+            "TOKEN",
+            "ssh://",
+        ] {
+            assert!(
+                !serialized.contains(forbidden),
+                "runtime attachment payload must not contain {forbidden}: {serialized}"
+            );
+        }
+        mux.close_surface(surface_id).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_terminal_exit_journals_detached_without_hibernate_or_interrupt() {
+        const TERMINAL: &str = "00000000000040008000000000000062";
+        const INCARNATION: &str = "10000000000040008000000000000062";
+        let mux = test_mux();
+        let workspace = mux
+            .create_empty_workspace(
+                Some("runtime-attachment-exit".into()),
+                Some("018f6e21-7b70-7e70-8000-000000001062".into()),
+                None,
+            )
+            .unwrap();
+        let surface_id =
+            mux.seed_running_terminal_for_test(TERMINAL, INCARNATION, &workspace.key).unwrap();
+        let public_id =
+            mux.workspace_registry.lock().unwrap().terminal_resource_id(TERMINAL).unwrap().unwrap();
+
+        mux.surface_exited(surface_id);
+
+        let payloads = runtime_attachment_event_payloads(&mux);
+        assert!(payloads.iter().all(|payload| payload["terminal_id"] == public_id.as_str()));
+        let states = payloads
+            .into_iter()
+            .map(|payload| payload["state"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(states, vec!["attached", "detached"]);
+        let kinds = journal_event_kinds(&mux);
+        assert!(!kinds.iter().any(|kind| kind.starts_with("session.hibernate")));
+        assert!(!kinds.iter().any(|kind| kind == "runtime.host_loss.proven"));
+        let registry = mux.workspace_registry.lock().unwrap();
+        assert_eq!(
+            registry.terminal_record(TERMINAL).unwrap().unwrap().lifecycle,
+            TerminalLifecycle::Exited
         );
     }
 
