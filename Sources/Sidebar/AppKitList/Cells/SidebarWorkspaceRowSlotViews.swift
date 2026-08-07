@@ -247,7 +247,7 @@ final class SidebarRowTextView: NSTextField {
     override var isFlipped: Bool { true }
     override var isHidden: Bool {
         didSet {
-            if isHidden, !oldValue {
+            if isHidden, !oldValue, !accessibilityLinks.isEmpty {
                 invalidateLinkAccessibility()
             }
         }
