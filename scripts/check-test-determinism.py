@@ -382,8 +382,11 @@ def _quote_delimiter_at(line: str, quote_index: int) -> str:
 
 
 @lru_cache(maxsize=128)
-def _executable_code_positions(line: str) -> tuple[bool, ...]:
-    """Return which character offsets are executable code on this source line.
+def _executable_code_positions(
+    line: str,
+    path_suffix: str = "",
+) -> tuple[bool, ...]:
+    """Return which character offsets are executable code in the source text.
 
     The network detector intentionally accepts URLs in string arguments to real
     clients (for example, ``fetch("https://...")``), so stripping every string
@@ -394,14 +397,15 @@ def _executable_code_positions(line: str) -> tuple[bool, ...]:
 
     Interpolated strings need one extra distinction: JavaScript backtick and
     Python f-string text is inert, while ``${...}`` and ``{...}`` replacement
-    fields are executable code and may contain nested strings, object literals,
-    or templates. This remains a conservative line-level lexer, not a full
-    language parser.
+    fields are executable code. Shell double quotes also preserve executable
+    ``$(...)`` and backtick substitutions. This remains a conservative lexer,
+    not a full language parser.
     """
     executable = [False] * len(line)
     # Contexts are (kind, brace_depth, closing_delimiter). Only interpolation
     # contexts use brace depth; nested quote/template contexts sit above them.
     contexts: list[tuple[str, int, str]] = [("code", 0, "")]
+    is_shell = path_suffix == ".sh"
     index = 0
     while index < len(line):
         kind, brace_depth, delimiter = contexts[-1]
@@ -414,6 +418,28 @@ def _executable_code_positions(line: str) -> tuple[bool, ...]:
             if line.startswith(delimiter, index):
                 contexts.pop()
                 index += len(delimiter)
+                continue
+            index += 1
+            continue
+
+        if kind == "shell-double-text":
+            if character == "\\":
+                index += 2
+                continue
+            if character == '"':
+                contexts.pop()
+                index += 1
+                continue
+            if character == "$" and index + 1 < len(line) and line[index + 1] == "(":
+                executable[index] = True
+                executable[index + 1] = True
+                contexts.append(("shell-command-substitution", 1, ""))
+                index += 2
+                continue
+            if character == "`":
+                executable[index] = True
+                contexts.append(("shell-backtick-substitution", 0, "`"))
+                index += 1
                 continue
             index += 1
             continue
@@ -452,6 +478,12 @@ def _executable_code_positions(line: str) -> tuple[bool, ...]:
             index += 1
             continue
 
+        if kind == "shell-backtick-substitution" and character == "`":
+            executable[index] = True
+            contexts.pop()
+            index += 1
+            continue
+
         executable[index] = True
         if character == "\\" and index + 1 < len(line):
             # Outside a literal, shell uses a backslash to quote the next
@@ -460,21 +492,40 @@ def _executable_code_positions(line: str) -> tuple[bool, ...]:
             # escaped character is data, not a delimiter or grouping token.
             index += 2
             continue
+        if is_shell and character == "$" and index + 1 < len(line) and line[index + 1] == "(":
+            executable[index + 1] = True
+            contexts.append(("shell-command-substitution", 1, ""))
+            index += 2
+            continue
         if character in ("'", '"'):
-            quote_delimiter = _quote_delimiter_at(line, index)
+            quote_delimiter = character if is_shell else _quote_delimiter_at(line, index)
             for delimiter_index in range(index, min(index + len(quote_delimiter), len(line))):
                 executable[delimiter_index] = False
             string_kind = (
-                "f-string-text"
-                if _python_f_string_starts_at(line, index)
-                else "string-text"
+                "shell-double-text"
+                if is_shell and character == '"'
+                else (
+                    "f-string-text"
+                    if _python_f_string_starts_at(line, index)
+                    else "string-text"
+                )
             )
             contexts.append((string_kind, 0, quote_delimiter))
             index += len(quote_delimiter)
             continue
         if character == "`":
-            executable[index] = False
-            contexts.append(("template-text", 0, "`"))
+            if is_shell:
+                contexts.append(("shell-backtick-substitution", 0, "`"))
+            else:
+                executable[index] = False
+                contexts.append(("template-text", 0, "`"))
+        elif kind == "shell-command-substitution" and character == "(":
+            contexts[-1] = (kind, brace_depth + 1, delimiter)
+        elif kind == "shell-command-substitution" and character == ")":
+            if brace_depth == 1:
+                contexts.pop()
+            else:
+                contexts[-1] = (kind, brace_depth - 1, delimiter)
         elif kind in ("template-expression", "f-string-expression") and character == "{":
             contexts[-1] = (kind, brace_depth + 1, delimiter)
         elif kind in ("template-expression", "f-string-expression") and character == "}":
@@ -487,15 +538,23 @@ def _executable_code_positions(line: str) -> tuple[bool, ...]:
     return tuple(executable)
 
 
-def _is_inside_string_literal(line: str, offset: int) -> bool:
-    positions = _executable_code_positions(line)
+def _is_inside_string_literal(
+    line: str,
+    offset: int,
+    path_suffix: str = "",
+) -> bool:
+    positions = _executable_code_positions(line, path_suffix)
     return 0 <= offset < len(positions) and not positions[offset]
 
 
-def _call_end(line: str, opening_paren: int) -> int:
+def _call_end(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> int:
     """Return the closing parenthesis offset, or the physical line end."""
     depth = 0
-    executable = _executable_code_positions(line)
+    executable = _executable_code_positions(line, path_suffix)
     for index in range(opening_paren, len(line)):
         if not executable[index]:
             continue
@@ -573,10 +632,14 @@ def _quoted_argument_contains_offset(line: str, argument_start: int, offset: int
     return bounds is not None and bounds[0] <= offset < bounds[1]
 
 
-def _call_uses_explicit_shell(line: str, opening_paren: int) -> bool:
-    call_end = _call_end(line, opening_paren)
+def _call_uses_explicit_shell(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> bool:
+    call_end = _call_end(line, opening_paren, path_suffix)
     return any(
-        not _is_inside_string_literal(line, match.start())
+        not _is_inside_string_literal(line, match.start(), path_suffix)
         for match in _EXPLICIT_SHELL_MODE.finditer(
             line,
             opening_paren,
@@ -589,12 +652,13 @@ def _argv_shell_source_contains_offset(
     line: str,
     opening_paren: int,
     offset: int,
+    path_suffix: str = "",
 ) -> bool:
     """Whether argv launches a shell whose command-source argument owns offset."""
     literals = _quoted_literals_in_range(
         line,
         opening_paren + 1,
-        _call_end(line, opening_paren),
+        _call_end(line, opening_paren, path_suffix),
     )
     token_index = _argv_executable_index(line, literals)
     if token_index is None or len(literals) - token_index < 3:
@@ -647,24 +711,29 @@ def _argv_executable_index(
 def _argv_executable_bounds(
     line: str,
     opening_paren: int,
+    path_suffix: str = "",
 ) -> Optional[tuple[int, int]]:
     literals = _quoted_literals_in_range(
         line,
         opening_paren + 1,
-        _call_end(line, opening_paren),
+        _call_end(line, opening_paren, path_suffix),
     )
     index = _argv_executable_index(line, literals)
     return literals[index] if index is not None else None
 
 
-def _is_executable_network_verb(line: str, verb_start: int) -> bool:
-    if not _is_inside_string_literal(line, verb_start):
+def _is_executable_network_verb(
+    line: str,
+    verb_start: int,
+    path_suffix: str = "",
+) -> bool:
+    if not _is_inside_string_literal(line, verb_start, path_suffix):
         return True
 
     for launcher in _SHELL_CALL_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
-        if _is_inside_string_literal(line, launcher.start()):
+        if _is_inside_string_literal(line, launcher.start(), path_suffix):
             continue
         opening_paren = line.find("(", launcher.start(), launcher.end())
         if opening_paren == -1:
@@ -676,26 +745,31 @@ def _is_executable_network_verb(line: str, verb_start: int) -> bool:
     for launcher in _ARGV_CALL_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
-        if _is_inside_string_literal(line, launcher.start()):
+        if _is_inside_string_literal(line, launcher.start(), path_suffix):
             continue
         opening_paren = line.find("(", launcher.start(), launcher.end())
         if opening_paren == -1:
             continue
-        if _argv_shell_source_contains_offset(line, opening_paren, verb_start):
+        if _argv_shell_source_contains_offset(
+            line,
+            opening_paren,
+            verb_start,
+            path_suffix,
+        ):
             return True
-        bounds = _argv_executable_bounds(line, opening_paren)
+        bounds = _argv_executable_bounds(line, opening_paren, path_suffix)
         if bounds is None or not (bounds[0] <= verb_start < bounds[1]):
             continue
         command = line[bounds[0] : bounds[1]]
         if not any(character.isspace() for character in command):
             return True
-        if _call_uses_explicit_shell(line, opening_paren):
+        if _call_uses_explicit_shell(line, opening_paren, path_suffix):
             return True
 
     for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
-        if _is_inside_string_literal(line, launcher.start()):
+        if _is_inside_string_literal(line, launcher.start(), path_suffix):
             continue
         if _quoted_argument_contains_offset(line, launcher.end(), verb_start):
             return True
@@ -726,7 +800,7 @@ def detect_assert_on_duration(line: str) -> bool:
     return has_threshold_compare or has_relational_assert
 
 
-def detect_live_network_host(line: str) -> bool:
+def detect_live_network_host(line: str, path_suffix: str = "") -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
     # requests/urlopen/...). A URL used as a string fixture (markdown builder,
@@ -736,7 +810,7 @@ def detect_live_network_host(line: str) -> bool:
     # A verb mentioned inside asserted/rendered text is fixture data, not code
     # that can drive the network. URLs remain inspectable inside string
     # arguments because only the verb's lexical position is filtered here.
-    return bool(_live_network_verb_offsets(line))
+    return bool(_live_network_verb_offsets(line, path_suffix))
 
 
 def _contains_public_network_url(source: str) -> bool:
@@ -752,13 +826,16 @@ def _contains_public_network_url(source: str) -> bool:
     return False
 
 
-def _live_network_verb_offsets(source: str) -> list[int]:
+def _live_network_verb_offsets(
+    source: str,
+    path_suffix: str = "",
+) -> list[int]:
     if not _contains_public_network_url(source):
         return []
     return [
         match.start()
         for match in _NETWORK_VERB.finditer(source)
-        if _is_executable_network_verb(source, match.start())
+        if _is_executable_network_verb(source, match.start(), path_suffix)
     ]
 
 
@@ -891,12 +968,15 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     return True
 
 
-def _logical_network_chunks(source: str) -> list[tuple[int, str]]:
+def _logical_network_chunks(
+    source: str,
+    path_suffix: str = "",
+) -> list[tuple[int, str]]:
     """Group continuations for network calls without inheriting outer test scopes."""
     if not source:
         return []
 
-    executable = _executable_code_positions(source)
+    executable = _executable_code_positions(source, path_suffix)
     chunks: list[tuple[int, str]] = []
     start = 0
     start_line = 1
@@ -969,8 +1049,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     if _NETWORK_VERB.search(network_source) and _contains_public_network_url(network_source):
         live_network_lines = {
             start_line + chunk.count("\n", 0, offset)
-            for start_line, chunk in _logical_network_chunks(network_source)
-            for offset in _live_network_verb_offsets(chunk)
+            for start_line, chunk in _logical_network_chunks(network_source, suffix)
+            for offset in _live_network_verb_offsets(chunk, suffix)
         }
     else:
         live_network_lines = set()
