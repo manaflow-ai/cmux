@@ -98,6 +98,14 @@ final class PortalSplitDividerRegion {
         regions.allSatisfy(\.isLive)
     }
 
+    /// Returns whether a newly inserted or removed subtree can change the set
+    /// of divider regions. This runs once at the hierarchy-mutation boundary,
+    /// never on the pointer-event path.
+    static func containsSplitView(in view: NSView) -> Bool {
+        if view is NSSplitView { return true }
+        return view.subviews.contains { containsSplitView(in: $0) }
+    }
+
     var hitRectInWindow: NSRect {
         rectInWindow
             .insetBy(dx: -Self.dividerHitExpansion, dy: -Self.dividerHitExpansion)
@@ -237,67 +245,6 @@ final class PortalSplitDividerRegion {
                 isVertical: splitView.isVertical,
                 isInHostedContent: hostView.map { splitView.isDescendant(of: $0) } ?? false
             ))
-        }
-    }
-}
-
-/// A digest of every split view reachable from a collection root, plus the identity of
-/// the root itself. Used to validate the split-divider cache without relying on KVO of
-/// `NSView.subviews`, which does not reliably fire for `addSubview(_:)` across macOS
-/// versions. Building it walks the entire tree, so a split inserted under any container
-/// — including one that held no split when the cache warmed — changes the digest, and a
-/// swapped-out root fails the identity check even when the detached tree stays alive and
-/// unmutated. Subview churn that cannot affect divider regions leaves the digest
-/// unchanged, so benign mutations deep in hosted content keep reusing the cache.
-struct PortalSplitStructureDigest {
-    struct SplitRecord: Equatable {
-        let splitId: ObjectIdentifier
-        let ancestorIds: [ObjectIdentifier]
-        let arrangedSubviewIds: [ObjectIdentifier]
-        let isVertical: Bool
-        let isEffectivelyHidden: Bool
-    }
-
-    fileprivate weak var rootView: NSView?
-    fileprivate let records: [SplitRecord]
-}
-
-extension PortalSplitDividerRegion {
-    static func structureDigest(of rootView: NSView) -> PortalSplitStructureDigest {
-        var records: [PortalSplitStructureDigest.SplitRecord] = []
-        var ancestorIds: [ObjectIdentifier] = []
-        appendSplitRecords(in: rootView, ancestorHidden: false, ancestorIds: &ancestorIds, into: &records)
-        return PortalSplitStructureDigest(rootView: rootView, records: records)
-    }
-
-    /// True only if the digest was built from this root and re-walking the tree yields
-    /// the same split records. Runs on the pointer-move path; the walk performs no
-    /// coordinate conversions and allocates only the per-split records.
-    static func structureDigestMatches(_ digest: PortalSplitStructureDigest, root rootView: NSView) -> Bool {
-        guard digest.rootView === rootView else { return false }
-        return structureDigest(of: rootView).records == digest.records
-    }
-
-    private static func appendSplitRecords(
-        in view: NSView,
-        ancestorHidden: Bool,
-        ancestorIds: inout [ObjectIdentifier],
-        into records: inout [PortalSplitStructureDigest.SplitRecord]
-    ) {
-        let isHidden = ancestorHidden || view.isHidden
-        if let splitView = view as? NSSplitView {
-            records.append(PortalSplitStructureDigest.SplitRecord(
-                splitId: ObjectIdentifier(splitView),
-                ancestorIds: ancestorIds,
-                arrangedSubviewIds: splitView.arrangedSubviews.map(ObjectIdentifier.init),
-                isVertical: splitView.isVertical,
-                isEffectivelyHidden: isHidden
-            ))
-        }
-        ancestorIds.append(ObjectIdentifier(view))
-        defer { ancestorIds.removeLast() }
-        for subview in view.subviews {
-            appendSplitRecords(in: subview, ancestorHidden: isHidden, ancestorIds: &ancestorIds, into: &records)
         }
     }
 }
