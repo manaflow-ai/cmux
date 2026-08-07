@@ -32,6 +32,8 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
+    published-home-alias) config_home="$CMUX_APP_HOST_HOME" ;;
+    published-home-alias-sibling-leak) config_home="${CMUX_APP_HOST_HOME}-other" ;;
     xdg-config-leak)
       config_category=config
       config_home=/Users/runner
@@ -62,7 +64,9 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
-    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "no-config-evidence" ]; then
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "no-config-evidence" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-home-alias" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-home-alias-sibling-leak" ]; then
     echo 'cmux DEV message = "socket.listener.start"'
     exit 0
   fi
@@ -296,6 +300,31 @@ if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   exit 1
 fi
 
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/published-home-alias-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/published-home-alias-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/published-home-alias-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/published-home-alias-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=published-home-alias \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/published-home-alias-output.log" 2>&1
+published_home_alias_status=$?
+set -e
+
+if [ "$published_home_alias_status" -ne 0 ]; then
+  cat "$TMP_DIR/published-home-alias-output.log"
+  echo "FAIL: wrapper must accept Ghostty configuration evidence under the validated published home alias"
+  exit 1
+fi
+
 for evidence_regression in no-config-evidence unrelated-config-token; do
   set +e
   PATH="$TMP_DIR:$PATH" \
@@ -411,9 +440,9 @@ for xdg_leak in xdg-config-leak xdg-default-leak; do
   fi
 done
 
-for regression in sibling-leak missing-log; do
+for regression in sibling-leak published-home-alias-sibling-leak missing-log; do
   case "$regression" in
-    sibling-leak)
+    sibling-leak|published-home-alias-sibling-leak)
       expected_failure="FAIL: Ghostty accessed configuration outside the isolated app-host home"
       ;;
     missing-log)
