@@ -517,22 +517,18 @@ impl PersistentSessionStateResetter {
                 PendingSessionResetKind::TerminalHosts => "terminal host state",
             };
             ensure_reset_dir_fingerprint(&reset_dir.path, "pending", expected_fingerprint)?;
-            fs::remove_dir_all(&reset_dir.path)
-                .with_context(|| format!("remove {label} {}", reset_dir.path.display()))?;
+            remove_reset_dir_all(&reset_dir.path, label)?;
             match reset_dir.kind {
                 PendingSessionResetKind::Session => reset.removed_session_state = true,
                 PendingSessionResetKind::TerminalHosts => reset.removed_terminal_hosts = true,
             }
         }
         if let Some(reset_dir) = session_reset_dir {
-            fs::remove_dir_all(&reset_dir).with_context(|| {
-                format!("remove workspace session state {}", reset_dir.display())
-            })?;
+            remove_reset_dir_all(&reset_dir, "workspace session state")?;
             reset.removed_session_state = true;
         }
         if let Some(reset_dir) = terminal_host_reset_dir {
-            fs::remove_dir_all(&reset_dir)
-                .with_context(|| format!("remove terminal host state {}", reset_dir.display()))?;
+            remove_reset_dir_all(&reset_dir, "terminal host state")?;
             reset.removed_terminal_hosts = true;
         }
         cleanup_session_guard_after_reset(root, session_name, &session_guard);
@@ -734,13 +730,16 @@ fn rename_reset_dir_for_deletion(
             root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?));
         ensure_reset_dir_fingerprint(source, kind, expected_fingerprint)?;
         match fs::rename(source, &candidate) {
-            Ok(()) => match ensure_reset_dir_fingerprint(&candidate, kind, expected_fingerprint) {
-                Ok(()) => return Ok(candidate),
-                Err(error) => {
+            Ok(()) => {
+                if let Err(error) =
+                    ensure_reset_dir_fingerprint(&candidate, kind, expected_fingerprint)
+                {
                     let _ = fs::rename(&candidate, source);
                     return Err(error);
                 }
-            },
+                sync_private_reset_rename(root, &candidate, label)?;
+                return Ok(candidate);
+            }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
                 return Err(error).with_context(|| {
@@ -754,6 +753,19 @@ fn rename_reset_dir_for_deletion(
         }
     }
     anyhow::bail!("could not allocate private reset path for {label} {}", source.display())
+}
+
+fn sync_private_reset_rename(root: &Path, candidate: &Path, label: &str) -> anyhow::Result<()> {
+    #[cfg(test)]
+    {
+        let mut failure_root = RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap();
+        if failure_root.as_deref() == Some(root) {
+            *failure_root = None;
+            anyhow::bail!("injected private reset rename sync failure");
+        }
+    }
+    platform::sync_directory(root)
+        .with_context(|| format!("sync private reset path for {label} {}", candidate.display()))
 }
 
 fn ensure_reset_dir_fingerprint(
@@ -851,6 +863,7 @@ fn reset_dir_fingerprint(
         path,
         Path::new("."),
         label == "terminal-hosts",
+        None,
         budget,
         &mut entries,
     )?;
@@ -907,6 +920,7 @@ fn collect_reset_path_fingerprints(
     path: &Path,
     relative_path: &Path,
     ignore_terminal_host_publication_lock: bool,
+    root_device: Option<u64>,
     budget: &mut ResetFingerprintBudget,
     entries: &mut Vec<String>,
 ) -> anyhow::Result<()> {
@@ -920,6 +934,9 @@ fn collect_reset_path_fingerprints(
             return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
         }
     };
+    let current_device = reset_metadata_device(&metadata);
+    let root_device = root_device.or(current_device);
+    ensure_reset_device_boundary(path, root_device, current_device)?;
     budget.add_entry(path)?;
     entries.push(format!(
         "{}={}",
@@ -955,11 +972,120 @@ fn collect_reset_path_fingerprints(
             &child_path,
             &relative_path.join(Path::new(child_name)),
             ignore_terminal_host_publication_lock,
+            root_device,
             budget,
             entries,
         )?;
     }
     Ok(())
+}
+
+fn ensure_reset_device_boundary(
+    path: &Path,
+    root_device: Option<u64>,
+    current_device: Option<u64>,
+) -> anyhow::Result<()> {
+    if let (Some(root_device), Some(current_device)) = (root_device, current_device)
+        && current_device != root_device
+    {
+        anyhow::bail!("reset path crosses filesystem boundary: {}", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn reset_metadata_device(metadata: &fs::Metadata) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+
+    Some(metadata.dev())
+}
+
+#[cfg(not(unix))]
+fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
+    None
+}
+
+#[cfg(unix)]
+fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect {label} {}", path.display()))?;
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("{label} is not a directory: {}", path.display());
+    }
+    let root_device = metadata.dev();
+    let root_inode = metadata.ino();
+    remove_reset_dir_children_on_device(path, label, root_device)?;
+    let current = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect {label} {}", path.display()))?;
+    if !current.file_type().is_dir() || current.dev() != root_device || current.ino() != root_inode
+    {
+        anyhow::bail!("reset path changed during reset: {}", path.display());
+    }
+    fs::remove_dir(path).with_context(|| format!("remove {label} {}", path.display()))
+}
+
+#[cfg(unix)]
+fn remove_reset_dir_children_on_device(
+    path: &Path,
+    label: &str,
+    root_device: u64,
+) -> anyhow::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let mut children = Vec::new();
+    for entry in fs::read_dir(path).with_context(|| format!("read {label} {}", path.display()))? {
+        let child_path = entry?.path();
+        let metadata = fs::symlink_metadata(&child_path)
+            .with_context(|| format!("inspect {label} {}", child_path.display()))?;
+        ensure_reset_device_boundary(&child_path, Some(root_device), Some(metadata.dev()))?;
+        children.push((child_path, metadata.file_type().is_dir(), metadata.dev(), metadata.ino()));
+    }
+    children.sort_by(|left, right| left.0.cmp(&right.0));
+
+    for (child_path, was_dir, expected_device, expected_inode) in children {
+        let current = match fs::symlink_metadata(&child_path) {
+            Ok(current) => current,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("inspect {label} {}", child_path.display()));
+            }
+        };
+        if current.dev() != expected_device || current.ino() != expected_inode {
+            anyhow::bail!("reset path changed during reset: {}", child_path.display());
+        }
+        ensure_reset_device_boundary(&child_path, Some(root_device), Some(current.dev()))?;
+        if was_dir {
+            if !current.file_type().is_dir() {
+                anyhow::bail!("reset path changed during reset: {}", child_path.display());
+            }
+            remove_reset_dir_children_on_device(&child_path, label, root_device)?;
+            let current = fs::symlink_metadata(&child_path)
+                .with_context(|| format!("inspect {label} {}", child_path.display()))?;
+            if !current.file_type().is_dir()
+                || current.dev() != expected_device
+                || current.ino() != expected_inode
+            {
+                anyhow::bail!("reset path changed during reset: {}", child_path.display());
+            }
+            fs::remove_dir(&child_path)
+                .with_context(|| format!("remove {label} {}", child_path.display()))?;
+        } else {
+            if current.file_type().is_dir() {
+                anyhow::bail!("reset path changed during reset: {}", child_path.display());
+            }
+            fs::remove_file(&child_path)
+                .with_context(|| format!("remove {label} {}", child_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
+    fs::remove_dir_all(path).with_context(|| format!("remove {label} {}", path.display()))
 }
 
 fn reset_path_fingerprint(
@@ -3474,6 +3600,9 @@ const SESSION_GUARD_COORDINATOR_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(250);
 const SESSION_GUARD_COORDINATOR_RETRY: std::time::Duration = std::time::Duration::from_millis(5);
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
+#[cfg(test)]
+static RESET_RENAME_SYNC_FAILURE_ROOT: std::sync::Mutex<Option<PathBuf>> =
+    std::sync::Mutex::new(None);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;

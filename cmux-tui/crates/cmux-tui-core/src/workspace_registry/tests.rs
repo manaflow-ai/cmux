@@ -175,6 +175,39 @@ fn reset_accepts_restored_session_without_writer_lock() {
 }
 
 #[test]
+fn reset_keeps_staged_dir_when_private_rename_sync_fails() {
+    let root = temp_root("reset-rename-sync-fails");
+    let session = "reset-rename-sync-fails";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(session_dir.join("sidecar"), b"previewed").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap() = Some(root.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("private reset rename sync failure"), "{error:#}");
+    assert!(!session_dir.exists(), "sync failure should leave the staged private path");
+    let pending = pending_session_reset_dirs(&root, session).unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, PendingSessionResetKind::Session);
+    assert!(pending[0].path.join(WORKSPACE_REGISTRY_FILE).exists());
+    assert_eq!(fs::read(pending[0].path.join("sidecar")).unwrap(), b"previewed");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_device_boundary_rejects_nested_device_change() {
+    let error = ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(2)).unwrap_err();
+
+    assert!(error.to_string().contains("filesystem boundary"));
+    ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(1)).unwrap();
+    ensure_reset_device_boundary(Path::new("nested"), None, Some(2)).unwrap();
+}
+
+#[test]
 fn reset_retries_previous_private_deletion_dir() {
     let root = temp_root("reset-retries-private-delete");
     let session = "reset-retries-private-delete";
