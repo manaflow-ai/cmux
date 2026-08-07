@@ -151,8 +151,9 @@ def require_config_path_alias_is_accepted() -> None:
             "  xcodebuild_noninteractive.py) shift ;;\n"
             "  *) exit 2 ;;\n"
             "esac\n"
-            '"$@" > "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH" 2>&1\n'
-            'status="$?"\n'
+            'status=0\n'
+            '"$@" > "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH" 2>&1 '
+            '|| status="$?"\n'
             'cat "$CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH"\n'
             'exit "$status"\n',
             encoding="utf-8",
@@ -268,7 +269,10 @@ def require_config_path_alias_is_accepted() -> None:
                     "CMUX_APP_HOST_RECEIPT_DIR",
                     "CMUX_APP_HOST_CONFIRMATION_FILE",
                 ):
-                    path = Path(published[name])
+                    published_path = published.get(name)
+                    if not published_path:
+                        continue
+                    path = Path(published_path)
                     if path.is_symlink() or path.is_file():
                         path.unlink()
                     elif path.is_dir():
