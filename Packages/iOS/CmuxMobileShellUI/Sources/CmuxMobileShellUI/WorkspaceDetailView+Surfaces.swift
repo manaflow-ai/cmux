@@ -34,6 +34,12 @@ extension WorkspaceDetailView {
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
             }
         }
+        // Expand the host itself, not only the nested terminal representable.
+        // A child cannot underlap past a safe-area-clipped parent: in the
+        // keyboard-down state that left the system's light fallback visible
+        // beneath the transparent dock instead of continuing terminal material
+        // through the home-indicator region.
+        .ignoresSafeArea(.container, edges: .bottom)
         .safeAreaInset(edge: .top, spacing: 0) {
             if workspaceChangesHint != nil {
                 WorkspaceChangesHintBanner(
