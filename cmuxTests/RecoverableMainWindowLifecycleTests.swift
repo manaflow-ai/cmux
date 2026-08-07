@@ -30,6 +30,9 @@ struct RecoverableMainWindowLifecycleTests {
         }
 
         let workspaceId: UUID
+        let workspacePanelId: UUID
+        let workspaceDockPanelId: UUID
+        let windowDockPanelId: UUID
         do {
             let liveManager = try #require(manager)
             app.registerMainWindow(
@@ -40,10 +43,35 @@ struct RecoverableMainWindowLifecycleTests {
                 sidebarSelectionState: SidebarSelectionState(),
                 fileExplorerState: FileExplorerState()
             )
-            workspaceId = try #require(liveManager.selectedWorkspace).id
+            let workspace = try #require(liveManager.selectedWorkspace)
+            workspaceId = workspace.id
+            let workspacePanel = try #require(workspace.focusedTerminalPanel)
+            workspacePanelId = workspacePanel.id
+            workspace.surfaceResumeBindingsByPanelId[workspacePanelId] =
+                unverifiedProcessDetectedResumeBinding()
+
+            let workspaceDock = workspace.dockSplit
+            let workspaceDockPanel = TerminalPanel(
+                workspaceId: workspace.id,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            workspaceDockPanelId = workspaceDockPanel.id
+            workspaceDock.panels[workspaceDockPanelId] = workspaceDockPanel
+            workspaceDock.surfaceResumeBindingsByPanelId[workspaceDockPanelId] =
+                unverifiedProcessDetectedResumeBinding()
+
             let context = try #require(
                 app.mainWindowContexts.values.first { $0.windowId == windowId }
             )
+            let windowDock = context.windowDockStore()
+            let windowDockPanel = TerminalPanel(
+                workspaceId: windowId,
+                runtimeSpawnPolicy: .pacedSessionRestore
+            )
+            windowDockPanelId = windowDockPanel.id
+            windowDock.panels[windowDockPanelId] = windowDockPanel
+            windowDock.surfaceResumeBindingsByPanelId[windowDockPanelId] =
+                unverifiedProcessDetectedResumeBinding()
 
             // Drive the production predicate: both the weak context reference
             // and AppKit identifier lookup fail before prune transitions the
@@ -73,7 +101,22 @@ struct RecoverableMainWindowLifecycleTests {
         let restoredWindow = try #require(
             snapshot.windows.first { $0.windowId == windowId }
         )
-        #expect(restoredWindow.tabManager.workspaces.contains { $0.workspaceId == workspaceId })
+        let restoredWorkspace = try #require(
+            restoredWindow.tabManager.workspaces.first { $0.workspaceId == workspaceId }
+        )
+        try expectManualRecoveryBinding(
+            restoredWorkspace.panels.first { $0.id == workspacePanelId }?.terminal?.resumeBinding
+        )
+        let restoredWorkspaceDock = try #require(restoredWorkspace.dock)
+        try expectManualRecoveryBinding(
+            restoredWorkspaceDock.panels.first(where: { $0.id == workspaceDockPanelId })?
+                .terminal?.resumeBinding
+        )
+        let restoredWindowDock = try #require(restoredWindow.dock)
+        try expectManualRecoveryBinding(
+            restoredWindowDock.panels.first(where: { $0.id == windowDockPanelId })?
+                .terminal?.resumeBinding
+        )
     }
 
     @Test("Dismissed recovered window remains restorable and focusable")
@@ -336,7 +379,7 @@ struct RecoverableMainWindowLifecycleTests {
         let paneId = try #require(workspace.bonsplitController.allPaneIds.first)
         let browser = try #require(workspace.newBrowserSurface(
             inPane: paneId,
-            url: URL(string: "https://example.com/browser-only-close"),
+            url: nil,
             focus: true,
             creationPolicy: .restoration
         ))
@@ -378,6 +421,8 @@ struct RecoverableMainWindowLifecycleTests {
             checkpointId: "recovered",
             source: "process-detected",
             autoResume: true,
+            approvalPolicy: .auto,
+            approvalRecordId: "previously-approved",
             updatedAt: 1_999_999_999
         )
         store.surfaceResumeBindingsByPanelId[panel.id] = binding
@@ -396,7 +441,9 @@ struct RecoverableMainWindowLifecycleTests {
         #expect(frozenBinding.command == binding.command)
         #expect(frozenBinding.checkpointId == binding.checkpointId)
         #expect(!frozenBinding.allowsAutomaticResume)
+        #expect(frozenBinding.autoResume == false)
         #expect(frozenBinding.approvalPolicy == .manual)
+        #expect(frozenBinding.approvalRecordId == nil)
         #expect(store.surfaceResumeBinding(panelId: panel.id) == frozenBinding)
     }
 
@@ -429,6 +476,32 @@ struct RecoverableMainWindowLifecycleTests {
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         window.isReleasedWhenClosed = false
         return window
+    }
+
+    private func unverifiedProcessDetectedResumeBinding() -> SurfaceResumeBindingSnapshot {
+        SurfaceResumeBindingSnapshot(
+            name: "tmux",
+            kind: "tmux",
+            command: "tmux attach-session -t recovered",
+            cwd: "/tmp",
+            checkpointId: "recovered",
+            source: "process-detected",
+            autoResume: true,
+            approvalPolicy: .auto,
+            approvalRecordId: "previously-approved",
+            updatedAt: 1_999_999_999
+        )
+    }
+
+    private func expectManualRecoveryBinding(
+        _ binding: SurfaceResumeBindingSnapshot?
+    ) throws {
+        let binding = try #require(binding)
+        #expect(binding.command == "tmux attach-session -t recovered")
+        #expect(binding.checkpointId == "recovered")
+        #expect(binding.autoResume == false)
+        #expect(binding.approvalPolicy == .manual)
+        #expect(binding.approvalRecordId == nil)
     }
 
     private func terminalPanelSnapshot(
