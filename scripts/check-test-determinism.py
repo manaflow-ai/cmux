@@ -241,14 +241,41 @@ _LOOP_HEADER = re.compile(r"^\s*(while|for|until)\b|\bwhile\s+\[|\bfor\s+\w+\s+i
 # loopback / private. data: and file: are excluded by requiring http(s).
 _URL = re.compile(r"https?://([A-Za-z0-9._-]+)(?::\d+)?")
 
+_AXIOS_METHOD_NAMES = (
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patchForm",
+    "patch",
+    "postForm",
+    "post",
+    "putForm",
+    "put",
+    "request",
+)
+_HTTPX_METHOD_NAMES = (
+    "delete",
+    "get",
+    "head",
+    "options",
+    "patch",
+    "post",
+    "put",
+    "request",
+    "stream",
+)
+_AXIOS_METHOD_PATTERN = "(?:" + "|".join(_AXIOS_METHOD_NAMES) + ")"
+_HTTPX_METHOD_PATTERN = "(?:" + "|".join(_HTTPX_METHOD_NAMES) + ")"
+
 # A network-driving verb. We only flag a public URL when the SAME line also
 # invokes one of these, so URLs used as string fixtures (markdown builders,
 # canonical-URL assertions, toContain/toStartWith) are not false positives.
 _NETWORK_VERB = re.compile(
-    r"""(?x)
+    rf"""(?x)
     \bfetch\s*\(
-  | \baxios\.create\s*\([^()\n]*\)\.(?:get|post|put|patch|delete|head|request)\s*\(
-  | \baxios(?:\.(?:get|post|put|patch|delete|head|request))?\s*\(
+  | \baxios\.create\s*\(
+  | \baxios(?:\.{_AXIOS_METHOD_PATTERN})?\s*\(
   | \b(?:request|got|superagent|undici)\s*\(
   | \bhttp[sx]?\.(?:get|post|request)\s*\(
   | \bXMLHttpRequest\b
@@ -256,8 +283,8 @@ _NETWORK_VERB = re.compile(
   | \brequests\.(?:get|post|put|delete|head|request)\s*\(
   | \burllib\b
   | \burlopen\s*\(
-  | \bhttpx\.(?:Client|AsyncClient)\s*\([^()\n]*\)\.(?:get|post|put|patch|delete|head|request)\s*\(
-  | \bhttpx\.(?:get|post|put|patch|delete|head|request)\s*\(
+  | \bhttpx\.(?:Client|AsyncClient)\s*\(
+  | \bhttpx\.{_HTTPX_METHOD_PATTERN}\s*\(
   | \bsession\.(?:get|post|request)\s*\(
   | \bcurl\b
   | \bWebSocket\s*\(
@@ -280,6 +307,10 @@ _NETWORK_TARGET_SPECS = (
         labels=_NETWORK_TARGET_LABELS,
     ),
 )
+_FLUENT_TERMINAL_CALLS = {
+    "axios": re.compile(rf"\s*\.\s*{_AXIOS_METHOD_PATTERN}\s*\("),
+    "httpx": re.compile(rf"\s*\.\s*{_HTTPX_METHOD_PATTERN}\s*\("),
+}
 
 # Shell-string launchers evaluate their first argument as source.
 _SHELL_CALL_LAUNCHER = re.compile(
@@ -1060,9 +1091,14 @@ def _shell_command_region_bounds(
         if character == "(":
             contexts.append("paren")
             starts.append(index + 1)
-        elif character == ")" and contexts and contexts[-1] == "paren":
-            contexts.pop()
-            starts.pop()
+        elif character == ")":
+            if contexts and contexts[-1] == "paren":
+                contexts.pop()
+                starts.pop()
+            else:
+                # An unmatched close parenthesis terminates a shell case arm's
+                # pattern. The command list begins immediately after it.
+                starts[-1] = index + 1
         elif character == "`":
             if contexts and contexts[-1] == "backtick":
                 contexts.pop()
@@ -1545,23 +1581,46 @@ def _network_target_spec(matched_verb: str) -> _NetworkTargetSpec:
     )
 
 
+def _fluent_client_kind(matched_verb: str) -> Optional[str]:
+    normalized = matched_verb.lstrip().lower()
+    if normalized.startswith("axios.create"):
+        return "axios"
+    if normalized.startswith(("httpx.client", "httpx.asyncclient")):
+        return "httpx"
+    return None
+
+
+def _fluent_terminal_opening_paren(
+    line: str,
+    constructor_opening_paren: int,
+    client_kind: str,
+    path_suffix: str,
+) -> Optional[int]:
+    constructor_end = _call_end(
+        line,
+        constructor_opening_paren,
+        path_suffix,
+    )
+    if constructor_end >= len(line):
+        return None
+    terminal = _FLUENT_TERMINAL_CALLS[client_kind].match(
+        line,
+        constructor_end + 1,
+    )
+    return terminal.end() - 1 if terminal is not None else None
+
+
 def _fluent_base_target_ranges(
     line: str,
-    match: re.Match[str],
-    terminal_opening_paren: int,
+    constructor_opening_paren: Optional[int],
     terminal_target: _CallArgument,
     path_suffix: str,
 ) -> list[tuple[int, int]]:
     """Return a fluent client's base URL when its request target is relative."""
+    if constructor_opening_paren is None:
+        return []
     target_start, target_end = terminal_target.value_bounds
     if _URL.search(line[target_start:target_end]):
-        return []
-    constructor_opening_paren = line.find(
-        "(",
-        match.start(),
-        terminal_opening_paren,
-    )
-    if constructor_opening_paren == -1:
         return []
 
     constructor_arguments = _call_arguments(
@@ -1614,8 +1673,21 @@ def _direct_network_target_ranges(
     if opening_paren == -1:
         return []
 
+    constructor_opening_paren: Optional[int] = None
+    if client_kind := _fluent_client_kind(matched_verb):
+        constructor_opening_paren = opening_paren
+        opening_paren = _fluent_terminal_opening_paren(
+            line,
+            constructor_opening_paren,
+            client_kind,
+            path_suffix,
+        )
+        if opening_paren is None:
+            return []
+
     arguments = _call_arguments(line, opening_paren, path_suffix)
-    spec = _network_target_spec(matched_verb)
+    target_verb = line[match.start() : opening_paren + 1]
+    spec = _network_target_spec(target_verb)
     target = _select_call_argument(
         arguments,
         spec.labels,
@@ -1627,8 +1699,7 @@ def _direct_network_target_ranges(
         target.value_bounds,
         *_fluent_base_target_ranges(
             line,
-            match,
-            opening_paren,
+            constructor_opening_paren,
             target,
             path_suffix,
         ),
