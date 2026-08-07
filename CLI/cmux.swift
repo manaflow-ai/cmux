@@ -34955,6 +34955,15 @@ export default CMUXSessionRestore;
             // bounded connection — a relay-backed `send` closes its socket
             // after the acknowledged command, and an implicit reconnect
             // inside `sendOneWay` is not bounded by the write timeout.
+            //
+            // Known accepted residual: codex's fire-and-forget prompt-submit
+            // worker clears the pane at turn start from a DETACHED process.
+            // If that worker is slower than the model's first approval-needing
+            // tool call, its late clear can remove this notification — the
+            // same pre-existing exposure the wrapper-path notification
+            // (`hooks codex notification`) has always had. Fencing clears by
+            // origin time is a cross-layer protocol change deliberately out
+            // of scope here.
             if let promptLine {
                 if let client {
                     _ = try? client.send(
