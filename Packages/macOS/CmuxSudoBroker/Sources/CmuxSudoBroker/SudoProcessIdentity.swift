@@ -10,10 +10,14 @@ public struct SudoProcessIdentity: Codable, Sendable, Equatable {
     public let startMicroseconds: Int32
 
     /// Creates a generation-safe process identity.
+    ///
+    /// - Parameters:
+    ///   - processIdentifier: The process identifier captured at inspection time.
+    ///   - startSeconds: The whole-second component of the process start time.
+    ///   - startMicroseconds: The microsecond component of the process start time.
     public init(processIdentifier: Int32, startSeconds: Int64, startMicroseconds: Int32) {
         self.processIdentifier = processIdentifier
         self.startSeconds = startSeconds
         self.startMicroseconds = startMicroseconds
     }
 }
-

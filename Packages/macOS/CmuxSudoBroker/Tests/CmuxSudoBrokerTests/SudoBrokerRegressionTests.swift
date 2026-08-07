@@ -7,7 +7,13 @@ struct SudoBrokerRegressionTests {
     private let messages = SudoFailureMessages(
         pamTidUnavailable: "pam_tid is not enabled; run scripts/setup-pam-tid.sh",
         approvalTimedOut: "request expired before approval",
-        executionInterrupted: "approved execution was interrupted"
+        executionInterrupted: "approved execution was interrupted",
+        executionTimedOut: "approved execution timed out",
+        authenticationFailed: "authentication failed",
+        stagingFailed: "staging failed",
+        runnerLaunchFailed: "runner launch failed",
+        processLaunchFailed: "process launch failed",
+        cleanupFailed: "process cleanup failed"
     )
 
     @Test("Missing pam_tid settles without launching sudo")
@@ -23,7 +29,8 @@ struct SudoBrokerRegressionTests {
                 clock: TestSudoClock(date: now),
                 pam: TestPAMChecker(enabled: false),
                 runner: launcher,
-                recovery: TestExecutionRecovery()
+                recovery: TestExecutionRecovery(),
+                watcher: nil
             ),
             messages: messages
         )
@@ -39,6 +46,48 @@ struct SudoBrokerRegressionTests {
         #expect(result.note?.contains("scripts/setup-pam-tid.sh") == true)
         let pending = await broker.pendingRequests()
         #expect(pending.isEmpty)
+    }
+
+    @Test("A launched runner that exits early is recovered and settled", .timeLimit(.minutes(1)))
+    func runnerTerminationSettlesApprovedRequest() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "runner-exited", createdAt: now)
+        let launcher = TestRunnerLauncher()
+        let recovery = TestExecutionRecovery()
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: launcher,
+                recovery: recovery,
+                watcher: nil
+            ),
+            messages: messages
+        )
+        let events = await broker.events()
+
+        _ = try await broker.start()
+        await broker.approve(id: request.id)
+        await launcher.terminate(requestID: request.id)
+
+        var iterator = events.makeAsyncIterator()
+        var settledResult: SudoResult?
+        while let event = await iterator.next() {
+            guard case .settled(let result) = event, result.id == request.id else {
+                continue
+            }
+            settledResult = result
+            break
+        }
+
+        #expect(settledResult?.errorCode == .executionInterrupted)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .executionInterrupted)
+        let recoveredStates = await recovery.recoveredStates
+        #expect(recoveredStates.count == 1)
+        #expect(recoveredStates.first?.phase == .approved)
     }
 
     @Test("Startup expires old approvals instead of rediscovering them")
@@ -57,7 +106,8 @@ struct SudoBrokerRegressionTests {
                 clock: TestSudoClock(date: now),
                 pam: TestPAMChecker(enabled: true),
                 runner: TestRunnerLauncher(),
-                recovery: TestExecutionRecovery()
+                recovery: TestExecutionRecovery(),
+                watcher: nil
             ),
             messages: messages
         )
@@ -98,7 +148,8 @@ struct SudoBrokerRegressionTests {
                 clock: TestSudoClock(date: now),
                 pam: TestPAMChecker(enabled: true),
                 runner: TestRunnerLauncher(),
-                recovery: recovery
+                recovery: recovery,
+                watcher: nil
             ),
             messages: messages
         )
@@ -111,5 +162,109 @@ struct SudoBrokerRegressionTests {
         let result = try #require(fixture.store.result(id: request.id))
         #expect(result.errorCode == .executionInterrupted)
     }
-}
 
+    @Test("Incomplete cleanup settles while retaining restart recovery evidence")
+    func incompleteCleanupRemainsRecoverable() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "cleanup-incomplete", createdAt: now)
+        let pending = try #require(
+            fixture.store.pendingRequests().first { $0.request.id == request.id }
+        )
+        _ = try fixture.store.transitionToApproved(
+            pending: pending,
+            now: now,
+            executionGraceSeconds: 90
+        )
+        let state = SudoRequestState(
+            id: request.id,
+            phase: .executing,
+            updatedAt: now,
+            execution: SudoProcessIdentity(
+                processIdentifier: 5_152,
+                startSeconds: 102,
+                startMicroseconds: 202
+            )
+        )
+        try fixture.store.writeState(state)
+        let recovery = TestExecutionRecovery(disposition: .cleanupIncomplete)
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: recovery,
+                watcher: nil
+            ),
+            messages: messages
+        )
+
+        let discovered = try await broker.start()
+
+        #expect(discovered.isEmpty)
+        let result = try #require(fixture.store.result(id: request.id))
+        #expect(result.errorCode == .processCleanupFailed)
+        #expect(fixture.store.state(id: request.id) == state)
+        #expect(FileManager.default.fileExists(atPath: fixture.store.approvedScriptURL(id: request.id).path))
+        #expect(fixture.store.manifest(id: request.id) != nil)
+    }
+
+    @Test("Startup retries and archives a recovered cleanup failure")
+    func startupRetriesTerminalCleanupFailure() async throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let now = Date(timeIntervalSince1970: 1_786_000_000)
+        let request = try fixture.enqueue(id: "cleanup-recovered", createdAt: now)
+        let pending = try #require(
+            fixture.store.pendingRequests().first { $0.request.id == request.id }
+        )
+        _ = try fixture.store.transitionToApproved(
+            pending: pending,
+            now: now,
+            executionGraceSeconds: 90
+        )
+        let survivor = SudoProcessIdentity(
+            processIdentifier: 5_153,
+            startSeconds: 103,
+            startMicroseconds: 203
+        )
+        let state = SudoRequestState(
+            id: request.id,
+            phase: .executing,
+            updatedAt: now,
+            execution: survivor,
+            cleanupSurvivors: [survivor]
+        )
+        try fixture.store.writeState(state)
+        _ = try fixture.store.settle(
+            SudoResult(
+                id: request.id,
+                status: .failed,
+                errorCode: .processCleanupFailed,
+                note: messages.cleanupFailed
+            )
+        )
+        let recovery = TestExecutionRecovery(disposition: .recovered)
+        let broker = SudoBroker(
+            paths: fixture.paths,
+            dependencies: SudoBrokerDependencies(
+                clock: TestSudoClock(date: now),
+                pam: TestPAMChecker(enabled: true),
+                runner: TestRunnerLauncher(),
+                recovery: recovery,
+                watcher: nil
+            ),
+            messages: messages
+        )
+
+        _ = try await broker.start()
+
+        #expect(await recovery.recoveredStates == [state])
+        #expect(fixture.store.state(id: request.id) == nil)
+        #expect(!FileManager.default.fileExists(atPath: fixture.store.approvedScriptURL(id: request.id).path))
+        #expect(fixture.store.manifest(id: request.id) == nil)
+        #expect(fixture.store.result(id: request.id)?.errorCode == .processCleanupFailed)
+    }
+}

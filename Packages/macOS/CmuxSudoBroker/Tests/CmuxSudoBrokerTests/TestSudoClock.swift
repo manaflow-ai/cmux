@@ -9,5 +9,8 @@ actor TestSudoClock: SudoBrokerClock {
     }
 
     func now() async -> Date { date }
-}
 
+    func sleep(until deadline: Date) async throws {
+        try await Task.sleep(for: .seconds(3_600))
+    }
+}

@@ -9,11 +9,55 @@ public struct SudoFailureMessages: Sendable, Equatable {
     /// The diagnostic for an interrupted approved execution.
     public let executionInterrupted: String
 
+    /// The diagnostic for an approved execution that exceeded its deadline.
+    public let executionTimedOut: String
+
+    /// The diagnostic for sudo authentication that did not complete successfully.
+    public let authenticationFailed: String
+
+    /// The diagnostic for an approved script that could not be staged safely.
+    public let stagingFailed: String
+
+    /// The diagnostic for an independent runner that could not be launched.
+    public let runnerLaunchFailed: String
+
+    /// The diagnostic for an approved sudo command that could not be spawned.
+    public let processLaunchFailed: String
+
+    /// The diagnostic for a process tree that could not be fully terminated.
+    public let cleanupFailed: String
+
     /// Creates the localized broker failure messages.
-    public init(pamTidUnavailable: String, approvalTimedOut: String, executionInterrupted: String) {
+    ///
+    /// - Parameters:
+    ///   - pamTidUnavailable: Guidance for a missing Touch ID PAM rule.
+    ///   - approvalTimedOut: The approval deadline diagnostic.
+    ///   - executionInterrupted: The interrupted-execution diagnostic.
+    ///   - executionTimedOut: The bounded execution deadline diagnostic.
+    ///   - authenticationFailed: The Touch ID authentication diagnostic.
+    ///   - stagingFailed: The approved-script staging diagnostic.
+    ///   - runnerLaunchFailed: The independent-runner launch diagnostic.
+    ///   - processLaunchFailed: The approved-command spawn diagnostic.
+    ///   - cleanupFailed: The incomplete process-tree cleanup diagnostic.
+    public init(
+        pamTidUnavailable: String,
+        approvalTimedOut: String,
+        executionInterrupted: String,
+        executionTimedOut: String,
+        authenticationFailed: String,
+        stagingFailed: String,
+        runnerLaunchFailed: String,
+        processLaunchFailed: String,
+        cleanupFailed: String
+    ) {
         self.pamTidUnavailable = pamTidUnavailable
         self.approvalTimedOut = approvalTimedOut
         self.executionInterrupted = executionInterrupted
+        self.executionTimedOut = executionTimedOut
+        self.authenticationFailed = authenticationFailed
+        self.stagingFailed = stagingFailed
+        self.runnerLaunchFailed = runnerLaunchFailed
+        self.processLaunchFailed = processLaunchFailed
+        self.cleanupFailed = cleanupFailed
     }
 }
-

@@ -7,4 +7,3 @@ entrypoints.
 
 Tests use a temporary application-support directory and injected clock, PAM,
 runner, and process-lifecycle seams. They never invoke sudo or Touch ID.
-

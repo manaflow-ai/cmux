@@ -5,4 +5,3 @@ struct TestPAMChecker: SudoPAMChecking {
 
     func touchIDIsEnabled() -> Bool { enabled }
 }
-

@@ -6,10 +6,22 @@ public struct SudoPendingRequest: Sendable, Equatable {
     /// The immutable script snapshot displayed during approval.
     public let script: String
 
+    /// The durable phase observed when the snapshot was discovered.
+    public let phase: SudoRequestPhase
+
     /// Creates a pending request snapshot.
-    public init(request: SudoRequest, script: String) {
+    ///
+    /// - Parameters:
+    ///   - request: The request metadata captured by the CLI.
+    ///   - script: The exact immutable script shown during approval.
+    ///   - phase: The durable lifecycle phase, defaulting to pending approval.
+    public init(
+        request: SudoRequest,
+        script: String,
+        phase: SudoRequestPhase = .pendingApproval
+    ) {
         self.request = request
         self.script = script
+        self.phase = phase
     }
 }
-

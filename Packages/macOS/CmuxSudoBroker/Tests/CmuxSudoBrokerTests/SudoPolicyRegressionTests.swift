@@ -18,4 +18,3 @@ struct SudoPolicyRegressionTests {
         #expect(SudoCLITimeoutDisposition.resolve(phase: .executing) == .approvedExecution)
     }
 }
-

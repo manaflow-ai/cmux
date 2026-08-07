@@ -11,8 +11,11 @@ public enum SudoCLITimeoutDisposition: Sendable, Equatable {
     /// - Parameter phase: The last state observed by the CLI.
     /// - Returns: The timeout category shown to the user.
     public static func resolve(phase: SudoRequestPhase?) -> SudoCLITimeoutDisposition {
-        // Legacy CLI always blamed a still-pending approval.
-        .pendingApproval
+        switch phase {
+        case .approved, .executing:
+            .approvedExecution
+        case .pendingApproval, nil:
+            .pendingApproval
+        }
     }
 }
-

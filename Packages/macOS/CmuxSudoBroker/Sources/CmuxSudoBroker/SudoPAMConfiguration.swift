@@ -13,6 +13,8 @@ public struct SudoPAMConfiguration: Sendable {
     }
 
     /// Whether the policy file appears to mention pam_tid.so.
+    ///
+    /// - Returns: `true` only for an active `auth sufficient pam_tid.so` entry.
     public func touchIDIsEnabled() -> Bool {
         guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return false }
         return Self.containsEnabledEntry(contents)
@@ -23,7 +25,14 @@ public struct SudoPAMConfiguration: Sendable {
     /// - Parameter contents: The complete PAM policy text.
     /// - Returns: Whether the policy appears to enable pam_tid.so.
     public static func containsEnabledEntry(_ contents: String) -> Bool {
-        // Legacy behavior treated any mention as enabled, including comments.
-        contents.contains("pam_tid.so")
+        contents.split(whereSeparator: \.isNewline).contains { rawLine in
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#") else { return false }
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            return fields.count >= 3
+                && fields[0] == "auth"
+                && fields[1] == "sufficient"
+                && fields[2] == "pam_tid.so"
+        }
     }
 }

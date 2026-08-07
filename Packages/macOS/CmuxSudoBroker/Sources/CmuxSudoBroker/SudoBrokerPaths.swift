@@ -12,6 +12,27 @@ public struct SudoBrokerPaths: Sendable, Equatable {
         self.base = base.standardizedFileURL
     }
 
+    /// Creates the spool for one stable or tagged app bundle.
+    ///
+    /// - Parameters:
+    ///   - applicationSupportDirectory: The injected user application-support root.
+    ///   - bundleIdentifier: The enclosing cmux app's bundle identifier.
+    public init(applicationSupportDirectory: URL, bundleIdentifier: String) {
+        let scope = bundleIdentifier
+            .unicodeScalars
+            .map { scalar in
+                CharacterSet.alphanumerics.contains(scalar) || scalar == "." || scalar == "-"
+                    ? String(scalar)
+                    : "_"
+            }
+            .joined()
+        base = applicationSupportDirectory
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("sudo", isDirectory: true)
+            .appendingPathComponent(scope.isEmpty ? "com.cmuxterm.app" : scope, isDirectory: true)
+            .standardizedFileURL
+    }
+
     /// Request metadata and captured scripts.
     public var requests: URL { base.appendingPathComponent("requests", isDirectory: true) }
 
@@ -20,6 +41,9 @@ public struct SudoBrokerPaths: Sendable, Equatable {
 
     /// Durable lifecycle state.
     public var states: URL { base.appendingPathComponent("states", isDirectory: true) }
+
+    /// Runner manifests written only after explicit approval.
+    public var executions: URL { base.appendingPathComponent("executions", isDirectory: true) }
 
     /// Immutable copies of scripts that passed explicit review.
     public var approved: URL { base.appendingPathComponent("approved", isDirectory: true) }
