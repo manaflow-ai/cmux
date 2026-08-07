@@ -190,13 +190,16 @@ extension ControlCommandCoordinator {
             .lowercased()
     }
 
-    /// Rejects terminal input when an RPC explicitly requests a non-terminal surface type.
+    /// Rejects terminal input when an RPC's explicit type is not a terminal string.
     func incompatibleTerminalCreationInputError(
         _ params: [String: JSONValue]
     ) -> ControlCallResult? {
         guard nonBlankRawString(params, "initial_input") != nil,
-              let typeRaw = string(params, "type"),
-              normalizedToken(typeRaw) != "terminal" else {
+              let type = params["type"] else {
+            return nil
+        }
+        if let typeRaw = string(params, "type"),
+           normalizedToken(typeRaw) == "terminal" {
             return nil
         }
         guard let message = context?.controlSurfaceInputStrings().initialInputRequiresTerminalType else {
@@ -205,7 +208,7 @@ extension ControlCommandCoordinator {
         return .err(
             code: "invalid_params",
             message: message,
-            data: .object(["type": .string(typeRaw)])
+            data: .object(["type": type])
         )
     }
 
