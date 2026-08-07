@@ -33784,6 +33784,7 @@ export default CMUXSessionRestore;
             Self.subcommandActions[subcommand] ?? .noop
         }
         let notificationCompletesTurn: Bool
+        var lifecyclePublishesStopNotification = true
         switch lifecycleRoute {
         case .running?:
             action = .approvalResponse
@@ -33794,9 +33795,10 @@ export default CMUXSessionRestore;
         case .terminalNotification?:
             action = .notification
             notificationCompletesTurn = true
-        case .stop?:
+        case .stop(let publishesCompletionNotification)?:
             action = .stop
             notificationCompletesTurn = false
+            lifecyclePublishesStopNotification = publishesCompletionNotification
         case .ignore?:
             action = .noop
             notificationCompletesTurn = false
@@ -35748,7 +35750,8 @@ export default CMUXSessionRestore;
             // completion ping arrives at the later fullyIdle stop. Deliberately NOT
             // routed through the app-side agentTurnComplete gate — publishing here
             // would mark the dedupe fingerprint and swallow the real final ping.
-            let shouldPublishStopNotification = def.publishesStopNotification
+            let shouldPublishStopNotification = lifecyclePublishesStopNotification
+                && def.publishesStopNotification
                 && !stopNotificationAlreadyRouted
                 && (!hasActiveBackgroundWork || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
