@@ -876,26 +876,49 @@ cmux_app_host_scope_file_identity() {
 }
 
 # The newest confirmation may belong to a job that has prepared its scope but
-# is still waiting for the canonical machine lock. Only regular confirmation
-# files participate; malformed unrelated debris is left for advisory scope
-# maintenance and cannot authorize a process signal.
+# is still waiting for the canonical machine lock. Only authenticated v2 files
+# owned by this account with private permissions participate. Shared /tmp debris
+# cannot weaken newest-scope protection or authorize a process signal.
 cmux_newest_app_host_confirmation_mtime() {
   local system_temp_root="$1"
   cmux_validate_app_host_runner_root "$system_temp_root" || return 1
   system_temp_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
 
-  local confirmation_file newest_mtime mtime
+  local current_uid confirmation_file confirmation_name key
+  local newest_mtime mtime initial_identity final_identity
+  current_uid="$(/usr/bin/id -u)" || {
+    echo "FAIL: app-host confirmation account is unavailable" >&2
+    return 1
+  }
   newest_mtime=0
   for confirmation_file in "$system_temp_root"/cmux-ah-*.confirm; do
     if [ -L "$confirmation_file" ] || [ ! -f "$confirmation_file" ]; then
       continue
     fi
-    if ! cmux_app_host_scope_mtime "$confirmation_file" 2>/dev/null; then
-      # A setup/teardown step may unlink unrelated process-free authority
-      # between the glob and stat. It cannot authorize a live process signal.
+    confirmation_name="${confirmation_file##*/}"
+    key="${confirmation_name#cmux-ah-}"
+    key="${key%.confirm}"
+    if ! cmux_validate_app_host_key "$key" >/dev/null 2>&1 \
+      || ! cmux_app_host_scope_file_identity \
+        "$confirmation_file" >/dev/null 2>&1; then
       continue
     fi
-    mtime="$CMUX_APP_HOST_SCOPE_MTIME"
+    initial_identity="$CMUX_APP_HOST_SCOPE_FILE_IDENTITY"
+    if ! cmux_validate_stale_app_host_confirmation \
+      "$confirmation_file" "$system_temp_root" "$key" >/dev/null 2>&1 \
+      || ! cmux_app_host_scope_metadata \
+        "$confirmation_file" >/dev/null 2>&1 \
+      || [ "$CMUX_APP_HOST_SCOPE_UID" != "$current_uid" ] \
+      || [ "$CMUX_APP_HOST_SCOPE_MODE" != "600" ] \
+      || ! cmux_app_host_scope_file_identity \
+        "$confirmation_file" >/dev/null 2>&1; then
+      continue
+    fi
+    final_identity="$CMUX_APP_HOST_SCOPE_FILE_IDENTITY"
+    if [ "$final_identity" != "$initial_identity" ]; then
+      continue
+    fi
+    mtime="${final_identity##*:}"
     if [ "$mtime" -gt "$newest_mtime" ]; then
       newest_mtime="$mtime"
     fi
