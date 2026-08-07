@@ -717,6 +717,23 @@ fn persistence_state_rows(registry: &WorkspaceRegistry) -> Vec<String> {
         .unwrap()
 }
 
+fn session_effect_workflow_rows(registry: &WorkspaceRegistry) -> Vec<String> {
+    registry
+        .connection
+        .prepare(
+            "SELECT workflow_id || ':' || state || ':' || attempt_generation || ':'
+                    || operation || ':' || target_session_id || ':' || result_json || ':'
+                    || intent_sequence || ':' || COALESCE(outcome_sequence, -1)
+             FROM journal_session_effect_workflows
+             ORDER BY workflow_id",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
 fn commit_browser_topology(
     registry: &mut WorkspaceRegistry,
     mutation_id: &str,
@@ -3726,6 +3743,272 @@ fn default_off_hibernation_policy_and_terminal_close_do_not_hibernate() {
         TerminalLifecycle::Tombstoned
     );
     drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_effect_workflow_rebuild_requires_intent_before_outcome_and_is_deterministic() {
+    let root = temp_root("effect-workflow-intent-outcome");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry =
+            WorkspaceRegistry::open(&root, "effect-workflow-intent-outcome").unwrap();
+        commit_terminal_topology(&mut registry, "effect-workflow-intent-outcome-seed");
+        let session_id = registry.session_id().to_string();
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+            JournalSubject { kind: "effect_workflow".into(), id: "effect-recover-1".into() },
+        ];
+        append_persistence_state_record(
+            &mut registry,
+            "effect-recover-early-outcome",
+            "session.effect.outcome.recorded",
+            subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-outcome.v1",
+                "workflow_id":"effect-recover-1",
+                "attempt_generation":"1",
+                "outcome":"succeeded"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-recover-intent",
+            "session.effect.intent.recorded",
+            subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-intent.v1",
+                "workflow_id":"effect-recover-1",
+                "operation":"session.recover",
+                "attempt_generation":"1",
+                "target_session_id":session_id,
+                "terminal_id":terminal_id,
+                "requires_complete_history":true
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-recover-outcome",
+            "session.effect.outcome.recorded",
+            subjects,
+            json!({
+                "format":"cmux.session-effect-outcome.v1",
+                "workflow_id":"effect-recover-1",
+                "attempt_generation":"1",
+                "outcome":"succeeded"
+            }),
+            true,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "effect-workflow-intent-outcome").unwrap();
+    let rows = session_effect_workflow_rows(&reopened);
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].contains("effect-recover-1:succeeded:1:session.recover:"));
+    assert!(rows[0].contains(r#""requires_complete_history":true"#));
+    assert!(rows[0].contains(r#""outcome":"succeeded""#));
+    drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, "effect-workflow-intent-outcome").unwrap();
+    assert_eq!(session_effect_workflow_rows(&reopened_again), rows);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_effect_workflow_fences_duplicate_intents_stale_outcomes_and_retains_fork_source() {
+    let root = temp_root("effect-workflow-fencing");
+    let first_restore_intent;
+    let restore_outcome;
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "effect-workflow-fencing").unwrap();
+        let session_id = registry.session_id().to_string();
+        let restore_subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "effect_workflow".into(), id: "effect-restore-dup".into() },
+        ];
+        first_restore_intent = append_persistence_state_record(
+            &mut registry,
+            "effect-restore-intent",
+            "session.effect.intent.recorded",
+            restore_subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-intent.v1",
+                "workflow_id":"effect-restore-dup",
+                "operation":"session.restore",
+                "attempt_generation":"1",
+                "target_session_id":session_id,
+                "requires_complete_history":true
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-restore-intent-duplicate",
+            "session.effect.intent.recorded",
+            restore_subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-intent.v1",
+                "workflow_id":"effect-restore-dup",
+                "operation":"session.restore",
+                "attempt_generation":"1",
+                "target_session_id":session_id,
+                "requires_complete_history":true
+            }),
+            true,
+        );
+        restore_outcome = append_persistence_state_record(
+            &mut registry,
+            "effect-restore-outcome",
+            "session.effect.outcome.recorded",
+            restore_subjects,
+            json!({
+                "format":"cmux.session-effect-outcome.v1",
+                "workflow_id":"effect-restore-dup",
+                "attempt_generation":"1",
+                "outcome":"succeeded"
+            }),
+            true,
+        );
+
+        let fork_subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "effect_workflow".into(), id: "effect-fork-1".into() },
+        ];
+        append_persistence_state_record(
+            &mut registry,
+            "effect-fork-intent-one",
+            "session.effect.intent.recorded",
+            fork_subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-intent.v1",
+                "workflow_id":"effect-fork-1",
+                "operation":"session.fork",
+                "attempt_generation":"1",
+                "target_session_id":session_id,
+                "requires_complete_history":true
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-fork-intent-two",
+            "session.effect.intent.recorded",
+            fork_subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-intent.v1",
+                "workflow_id":"effect-fork-1",
+                "operation":"session.fork",
+                "attempt_generation":"2",
+                "target_session_id":session_id,
+                "requires_complete_history":true
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-fork-stale-outcome",
+            "session.effect.outcome.recorded",
+            fork_subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-outcome.v1",
+                "workflow_id":"effect-fork-1",
+                "attempt_generation":"1",
+                "outcome":"failed"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-fork-outcome-two",
+            "session.effect.outcome.recorded",
+            fork_subjects,
+            json!({
+                "format":"cmux.session-effect-outcome.v1",
+                "workflow_id":"effect-fork-1",
+                "attempt_generation":"2",
+                "outcome":"indeterminate"
+            }),
+            true,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "effect-workflow-fencing").unwrap();
+    let rows = session_effect_workflow_rows(&reopened);
+    assert_eq!(rows.len(), 2);
+    let restore = rows.iter().find(|row| row.starts_with("effect-restore-dup:")).unwrap();
+    assert!(restore.contains("effect-restore-dup:succeeded:1:session.restore:"));
+    assert!(restore.ends_with(&format!(":{first_restore_intent}:{restore_outcome}")));
+    let fork = rows.iter().find(|row| row.starts_with("effect-fork-1:")).unwrap();
+    assert!(fork.contains("effect-fork-1:indeterminate:2:session.fork:"));
+    assert!(fork.contains(r#""target_session_id":"session_"#));
+    assert!(!fork.contains(r#""outcome":"failed""#));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_effect_workflow_rejects_missing_corrupt_and_secret_shaped_payloads() {
+    let root = temp_root("effect-workflow-rejects");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "effect-workflow-rejects").unwrap();
+        let session_id = registry.session_id().to_string();
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "effect_workflow".into(), id: "effect-bad".into() },
+        ];
+        append_persistence_state_record(
+            &mut registry,
+            "effect-bad-missing-history",
+            "session.effect.intent.recorded",
+            subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-intent.v1",
+                "workflow_id":"effect-bad",
+                "operation":"session.hibernate",
+                "attempt_generation":"1",
+                "target_session_id":session_id
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-bad-command",
+            "session.effect.intent.recorded",
+            subjects.clone(),
+            json!({
+                "format":"cmux.session-effect-intent.v1",
+                "workflow_id":"effect-bad-command",
+                "operation":"session.recover",
+                "attempt_generation":"1",
+                "target_session_id":session_id,
+                "requires_complete_history":true,
+                "command":["pi","--session","real-provider-id"]
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "effect-bad-env",
+            "session.effect.outcome.recorded",
+            subjects,
+            json!({
+                "format":"cmux.session-effect-outcome.v1",
+                "workflow_id":"effect-bad-command",
+                "attempt_generation":"1",
+                "outcome":"failed",
+                "env":{"TOKEN":"secret"}
+            }),
+            true,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "effect-workflow-rejects").unwrap();
+    assert!(session_effect_workflow_rows(&reopened).is_empty());
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
