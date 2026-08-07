@@ -384,7 +384,18 @@ jobs:
             -derivedDataPath "$IOS_DERIVED_DATA"
           )
           if [ -n "${TEST_FILTER:-}" ]; then
-            XCODEBUILD_ARGS+=(-only-testing:"$TEST_FILTER")
+            RESOLVED_TEST_FILTER="$TEST_FILTER"
+            # The workflow's documented UI shorthand is Class/testMethod.
+            # xcodebuild requires Target/Class/testMethod, and the main iOS UI
+            # class happens to have the same name as its target. Expand that
+            # exact shorthand so dispatches do not compile successfully while
+            # executing zero tests. Already target-qualified selectors pass
+            # through unchanged.
+            if [[ "$TEST_FILTER" =~ ^cmuxUITests/test[^/]+$ ]]; then
+              RESOLVED_TEST_FILTER="cmuxUITests/$TEST_FILTER"
+            fi
+            echo "Resolved test filter: $RESOLVED_TEST_FILTER"
+            XCODEBUILD_ARGS+=(-only-testing:"$RESOLVED_TEST_FILTER")
           else
             # Full UI tests currently exceed the pull-request simulator budget
             # on macos-26. Keep them runnable via workflow_dispatch +
