@@ -576,6 +576,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   }
 
   override func pressureChange(with event: NSEvent) {
+    guard let surface else { return }
     ghostty_surface_mouse_pressure(surface, UInt32(event.stage), Double(event.pressure))
   }
 

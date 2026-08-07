@@ -74,7 +74,10 @@ final class FrontendModel {
         guard !isConnecting, !isShuttingDown else { return }
         let invitation = invitation.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !invitation.isEmpty else {
-            errorMessage = L10n.text("connection.invitation", "Enrollment invitation")
+            errorMessage = L10n.text(
+                "connection.invitation.required",
+                "Enter an enrollment invitation."
+            )
             return
         }
         isConnecting = true

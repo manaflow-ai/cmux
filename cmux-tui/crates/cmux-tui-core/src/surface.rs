@@ -6044,7 +6044,7 @@ enum PtyGeometryTestStep {
     ReconnectBackoffStarted,
 }
 
-fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> {
+pub fn terminal_color_override_full_state(next: &TerminalColorOverrides) -> Vec<u8> {
     let mut output = if next.cursor_visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
     output.extend_from_slice(&terminal_color_override_delta(&Default::default(), next));
     output
