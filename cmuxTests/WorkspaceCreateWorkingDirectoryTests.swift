@@ -1,4 +1,5 @@
 import Foundation
+import struct CmuxSettings.AccountCatalogSection
 import Testing
 
 #if canImport(cmux_DEV)
