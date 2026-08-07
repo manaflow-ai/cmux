@@ -8034,7 +8034,7 @@ private final class TerminalViewportBorderOverlayView: NSView {
     }
 }
 
-private final class CloudTerminalReconnectOverlayView: NSView {
+final class CloudTerminalReconnectOverlayView: NSView {
     var onReconnect: (() -> Void)?
 
     private let cardView = NSVisualEffectView(frame: .zero)
@@ -8124,10 +8124,12 @@ private final class CloudTerminalReconnectOverlayView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0 else { return nil }
-        if let buttonHit = reconnectButton.hitTest(convert(point, to: reconnectButton)) {
+        let pointInSelf = convert(point, from: superview)
+        if let buttonSuperview = reconnectButton.superview,
+           let buttonHit = reconnectButton.hitTest(convert(pointInSelf, to: buttonSuperview)) {
             return buttonHit
         }
-        if cardView.frame.contains(point) {
+        if cardView.frame.contains(pointInSelf) {
             return self
         }
         return nil
