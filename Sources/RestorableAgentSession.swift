@@ -857,6 +857,10 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         useLocalRestoreVerb: Bool,
         workingDirectorySelection: RestorableAgentWorkingDirectorySelection
     ) -> String? {
+        let effectiveWorkingDirectorySelection = registration?.cwd == .ignore
+            ? RestorableAgentWorkingDirectorySelection.exact(nil)
+            : workingDirectorySelection
+        guard effectiveWorkingDirectorySelection.permitsResume else { return nil }
         if useLocalRestoreVerb {
             let executable = AgentRestoreLaunch.cliStartupExecutableToken
             guard AgentRestoreCLIArgument(rawValue: kind.rawValue) != nil,
@@ -865,9 +869,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             }
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
-        let effectiveWorkingDirectorySelection = registration?.cwd == .ignore
-            ? RestorableAgentWorkingDirectorySelection.exact(nil)
-            : workingDirectorySelection
         let restoreCommand = resumeCommand(
             includeWorkingDirectoryPrefix: true,
             workingDirectorySelection: effectiveWorkingDirectorySelection

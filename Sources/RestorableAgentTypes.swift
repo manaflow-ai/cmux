@@ -217,13 +217,25 @@ enum RestorableAgentWorkingDirectorySelection: Sendable {
     case recordedFallback(preferred: String?)
     /// Use only the supplied cwd; an explicit `nil` must remain `nil`.
     case exact(String?)
+    /// Do not build a resume command because a required trusted cwd is unavailable.
+    case unavailable
+
+    /// Whether restore may build and launch the agent command.
+    var permitsResume: Bool {
+        switch self {
+        case .recordedFallback, .exact:
+            true
+        case .unavailable:
+            false
+        }
+    }
 
     /// Whether captured argv cwd options must be discarded instead of value-matched.
     var discardsRecordedCwdOptions: Bool {
         switch self {
         case .recordedFallback:
             false
-        case .exact:
+        case .exact, .unavailable:
             true
         }
     }
@@ -237,6 +249,8 @@ enum RestorableAgentWorkingDirectorySelection: Sendable {
             [preferred, snapshotWorkingDirectory, launchWorkingDirectory]
         case .exact(let workingDirectory):
             [workingDirectory]
+        case .unavailable:
+            []
         }
         for candidate in candidates {
             guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),

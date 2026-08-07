@@ -1443,6 +1443,20 @@ extension Workspace {
                     ?? restorableAgent.launchCommand?.workingDirectory
                     ?? workingDirectory
             }()
+            let remoteResumeWorkingDirectorySelection: RestorableAgentWorkingDirectorySelection = {
+                guard restoresRemoteWorkspaceTerminalSnapshot else {
+                    return .exact(resumeSessionWorkingDirectory)
+                }
+                guard restorableAgent?.registration?.cwd != .ignore else {
+                    return .exact(nil)
+                }
+                guard restorableAgent?.kind.cwdNamespacing != .byDirectory else {
+                    return .unavailable
+                }
+                return .exact(resumeSessionWorkingDirectory)
+            }()
+            let canAttemptAgentResumeLaunch = !restoresRemoteWorkspaceTerminalSnapshot ||
+                remoteResumeWorkingDirectorySelection.permitsResume
             let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
@@ -1464,7 +1478,8 @@ extension Workspace {
             // per-launch dedup claim so two panels can't both win the race
             // before the freshly spawned process becomes visible to the index.
             let agentSessionAlreadyActive: Bool = {
-                guard shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
+                guard canAttemptAgentResumeLaunch,
+                      shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
                       let restorableAgent else {
                     return false
                 }
@@ -1484,12 +1499,15 @@ extension Workspace {
                 )
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
-                if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
-                    && !agentSessionAlreadyActive {
+                if canAttemptAgentResumeLaunch &&
+                    shouldAutoResumeAgent &&
+                    restoredHibernation == nil &&
+                    restoredBindingLaunch == nil &&
+                    !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             useLocalRestoreVerb: false,
-                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
+                            workingDirectorySelection: remoteResumeWorkingDirectorySelection
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {

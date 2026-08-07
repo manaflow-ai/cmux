@@ -59,6 +59,7 @@ extension SessionRestorableAgentSnapshot {
         includeWorkingDirectoryPrefix: Bool,
         workingDirectorySelection: RestorableAgentWorkingDirectorySelection
     ) -> String? {
+        guard workingDirectorySelection.permitsResume else { return nil }
         let effectiveWorkingDirectory = workingDirectorySelection.resolved(
             snapshotWorkingDirectory: workingDirectory,
             launchWorkingDirectory: launchCommand?.workingDirectory
