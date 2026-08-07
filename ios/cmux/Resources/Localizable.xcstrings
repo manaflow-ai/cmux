@@ -9844,6 +9844,57 @@
         }
       }
     },
+    "mobile.terminal.sendFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t send. Check the connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信できませんでした。接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sendFailed.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send failed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信に失敗しました"
+          }
+        }
+      }
+    },
+    "mobile.terminal.sending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信中"
+          }
+        }
+      }
+    },
     "mobile.terminal.surfaceNotReady": {
       "extractionState": "manual",
       "localizations": {
