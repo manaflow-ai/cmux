@@ -6754,7 +6754,10 @@ final class cmuxUITests: XCTestCase {
         let app = try launchConnectedApp(
             port: port,
             assertStatusRows: false,
-            environment: ["CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1"]
+            environment: [
+                "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+                "CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1",
+            ]
         )
         defer { app.terminate() }
 
