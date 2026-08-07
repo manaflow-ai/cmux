@@ -156,8 +156,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
                 surface: surface,
                 callbackContext: nil,
                 freeSurface: { pointer in
+                    let pointerBits = UInt(bitPattern: pointer)
                     freedSurfaceBits.withLock {
-                        _ = $0.insert(UInt(bitPattern: pointer))
+                        _ = $0.insert(pointerBits)
                     }
                 }
             )
@@ -183,8 +184,9 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         let begunSurfaceBits = OSAllocatedUnfairLock(initialState: Set<UInt>())
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
             beginSurfaceTeardown: { surface in
+                let surfaceBits = UInt(bitPattern: surface)
                 begunSurfaceBits.withLock {
-                    _ = $0.insert(UInt(bitPattern: surface))
+                    _ = $0.insert(surfaceBits)
                 }
             }
         )
