@@ -1116,6 +1116,21 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/os_popen_curl.py",
+            'os.popen("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/getoutput_curl.py",
+            'subprocess.getoutput("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/getstatusoutput_curl.py",
+            'subprocess.getstatusoutput("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/exec_file_curl.ts",
             'execFile("curl", ["https://api.openai.com/v1/items"], callback)\n',
             {RULE_LIVE_NETWORK_HOST},
