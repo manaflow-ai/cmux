@@ -258,5 +258,57 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         #expect(keyboardUp == 0)
         #expect(toggle.accessibilityLabel == "Show Keyboard")
     }
+
+    @Test("the composer band container answers the responder chain with the shared dock")
+    func composerContainerSuppliesSharedAccessory() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        let accessory = try #require(
+            harness.view.inputAccessoryView as? KeyboardDockAccessoryView
+        )
+        let composerContent = UIView()
+        harness.view.mountComposerView(composerContent)
+        // The hosted SwiftUI field cannot override `inputAccessoryView`, so
+        // UIKit's responder-chain walk must find the SAME dock instance on the
+        // band container. A nil resolution here is the "tap the field and the
+        // dock slides away instead of the keyboard rising" regression.
+        let container = try #require(
+            composerContent.superview as? KeyboardDockComposerContainerView
+        )
+        #expect(container.inputAccessoryView === accessory)
+        // Hidden chrome withholds the dock from every owner, this one included.
+        harness.view.setChromeHidden(true)
+        #expect(container.inputAccessoryView == nil)
+        harness.view.setChromeHidden(false)
+        #expect(container.inputAccessoryView === accessory)
+    }
+
+    @Test("the photo picker lifecycle keeps the dock's first-responder seat")
+    func photoPickerLifecycleKeepsDockSeat() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        // Mirror the report: the composer field was focused when Attach was
+        // tapped. The reducer's owner state is what the modal path resigns.
+        harness.view.composerInputFocusChanged(true)
+
+        // Presenting resigns the text owner AND clears the retained focus
+        // request, so the surface itself must take the keyboard-down seat or
+        // the dock unmounts with nothing to bring it back.
+        harness.view.photoPickerWillPresent()
+        #expect(harness.view.isFirstResponder)
+
+        harness.view.photoPickerDidPresent()
+        // Worst case: the presentation strips the surface's seat too (remote
+        // picker takes over the window).
+        harness.view.resignFirstResponder()
+        #expect(!harness.view.isFirstResponder)
+
+        // Dismissal must re-seat a dock owner; before the fix nobody held the
+        // seat and the bottom dock stayed unmounted forever.
+        harness.view.photoPickerDidDismiss()
+        #expect(harness.view.isFirstResponder)
+    }
 }
 #endif
