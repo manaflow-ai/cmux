@@ -25,6 +25,7 @@ members = [
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
+    "crates/cmux-terminal-client",
     "crates/cmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
     "crates/cmux-tui-machine-protocol",
@@ -106,6 +107,7 @@ hyper-util = { version = "0.1", features = ["service", "tokio"] }
 iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
+wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled"] }
