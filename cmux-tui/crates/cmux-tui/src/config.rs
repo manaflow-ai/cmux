@@ -122,6 +122,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(all(test, unix))]
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
@@ -2630,10 +2632,11 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
-    let parsed = platform::ghostty_config_paths()
-        .iter()
-        .find_map(|path| parse_ghostty_defaults_from_path(path, &platform::ghostty_theme_dirs()))
-        .unwrap_or_default();
+    let parsed = parse_ghostty_defaults_from_paths(
+        platform::ghostty_config_paths(),
+        platform::ghostty_theme_dirs(),
+    )
+    .unwrap_or_default();
     resolve_ghostty_application_defaults(parsed)
 }
 
@@ -2685,6 +2688,23 @@ fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> 
 #[cfg(test)]
 pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
     parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
+}
+
+fn parse_ghostty_defaults_from_paths(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> Option<DefaultColors> {
+    let (tx, rx) = mpsc::channel();
+    thread::Builder::new()
+        .name("cmux-tui-ghostty-config".to_owned())
+        .spawn(move || {
+            let parsed = config_paths
+                .iter()
+                .find_map(|path| parse_ghostty_defaults_from_path(path, &theme_dirs));
+            let _ = tx.send(parsed);
+        })
+        .ok()?;
+    rx.recv_timeout(GHOSTTY_CONFIG_PARSE_DEADLINE).ok().flatten()
 }
 
 #[cfg(test)]
@@ -2812,6 +2832,11 @@ impl GhosttyConfigFile {
 enum GhosttyThemeMode {
     Light,
     Dark,
+}
+
+enum GhosttyWindowTheme {
+    Mode(GhosttyThemeMode),
+    Automatic,
 }
 
 impl GhosttyThemeMode {
@@ -2947,7 +2972,12 @@ fn parse_ghostty_config_text(
                 });
             }
             "window-theme" => {
-                *theme_mode = parse_ghostty_window_theme(value.trim());
+                if let Some(window_theme) = parse_ghostty_window_theme(value.trim()) {
+                    match window_theme {
+                        GhosttyWindowTheme::Mode(mode) => *theme_mode = Some(mode),
+                        GhosttyWindowTheme::Automatic => *theme_mode = None,
+                    }
+                }
             }
             "config-file" => {
                 if let Some(include) = GhosttyConfigFile::parse(value) {
@@ -2974,8 +3004,15 @@ fn resolve_ghostty_theme_defaults(
     DefaultColors::default()
 }
 
-fn parse_ghostty_window_theme(value: &str) -> Option<GhosttyThemeMode> {
-    GhosttyThemeMode::parse(std::ffi::OsStr::new(value))
+fn parse_ghostty_window_theme(value: &str) -> Option<GhosttyWindowTheme> {
+    let value = value.trim_matches('"');
+    if let Some(mode) = GhosttyThemeMode::parse(std::ffi::OsStr::new(value)) {
+        return Some(GhosttyWindowTheme::Mode(mode));
+    }
+    match value {
+        "auto" | "system" | "ghostty" => Some(GhosttyWindowTheme::Automatic),
+        _ => None,
+    }
 }
 
 /// Parse the fully resolved `ghostty +show-config` output. Theme lines are
@@ -3891,6 +3928,44 @@ mod tests {
 
         let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[themes])
             .expect("config parses");
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+    }
+
+    #[test]
+    fn ghostty_invalid_window_theme_does_not_clear_prior_valid_mode() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-invalid-window-theme-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Light Theme"),
+            "background = #f0f1f2\nforeground = #f3f4f5\npalette = 1=#f6f7f8\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Dark Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+
+        let defaults = parse_ghostty_defaults_with_theme_dirs(
+            "window-theme = dark\n\
+             window-theme = drak\n\
+             theme = light:Light Theme,dark:Dark Theme\n",
+            std::slice::from_ref(&dir),
+        );
 
         restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
         let _ = std::fs::remove_dir_all(dir);
