@@ -21,6 +21,21 @@ extension Workspace {
 
     private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
         var statusKeysByPanelId: [UUID: Set<String>] = [:]
+        // Reconciliation evidence can legitimately arrive before the
+        // lifecycle hook's detached PID-registration command. Feed/native
+        // attention carries an exact process generation of its own, while
+        // remote integrations intentionally have no local PID at all. Treat
+        // the resolved lifecycle snapshot as an ownership source so those
+        // statuses do not disappear during that delivery race.
+        for (panelId, states) in agentLifecycleStatesByPanelId
+        where panels[panelId] != nil {
+            for key in states.keys
+            where AgentHibernationLifecycleStatusKeys.allowedStatusKeys
+                .contains(key)
+                && statusEntries[key] != nil {
+                statusKeysByPanelId[panelId, default: []].insert(key)
+            }
+        }
         for (key, panelId) in agentPIDPanelIdsByKey
         where panels[panelId] != nil {
             let statusKey = agentStatusKey(forAgentPIDKey: key)

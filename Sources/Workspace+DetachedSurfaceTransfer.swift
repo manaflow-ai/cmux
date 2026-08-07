@@ -18,6 +18,9 @@ extension Workspace {
         /// Active lifecycle values follow a live panel into and out of a Dock,
         /// alongside its structured PID ownership.
         var agentLifecycleStates: [String: AgentHibernationLifecycleState] = [:]
+        /// Source-aware evidence stays with a Dock-owned panel. Workspace
+        /// transfers seed this from the legacy snapshot on first mutation.
+        var agentLifecycleReconciliationState = AgentLifecycleReconciliationState()
     }
 
     struct DetachedSurfaceTransfer {

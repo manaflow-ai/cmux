@@ -144,6 +144,236 @@ extension AgentNotificationRegressionTests {
         #expect(workspace.localAgentDeliveryTTYDevices.map(\.surfaceId) == [panelId])
     }
 
+    @Test("Workspace preserves concurrent sessions owned by one process generation")
+    func workspacePreservesSharedStructuredAgentGeneration() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+
+        #expect(
+            !workspace.recordAgentPID(
+                key: "amp.thread-a",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation,
+                refreshPorts: false
+            )
+        )
+        #expect(
+            !workspace.recordAgentPID(
+                key: "amp.thread-b",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation,
+                refreshPorts: false
+            )
+        )
+        #expect(
+            workspace.agentPIDKeysByPanelId[panelID]
+                == ["amp.thread-a", "amp.thread-b"]
+        )
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: generation
+            )
+        )
+
+        #expect(
+            workspace.clearAgentPID(
+                key: "amp.thread-a",
+                panelId: panelID,
+                clearStatus: true,
+                refreshPorts: false
+            )
+        )
+        #expect(workspace.agentPIDs["amp.thread-b"] == generation.pid)
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["amp"]
+                == .running
+        )
+    }
+
+    @Test("Dock preserves concurrent sessions owned by one process generation")
+    func dockPreservesSharedStructuredAgentGeneration() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let generation = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+
+        #expect(
+            !dock.recordAgentPID(
+                key: "amp.thread-a",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            )
+        )
+        #expect(
+            !dock.recordAgentPID(
+                key: "amp.thread-b",
+                pid: generation.pid,
+                panelId: panelID,
+                processIdentity: generation
+            )
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?.agentPIDKeys
+                == ["amp.thread-a", "amp.thread-b"]
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "amp",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: generation
+            )
+        )
+
+        #expect(
+            dock.clearAgentPID(
+                key: "amp.thread-a",
+                panelId: panelID,
+                clearStatus: true
+            )
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentPIDs["amp.thread-b"] == generation.pid
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentLifecycleStates["amp"] == .running
+        )
+    }
+
+    @Test("Workspace rejects delayed PID registration before replacing runtime")
+    func workspaceRejectsDelayedOlderPIDRegistration() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let newerGeneration = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let olderGeneration = AgentPIDProcessIdentity(
+            pid: newerGeneration.pid,
+            startSeconds: newerGeneration.startSeconds - 1,
+            startMicroseconds: newerGeneration.startMicroseconds
+        )
+        let key = "cursor.delayed-registration"
+        defer { workspace.clearAllAgentPIDs(refreshPorts: false) }
+
+        #expect(
+            workspace.recordAgentPIDResult(
+                key: key,
+                pid: newerGeneration.pid,
+                panelId: panelID,
+                processIdentity: newerGeneration,
+                refreshPorts: false
+            ).accepted
+        )
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "cursor",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: newerGeneration
+            )
+        )
+
+        let delayedResult = workspace.recordAgentPIDResult(
+            key: key,
+            pid: olderGeneration.pid,
+            panelId: panelID,
+            processIdentity: olderGeneration,
+            refreshPorts: false
+        )
+
+        #expect(!delayedResult.accepted)
+        #expect(workspace.agentPIDs[key] == newerGeneration.pid)
+        #expect(
+            workspace.agentPIDProcessIdentitiesByKey[key]
+                == newerGeneration
+        )
+        #expect(workspace.agentPIDPanelIdsByKey[key] == panelID)
+        #expect(
+            workspace.agentLifecycleStatesByPanelId[panelID]?["cursor"]
+                == .running
+        )
+    }
+
+    @Test("Dock rejects delayed PID registration before replacing runtime")
+    func dockRejectsDelayedOlderPIDRegistration() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        let panelID = try #require(
+            dock.newSurface(kind: .terminal, inPane: paneID, focus: false)
+        )
+        let newerGeneration = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let olderGeneration = AgentPIDProcessIdentity(
+            pid: newerGeneration.pid,
+            startSeconds: newerGeneration.startSeconds - 1,
+            startMicroseconds: newerGeneration.startMicroseconds
+        )
+        let key = "cursor.delayed-registration"
+
+        #expect(
+            dock.recordAgentPIDResult(
+                key: key,
+                pid: newerGeneration.pid,
+                panelId: panelID,
+                processIdentity: newerGeneration
+            ).accepted
+        )
+        #expect(
+            dock.setAgentLifecycle(
+                key: "cursor",
+                panelId: panelID,
+                lifecycle: .running,
+                processGeneration: newerGeneration
+            )
+        )
+
+        let delayedResult = dock.recordAgentPIDResult(
+            key: key,
+            pid: olderGeneration.pid,
+            panelId: panelID,
+            processIdentity: olderGeneration
+        )
+
+        #expect(!delayedResult.accepted)
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?.agentPIDs[key]
+                == newerGeneration.pid
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentPIDProcessIdentities[key] == newerGeneration
+        )
+        #expect(
+            dock.agentRuntimeByPanelId[panelID]?
+                .agentLifecycleStates["cursor"] == .running
+        )
+    }
+
     @Test("Live PID routing and runtime mutations include a Dock-owned terminal")
     func liveTTYBindingsAndRuntimeMutationsIncludeDockOwnedTerminal() throws {
         let fixture = try makeFixture()
@@ -175,6 +405,21 @@ extension AgentNotificationRegressionTests {
         #expect(binding.ttyDevice > 0)
 
         let sessionKey = "omp.dock-session"
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: processIdentity.pid,
+            startSeconds: processIdentity.startSeconds,
+            startMicroseconds: processIdentity.startMicroseconds
+        )
+        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
+            target: .workspace(dockOwnerId),
+            key: sessionKey,
+            pid: getpid(),
+            processGeneration: processGeneration,
+            panelID: fixture.panelId
+        )
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(dockOwnerId),
             key: "omp",
@@ -187,16 +432,11 @@ extension AgentNotificationRegressionTests {
             panelID: fixture.panelId,
             pid: nil
         )
-        TerminalController.shared.controlSidebarScheduleAgentPIDRecord(
-            target: .workspace(dockOwnerId),
-            key: sessionKey,
-            pid: getpid(),
-            panelID: fixture.panelId
-        )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(dockOwnerId),
             key: "omp",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
         bus.drainForTesting()
@@ -243,6 +483,7 @@ extension AgentNotificationRegressionTests {
             target: .workspace(dockOwnerId),
             key: "omp",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
         bus.drainForTesting()
@@ -551,6 +792,14 @@ extension AgentNotificationRegressionTests {
             bus.discardPendingNotifications()
         }
 
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(pid: getpid())
+        )
+        let processGeneration = ControlSidebarAgentProcessGeneration(
+            pid: processIdentity.pid,
+            startSeconds: processIdentity.startSeconds,
+            startMicroseconds: processIdentity.startMicroseconds
+        )
         TerminalController.shared.controlSidebarScheduleStatusUpsert(
             target: .workspace(fixture.source.id),
             key: "claude_code",
@@ -561,12 +810,13 @@ extension AgentNotificationRegressionTests {
             priority: 0,
             format: .plain,
             panelID: fixture.panelId,
-            pid: 43_210
+            pid: getpid()
         )
         TerminalController.shared.controlSidebarScheduleAgentLifecycle(
             target: .workspace(fixture.source.id),
             key: "claude_code",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
+            processGeneration: processGeneration,
             panelID: fixture.panelId
         )
 
@@ -576,7 +826,7 @@ extension AgentNotificationRegressionTests {
 
         #expect(fixture.source.statusEntries["claude_code"] == nil)
         #expect(fixture.destination.statusEntries["claude_code"]?.value == "Running")
-        #expect(fixture.destination.agentPIDs["claude_code"] == 43_210)
+        #expect(fixture.destination.agentPIDs["claude_code"] == getpid())
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
         )

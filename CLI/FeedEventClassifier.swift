@@ -13,10 +13,11 @@ import Foundation
 /// (``feedEventSemantic(source:event:)``) keyed on `(source, event)` rather
 /// than by pattern-matching raw event-name strings. Notification eligibility
 /// is derived only from the resolved ``FeedEventSemantic``, so a
-/// tool-*starting* lifecycle event can never be mistaken for an approval
-/// request — and unknown / future event names default to non-actionable
-/// telemetry that never notifies. Conflating a tool-start with an approval
-/// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
+/// tool-starting lifecycle event becomes actionable only through an explicit
+/// integration policy and the evidence that policy requires. Unknown / future
+/// event names default to non-actionable telemetry that never notifies.
+/// Conflating a generic tool-start with an approval is the bug behind
+/// https://github.com/manaflow-ai/cmux/issues/4985.
 struct FeedEventClassifier {
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
@@ -27,8 +28,8 @@ struct FeedEventClassifier {
     ///   - source: The agent id that emitted the event (`claude`, `codex`,
     ///     `hermes-agent`, …). Unregistered sources are telemetry-only.
     ///   - event: The agent's raw hook event name.
-    ///   - toolName: The tool the event refers to, used only for the two
-    ///     tool-dependent semantics.
+    ///   - toolName: The tool the event refers to, used only by
+    ///     integration-specific approval semantics.
     /// - Returns: The wire `hook_event_name` and whether the event is
     ///   Feed-actionable (blocks + may notify).
     static func classify(
@@ -37,7 +38,11 @@ struct FeedEventClassifier {
         toolName: String
     ) -> (String, Bool) {
         let semantic = feedEventSemantic(source: source, event: event)
-        return wireMapping(for: semantic, source: source, toolName: toolName)
+        return wireMapping(
+            for: semantic,
+            source: source,
+            toolName: toolName
+        )
     }
 
     /// User-attention semantic of a hook/feed event, independent of the
@@ -83,14 +88,18 @@ struct FeedEventClassifier {
         case unknown
     }
 
-    /// Resolves the semantic for a `(source, event)` pair. Only registered
-    /// sources can opt in to blocking decisions. Unregistered sources retain
-    /// useful lifecycle names but always use telemetry-only semantics.
+    /// Resolves the semantic for a `(source, event)` pair. Every built-in
+    /// integration has an entry in the exhaustive registry, so a newly added
+    /// built-in cannot silently lose approval handling. Truly unknown
+    /// third-party sources retain telemetry-only fallback behavior.
     private static func feedEventSemantic(
         source: String,
         event: String
     ) -> FeedEventSemantic {
-        let table = feedEventSemanticRegistry[source] ?? telemetryOnlyFeedEventSemantics
+        guard let integration = BuiltInAgentIntegration(feedSourceName: source),
+              let table = feedEventSemanticRegistry[integration] else {
+            return telemetryOnlyFeedEventSemantics[event] ?? .unknown
+        }
         return table[event] ?? .unknown
     }
 
@@ -156,112 +165,114 @@ struct FeedEventClassifier {
         }
     }
 
-    /// Per-agent event-semantic tables. Each entry is the source of truth
-    /// for that agent's `(event) -> semantic` mapping; events absent here
-    /// resolve to ``FeedEventSemantic/unknown``.
-    ///
-    /// Blocking is an explicit capability: a source must be registered with
-    /// ``FeedEventSemantic/toolStartMaybeApproval`` or
-    /// ``FeedEventSemantic/approvalRequest``. New and incompatible sources
-    /// fail neutral instead of inheriting a synchronous approval wait.
-    private static let feedEventSemanticRegistry: [String: [String: FeedEventSemantic]] = [
-        "claude": [
-            "PermissionRequest": .approvalRequest,
-            "PreToolUse": .toolStart,
-            "PostToolUse": .toolEnd,
-            "PreCompact": .preCompact,
-            "PostCompact": .postCompact,
-            "UserPromptSubmit": .promptSubmit,
-            "SessionStart": .sessionStart,
-            "SessionEnd": .sessionEnd,
-            "Stop": .response,
-            "SubagentStart": .subagentStart,
-            "SubagentStop": .subagentResponse,
-            "Notification": .statusNotification,
-        ],
-        "codex": [
-            // Codex runs PermissionRequest hooks before its own approval
-            // reviewer. Treat this as telemetry so "Approve for me" can still
-            // use Codex's auto-review path instead of blocking on cmux Feed.
-            "PermissionRequest": .toolStart,
-            "permission_request": .toolStart,
-            "PreToolUse": .toolStart,
-            "pre_tool_use": .toolStart,
-            "beforeShellExecution": .toolStart,
-            "PostToolUse": .toolEnd,
-            "post_tool_use": .toolEnd,
-            "PreCompact": .preCompact,
-            "pre_compact": .preCompact,
-            "PostCompact": .postCompact,
-            "post_compact": .postCompact,
-            "UserPromptSubmit": .promptSubmit,
-            "user_prompt_submit": .promptSubmit,
-            "SessionStart": .sessionStart,
-            "session_start": .sessionStart,
-            "SessionEnd": .sessionEnd,
-            "session_end": .sessionEnd,
-            "Stop": .response,
-            "stop": .response,
-            "SubagentStart": .subagentStart,
-            "subagent_start": .subagentStart,
-            "SubagentStop": .subagentResponse,
-            "subagent_stop": .subagentResponse,
-            "Notification": .statusNotification,
-            "notification": .statusNotification,
-        ],
-        "hermes-agent": [
-            // `pre_tool_call` is a tool *starting* — Hermes raises a
-            // separate `pre_approval_request` for real approvals, so this
-            // must stay telemetry even for side-effecting tools (#4985).
-            "pre_tool_call": .toolStart,
-            "post_tool_call": .toolEnd,
-            // The approval banner for Hermes fires through the dedicated
-            // `notification` hook subcommand; on the feed path this stays a
-            // non-blocking notification to avoid a duplicate banner.
-            "pre_approval_request": .statusNotification,
-            "post_approval_response": .statusNotification,
-            "pre_llm_call": .promptSubmit,
-            "post_llm_call": .response,
-            "on_session_start": .sessionStart,
-            "on_session_reset": .sessionStart,
-            "on_session_end": .sessionEnd,
-            "on_session_finalize": .sessionEnd,
-        ],
-        // Gemini CLI consumes the generic PreToolUse decision schema and has
-        // no separate approval event, so it deliberately opts in to blocking.
-        "gemini": approvalCapableFeedEventSemantics,
-        // Kiro emits camelCase hook events and has no dedicated approval
-        // event, so its pre-tool event escalates side-effecting tools to an
-        // approval (resolved against the kiro tool aliases in
-        // ``isSideEffectingTool``). Registering kiro explicitly is required:
-        // its lowercase event names are absent from the shared tables.
-        "kiro": [
-            "preToolUse": .toolStartMaybeApproval,
-            "postToolUse": .toolEnd,
-            "userPromptSubmit": .promptSubmit,
-            "agentSpawn": .sessionStart,
-            "stop": .response,
-        ],
-    ]
+    /// Exhaustive built-in registry. Its keys are generated from
+    /// ``BuiltInAgentIntegration/allCases`` and each value comes from an
+    /// exhaustive switch, replacing the previous opt-in dictionary.
+    private static let feedEventSemanticRegistry: [
+        BuiltInAgentIntegration: [String: FeedEventSemantic]
+    ] = Dictionary(uniqueKeysWithValues: BuiltInAgentIntegration.allCases.map {
+        ($0, feedEventSemantics(for: $0))
+    })
 
-    /// Shared event spellings for sources that have a verified blocking
-    /// decision contract. Registration is required; this table is never the
-    /// fallback for an unknown source.
-    private static let approvalCapableFeedEventSemantics: [String: FeedEventSemantic] = [
-        "PreToolUse": .toolStartMaybeApproval,
-        "beforeShellExecution": .toolStartMaybeApproval,
-        "PermissionRequest": .approvalRequest,
-        "PostToolUse": .toolEnd,
-        "PreCompact": .preCompact,
-        "PostCompact": .postCompact,
-        "UserPromptSubmit": .promptSubmit,
-        "SessionStart": .sessionStart,
-        "SessionEnd": .sessionEnd,
-        "Stop": .response,
-        "SubagentStart": .subagentStart,
-        "SubagentStop": .subagentResponse,
-        "Notification": .statusNotification,
-    ]
+    private static func feedEventSemantics(
+        for integration: BuiltInAgentIntegration
+    ) -> [String: FeedEventSemantic] {
+        var semantics = builtInFeedEventSemantics(
+            approvalDetection: integration.approvalDetectionMechanism
+        )
+        switch integration {
+        case .codex:
+            semantics.merge([
+                // Codex's native reviewer owns permission decisions. Feed
+                // retains every spelling as telemetry so it cannot create a
+                // second, competing approval path.
+                "PermissionRequest": .toolStart,
+                "permissionRequest": .toolStart,
+                "permission_request": .toolStart,
+                "pre_tool_use": .toolStart,
+                "beforeShellExecution": .toolStart,
+                "post_tool_use": .toolEnd,
+                "pre_compact": .preCompact,
+                "post_compact": .postCompact,
+                "user_prompt_submit": .promptSubmit,
+                "session_start": .sessionStart,
+                "session_end": .sessionEnd,
+                "stop": .response,
+                "subagent_start": .subagentStart,
+                "subagent_stop": .subagentResponse,
+                "notification": .statusNotification,
+            ], uniquingKeysWith: { _, replacement in replacement })
+        case .hermesAgent:
+            semantics.merge([
+                // Hermes has a separate approval signal, so tool starts stay
+                // telemetry and its dedicated notification lane owns the
+                // visible approval banner (#4985).
+                "pre_tool_call": .toolStart,
+                "post_tool_call": .toolEnd,
+                "pre_approval_request": .statusNotification,
+                "post_approval_response": .statusNotification,
+                "pre_llm_call": .promptSubmit,
+                "post_llm_call": .response,
+                "on_session_start": .sessionStart,
+                "on_session_reset": .sessionStart,
+                "on_session_end": .sessionEnd,
+                "on_session_finalize": .sessionEnd,
+            ], uniquingKeysWith: { _, replacement in replacement })
+        case .kiro:
+            semantics.merge([
+                "postToolUse": .toolEnd,
+                "userPromptSubmit": .promptSubmit,
+                "agentSpawn": .sessionStart,
+                "stop": .response,
+            ], uniquingKeysWith: { _, replacement in replacement })
+        case .amp, .antigravity, .campfire, .claude, .codebuddy, .copilot,
+             .cursor, .factory, .gemini, .grok, .kimi, .omp, .opencode, .pi,
+             .qoder, .rovodev:
+            break
+        }
+        return semantics
+    }
+
+    /// Shared event spellings every built-in must support. A dedicated
+    /// `PermissionRequest` is always actionable. Raw tool-start behavior is
+    /// explicitly selected by the integration's required approval mechanism.
+    private static func builtInFeedEventSemantics(
+        approvalDetection: AgentApprovalDetectionMechanism
+    ) -> [String: FeedEventSemantic] {
+        let semantics: (
+            toolStart: FeedEventSemantic,
+            shellStart: FeedEventSemantic
+        ) = switch approvalDetection {
+        case .dedicatedPermissionEvent:
+            (.toolStart, .toolStart)
+        case .sideEffectingToolStartInference:
+            (.toolStartMaybeApproval, .toolStartMaybeApproval)
+        case .nativePostPolicyObserver:
+            (.toolStart, .toolStart)
+        case .nativeApprovalReviewer:
+            (.toolStart, .toolStart)
+        }
+        return [
+            "PreToolUse": semantics.toolStart,
+            "preToolUse": semantics.toolStart,
+            "beforeShellExecution": semantics.shellStart,
+            "PermissionRequest": .approvalRequest,
+            "permissionRequest": .approvalRequest,
+            "permission_request": .approvalRequest,
+            "PostToolUse": .toolEnd,
+            "postToolUse": .toolEnd,
+            "postToolUseFailure": .toolEnd,
+            "PreCompact": .preCompact,
+            "PostCompact": .postCompact,
+            "UserPromptSubmit": .promptSubmit,
+            "SessionStart": .sessionStart,
+            "SessionEnd": .sessionEnd,
+            "Stop": .response,
+            "SubagentStart": .subagentStart,
+            "SubagentStop": .subagentResponse,
+            "Notification": .statusNotification,
+        ]
+    }
 
     /// Safe fallback for unregistered sources. Familiar event names preserve
     /// Feed telemetry classification, but none can create a blocking request.

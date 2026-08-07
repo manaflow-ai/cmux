@@ -5,6 +5,185 @@ import Testing
 @MainActor
 @Suite("ControlCommandCoordinator sidebar v1 dispatch")
 struct ControlCommandCoordinatorSidebarV1Tests {
+    @Test func agentPIDAndLifecycleForwardExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        let generationOptions =
+            "--pid=4242 --pid-start-seconds=100 "
+            + "--pid-start-microseconds=200"
+
+        let pidResponse = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args:
+                "codex.session 4242 --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) \(generationOptions)"
+        )
+        let lifecycleResponse = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args:
+                "codex idle --tab=\(workspaceID.uuidString) "
+                + "--panel=\(panelID.uuidString) \(generationOptions)"
+        )
+
+        #expect(pidResponse == "OK")
+        #expect(lifecycleResponse == "OK")
+        #expect(
+            context.agentPIDRecordCall?.processGeneration
+                == ControlSidebarAgentProcessGeneration(
+                    pid: 4242,
+                    startSeconds: 100,
+                    startMicroseconds: 200
+                )
+        )
+        #expect(
+            context.agentLifecycleCall?.processGeneration
+                == ControlSidebarAgentProcessGeneration(
+                    pid: 4242,
+                    startSeconds: 100,
+                    startMicroseconds: 200
+                )
+        )
+    }
+
+    @Test func agentPIDRejectsMismatchedProcessGenerationPID() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args:
+                "codex 4243 --tab=\(workspaceID.uuidString) "
+                + "--pid=4242 --pid-start-seconds=100 "
+                + "--pid-start-microseconds=200"
+        )
+
+        #expect(
+            response
+                == "ERROR: Agent process generation PID does not match <pid>"
+        )
+        #expect(context.agentPIDRecordCall == nil)
+    }
+
+    @Test func localBuiltInAgentPIDRequiresExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args: "codex 4242 --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Agent process generation is required for 'codex'"
+        )
+        #expect(context.agentPIDRecordCall == nil)
+    }
+
+    @Test func localBuiltInStatusPIDRequiresExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args:
+                "codex Running --pid=4242 "
+                + "--tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Agent process generation is required for 'codex'"
+        )
+        #expect(context.statusUpsertCall == nil)
+    }
+
+    @Test func builtInStatusPIDForwardsExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args:
+                "codex Running --pid=4242 --pid-start-seconds=100 "
+                + "--pid-start-microseconds=200 "
+                + "--tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(
+            context.statusUpsertCall?.processGeneration
+                == ControlSidebarAgentProcessGeneration(
+                    pid: 4242,
+                    startSeconds: 100,
+                    startMicroseconds: 200
+                )
+        )
+    }
+
+    @Test func partialAgentProcessGenerationIsRejected() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args:
+                "codex idle --tab=\(workspaceID.uuidString) "
+                + "--pid=4242 --pid-start-seconds=100"
+        )
+
+        #expect(
+            response?.hasPrefix(
+                "ERROR: Invalid agent process generation"
+            ) == true
+        )
+        #expect(context.agentLifecycleCall == nil)
+    }
+
+    @Test func localBuiltInLifecycleRequiresExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args:
+                "codex running --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Agent process generation is required for 'codex'"
+        )
+        #expect(context.agentLifecycleCall == nil)
+    }
+
+    @Test func unsupportedAgentLifecycleKeyIsRejected() {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.allowsAgentLifecycleKey = false
+        context.requiresAgentProcessGeneration = false
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "unknown-agent running --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Unsupported agent lifecycle key 'unknown-agent'"
+        )
+        #expect(context.agentLifecycleCall == nil)
+    }
+
     @Test func agentPIDClearForwardsOwnedKeyRequirement() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

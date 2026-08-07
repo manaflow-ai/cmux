@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
+import CmuxControlSocket
 import CmuxNotifications
 import Foundation
 @preconcurrency import UserNotifications
@@ -11,6 +12,14 @@ private enum FeedEventAcceptance: Sendable {
     case accepted(event: WorkstreamEvent, itemId: UUID)
     case notFound
     case unavailable
+}
+
+/// Process evidence whose namespace is resolved with the attention owner.
+private enum FeedAgentProcessEvidence: Sendable {
+    /// A complete generation tuple carried by the owning runtime or relay.
+    case exact(AgentPIDProcessIdentity)
+    /// A numeric PID that is meaningful only in this Mac's process namespace.
+    case localPID(Int)
 }
 
 /// App-level coordinator that owns the shared `WorkstreamStore` and
@@ -57,13 +66,23 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Every accepted Feed path crosses this lane before insertion and `received` publication.
     private let feedIngressDeliveryLane = FeedIngressDeliveryLane()
 
-    /// In-flight blocking decisions whose needs-input overlay is currently lit,
-    /// keyed by ``AttentionTarget``. Each state keeps the workspace object that
-    /// was mutated when surfacing attention, so cleanup does not depend on
-    /// resolving a live window route after the decision has already ended.
+    /// In-flight blocking decisions whose needs-input overlay is currently lit.
+    /// Each target owns one reconciliation token; the workspace value is only
+    /// a fallback when the panel no longer has a resolvable current owner.
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
-    @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
+    @MainActor private var pendingAttentionStates:
+        [FeedAttentionTarget: FeedPendingAttentionState] = [:]
+
+    /// Native approvals observed after an agent's own policy evaluation. These
+    /// are status-only: unlike blocking Feed requests, they expose no cmux
+    /// approve/deny controls that cannot resolve the agent's native prompt.
+    @MainActor private var observedAttentionRegistry =
+        AgentObservedAttentionRegistry<FeedAttentionTarget>()
+    @MainActor private var observedAttentionConclusions =
+        AgentObservedAttentionConclusionLedger()
+    @MainActor private let attentionExitMonitor =
+        AgentProcessExitMonitor()
 
     private init() {}
 
@@ -448,7 +467,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if
     /// called from the socket worker thread.
-    private func concludeAttentionOnMain(_ target: AttentionTarget?) {
+    private func concludeAttentionOnMain(_ target: FeedAttentionTarget?) {
         guard let target else { return }
         let conclude: @Sendable () -> Void = { [target] in
             MainActor.assumeIsolated {
@@ -573,27 +592,11 @@ extension FeedCoordinator {
     /// keys its status by its own source name. Returning the agent's own key
     /// is what lets the existing per-agent resume hooks (e.g. Claude's
     /// `pre-tool-use`) clear the needs-input badge once the agent continues.
-    private static let lifecycleStatusKeyOverrides = [
-        "claude": "claude_code",
-    ]
-
     static func lifecycleStatusKey(forSource source: String) -> String {
-        lifecycleStatusKeyOverrides[source] ?? source
+        BuiltInAgentIntegration(feedSourceName: source)?.statusKey ?? source
     }
 
-    /// Identifies the sidebar slot an attention overlay lights up. Overlays
-    /// are refcounted by this key so overlapping blocking decisions on the
-    /// same agent/panel don't clear each other's needs-input badge.
-    struct AttentionTarget: Hashable, Sendable {
-        let workspaceId: UUID
-        let panelId: UUID?
-        let statusKey: String
-    }
-
-    /// The localized "Needs input" sidebar status the overlay sets. Exposed so
-    /// ``concludeBlockingDecisionAttention(_:)`` can confirm it's still the
-    /// value we wrote before clearing it (rather than one an agent hook
-    /// replaced in the meantime).
+    /// The localized "Needs input" sidebar status the overlay sets.
     static var needsInputStatusValue: String {
         String(localized: "feed.status.needsInput", defaultValue: "Needs input")
     }
@@ -611,9 +614,9 @@ extension FeedCoordinator {
     /// from silently swallowing.
     ///
     /// The overlay is cleared by ``concludeBlockingDecisionAttention(_:)``
-    /// when the decision resolves or times out. Clearing is refcounted per
-    /// ``AttentionTarget`` so overlapping decisions on the same panel keep the
-    /// badge lit until the last one concludes.
+    /// when the decision resolves or times out. Each decision owns one
+    /// generation-scoped token, so overlapping decisions keep the badge lit
+    /// until their own conclusions arrive.
     ///
     /// - Parameter resolved: the target resolved off the main actor before UI
     ///   mutation, since hook-session lookup may read from disk.
@@ -623,7 +626,7 @@ extension FeedCoordinator {
     func surfaceBlockingDecisionAttention(
         event: WorkstreamEvent,
         resolved: (workspaceId: UUID, surfaceId: UUID?)?
-    ) -> AttentionTarget? {
+    ) -> FeedAttentionTarget? {
         guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
 
         #if DEBUG
@@ -642,37 +645,473 @@ extension FeedCoordinator {
             return nil
         }
 
+        guard let surfaced = surfaceAgentAttention(
+            source: event.source,
+            resolved: resolved,
+            processEvidence: event.ppid.map(FeedAgentProcessEvidence.localPID)
+        ) else {
+            return nil
+        }
+        if !surfaced.usesRemoteProcessNamespace,
+           let processGeneration = surfaced.processGeneration {
+            let monitorKey = Self.blockingAttentionProcessMonitorKey(
+                target: surfaced.target
+            )
+            pendingAttentionStates[surfaced.target]?
+                .processExitMonitorKey = monitorKey
+            attentionExitMonitor.observe(
+                key: monitorKey,
+                generation: processGeneration
+            ) { [weak self] _, generation in
+                self?.concludeBlockingDecisionAttention(
+                    surfaced.target,
+                    processExitGeneration: generation
+                )
+            }
+        }
+        return surfaced.target
+    }
+
+    /// Begins status-only attention from a trustworthy native approval
+    /// observer. This converges on the exact same reconciliation, reorder, and
+    /// bell path as a blocking Feed decision without manufacturing an
+    /// actionable Feed card that cmux cannot resolve.
+    @MainActor
+    func beginObservedAgentAttention(
+        source: String,
+        sessionId: String,
+        observationId: String,
+        scopeId: String,
+        workspaceId: UUID,
+        surfaceId: UUID?,
+        processGeneration: AgentPIDProcessIdentity,
+        observationEpoch: UInt64? = nil
+    ) -> Bool {
+        guard let integration = BuiltInAgentIntegration(
+            feedSourceName: source
+        ),
+        integration.approvalDetectionMechanism == .nativePostPolicyObserver
+        else {
+            return false
+        }
+        let key = AgentObservedAttentionKey(
+            source: source,
+            sessionId: sessionId,
+            observationId: observationId,
+            processGeneration: processGeneration
+        )
+        guard !observedAttentionConclusions.contains(
+            source: source,
+            sessionId: sessionId,
+            observationId: observationId,
+            scopeId: scopeId,
+            processGeneration: processGeneration,
+            observationEpoch: observationEpoch
+        ) else {
+            return false
+        }
+        if observedAttentionRegistry.record(for: key) != nil {
+            return true
+        }
+        guard let surfaced = surfaceAgentAttention(
+            source: source,
+            resolved: (workspaceId, surfaceId),
+            processEvidence: .exact(processGeneration)
+        ) else {
+            return false
+        }
+        let record = AgentObservedAttentionRecord(
+            key: key,
+            scopeId: scopeId,
+            target: surfaced.target
+        )
+        guard let evicted = observedAttentionRegistry.insert(record) else {
+            // Main-actor serialization makes this unreachable after the lookup
+            // above, but never leak the newly surfaced token if that invariant
+            // changes.
+            concludeBlockingDecisionAttention(surfaced.target)
+            return true
+        }
+        retireObservedAgentAttentionRecords(
+            evicted,
+            recordConclusions: true
+        )
+
+        if !surfaced.usesRemoteProcessNamespace {
+            let monitorKey = Self.observedAttentionProcessMonitorKey(
+                source: source,
+                generation: processGeneration
+            )
+            attentionExitMonitor.observe(
+                key: monitorKey,
+                generation: processGeneration
+            ) { [weak self] _, generation in
+                _ = self?.endObservedAgentAttention(
+                    source: source,
+                    sessionId: nil,
+                    observationId: nil,
+                    scopeId: nil,
+                    processGeneration: generation,
+                    boundaryEpoch: nil,
+                    processDidExit: true
+                )
+            }
+        }
+        return true
+    }
+
+    /// Ends only matching native-observer evidence. Exact process identity is
+    /// mandatory, so a delayed hook from a reused numeric PID cannot clear a
+    /// newer prompt.
+    @MainActor
+    @discardableResult
+    func endObservedAgentAttention(
+        source: String,
+        sessionId: String,
+        observationId: String?,
+        scopeId: String?,
+        processGeneration: AgentPIDProcessIdentity,
+        boundaryEpoch: UInt64? = nil
+    ) -> Int {
+        endObservedAgentAttention(
+            source: source,
+            sessionId: sessionId,
+            observationId: observationId,
+            scopeId: scopeId,
+            processGeneration: processGeneration,
+            boundaryEpoch: boundaryEpoch,
+            processDidExit: false
+        )
+    }
+
+    @MainActor
+    @discardableResult
+    private func endObservedAgentAttention(
+        source: String,
+        sessionId: String?,
+        observationId: String?,
+        scopeId: String?,
+        processGeneration: AgentPIDProcessIdentity,
+        boundaryEpoch: UInt64?,
+        processDidExit: Bool
+    ) -> Int {
+        if !processDidExit {
+            // Exact observation/scope conclusions protect Amp and Cursor
+            // without suppressing future approvals in their long-lived
+            // process. Cursor additionally supplies a monotonic boundary for
+            // observers that began before a process-wide turn conclusion.
+            observedAttentionConclusions.record(
+                source: source,
+                sessionId: sessionId,
+                observationId: observationId,
+                scopeId: scopeId,
+                processGeneration: processGeneration,
+                boundaryEpoch: boundaryEpoch
+            )
+        }
+        let matchingRecords = observedAttentionRegistry.remove { record in
+            let key = record.key
+            return key.source == source
+                && key.processGeneration == processGeneration
+                && (processDidExit || key.sessionId == sessionId)
+                && (observationId == nil
+                    || key.observationId == observationId)
+                && (scopeId == nil || record.scopeId == scopeId)
+        }
+        retireObservedAgentAttentionRecords(
+            matchingRecords,
+            recordConclusions: false,
+            processExitGeneration:
+                processDidExit ? processGeneration : nil
+        )
+        return matchingRecords.count
+    }
+
+    /// Reconciles an accepted lifecycle hook with native approval observations.
+    ///
+    /// A newer exact process generation supersedes every older observation for
+    /// the same target. Within one generation, only an idle hook concludes its
+    /// native prompt. This gives relay sessions deterministic replacement and
+    /// settlement paths without a local PID monitor or timing-based expiry.
+    @MainActor
+    func reconcileObservedAgentAttention(
+        workspaceId: UUID,
+        panelId: UUID,
+        statusKey: String,
+        lifecycle: AgentHibernationLifecycleState,
+        processGeneration: AgentPIDProcessIdentity?
+    ) {
+        guard let processGeneration else { return }
+        let matchingRecords = observedAttentionRegistry.remove { record in
+            record.target.panelId == panelId
+                && record.target.statusKey == statusKey
+                && pendingAttentionStates[record.target]?.statusOwnerId
+                    == workspaceId
+                && (record.key.processGeneration < processGeneration
+                    || (lifecycle == .idle
+                        && record.key.processGeneration == processGeneration))
+        }
+        retireObservedAgentAttentionRecords(
+            matchingRecords,
+            recordConclusions: true
+        )
+    }
+
+    /// Retires every attention contribution owned by a definitively closed
+    /// panel. Transfers skip this path so their reconciliation tokens follow
+    /// the panel to its new owner.
+    @MainActor
+    func retireAgentAttention(workspaceId: UUID, panelId: UUID) {
+        let observed = observedAttentionRegistry.remove { record in
+            record.target.panelId == panelId
+                && pendingAttentionStates[record.target]?.statusOwnerId
+                    == workspaceId
+        }
+        retireObservedAgentAttentionRecords(
+            observed,
+            recordConclusions: true
+        )
+
+        let remainingTargets = pendingAttentionStates.keys.filter {
+            $0.panelId == panelId
+                && pendingAttentionStates[$0]?.statusOwnerId == workspaceId
+        }
+        for target in remainingTargets {
+            concludeBlockingDecisionAttention(target)
+        }
+    }
+
+    /// Retargets live attention bookkeeping after a panel changes container.
+    ///
+    /// Tokens and waiter callbacks keep their original stable target value;
+    /// only the mutable ownership scope changes. A Workspace shares one status
+    /// entry across its panels, while a Dock owns one entry per panel, so every
+    /// pending state in the destination scope adopts the destination's current
+    /// entry before any individual decision can conclude it.
+    @MainActor
+    func retargetAgentAttention(
+        panelId: UUID,
+        to owner: ControlSidebarPanelOwner
+    ) {
+        let movedTargets = pendingAttentionStates.keys.filter {
+            $0.panelId == panelId
+        }
+        guard !movedTargets.isEmpty else { return }
+
+        let (statusIsPanelScoped, fallbackWorkspace): (Bool, Workspace?) =
+            switch owner {
+            case .dock: (true, nil)
+            case .workspace(let workspace): (false, workspace)
+        }
+        let movedStatusKeys = Set(movedTargets.map(\.statusKey))
+        for target in movedTargets {
+            guard var state = pendingAttentionStates[target] else { continue }
+            state.statusOwnerId = owner.id
+            state.statusIsPanelScoped = statusIsPanelScoped
+            state.fallbackWorkspace = fallbackWorkspace
+            pendingAttentionStates[target] = state
+        }
+
+        for statusKey in movedStatusKeys {
+            let movedEntry = movedTargets.lazy.compactMap {
+                pendingAttentionStates[$0]?.statusEntry
+            }.first
+            guard let statusEntry = owner.statusEntry(
+                key: statusKey,
+                panelId: panelId
+            ) ?? movedEntry else {
+                continue
+            }
+            if owner.statusEntry(key: statusKey, panelId: panelId) == nil {
+                owner.setStatusEntry(
+                    statusEntry,
+                    key: statusKey,
+                    panelId: panelId
+                )
+            }
+            let scopedTargets = pendingAttentionStates.keys.filter {
+                target in
+                guard target.statusKey == statusKey,
+                      let state = pendingAttentionStates[target],
+                      state.statusOwnerId == owner.id else {
+                    return false
+                }
+                return !statusIsPanelScoped || target.panelId == panelId
+            }
+            for target in scopedTargets {
+                pendingAttentionStates[target]?.statusEntry = statusEntry
+            }
+        }
+    }
+
+    /// Retires native attention after the owning reconciliation model has
+    /// already accepted an exact process-exit observation. This covers remote
+    /// PID namespaces where the host intentionally installs no local monitor.
+    @MainActor
+    func retireObservedAgentAttentionForProcessExit(
+        workspaceId: UUID,
+        panelId: UUID,
+        statusKey: String,
+        processGeneration: AgentPIDProcessIdentity
+    ) {
+        let matchingRecords = observedAttentionRegistry.remove { record in
+            record.target.panelId == panelId
+                && record.target.statusKey == statusKey
+                && record.key.processGeneration == processGeneration
+                && pendingAttentionStates[record.target]?.statusOwnerId
+                    == workspaceId
+        }
+        retireObservedAgentAttentionRecords(
+            matchingRecords,
+            recordConclusions: true
+        )
+    }
+
+    @MainActor
+    private func retireObservedAgentAttentionRecords(
+        _ records: [AgentObservedAttentionRecord<FeedAttentionTarget>],
+        recordConclusions: Bool,
+        processExitGeneration: AgentPIDProcessIdentity? = nil
+    ) {
+        for record in records {
+            if recordConclusions {
+                observedAttentionConclusions.record(
+                    source: record.key.source,
+                    sessionId: record.key.sessionId,
+                    observationId: record.key.observationId,
+                    scopeId: record.scopeId,
+                    processGeneration: record.key.processGeneration
+                )
+            }
+            if let processExitGeneration {
+                concludeBlockingDecisionAttention(
+                    record.target,
+                    processExitGeneration: processExitGeneration
+                )
+            } else {
+                concludeBlockingDecisionAttention(record.target)
+            }
+        }
+
+        for record in records where !observedAttentionRegistry.contains(
+            where: {
+                $0.key.source == record.key.source
+                    && $0.key.processGeneration
+                        == record.key.processGeneration
+            }
+        ) {
+            attentionExitMonitor.cancel(
+                key: Self.observedAttentionProcessMonitorKey(
+                    source: record.key.source,
+                    generation: record.key.processGeneration
+                )
+            )
+        }
+    }
+
+    @MainActor
+    private func surfaceAgentAttention(
+        source: String,
+        resolved: (workspaceId: UUID, surfaceId: UUID?),
+        processEvidence: FeedAgentProcessEvidence? = nil
+    ) -> FeedSurfacedAttention? {
         guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
               let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
         else {
-            #if DEBUG
-            cmuxDebugLog(
-                "feed.attention.skip reason=missing-workspace session=\(event.sessionId) request=\(event.requestId ?? "nil") hook=\(event.hookEventName.rawValue) source=\(event.source) workspace=\(resolved.workspaceId.uuidString) receivedAt=\(event.receivedAt.timeIntervalSince1970)"
-            )
-            #endif
             return nil
         }
 
-        let panelId = Self.resolvePanelId(surfaceId: resolved.surfaceId, tab: tab) ?? tab.focusedPanelId
-        let statusKey = Self.lifecycleStatusKey(forSource: event.source)
-        let target = AttentionTarget(
+        let directOwner = resolved.surfaceId.flatMap {
+            TerminalController.shared.controlSidebarResolvePanelOwner(
+                target: .workspace(resolved.workspaceId),
+                panelID: $0
+            )
+        }
+        let panelId: UUID?
+        if directOwner != nil {
+            panelId = resolved.surfaceId
+        } else if let surfaceId = resolved.surfaceId {
+            panelId = Self.resolvePanelId(surfaceId: surfaceId, tab: tab)
+        } else {
+            panelId = tab.focusedPanelId
+        }
+        guard let panelId else {
+            return nil
+        }
+        let owner = directOwner
+            ?? TerminalController.shared.controlSidebarResolvePanelOwner(
+                target: .workspace(resolved.workspaceId),
+                panelID: panelId
+            )
+            ?? .workspace(tab)
+        let statusKey = Self.lifecycleStatusKey(forSource: source)
+        let usesRemoteProcessNamespace =
+            owner.usesRemoteAgentProcessNamespace(panelId: panelId)
+        let processGeneration: AgentPIDProcessIdentity? = switch processEvidence {
+        case .exact(let generation):
+            generation
+        case .localPID(let pid):
+            usesRemoteProcessNamespace
+                ? nil
+                : Self.localProcessGeneration(pid: pid)
+        case nil:
+            nil
+        }
+        // Relay generations cannot be probed in the local process table, but
+        // they remain authoritative ordering evidence for reconciliation.
+        if !usesRemoteProcessNamespace, let processGeneration {
+            guard AgentPIDProcessIdentity(
+                pid: processGeneration.pid
+            ) == processGeneration else {
+                return nil
+            }
+        }
+        guard let token = owner.beginAgentFeedAttention(
+            key: statusKey,
+            panelId: panelId,
+            processGeneration: processGeneration
+        ) else {
+            return nil
+        }
+        let target = FeedAttentionTarget(
             workspaceId: resolved.workspaceId,
             panelId: panelId,
-            statusKey: statusKey
+            statusKey: statusKey,
+            token: token
         )
-        let attentionState = pendingAttentionStates[target] ?? AttentionOverlayState(workspace: tab)
-        attentionState.workspace = tab
-        attentionState.count += 1
-        pendingAttentionStates[target] = attentionState
-
-        // Needs-input lifecycle drives the sidebar badge + hibernation state.
-        tab.setAgentLifecycle(key: statusKey, panelId: panelId, lifecycle: .needsInput)
-        tab.statusEntries[statusKey] = SidebarStatusEntry(
+        let statusIsPanelScoped: Bool
+        switch owner {
+        case .dock:
+            statusIsPanelScoped = true
+        case .workspace:
+            statusIsPanelScoped = false
+        }
+        let statusEntry = pendingAttentionStates.first { pendingTarget, state in
+            guard pendingTarget.statusKey == statusKey,
+                  state.statusOwnerId == owner.id else {
+                return false
+            }
+            return !statusIsPanelScoped || pendingTarget.panelId == panelId
+        }?.value.statusEntry ?? SidebarStatusEntry(
             key: statusKey,
             value: Self.needsInputStatusValue,
             icon: "bell.fill",
             color: "#4C8DFF",
             timestamp: Date()
+        )
+        pendingAttentionStates[target] = FeedPendingAttentionState(
+            fallbackWorkspace: tab,
+            statusEntry: statusEntry,
+            statusOwnerId: owner.id,
+            statusIsPanelScoped: statusIsPanelScoped,
+            processExitMonitorKey: nil
+        )
+
+        // Needs-input lifecycle drives the sidebar badge + hibernation state.
+        owner.setStatusEntry(
+            statusEntry,
+            key: statusKey,
+            panelId: panelId
         )
 
         // Elevate the workspace so it floats to the top of the sidebar,
@@ -684,44 +1123,128 @@ extension FeedCoordinator {
         // Ring the bell (dock bounce while the app is in the background).
         NSApp.requestUserAttention(.informationalRequest)
 
-        return target
+        return FeedSurfacedAttention(
+            target: target,
+            usesRemoteProcessNamespace: usesRemoteProcessNamespace,
+            processGeneration: processGeneration
+        )
     }
 
-    /// Concludes a blocking decision's attention overlay. Decrements the
-    /// per-target refcount and, when it reaches zero, clears the needs-input
-    /// overlay — but only the parts the feed still owns: the lifecycle is set
-    /// to `.running` only if it's still `.needsInput`, and the status entry is
-    /// removed only if it still holds our "Needs input" value. Anything an
-    /// agent hook replaced in the meantime is left untouched, so a real
-    /// running/idle/needs-input update from the agent always wins.
+    private static func localProcessGeneration(
+        pid: Int
+    ) -> AgentPIDProcessIdentity? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        return AgentPIDProcessIdentity(pid: pid_t(pid))
+    }
+
+    private static func blockingAttentionProcessMonitorKey(
+        target: FeedAttentionTarget
+    ) -> String {
+        "blocking:\(target.token.id.uuidString.lowercased())"
+    }
+
+    private static func observedAttentionProcessMonitorKey(
+        source: String,
+        generation: AgentPIDProcessIdentity
+    ) -> String {
+        [
+            source,
+            String(generation.pid),
+            String(generation.startSeconds),
+            String(generation.startMicroseconds),
+        ].joined(separator: ":")
+    }
+
+    /// Concludes one blocking decision's attention overlay, clearing only the
+    /// generation-scoped evidence and status entry the Feed still owns.
+    /// Reconciliation reveals the latest hook/process lifecycle underneath;
+    /// it never assumes that resolving an approval means work resumed.
     @MainActor
-    func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
-        guard let attentionState = pendingAttentionStates[target] else { return }
-        if attentionState.count > 1 {
-            attentionState.count -= 1
+    func concludeBlockingDecisionAttention(_ target: FeedAttentionTarget) {
+        concludeBlockingDecisionAttention(
+            target,
+            processExitGeneration: nil
+        )
+    }
+
+    @MainActor
+    private func concludeBlockingDecisionAttention(
+        _ target: FeedAttentionTarget,
+        processExitGeneration: AgentPIDProcessIdentity?
+    ) {
+        guard let pendingState =
+            pendingAttentionStates.removeValue(forKey: target) else {
             return
         }
-        pendingAttentionStates.removeValue(forKey: target)
-        let tab = attentionState.workspace
-
-        // Lifecycle is per-panel, so clearing this panel's needs-input is
-        // safe even if another panel still needs input.
-        if let panelId = target.panelId,
-           tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
-            tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
+        if let monitorKey = pendingState.processExitMonitorKey {
+            attentionExitMonitor.cancel(key: monitorKey)
+        }
+        let fallbackWorkspace = pendingState.fallbackWorkspace
+        let owner = TerminalController.shared
+            .controlSidebarResolvePanelOwner(
+                target: .workspace(target.workspaceId),
+                panelID: target.panelId
+            )
+        guard let resolvedOwner = owner
+            ?? fallbackWorkspace.map(ControlSidebarPanelOwner.workspace) else {
+            return
+        }
+        if let processExitGeneration {
+            _ = resolvedOwner.recordAgentProcessExit(
+                key: target.statusKey,
+                panelId: target.panelId,
+                generation: processExitGeneration
+            )
+        } else {
+            _ = resolvedOwner.endAgentFeedAttention(
+                key: target.statusKey,
+                panelId: target.panelId,
+                token: target.token
+            )
         }
 
-        // The status entry is workspace-level (keyed only by statusKey), so it
-        // is shared across panels running the same agent. Only remove it once
-        // no other panel in this workspace still has a pending decision under
-        // the same key — otherwise concluding one panel would wipe another
-        // panel's active "Needs input" badge.
+        // Workspace status entries are shared across panels, while detached
+        // Dock entries are panel-scoped. Preserve the matching scope when
+        // checking whether another decision still owns the visible badge. The
+        // token may already be absent because a replacement generation
+        // invalidated it; status cleanup must still run, while the reconciled
+        // lifecycle and pending-target checks below protect newer evidence.
         let anotherPanelStillPending = pendingAttentionStates.keys.contains {
-            $0.workspaceId == target.workspaceId && $0.statusKey == target.statusKey
+            guard $0.statusKey == target.statusKey else { return false }
+            guard pendingAttentionStates[$0]?.statusOwnerId
+                == pendingState.statusOwnerId else {
+                return false
+            }
+            return !pendingState.statusIsPanelScoped
+                || $0.panelId == target.panelId
         }
-        if !anotherPanelStillPending,
-           tab.statusEntries[target.statusKey]?.value == Self.needsInputStatusValue {
-            tab.statusEntries.removeValue(forKey: target.statusKey)
+        guard !anotherPanelStillPending else { return }
+        guard resolvedOwner.statusEntry(
+            key: target.statusKey,
+            panelId: target.panelId
+        ) == pendingState.statusEntry else {
+            return
+        }
+        if let owner {
+            guard owner.agentLifecycleState(
+                key: target.statusKey,
+                panelId: target.panelId
+            ) != .needsInput else {
+                return
+            }
+            owner.clearStatusEntry(
+                key: target.statusKey,
+                panelId: target.panelId
+            )
+        } else if let fallbackWorkspace,
+                  fallbackWorkspace.agentLifecycleStatesByPanelId[
+                    target.panelId
+                  ]?[target.statusKey] != .needsInput {
+            ControlSidebarPanelOwner.workspace(fallbackWorkspace)
+                .clearStatusEntry(
+                    key: target.statusKey,
+                    panelId: target.panelId
+                )
         }
     }
 
@@ -766,17 +1289,6 @@ extension FeedCoordinator {
     }
 }
 
-@MainActor
-private final class AttentionOverlayState {
-    var count: Int
-    var workspace: Workspace
-
-    init(workspace: Workspace) {
-        self.count = 0
-        self.workspace = workspace
-    }
-}
-
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
@@ -785,7 +1297,7 @@ private final class PendingWaiter: @unchecked Sendable {
     /// reply can fire) and read when the decision concludes, so the
     /// needs-input overlay is cleared exactly once. Guarded by
     /// `FeedCoordinator.waiterLock`.
-    var attentionTarget: FeedCoordinator.AttentionTarget?
+    var attentionTarget: FeedAttentionTarget?
 
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore

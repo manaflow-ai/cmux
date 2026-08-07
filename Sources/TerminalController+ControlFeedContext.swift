@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CoreFoundation
 import Foundation
 
 /// The feed-domain (workstream) witnesses are the byte-faithful bodies of the
@@ -23,5 +24,158 @@ extension TerminalController: ControlFeedContext {
             // the empty-object fallback exists solely to keep the map total.
             JSONValue(foundationObject: FeedSocketEncoding.itemDict(item)) ?? .object([:])
         }
+    }
+
+    func v2AgentAttentionBegin(
+        params: [String: Any]
+    ) -> V2CallResult {
+        let observationEpochValue = params["observation_epoch"]
+        let observationEpoch = agentAttentionEpoch(observationEpochValue)
+        guard let source = agentAttentionSource(params["source"]),
+              let sessionId = agentAttentionOpaqueID(params["session_id"]),
+              let observationId = agentAttentionOpaqueID(
+                  params["observation_id"]
+              ),
+              let scopeId = agentAttentionOpaqueID(params["scope_id"]),
+              let workspaceId = agentAttentionUUID(params["workspace_id"]),
+              let generation = agentAttentionProcessGeneration(params),
+              observationEpochValue == nil || observationEpoch != nil else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "agent_attention.invalid_parameters",
+                    defaultValue: "Invalid agent attention parameters."
+                ),
+                data: nil
+            )
+        }
+        let began = FeedCoordinator.shared.beginObservedAgentAttention(
+            source: source,
+            sessionId: sessionId,
+            observationId: observationId,
+            scopeId: scopeId,
+            workspaceId: workspaceId,
+            surfaceId: agentAttentionUUID(params["surface_id"]),
+            processGeneration: generation,
+            observationEpoch: observationEpoch
+        )
+        return .ok(["status": began ? "began" : "ignored"])
+    }
+
+    func v2AgentAttentionEnd(
+        params: [String: Any]
+    ) -> V2CallResult {
+        let boundaryEpochValue = params["boundary_epoch"]
+        let boundaryEpoch = agentAttentionEpoch(boundaryEpochValue)
+        guard let source = agentAttentionSource(params["source"]),
+              let sessionId = agentAttentionOpaqueID(params["session_id"]),
+              let generation = agentAttentionProcessGeneration(params),
+              boundaryEpochValue == nil || boundaryEpoch != nil
+        else {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "agent_attention.invalid_parameters",
+                    defaultValue: "Invalid agent attention parameters."
+                ),
+                data: nil
+            )
+        }
+        let ended = FeedCoordinator.shared.endObservedAgentAttention(
+            source: source,
+            sessionId: sessionId,
+            observationId: agentAttentionOpaqueID(
+                params["observation_id"]
+            ),
+            scopeId: agentAttentionOpaqueID(params["scope_id"]),
+            processGeneration: generation,
+            boundaryEpoch: boundaryEpoch
+        )
+        return .ok([
+            "status": "ended",
+            "ended_count": ended,
+        ])
+    }
+
+    private func agentAttentionSource(_ raw: Any?) -> String? {
+        guard let source = (raw as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            let integration = BuiltInAgentIntegration(
+                feedSourceName: source
+            ),
+            integration.approvalDetectionMechanism
+                == .nativePostPolicyObserver else {
+            return nil
+        }
+        return source
+    }
+
+    private func agentAttentionOpaqueID(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        return AgentAttentionOpaqueIdentifier(rawValue: value)?.rawValue
+    }
+
+    private func agentAttentionUUID(_ raw: Any?) -> UUID? {
+        guard let value = (raw as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return nil
+        }
+        return UUID(uuidString: value)
+    }
+
+    private func agentAttentionEpoch(_ raw: Any?) -> UInt64? {
+        guard let value = raw as? String,
+              !value.isEmpty,
+              value.utf8.allSatisfy({ (48 ... 57).contains($0) }) else {
+            return nil
+        }
+        return UInt64(value)
+    }
+
+    private func agentAttentionProcessGeneration(
+        _ params: [String: Any]
+    ) -> AgentPIDProcessIdentity? {
+        guard let pidValue = agentAttentionInt64(params["pid"]),
+              pidValue > 0,
+              pidValue <= Int64(Int32.max),
+              let startSeconds = agentAttentionInt64(
+                  params["pid_start_seconds"]
+              ),
+              startSeconds >= 0,
+              let startMicroseconds = agentAttentionInt64(
+                  params["pid_start_microseconds"]
+              ),
+              (0 ..< 1_000_000).contains(startMicroseconds) else {
+            return nil
+        }
+        return AgentPIDProcessIdentity(
+            pid: pid_t(pidValue),
+            startSeconds: startSeconds,
+            startMicroseconds: startMicroseconds
+        )
+    }
+
+    private func agentAttentionInt64(_ raw: Any?) -> Int64? {
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID() else {
+            return nil
+        }
+        if let value = raw as? Int {
+            return Int64(value)
+        }
+        if CFNumberIsFloatType(number) {
+            return Int64(exactly: number.doubleValue)
+        }
+        let double = number.doubleValue
+        guard double.isFinite,
+              double.rounded(.towardZero) == double,
+              number.compare(NSNumber(value: Int64.min))
+                != .orderedAscending,
+              number.compare(NSNumber(value: Int64.max))
+                != .orderedDescending else {
+            return nil
+        }
+        return number.int64Value
     }
 }

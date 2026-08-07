@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import Testing
 import Bonsplit
+import CmuxCore
 import CmuxTerminal
 
 #if canImport(cmux_DEV)
@@ -14,11 +15,11 @@ import CmuxTerminal
 struct AgentHibernationTests {
     @Test
     func testLifecycleStateParsingAcceptsShellFriendlyAliases() throws {
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("IDLE"), .idle)
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
-        expectNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
+        expectEqual(AgentHibernationLifecycleState(cliValue: "IDLE"), .idle)
+        expectEqual(AgentHibernationLifecycleState(cliValue: "needsInput"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState(cliValue: "needs-input"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState(cliValue: "needs_input"), .needsInput)
+        expectNil(AgentHibernationLifecycleState(cliValue: "paused"))
 
         let decoded = try JSONDecoder().decode(
             AgentHibernationLifecycleState.self,
@@ -33,6 +34,190 @@ struct AgentHibernationTests {
         let response = TerminalController.shared.handleSocketLine("set_agent_lifecycle fake-agent idle")
 
         expectTrue(response.contains("Unsupported agent lifecycle key"))
+    }
+
+    @MainActor
+    @Test
+    func testBuiltInSocketEvidenceRequiresLivePanelProcess() throws {
+        let previousManager =
+            TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let target =
+            "--tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+
+        expectTrue(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex running \(target)"
+            ).contains("process generation is required")
+        )
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_status codex Running \(target)"
+            ),
+            "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        expectNil(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["codex"]
+        )
+        expectNil(workspace.statusEntries["codex"])
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                process.terminate()
+            }
+            process.waitUntilExit()
+        }
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(pid: process.processIdentifier)
+        )
+        let processGenerationOptions =
+            "--pid=\(processIdentity.pid) "
+            + "--pid-start-seconds=\(processIdentity.startSeconds) "
+            + "--pid-start-microseconds="
+            + "\(processIdentity.startMicroseconds)"
+        defer {
+            workspace.clearAgentPID(
+                key: "codex.socket-test",
+                panelId: panelId,
+                clearStatus: true,
+                refreshPorts: false
+            )
+        }
+
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_pid codex.socket-test "
+                    + "\(process.processIdentifier) \(target) "
+                    + processGenerationOptions
+            ),
+            "OK"
+        )
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex idle \(target) "
+                    + "--pid=\(processIdentity.pid) "
+                    + "--pid-start-seconds="
+                    + "\(processIdentity.startSeconds - 1) "
+                    + "--pid-start-microseconds="
+                    + "\(processIdentity.startMicroseconds)"
+            ),
+            "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+        expectNil(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["codex"]
+        )
+
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex running \(target) "
+                    + processGenerationOptions
+            ),
+            "OK"
+        )
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_status codex Running \(target)"
+            ),
+            "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        expectEqual(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["codex"],
+            .running
+        )
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
+    }
+
+    @MainActor
+    @Test
+    func testRemoteSocketEvidenceDoesNotResolvePIDAgainstLocalHost() throws {
+        let previousManager =
+            TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            TerminalMutationBus.shared.drainForTesting()
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "remote.example",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64007,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-remote-agent-test.sock",
+            terminalStartupCommand: "ssh remote.example"
+        )
+        let target =
+            "--tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        let remotePID = Int32.max
+        let remoteGenerationOptions =
+            "--pid=\(remotePID) --pid-start-seconds=200 "
+            + "--pid-start-microseconds=300"
+
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_pid codex.remote-session \(remotePID) \(target) "
+                    + remoteGenerationOptions
+            ),
+            "OK"
+        )
+        expectTrue(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex running \(target)"
+            ).contains("process generation is required")
+        )
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex running \(target) "
+                    + remoteGenerationOptions
+            ),
+            "OK"
+        )
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_agent_lifecycle codex idle \(target) "
+                    + "--pid=\(remotePID) --pid-start-seconds=199 "
+                    + "--pid-start-microseconds=300"
+            ),
+            "OK"
+        )
+        expectEqual(
+            TerminalController.shared.handleSocketLine(
+                "set_status codex Running --pid=\(remotePID) \(target)"
+            ),
+            "OK"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        expectNil(workspace.agentPIDs["codex.remote-session"])
+        expectEqual(
+            workspace.agentLifecycleStatesByPanelId[panelId]?["codex"],
+            .running
+        )
+        expectEqual(workspace.statusEntries["codex"]?.value, "Running")
     }
 
     @MainActor
@@ -281,6 +466,456 @@ struct AgentHibernationTests {
         )
         expectEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
         expectEqual(workspace.agentPIDs["omp.current"], 12345)
+    }
+
+    @MainActor
+    @Test
+    func testDisagreeingAgentKeysResolveUnknownInsteadOfFixedEnumPrecedence() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .running)
+        workspace.setAgentLifecycle(key: "amp", panelId: panelId, lifecycle: .idle)
+
+        expectEqual(
+            workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil),
+            .unknown
+        )
+    }
+
+    @Test
+    func testLiveGenerationOutranksStaleUnboundLifecycleEvidence() {
+        let panelId = UUID()
+        let generation = AgentPIDProcessIdentity(
+            pid: 42,
+            startSeconds: 100,
+            startMicroseconds: 200
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        _ = state.setHookLifecycle(
+            key: "amp",
+            panelId: panelId,
+            lifecycle: .idle,
+            isBuiltIn: true
+        )
+        state.recordProcessGeneration(
+            key: "codex",
+            panelId: panelId,
+            generation: generation,
+            isBuiltIn: true
+        )
+        _ = state.setHookLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running,
+            isBuiltIn: true
+        )
+
+        expectEqual(
+            state.resolvedStatesByPanelId[panelId],
+            ["codex": .running]
+        )
+    }
+
+    @MainActor
+    @Test
+    func testDetachedRuntimePreservesHiddenDeadGenerationTombstone() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        let generation = AgentPIDProcessIdentity(
+            pid: 42,
+            startSeconds: 100,
+            startMicroseconds: 200
+        )
+
+        workspace.sidebarAgentRuntimeObservation.recordAgentProcessGeneration(
+            key: "codex",
+            panelId: panelId,
+            generation: generation,
+            isBuiltIn: true
+        )
+        #expect(
+            workspace.sidebarAgentRuntimeObservation.recordAgentProcessExit(
+                key: "codex",
+                panelId: panelId,
+                generation: generation
+            )
+        )
+
+        let runtime = try #require(
+            workspace.agentRuntimeState(forPanelId: panelId)
+        )
+        #expect(runtime.agentLifecycleStates.isEmpty)
+        #expect(runtime.agentLifecycleReconciliationState.hasEvidence)
+    }
+
+    @Test
+    func testUnidentifiedExitRejectsHooksUntilExactGenerationArrives() {
+        let panelId = UUID()
+        let generation = AgentPIDProcessIdentity(
+            pid: 43,
+            startSeconds: 101,
+            startMicroseconds: 201
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        state.recordUnidentifiedProcessExit(
+            key: "codex",
+            panelId: panelId,
+            isBuiltIn: true
+        )
+        expectFalse(
+            state.setHookLifecycle(
+                key: "codex",
+                panelId: panelId,
+                lifecycle: .running,
+                isBuiltIn: true
+            )
+        )
+
+        state.recordProcessGeneration(
+            key: "codex",
+            panelId: panelId,
+            generation: generation,
+            isBuiltIn: true
+        )
+        expectTrue(
+            state.setHookLifecycle(
+                key: "codex",
+                panelId: panelId,
+                lifecycle: .running,
+                isBuiltIn: true
+            )
+        )
+        expectEqual(
+            state.resolvedStatesByPanelId[panelId],
+            ["codex": .running]
+        )
+    }
+
+    @Test
+    func testProcessExitClearsFeedAttentionAndRejectsDelayedApproval() {
+        let panelId = UUID()
+        let generation = AgentPIDProcessIdentity(
+            pid: 44,
+            startSeconds: 102,
+            startMicroseconds: 202
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        state.recordProcessGeneration(
+            key: "cursor",
+            panelId: panelId,
+            generation: generation,
+            isBuiltIn: true
+        )
+        let firstToken = state.beginFeedAttention(
+            key: "cursor",
+            panelId: panelId,
+            isBuiltIn: true
+        )
+        let secondToken = state.beginFeedAttention(
+            key: "cursor",
+            panelId: panelId,
+            isBuiltIn: true
+        )
+        expectNotNil(firstToken)
+        expectNotNil(secondToken)
+        expectTrue(
+            state.recordProcessExit(
+                key: "cursor",
+                panelId: panelId,
+                generation: generation
+            )
+        )
+
+        expectNil(state.resolvedStatesByPanelId[panelId]?["cursor"])
+        expectNil(
+            state.beginFeedAttention(
+                key: "cursor",
+                panelId: panelId,
+                isBuiltIn: true
+            )
+        )
+    }
+
+    @Test
+    func testNewerProcessExitRejectsOlderExactHookAndFeedEvidence() {
+        let panelId = UUID()
+        let olderGeneration = AgentPIDProcessIdentity(
+            pid: 47,
+            startSeconds: 105,
+            startMicroseconds: 100
+        )
+        let exitedGeneration = AgentPIDProcessIdentity(
+            pid: 48,
+            startSeconds: 106,
+            startMicroseconds: 100
+        )
+        let replacementGeneration = AgentPIDProcessIdentity(
+            pid: 49,
+            startSeconds: 107,
+            startMicroseconds: 100
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        state.recordProcessGeneration(
+            key: "codex",
+            panelId: panelId,
+            generation: exitedGeneration,
+            isBuiltIn: true
+        )
+        expectTrue(
+            state.recordProcessExit(
+                key: "codex",
+                panelId: panelId,
+                generation: exitedGeneration
+            )
+        )
+
+        expectFalse(
+            state.setHookLifecycle(
+                key: "codex",
+                panelId: panelId,
+                lifecycle: .running,
+                isBuiltIn: true,
+                processGeneration: olderGeneration
+            )
+        )
+        expectNil(
+            state.beginFeedAttention(
+                key: "codex",
+                panelId: panelId,
+                isBuiltIn: true,
+                processGeneration: olderGeneration
+            )
+        )
+        expectTrue(
+            state.setHookLifecycle(
+                key: "codex",
+                panelId: panelId,
+                lifecycle: .running,
+                isBuiltIn: true,
+                processGeneration: replacementGeneration
+            )
+        )
+        expectEqual(
+            state.resolvedStatesByPanelId[panelId]?["codex"],
+            .running
+        )
+    }
+
+    @Test
+    func testFeedAttentionProcessGenerationBridgesPIDRegistrationRace() {
+        let panelId = UUID()
+        let generation = AgentPIDProcessIdentity(
+            pid: 46,
+            startSeconds: 105,
+            startMicroseconds: 205
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        let token = state.beginFeedAttention(
+            key: "codex",
+            panelId: panelId,
+            isBuiltIn: true,
+            processGeneration: generation
+        )
+
+        expectNotNil(token)
+        expectEqual(
+            state.resolvedStatesByPanelId[panelId]?["codex"],
+            .needsInput
+        )
+        expectTrue(
+            state.recordProcessExit(
+                key: "codex",
+                panelId: panelId,
+                generation: generation
+            )
+        )
+        expectNil(state.resolvedStatesByPanelId[panelId]?["codex"])
+        expectFalse(
+            state.setHookLifecycle(
+                key: "codex",
+                panelId: panelId,
+                lifecycle: .running,
+                isBuiltIn: true
+            )
+        )
+    }
+
+    @Test
+    func testReplacementProcessGenerationDropsPriorFeedAttention() {
+        let panelId = UUID()
+        let firstGeneration = AgentPIDProcessIdentity(
+            pid: 45,
+            startSeconds: 103,
+            startMicroseconds: 203
+        )
+        let replacementGeneration = AgentPIDProcessIdentity(
+            pid: 45,
+            startSeconds: 104,
+            startMicroseconds: 204
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        state.recordProcessGeneration(
+            key: "cursor",
+            panelId: panelId,
+            generation: firstGeneration,
+            isBuiltIn: true
+        )
+        let staleToken = state.beginFeedAttention(
+            key: "cursor",
+            panelId: panelId,
+            isBuiltIn: true
+        )
+        expectNotNil(staleToken)
+
+        state.recordProcessGeneration(
+            key: "cursor",
+            panelId: panelId,
+            generation: replacementGeneration,
+            isBuiltIn: true
+        )
+
+        expectEqual(
+            state.resolvedStatesByPanelId[panelId]?["cursor"],
+            .unknown
+        )
+        let replacementToken = state.beginFeedAttention(
+            key: "cursor",
+            panelId: panelId,
+            isBuiltIn: true
+        )
+        expectNotNil(replacementToken)
+        if let staleToken {
+            expectFalse(
+                state.endFeedAttention(
+                    key: "cursor",
+                    panelId: panelId,
+                    token: staleToken
+                )
+            )
+        } else {
+            Issue.record("Expected first-generation Feed attention token")
+        }
+        expectEqual(
+            state.resolvedStatesByPanelId[panelId]?["cursor"],
+            .needsInput
+        )
+        if let replacementToken {
+            expectTrue(
+                state.endFeedAttention(
+                    key: "cursor",
+                    panelId: panelId,
+                    token: replacementToken
+                )
+            )
+        } else {
+            Issue.record("Expected replacement Feed attention token")
+        }
+    }
+
+    @Test
+    func testObservedAttentionConclusionRejectsReorderedBeginOnlyForItsGeneration() {
+        let firstGeneration = AgentPIDProcessIdentity(
+            pid: 47,
+            startSeconds: 106,
+            startMicroseconds: 206
+        )
+        let replacementGeneration = AgentPIDProcessIdentity(
+            pid: 47,
+            startSeconds: 107,
+            startMicroseconds: 207
+        )
+        var ledger = AgentObservedAttentionConclusionLedger()
+
+        ledger.record(
+            source: "cursor",
+            sessionId: "cursor-session-1",
+            observationId: "cursor-observation-1",
+            scopeId: "cursor-scope-1",
+            processGeneration: firstGeneration
+        )
+
+        expectTrue(
+            ledger.contains(
+                source: "cursor",
+                sessionId: "cursor-session-1",
+                observationId: "cursor-observation-1",
+                scopeId: "cursor-scope-1",
+                processGeneration: firstGeneration
+            )
+        )
+        expectFalse(
+            ledger.contains(
+                source: "cursor",
+                sessionId: "cursor-session-1",
+                observationId: "cursor-observation-1",
+                scopeId: "cursor-scope-1",
+                processGeneration: replacementGeneration
+            )
+        )
+        expectFalse(
+            ledger.contains(
+                source: "cursor",
+                sessionId: "cursor-session-2",
+                observationId: "cursor-observation-1",
+                scopeId: "cursor-scope-1",
+                processGeneration: firstGeneration
+            )
+        )
+        expectFalse(
+            ledger.contains(
+                source: "cursor",
+                sessionId: "cursor-session-1",
+                observationId: "cursor-observation-2",
+                scopeId: "cursor-scope-2",
+                processGeneration: firstGeneration
+            )
+        )
+    }
+
+    @Test
+    func testObservedAttentionConclusionEvictsOldestKeysAtBound() {
+        let generation = AgentPIDProcessIdentity(
+            pid: 48,
+            startSeconds: 108,
+            startMicroseconds: 208
+        )
+        var ledger = AgentObservedAttentionConclusionLedger()
+
+        for index in 0 ..< 2_050 {
+            ledger.record(
+                source: "cursor",
+                sessionId: "cursor-session-1",
+                observationId: "cursor-observation-\(index)",
+                scopeId: "cursor-scope-\(index)",
+                processGeneration: generation
+            )
+        }
+
+        expectFalse(
+            ledger.contains(
+                source: "cursor",
+                sessionId: "cursor-session-1",
+                observationId: "cursor-observation-0",
+                scopeId: "cursor-scope-0",
+                processGeneration: generation
+            )
+        )
+        expectTrue(
+            ledger.contains(
+                source: "cursor",
+                sessionId: "cursor-session-1",
+                observationId: "cursor-observation-2049",
+                scopeId: "cursor-scope-2049",
+                processGeneration: generation
+            )
+        )
     }
 
     @MainActor

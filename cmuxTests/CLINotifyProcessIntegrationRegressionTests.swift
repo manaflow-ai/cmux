@@ -27,7 +27,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             context.state.commands.contains { $0 == "clear_notifications --tab=\(context.workspaceId) --panel=\(context.surfaceId)" },
             "Expected clear SessionStart to clear only the current pane, saw \(context.state.commands)"
@@ -1578,7 +1578,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertEqual(result.stdout, "{}\n")
         let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
         let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
         XCTAssertNil(
@@ -2099,6 +2099,102 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(
             parentStopCommands.contains { $0.hasPrefix("set_status gemini ") && $0.contains(" Idle ") },
             "The generic parent Stop must still mark Gemini idle, saw \(parentStopCommands)"
+        )
+    }
+
+    func testAmpLatePromptCannotResurrectSettledTurn() throws {
+        let context = try makeClaudeHookContext(name: "amp-terminal-turn-replay")
+        defer { context.cleanup() }
+
+        let sessionId = "amp-terminal-turn-replay-session"
+        let turnId = "amp-turn-1"
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "amp",
+            executable: "/usr/local/bin/amp"
+        )
+        startAgentHookMockServerAccepting(context: context)
+
+        let prompt = runAgentHook(
+            context: context,
+            agent: "amp",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stop = runAgentHook(
+            context: context,
+            agent: "amp",
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","cmux_turn_boundary":"settled","cmux_active_background_work_count":0,"last_assistant_message":"done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let latePromptStart = context.state.snapshot().count
+        let latePrompt = runAgentHook(
+            context: context,
+            agent: "amp",
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(latePrompt.timedOut, latePrompt.stderr)
+        XCTAssertEqual(latePrompt.status, 0, latePrompt.stderr)
+
+        let latePromptCommands = Array(
+            context.state.snapshot().dropFirst(latePromptStart)
+        )
+        XCTAssertFalse(
+            latePromptCommands.contains {
+                $0.contains("set_agent_lifecycle amp running")
+                    || $0.hasPrefix("set_status amp Running ")
+                    || $0.hasPrefix("clear_notifications ")
+            },
+            "A detached Amp prompt hook arriving after the same turn settled "
+                + "must not resurrect Running or clear completion, saw "
+                + "\(latePromptCommands)"
+        )
+    }
+
+    func testAmpThreadsShareOneProcessScopedPIDOwner() throws {
+        let context = try makeClaudeHookContext(
+            name: "amp-process-scoped-pid-owner"
+        )
+        defer { context.cleanup() }
+
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "amp",
+            executable: "/usr/local/bin/amp"
+        )
+        startAgentHookMockServerAccepting(context: context)
+
+        for index in 1 ... 2 {
+            let result = runAgentHook(
+                context: context,
+                agent: "amp",
+                subcommand: "prompt-submit",
+                standardInput: #"{"session_id":"amp-thread-\#(index)","turn_id":"amp-turn-\#(index)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+                extraEnvironment: launchEnvironment
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let pidRegistrations = context.state.commands.filter {
+            $0.hasPrefix("set_agent_pid amp.")
+        }
+        XCTAssertFalse(pidRegistrations.isEmpty)
+        XCTAssertTrue(
+            pidRegistrations.allSatisfy {
+                $0.hasPrefix("set_agent_pid amp.process ")
+            },
+            "Amp's long-lived plugin process must own one stable PID key, saw \(pidRegistrations)"
         )
     }
 
@@ -3300,6 +3396,39 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testManagedCodexSubagentSessionStartDoesNotPublishVisibleLifecycle() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-start-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session-start"
+        startAgentHookMockServerAccepting(context: context)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(
+                context: context,
+                sessionId: sessionId
+            ).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_agent_pid codex.")
+                    || $0.contains("set_agent_lifecycle codex ")
+            },
+            "Managed subagent SessionStart should persist routing without mutating the visible parent's PID or lifecycle, saw \(context.state.commands)"
+        )
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
@@ -3338,6 +3467,103 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(
             stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
             "Stale completed-turn subagent relay should not suppress the parent completion notification, saw \(stopCommands)"
+        )
+    }
+
+    func testCodexStopWaitsForStructuredSubagentSettlementWithoutTranscriptParsing() throws {
+        let context = try makeClaudeHookContext(name: "codex-structured-subagent-settlement")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-structured-subagent-session"
+        let turnId = "turn-with-active-subagent"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"delegate this"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let subagentStart = runFeedHook(
+            context: context,
+            source: "codex",
+            event: "SubagentStart",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","agent_id":"subagent-1","hook_event_name":"SubagentStart","cwd":"\#(context.root.path)"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(subagentStart.timedOut, subagentStart.stderr)
+        XCTAssertEqual(subagentStart.status, 0, subagentStart.stderr)
+
+        let prematureStopStart = context.state.snapshot().count
+        let prematureStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent yielded"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prematureStop.timedOut, prematureStop.stderr)
+        XCTAssertEqual(prematureStop.status, 0, prematureStop.stderr)
+        let prematureCommands = Array(context.state.snapshot().dropFirst(prematureStopStart))
+        XCTAssertFalse(
+            prematureCommands.contains {
+                $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|")
+            },
+            "A structured active subagent must suppress the parent completion, saw \(prematureCommands)"
+        )
+        XCTAssertTrue(
+            context.state.snapshot().contains {
+                $0.contains("set_agent_lifecycle codex running")
+            },
+            "The prompt must establish Running before a provisional Stop, saw \(context.state.snapshot())"
+        )
+        XCTAssertFalse(
+            prematureCommands.contains {
+                $0.contains("set_agent_lifecycle codex ")
+            },
+            "A provisional Stop must preserve existing lifecycle instead of racing a newer settlement, saw \(prematureCommands)"
+        )
+
+        let settledStopStart = context.state.snapshot().count
+        let subagentStop = runFeedHook(
+            context: context,
+            source: "codex",
+            event: "SubagentStop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","agent_id":"subagent-1","hook_event_name":"SubagentStop","cwd":"\#(context.root.path)"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(subagentStop.timedOut, subagentStop.stderr)
+        XCTAssertEqual(subagentStop.status, 0, subagentStop.stderr)
+
+        XCTAssertTrue(
+            waitForMockSocketCommand(in: context.state) {
+                $0.hasPrefix(
+                    "notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|"
+                )
+            },
+            "Codex must replay completion when the structured subagent set becomes empty, saw \(context.state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForMockSocketCommand(in: context.state) {
+                $0.contains("set_agent_lifecycle codex idle")
+            },
+            "Settled Codex work must publish Idle, saw \(context.state.snapshot())"
+        )
+        let settledCommands = Array(context.state.snapshot().dropFirst(settledStopStart))
+        XCTAssertTrue(
+            settledCommands.contains {
+                $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|")
+            },
+            "Codex must replay completion when the structured subagent set becomes empty, saw \(settledCommands)"
+        )
+        XCTAssertTrue(
+            settledCommands.contains {
+                $0.contains("set_agent_lifecycle codex idle")
+            },
+            "Settled Codex work must publish Idle, saw \(settledCommands)"
         )
     }
 
@@ -9134,6 +9360,41 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", agent, subcommand],
+            environment: agentHookEnvironment(
+                context: context,
+                extraEnvironment: extraEnvironment
+            ),
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func runFeedHook(
+        context: ClaudeHookContext,
+        source: String,
+        event: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "feed", "--source", source, "--event", event],
+            environment: agentHookEnvironment(
+                context: context,
+                extraEnvironment: extraEnvironment
+            ),
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func agentHookEnvironment(
+        context: ClaudeHookContext,
+        extraEnvironment: [String: String]
+    ) -> [String: String] {
         var environment = [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -9145,14 +9406,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
         environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
-
-        return runProcess(
-            executablePath: context.cliPath,
-            arguments: ["hooks", agent, subcommand],
-            environment: environment,
-            standardInput: standardInput,
-            timeout: 5
-        )
+        return environment
     }
 
     /// Serves this context's agent-hook mock socket for the rest of the test. One

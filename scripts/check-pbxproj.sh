@@ -2,6 +2,7 @@
 # CI guard for cmux.xcodeproj/project.pbxproj.
 # Fails when:
 #   - objectVersion drifts from the pinned value (Xcode major leak)
+#   - a PBX object identifier has more than one definition
 #   - the file is not normalized (someone bypassed the pre-commit hook)
 set -euo pipefail
 
@@ -29,3 +30,19 @@ if [[ "$actual" != "$EXPECTED_OBJECT_VERSION" ]]; then
 fi
 
 python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$PBXPROJ"
+
+# Exercise the duplicate guard with one of this project's existing 25-character
+# identifiers at both zero- and three-tab indentation. A validator limited to
+# Xcode's conventional indentation silently accepts this damaged fixture.
+duplicate_fixture_dir="$(mktemp -d)"
+trap 'rm -rf "$duplicate_fixture_dir"' EXIT
+duplicate_fixture="$duplicate_fixture_dir/duplicate.pbxproj"
+printf '%s\n' \
+    'CA11E4D0FA017DE500000B101 /* First */ = {isa = PBXBuildFile; };' \
+    $'\t\t\tCA11E4D0FA017DE500000B101 /* Second */ = {isa = PBXFileReference; };' \
+    > "$duplicate_fixture"
+if python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$duplicate_fixture" \
+    >/dev/null 2>&1; then
+    echo "::error::normalize-pbxproj accepted a duplicate object identifier with mixed indentation." >&2
+    exit 1
+fi
