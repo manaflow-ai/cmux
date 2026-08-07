@@ -122,7 +122,9 @@ validate_app_host_config_paths() {
 
   local expected_config_path
   expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  local matches scan_status line reported_path
+  local matches scan_status line reported_path reported_directory reported_basename
+  local resolved_reported_directory resolved_reported_path found_expected_config
+  found_expected_config=0
   if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
   else
@@ -140,7 +142,30 @@ validate_app_host_config_paths() {
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
       reported_path="${line#*path=}"
+      reported_path="${reported_path%$'\r'}"
       case "$reported_path" in
+        /*) ;;
+        *)
+          echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
+          echo "$line" >&2
+          return 1
+          ;;
+      esac
+
+      reported_directory="${reported_path%/*}"
+      reported_basename="${reported_path##*/}"
+      resolved_reported_directory=""
+      if [ -z "$reported_directory" ] \
+        || [ -z "$reported_basename" ] \
+        || [ -L "$reported_path" ] \
+        || ! resolved_reported_directory="$(cd "$reported_directory" 2>/dev/null && pwd -P)"; then
+        echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
+        echo "$line" >&2
+        return 1
+      fi
+      resolved_reported_path="${resolved_reported_directory%/}/$reported_basename"
+
+      case "$resolved_reported_path" in
         "$app_host_home"|"${app_host_home%/}/"*) ;;
         *)
           echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
@@ -148,19 +173,20 @@ validate_app_host_config_paths() {
           return 1
           ;;
       esac
+
+      case "$line" in
+        *"[default] reading configuration file path="*|*"[config] reading configuration file path="*)
+          if [ "$resolved_reported_path" = "$expected_config_path" ]; then
+            found_expected_config=1
+          fi
+          ;;
+      esac
     done <<< "$matches"
   fi
 
-  if [ "$require_evidence" = "1" ]; then
-    if ! grep -Fq \
-      "[default] reading configuration file path=$expected_config_path" \
-      "$log_path" \
-      && ! grep -Fq \
-        "[config] reading configuration file path=$expected_config_path" \
-        "$log_path"; then
-      echo "FAIL: app-host configuration evidence is missing" >&2
-      return 1
-    fi
+  if [ "$require_evidence" = "1" ] && [ "$found_expected_config" -ne 1 ]; then
+    echo "FAIL: app-host configuration evidence is missing" >&2
+    return 1
   fi
 }
 
