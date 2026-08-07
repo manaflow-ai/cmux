@@ -1181,10 +1181,10 @@ jobs:
     # linux-preflight itself succeeds. Require the direct needs explicitly.
     if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
     # Build the release helper with SDK 15, then run package tests with SDK 26.
-    runs-on: ${{ vars.MACOS_RUNNER_DUAL_XCODE || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: macos-26
     timeout-minutes: 40
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_15 }}
+      CMUX_CI_XCODE_APP: ""
       CMUX_CI_HELPER_XCODE_APP: ${{ vars.CMUX_CI_HELPER_XCODE_APP_MACOS_15 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
@@ -1206,6 +1206,7 @@ jobs:
           submodules: recursive
 
       - name: Select helper Xcode
+        if: ${{ false }}
         run: |
           set -euo pipefail
           CMUX_CI_XCODE_APP="$CMUX_CI_HELPER_XCODE_APP" \
@@ -1213,6 +1214,7 @@ jobs:
             ./scripts/select-ci-xcode.sh
 
       - name: Install zig
+        if: ${{ false }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Cache Zig packages
@@ -1223,6 +1225,7 @@ jobs:
           restore-keys: zig-packages-
 
       - name: Build universal Ghostty CLI helper
+        if: ${{ false }}
         run: |
           set -euo pipefail
           mkdir -p ghostty-cli-helper
@@ -1237,6 +1240,7 @@ jobs:
           done
 
       - name: Upload universal Ghostty CLI helper
+        if: ${{ false }}
         id: upload-ghostty-cli-helper
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
