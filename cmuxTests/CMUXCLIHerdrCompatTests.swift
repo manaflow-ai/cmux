@@ -132,6 +132,30 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(result.stdout, "status\n")
     }
 
+    @Test func testHerdrCompatHonorsEmptyPATHComponentAsCurrentDirectory() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-herdr-current-directory-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fakeHerdr = root.appendingPathComponent("herdr")
+        try "#!/bin/sh\nprintf '%s\\n' \"$*\"\n".write(to: fakeHerdr, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHerdr.path)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["__herdr-compat", "status"],
+            environment: herdrCompatEnvironment(searchPath: ":/usr/bin", home: root),
+            currentDirectoryURL: root,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.diagnostics)
+        XCTAssertEqual(result.status, 0, result.diagnostics)
+        XCTAssertEqual(result.stdout, "status\n", result.diagnostics)
+    }
+
     @Test func testHerdrCompatDiagnosticsUseSuppliedPATHAndRemainProviderNeutral() throws {
         let cliPath = try bundledCLIPath()
         let isolatedHome = FileManager.default.temporaryDirectory
