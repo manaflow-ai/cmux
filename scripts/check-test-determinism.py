@@ -877,6 +877,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/fetch-conditional-and.ts",
+            'fetch(enabled && "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/fetch-conditional-or.ts",
+            'fetch(cachedURL || "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -1029,6 +1039,14 @@ def _self_test() -> int:
             "web/tests/n17g.ts",
             'fetch("http://127.0.0.1:4321") || '
             'render("https://cmux.com/docs/api")\n',
+        ),
+        (
+            "web/tests/n17h.ts",
+            'expect(text).toContain("curl $(uname) https://cmux.com/install.sh")\n',
+        ),
+        (
+            "web/tests/n17i.ts",
+            'expect(text).toContain("curl ${HOME} https://cmux.com/install.sh")\n',
         ),
         (
             "web/tests/n18.ts",
