@@ -198,7 +198,7 @@ struct ClaudeTaskSyncHookTests {
         let createdItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
         #expect(createdItems.compactMap { $0["text"] as? String } == ["Running team task"])
         let boundRecord = try #require(
-            ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         )
         #expect(boundRecord["claudeTaskDirectoryName"] as? String == "session-team-a")
 
@@ -297,7 +297,7 @@ struct ClaudeTaskSyncHookTests {
         }
         #expect(mutationMethods.isEmpty)
         let record = try #require(
-            ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         )
         #expect(record["claudeTaskDirectoryName"] == nil)
     }
@@ -308,7 +308,7 @@ struct ClaudeTaskSyncHookTests {
         defer { context.cleanup() }
         let workspaceId = "99999999-9999-9999-9999-999999999999"
         let surfaceId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
-        let taskListId = "shared/task list"
+        let taskListID = "shared/task list"
         let taskDirectoryName = "shared-task-list"
         let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
             context: context,
@@ -327,7 +327,7 @@ struct ClaudeTaskSyncHookTests {
         var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = surfaceId
-        environment["CLAUDE_CODE_TASK_LIST_ID"] = taskListId
+        environment["CLAUDE_CODE_TASK_LIST_ID"] = taskListID
         let leaderSessionId = "shared-list-leader"
         let leaderResult = runHook(
             context: context,
@@ -393,7 +393,7 @@ struct ClaudeTaskSyncHookTests {
         ])
         for sessionId in [leaderSessionId, teammateSessionId, deletionSessionId] {
             let record = try #require(
-                ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+                try ClaudeHookLiveDeliveryHarness.sessionRecord(in: context.storeURL, sessionId: sessionId)
             )
             #expect(record["claudeTaskDirectoryName"] as? String == taskDirectoryName)
         }

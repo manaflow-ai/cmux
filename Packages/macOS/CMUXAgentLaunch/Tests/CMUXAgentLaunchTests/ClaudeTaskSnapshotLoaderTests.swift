@@ -30,7 +30,7 @@ struct ClaudeTaskSnapshotLoaderTests {
         try writeTask(#"{"broken":true}"#, named: "malformed.json", in: sessionDirectory)
 
         let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
-        let snapshot = try #require(loader.load(sessionID: "abc"))
+        let snapshot = try #require(try loader.load(sessionID: "abc"))
         let todos = snapshot.todos
 
         #expect(snapshot.directoryName == "session-abc")
@@ -39,6 +39,26 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(todos.map(\.activeForm) == ["Writing the test", "Shipping the fix"])
         #expect(todos.map(\.state) == [.completed, .inProgress])
         #expect(todos.map(\.displayContent) == ["Write the test", "Shipping the fix"])
+    }
+
+    @Test("Ignores a task record whose filename does not match its identity")
+    func ignoresMismatchedTaskFilename() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-task-id-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sessionDirectory = root.appendingPathComponent("identity", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"2","subject":"Mismatched task","status":"pending"}"#,
+            named: "1.json",
+            in: sessionDirectory
+        )
+
+        let snapshot = try #require(
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "identity")
+        )
+
+        #expect(snapshot.todos.isEmpty)
     }
 
     @Test("Supports the unprefixed session directory layout")
@@ -55,7 +75,7 @@ struct ClaudeTaskSnapshotLoaderTests {
         )
 
         let snapshot = try #require(
-            ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "abc")
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "abc")
         )
 
         #expect(snapshot.directoryName == "abc")
@@ -79,7 +99,7 @@ struct ClaudeTaskSnapshotLoaderTests {
             )
         }
 
-        let snapshot = try #require(ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+        let snapshot = try #require(try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
             sessionID: "plain-session",
             taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Shared task")
         ))
@@ -107,7 +127,7 @@ struct ClaudeTaskSnapshotLoaderTests {
             in: neighboringDirectory
         )
 
-        let snapshot = try #require(ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
+        let snapshot = try #require(try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(
             sessionID: "unrelated-hook-session",
             taskIdentity: ClaudeTaskIdentity(id: "1", subject: "Team task")
         ))
@@ -148,7 +168,7 @@ struct ClaudeTaskSnapshotLoaderTests {
         try FileManager.default.createDirectory(at: boundDirectory, withIntermediateDirectories: true)
         let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
 
-        let emptySnapshot = try #require(loader.load(
+        let emptySnapshot = try #require(try loader.load(
             sessionID: "unrelated-hook-session",
             boundDirectoryName: "session-team-a"
         ))
@@ -205,7 +225,7 @@ struct ClaudeTaskSnapshotLoaderTests {
         }
 
         let snapshot = try #require(
-            ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "boundary")
+            try ClaudeTaskSnapshotLoader(tasksRootURL: root).load(sessionID: "boundary")
         )
 
         #expect(snapshot.todos.count == 1)
