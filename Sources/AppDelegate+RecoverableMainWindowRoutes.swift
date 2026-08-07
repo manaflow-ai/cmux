@@ -1,6 +1,5 @@
 import AppKit
 import CmuxTerminalCore
-import ObjectiveC.runtime
 
 @MainActor
 final class RecoverableMainWindowRoute {
@@ -26,7 +25,7 @@ final class RecoverableMainWindowRoute {
 }
 
 @MainActor
-private final class MainWindowRouteLedger {
+final class MainWindowRouteLedger {
     var routesByWindowId: [UUID: RecoverableMainWindowRoute] = [:]
     private var nextOrder: UInt64 = 0
 
@@ -44,7 +43,6 @@ private struct MainWindowRouteSnapshot {
 }
 
 typealias MainWindowSessionPersistenceRoute = (windowId: UUID, tabManager: TabManager, window: NSWindow?, sidebarSnapshot: SessionSidebarSnapshot)
-private var mainWindowRouteLedgerKey: UInt8 = 0
 
 // The retire sweep is the MainWindowRouteRetiring witness: terminal topology
 // changes prompt a coalesced lifecycle audit through the seam instead of the
@@ -52,15 +50,6 @@ private var mainWindowRouteLedgerKey: UInt8 = 0
 extension AppDelegate: MainWindowRouteRetiring {}
 
 extension AppDelegate {
-    private var mainWindowRouteLedger: MainWindowRouteLedger {
-        if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {
-            return ledger
-        }
-        let ledger = MainWindowRouteLedger()
-        objc_setAssociatedObject(self, &mainWindowRouteLedgerKey, ledger, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        return ledger
-    }
-
     private func tabManagerCanOwnRecoverableMainWindowRoute(_ manager: TabManager) -> Bool {
         !manager.isFinalizedForWindowClose
     }
@@ -77,7 +66,6 @@ extension AppDelegate {
     }
 
     private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
-        pruneInactiveRecoverableMainWindowRoutes(reason: "collection")
         return mainWindowRouteLedger.routesByWindowId.values.sorted { lhs, rhs in
             if lhs.order != rhs.order {
                 return lhs.order > rhs.order
@@ -106,10 +94,8 @@ extension AppDelegate {
     }
 
     private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
-        pruneInactiveRecoverableMainWindowRoutes(reason: "snapshotAccess")
-        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
+        guard let route = recoverableMainWindowRoute(windowId: windowId),
               let manager = route.tabManager,
-              tabManagerCanOwnRecoverableMainWindowRoute(manager),
               let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
             return nil
         }
@@ -223,10 +209,19 @@ extension AppDelegate {
         // Keep the weak manager route alive while SwiftUI/AppKit replaces its
         // NSWindow. Snapshot-based listing/focus APIs still require a live
         // window, so this internal route cannot surface a ghost window.
-        pruneInactiveRecoverableMainWindowRoutes(reason: "routeAccess")
-        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
-              let manager = route.tabManager,
-              tabManagerCanOwnRecoverableMainWindowRoute(manager) else { return nil }
+        guard let route = mainWindowRouteLedger.routesByWindowId[windowId] else {
+            return nil
+        }
+        guard let manager = route.tabManager,
+              tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
+            // Single-route lookups stay O(1). Full-ledger retirement belongs to
+            // insertion and the coalesced lifecycle maintenance sweep.
+            mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId)
+#if DEBUG
+            cmuxDebugLog("recoverableRoute.prune reason=routeAccess removed=1 remaining=\(mainWindowRouteLedger.routesByWindowId.count)")
+#endif
+            return nil
+        }
         return route
     }
 
@@ -251,8 +246,16 @@ extension AppDelegate {
     }
 
     func recoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
-        let validWindowIds = Set(recoverableMainWindowRouteSnapshots().map(\.windowId))
-        return sortedRecoverableMainWindowRoutes().filter { validWindowIds.contains($0.windowId) }
+        sortedRecoverableMainWindowRoutes().filter { route in
+            guard let manager = route.tabManager,
+                  tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
+                return false
+            }
+            return liveRecoverableMainWindow(
+                windowId: route.windowId,
+                cachedWindow: route.window
+            ) != nil
+        }
     }
 
     func listMainWindowSummaries() -> [MainWindowSummary] {

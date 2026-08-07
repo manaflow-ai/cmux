@@ -2,7 +2,6 @@ import CmuxWorkspaces
 import CmuxSidebar
 import Darwin
 import Foundation
-import CmuxWorkspaces
 
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {

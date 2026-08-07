@@ -51,6 +51,11 @@ extension CmuxExtensionWorktreeCreationResult {
 
     /// Removes this newly created worktree and its owned branch when workspace
     /// admission fails before anything can use them.
+#if compiler(>=6.2)
+    @concurrent
+#else
+    @Sendable
+#endif
     func rollbackUnclaimedWorktree() async throws {
         try await Task.detached(priority: .utility) {
             let worktreeURL = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL

@@ -8310,7 +8310,8 @@ final class Workspace: Identifiable, ObservableObject {
         replayFileURL: URL? = nil,
         allowTextBoxFocusDefault: Bool = true
     ) -> TerminalPanel? {
-        guard let oldPanel = terminalPanel(for: panelId),
+        guard !isRetiredFromOwningTabManager,
+              let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
               let paneId = paneId(forPanelId: panelId) else {
             return nil

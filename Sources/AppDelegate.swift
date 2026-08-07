@@ -1030,6 +1030,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     var mainWindowContexts: [ObjectIdentifier: MainWindowContext] = [:]
+    /// Per-app recoverable routing state; owned explicitly so test app delegates
+    /// and concurrent tagged instances never share ambient lifecycle state.
+    let mainWindowRouteLedger = MainWindowRouteLedger()
     private var mainWindowControllers: [MainWindowController] = []
 
     /// Tracks the cascade point for new windows, matching Ghostty's upstream algorithm.
@@ -17379,6 +17382,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistWindowGeometry(from: window)
         }
 
+        // First commit removal of the exact authoritative route. A synchronous
+        // teardown callback may already have removed it; in that case no
+        // manager-owned resource may be finalized by this stale transaction.
+        if let context {
+            guard removeMainWindowContext(context, rememberRecoverableRoute: false) != nil else {
+                return false
+            }
+        } else {
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+            notifyMainWindowContextsDidChange()
+        }
+
         let closingWorkspaces = Array(closingTabManager.tabs)
         let closingWorkspaceIds = closingWorkspaces.map(\.id)
         // An explicit close of a window's final remote workspace kills the
@@ -17390,20 +17405,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         remoteTmuxController.handleWindowWorkspacesClosed(workspaceIds: closingWorkspaceIds)
 
-        // A window close is authoritative ownership teardown, not a temporary
-        // routing loss. Finalize manager-owned probes, focus/browser state,
-        // panels, and remote connections before removing the context so
-        // retained SwiftUI models cannot keep work alive or respawn a shell.
+        // Route removal committed this close rather than a temporary routing
+        // loss. Retire every retained model only after that authority check, so
+        // no callback can partially finalize an owner whose close lost a race.
         closingTabManager.finalizeAllWorkspacesForWindowClose()
-
-        if let context {
-            guard removeMainWindowContext(context, rememberRecoverableRoute: false) != nil else {
-                return false
-            }
-        } else {
-            forgetRecoverableMainWindowRoute(windowId: windowId)
-            notifyMainWindowContextsDidChange()
-        }
         closingTabManager.window = nil
         // The controller's windowWillClose callback owns releasing the retained
         // AppKit/SwiftUI graph and then removes itself from this array. A
