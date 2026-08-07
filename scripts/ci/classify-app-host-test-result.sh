@@ -32,6 +32,13 @@ if [ ! -r "$output_path" ]; then
   exit 1
 fi
 
+if grep -Eq \
+  'Test run with [0-9]+ tests?( in [0-9]+ suites?)? failed after ' \
+  "$output_path"; then
+  echo "Swift Testing failures detected" >&2
+  exit 1
+fi
+
 summary="$(grep -E "Executed.*tests?.*with.*failures?" "$output_path" | tail -n 1 || true)"
 if [[ "$summary" == *"(0 unexpected)"* ]]; then
   echo "All failures are expected, treating as pass"
