@@ -127,6 +127,9 @@ extension AgentNotificationRegressionTests {
     func testTransientAttentionAndNotificationUseSurfaceCurrentWorkspace() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
+        let processIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
 
         let began = FeedCoordinator.shared.beginTransientBlockingAttention(
             source: "claude",
@@ -134,7 +137,7 @@ extension AgentNotificationRegressionTests {
             requestId: "moved-transient-request",
             workspaceId: fixture.claimedWorkspace.id,
             surfaceId: fixture.panelId,
-            ownerPID: nil,
+            ownerProcessIdentity: processIdentity,
             title: "Claude Code",
             subtitle: "Waiting",
             body: "Waiting for input"
@@ -161,12 +164,16 @@ extension AgentNotificationRegressionTests {
             requestId: "moved-transient-request"
         ))
         TerminalMutationBus.shared.drainForTesting()
+        #expect(fixture.store.notifications.allSatisfy { $0.title != "Claude Code" })
     }
 
     @Test
     func testTransientAttentionFailsClosedWhenSurfaceDisappeared() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
+        let processIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
 
         let began = FeedCoordinator.shared.beginTransientBlockingAttention(
             source: "claude",
@@ -174,7 +181,7 @@ extension AgentNotificationRegressionTests {
             requestId: "missing-transient-request",
             workspaceId: fixture.claimedWorkspace.id,
             surfaceId: UUID(),
-            ownerPID: nil,
+            ownerProcessIdentity: processIdentity,
             title: "Missing transient",
             subtitle: "Waiting",
             body: "Waiting for input"

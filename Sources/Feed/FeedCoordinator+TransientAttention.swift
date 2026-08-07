@@ -4,7 +4,6 @@ import Foundation
 @MainActor
 final class FeedTransientAttentionStore {
     nonisolated static let defaultMaximumEntryCount = 256
-    nonisolated static let defaultRetentionDuration: Duration = .seconds(24 * 60 * 60)
 
     struct Key: Hashable, Sendable {
         let source: String
@@ -15,42 +14,32 @@ final class FeedTransientAttentionStore {
     struct Entry: Sendable {
         let target: FeedCoordinator.AttentionTarget
         let notificationCorrelationKey: String
-        let ownerPID: Int?
+        let ownerProcessIdentity: AgentPIDProcessIdentity
 
         init(
             target: FeedCoordinator.AttentionTarget,
             notificationCorrelationKey: String,
-            ownerPID: Int? = nil
+            ownerProcessIdentity: AgentPIDProcessIdentity
         ) {
             self.target = target
             self.notificationCorrelationKey = notificationCorrelationKey
-            self.ownerPID = ownerPID
+            self.ownerProcessIdentity = ownerProcessIdentity
         }
     }
 
     private struct StoredEntry {
         let entry: Entry
         let insertionOrder: UInt64
-        let expirationTask: Task<Void, Never>
     }
 
-    private let clock: any Clock<Duration>
     private let maximumEntryCount: Int
-    private let retentionDuration: Duration
-    private let expirationHandler: @MainActor @Sendable (Entry) -> Void
     private var entries: [Key: StoredEntry] = [:]
     private var nextInsertionOrder: UInt64 = 0
 
     init(
-        clock: any Clock<Duration> = ContinuousClock(),
-        maximumEntryCount: Int = defaultMaximumEntryCount,
-        retentionDuration: Duration = defaultRetentionDuration,
-        expirationHandler: @escaping @MainActor @Sendable (Entry) -> Void = { _ in }
+        maximumEntryCount: Int = defaultMaximumEntryCount
     ) {
-        self.clock = clock
         self.maximumEntryCount = max(1, maximumEntryCount)
-        self.retentionDuration = max(.zero, retentionDuration)
-        self.expirationHandler = expirationHandler
     }
 
     func entry(for key: Key) -> Entry? {
@@ -72,42 +61,30 @@ final class FeedTransientAttentionStore {
             evicted.append(oldest)
         }
 
-        let clock = clock
-        let retentionDuration = retentionDuration
-        let expirationTask = Task { @MainActor [weak self] in
-            do {
-                try await clock.sleep(for: retentionDuration, tolerance: nil)
-            } catch {
-                return
-            }
-            self?.expireValue(for: key)
-        }
         entries[key] = StoredEntry(
             entry: entry,
-            insertionOrder: nextInsertionOrder,
-            expirationTask: expirationTask
+            insertionOrder: nextInsertionOrder
         )
         nextInsertionOrder &+= 1
         return evicted
     }
 
     func removeValue(for key: Key) -> Entry? {
-        guard let stored = entries.removeValue(forKey: key) else { return nil }
-        stored.expirationTask.cancel()
-        return stored.entry
+        entries.removeValue(forKey: key)?.entry
     }
 
-    func removeValues(ownerPID: Int) -> [Entry] {
-        removeValues { $0.ownerPID == ownerPID }
+    func removeValues(ownerProcessIdentity: AgentPIDProcessIdentity) -> [Entry] {
+        removeValues { $0.ownerProcessIdentity == ownerProcessIdentity }
     }
 
     func removeValues(workspaceId: UUID) -> [Entry] {
         removeValues { $0.target.workspaceId == workspaceId }
     }
 
-    private func expireValue(for key: Key) {
-        guard let entry = removeValue(for: key) else { return }
-        expirationHandler(entry)
+    func contains(ownerProcessIdentity: AgentPIDProcessIdentity) -> Bool {
+        entries.values.contains {
+            $0.entry.ownerProcessIdentity == ownerProcessIdentity
+        }
     }
 
     private func removeValues(
@@ -133,7 +110,7 @@ extension FeedCoordinator {
         requestId: String,
         workspaceId: UUID,
         surfaceId: UUID,
-        ownerPID: Int?,
+        ownerProcessIdentity: AgentPIDProcessIdentity,
         title: String,
         subtitle: String,
         body: String
@@ -143,21 +120,30 @@ extension FeedCoordinator {
             sessionId: sessionId,
             requestId: requestId
         )
-        if transientAttentionStore.entry(for: key) != nil {
-            return true
+        guard AgentPIDProcessIdentity(pid: ownerProcessIdentity.pid) == ownerProcessIdentity else {
+            return false
         }
+        if let existing = transientAttentionStore.entry(for: key) {
+            return existing.ownerProcessIdentity == ownerProcessIdentity
+        }
+
+        guard let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
+            claimedTabId: workspaceId,
+            surfaceId: surfaceId
+        ), let liveSurfaceId = liveTarget.surfaceId else { return false }
+        let liveWorkspaceId = liveTarget.tabId
 
         let event = WorkstreamEvent(
             sessionId: "\(source)-\(sessionId)",
             hookEventName: .askUserQuestion,
             source: source,
-            workspaceId: workspaceId.uuidString,
-            surfaceId: surfaceId.uuidString,
+            workspaceId: liveWorkspaceId.uuidString,
+            surfaceId: liveSurfaceId.uuidString,
             requestId: requestId
         )
         guard let target = surfaceBlockingDecisionAttention(
             event: event,
-            resolved: (workspaceId: workspaceId, surfaceId: surfaceId)
+            resolved: (workspaceId: liveWorkspaceId, surfaceId: liveSurfaceId)
         ) else {
             return false
         }
@@ -167,19 +153,20 @@ extension FeedCoordinator {
             FeedTransientAttentionStore.Entry(
                 target: target,
                 notificationCorrelationKey: correlationKey,
-                ownerPID: ownerPID
+                ownerProcessIdentity: ownerProcessIdentity
             ),
             for: key
         )
-        for entry in evicted {
-            concludeTransientBlockingAttention(entry)
-        }
-        if let ownerPID, ownerPID > 0 {
-            armPidWatcher(ppid: ownerPID)
+        concludeTransientBlockingAttention(evicted)
+        guard armTransientAttentionProcessWatcher(ownerProcessIdentity) else {
+            if let entry = transientAttentionStore.removeValue(for: key) {
+                concludeTransientBlockingAttention([entry])
+            }
+            return false
         }
         _ = AgentNotificationDelivery().enqueue(
-            workspaceID: workspaceId,
-            surfaceID: surfaceId,
+            workspaceID: liveWorkspaceId,
+            surfaceID: liveSurfaceId,
             title: title,
             subtitle: subtitle,
             body: body,
@@ -207,7 +194,7 @@ extension FeedCoordinator {
         guard let entry = transientAttentionStore.removeValue(for: key) else {
             return false
         }
-        concludeTransientBlockingAttention(entry)
+        concludeTransientBlockingAttention([entry])
         return true
     }
 
@@ -215,30 +202,85 @@ extension FeedCoordinator {
     /// Feed already uses a kqueue-backed watcher for durable decisions, so
     /// transient blockers share that same process-lifecycle authority.
     @MainActor
-    func endTransientBlockingAttention(ownerPID: Int) {
-        for entry in transientAttentionStore.removeValues(ownerPID: ownerPID) {
-            concludeTransientBlockingAttention(entry)
-        }
+    func endTransientBlockingAttention(
+        ownerProcessIdentity: AgentPIDProcessIdentity
+    ) {
+        concludeTransientBlockingAttention(
+            transientAttentionStore.removeValues(
+                ownerProcessIdentity: ownerProcessIdentity
+            )
+        )
     }
 
     /// Releases requests whose workspace was explicitly closed, balancing
     /// attention even when the hook process or its terminal callback vanished.
     @MainActor
     func endTransientBlockingAttention(workspaceId: UUID) {
-        for entry in transientAttentionStore.removeValues(workspaceId: workspaceId) {
-            concludeTransientBlockingAttention(entry)
-        }
+        concludeTransientBlockingAttention(
+            transientAttentionStore.removeValues(workspaceId: workspaceId)
+        )
     }
 
     @MainActor
     func concludeTransientBlockingAttention(
-        _ entry: FeedTransientAttentionStore.Entry
+        _ entries: [FeedTransientAttentionStore.Entry]
     ) {
-        concludeBlockingDecisionAttention(entry.target)
+        guard !entries.isEmpty else { return }
+        for entry in entries {
+            concludeBlockingDecisionAttention(entry.target)
+        }
+        let correlationKeys = Set(entries.map(\.notificationCorrelationKey))
         TerminalMutationBus.shared.enqueueMainActorMutation {
             TerminalNotificationStore.shared.clearNotifications(
-                correlationKey: entry.notificationCorrelationKey
+                correlationKeys: correlationKeys
             )
         }
+        for identity in Set(entries.map(\.ownerProcessIdentity)) {
+            disarmTransientAttentionProcessWatcherIfUnused(identity)
+        }
+    }
+
+    /// Watches one exact process generation. Numeric PID reuse cannot release
+    /// attention owned by a later process because both the registry and watcher
+    /// are keyed by the captured birth timestamp.
+    @MainActor
+    private func armTransientAttentionProcessWatcher(
+        _ identity: AgentPIDProcessIdentity
+    ) -> Bool {
+        guard AgentPIDProcessIdentity(pid: identity.pid) == identity else { return false }
+        if transientAttentionProcessWatchers[identity] != nil { return true }
+
+        let source = DispatchSource.makeProcessSource(
+            identifier: identity.pid,
+            eventMask: .exit,
+            queue: pidWatcherQueue
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.endTransientBlockingAttention(
+                    ownerProcessIdentity: identity
+                )
+            }
+        }
+        transientAttentionProcessWatchers[identity] = source
+        source.resume()
+
+        guard AgentPIDProcessIdentity(pid: identity.pid) == identity else {
+            source.cancel()
+            transientAttentionProcessWatchers.removeValue(forKey: identity)
+            return false
+        }
+        return true
+    }
+
+    @MainActor
+    private func disarmTransientAttentionProcessWatcherIfUnused(
+        _ identity: AgentPIDProcessIdentity
+    ) {
+        guard !transientAttentionStore.contains(ownerProcessIdentity: identity),
+              let source = transientAttentionProcessWatchers.removeValue(forKey: identity) else {
+            return
+        }
+        source.cancel()
     }
 }

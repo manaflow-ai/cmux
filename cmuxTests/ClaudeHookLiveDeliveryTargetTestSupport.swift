@@ -209,9 +209,10 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        processIdentity: AgentPIDProcessIdentity? = nil
     ) throws {
-        let now = Date().timeIntervalSince1970
+        let now: TimeInterval = 4_102_444_800
         var record: [String: Any] = [
             "sessionId": sessionId,
             "workspaceId": workspaceId,
@@ -221,7 +222,13 @@ enum ClaudeHookLiveDeliveryHarness {
             "startedAt": now,
             "updatedAt": now,
         ]
-        if let pid { record["pid"] = pid }
+        if let processIdentity {
+            record["pid"] = Int(processIdentity.pid)
+            record["pidStartSeconds"] = processIdentity.startSeconds
+            record["pidStartMicroseconds"] = processIdentity.startMicroseconds
+        } else if let pid {
+            record["pid"] = pid
+        }
         let store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],

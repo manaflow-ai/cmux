@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 extension TerminalController {
@@ -14,15 +15,20 @@ extension TerminalController {
         else {
             return .err(
                 code: "invalid_params",
-                message: "feed.attention.begin requires source, session_id, request_id, workspace_id, surface_id, and title",
+                message: String(
+                    localized: "feed.attention.error.beginRequired",
+                    defaultValue: "feed.attention.begin requires source, session_id, request_id, workspace_id, surface_id, and title"
+                ),
                 data: nil
             )
         }
-        let ownerPID = transientAttentionPositiveInt(params["ppid"])
-        if params["ppid"] != nil, ownerPID == nil {
+        guard let ownerProcessIdentity = transientAttentionProcessIdentity(params) else {
             return .err(
                 code: "invalid_params",
-                message: "feed.attention.begin ppid must be a positive process id",
+                message: String(
+                    localized: "feed.attention.error.invalidProcessIdentity",
+                    defaultValue: "feed.attention.begin owner process identity is invalid"
+                ),
                 data: nil
             )
         }
@@ -34,7 +40,7 @@ extension TerminalController {
             requestId: requestId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            ownerPID: ownerPID,
+            ownerProcessIdentity: ownerProcessIdentity,
             title: title,
             subtitle: subtitle,
             body: body
@@ -49,7 +55,10 @@ extension TerminalController {
         else {
             return .err(
                 code: "invalid_params",
-                message: "feed.attention.end requires source, session_id, and request_id",
+                message: String(
+                    localized: "feed.attention.error.endRequired",
+                    defaultValue: "feed.attention.end requires source, session_id, and request_id"
+                ),
                 data: nil
             )
         }
@@ -73,13 +82,22 @@ extension TerminalController {
         return UUID(uuidString: value)
     }
 
-    private func transientAttentionPositiveInt(_ rawValue: Any?) -> Int? {
-        guard !(rawValue is Bool),
-              let number = rawValue as? NSNumber,
-              number.int64Value > 0,
-              number.int64Value <= Int64(Int32.max) else {
+    private func transientAttentionProcessIdentity(
+        _ params: [String: Any]
+    ) -> AgentPIDProcessIdentity? {
+        guard let ownerPID = v2StrictIntAny(params["ppid"]),
+              let startSeconds = v2StrictIntAny(params["ppid_start_seconds"]),
+              let startMicroseconds = v2StrictIntAny(params["ppid_start_microseconds"]),
+              ownerPID > 0,
+              ownerPID <= Int(Int32.max),
+              startSeconds >= 0,
+              (0..<1_000_000).contains(startMicroseconds) else {
             return nil
         }
-        return Int(number.int64Value)
+        return AgentPIDProcessIdentity(
+            pid: pid_t(ownerPID),
+            startSeconds: Int64(startSeconds),
+            startMicroseconds: Int64(startMicroseconds)
+        )
     }
 }

@@ -860,6 +860,11 @@ struct FeedCoordinatorTests {
     @Test @MainActor
     func transientAttentionStoreEvictsItsOldestEntryAtCapacity() {
         let store = FeedTransientAttentionStore()
+        let processIdentity = AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 1,
+            startMicroseconds: 0
+        )
         let target = FeedCoordinator.AttentionTarget(
             workspaceId: UUID(),
             panelId: UUID(),
@@ -880,7 +885,8 @@ struct FeedCoordinatorTests {
             store.insert(
                 FeedTransientAttentionStore.Entry(
                     target: target,
-                    notificationCorrelationKey: "notification-\(index)"
+                    notificationCorrelationKey: "notification-\(index)",
+                    ownerProcessIdentity: processIdentity
                 ),
                 for: key
             )
@@ -894,17 +900,8 @@ struct FeedCoordinatorTests {
     }
 
     @Test @MainActor
-    func transientAttentionStoreExpiresAndRemovesEntriesByOwner() async {
-        let expiredEntries = AsyncStream.makeStream(
-            of: FeedTransientAttentionStore.Entry.self
-        )
-        let store = FeedTransientAttentionStore(
-            clock: ImmediateFeedAttentionClock(),
-            retentionDuration: .seconds(1),
-            expirationHandler: { entry in
-                expiredEntries.continuation.yield(entry)
-            }
-        )
+    func transientAttentionStoreScopesCleanupToOneProcessGeneration() {
+        let store = FeedTransientAttentionStore()
         let firstWorkspaceId = UUID()
         let secondWorkspaceId = UUID()
         let firstTarget = FeedCoordinator.AttentionTarget(
@@ -917,60 +914,83 @@ struct FeedCoordinatorTests {
             panelId: UUID(),
             statusKey: "claude_code"
         )
-        let expiringKey = FeedTransientAttentionStore.Key(
-            source: "claude",
-            sessionId: "expiring-session",
-            requestId: "expiring-request"
-        )
-        store.insert(
-            FeedTransientAttentionStore.Entry(
-                target: firstTarget,
-                notificationCorrelationKey: "expiring-notification",
-                ownerPID: 101
-            ),
-            for: expiringKey
-        )
-
-        var iterator = expiredEntries.stream.makeAsyncIterator()
-        let expired = await iterator.next()
-        #expect(expired?.ownerPID == 101)
-        #expect(store.entry(for: expiringKey) == nil)
-        expiredEntries.continuation.finish()
-
-        let pidKey = FeedTransientAttentionStore.Key(
+        let firstGenerationKey = FeedTransientAttentionStore.Key(
             source: "claude",
             sessionId: "pid-session",
-            requestId: "pid-request"
+            requestId: "first-generation"
         )
-        let workspaceKey = FeedTransientAttentionStore.Key(
+        let reusedPIDKey = FeedTransientAttentionStore.Key(
             source: "claude",
-            sessionId: "workspace-session",
-            requestId: "workspace-request"
+            sessionId: "pid-session",
+            requestId: "reused-pid"
+        )
+        let firstGeneration = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 10,
+            startMicroseconds: 1
+        )
+        let reusedPIDGeneration = AgentPIDProcessIdentity(
+            pid: 202,
+            startSeconds: 11,
+            startMicroseconds: 2
         )
         store.insert(
             FeedTransientAttentionStore.Entry(
                 target: firstTarget,
-                notificationCorrelationKey: "pid-notification",
-                ownerPID: 202
+                notificationCorrelationKey: "first-generation-notification",
+                ownerProcessIdentity: firstGeneration
             ),
-            for: pidKey
+            for: firstGenerationKey
         )
         store.insert(
             FeedTransientAttentionStore.Entry(
                 target: secondTarget,
-                notificationCorrelationKey: "workspace-notification",
-                ownerPID: 303
+                notificationCorrelationKey: "reused-pid-notification",
+                ownerProcessIdentity: reusedPIDGeneration
             ),
-            for: workspaceKey
+            for: reusedPIDKey
         )
 
-        #expect(store.removeValues(ownerPID: 202).map(\.ownerPID) == [202])
-        #expect(store.entry(for: pidKey) == nil)
+        #expect(
+            store.removeValues(ownerProcessIdentity: firstGeneration)
+                .map(\.notificationCorrelationKey)
+                == ["first-generation-notification"]
+        )
+        #expect(store.entry(for: firstGenerationKey) == nil)
+        #expect(store.entry(for: reusedPIDKey) != nil)
         #expect(
             store.removeValues(workspaceId: secondWorkspaceId)
-                .map(\.notificationCorrelationKey) == ["workspace-notification"]
+                .map(\.notificationCorrelationKey) == ["reused-pid-notification"]
         )
-        #expect(store.entry(for: workspaceKey) == nil)
+        #expect(store.entry(for: reusedPIDKey) == nil)
+    }
+
+    @Test(arguments: ["ppid", "ppid_start_seconds", "ppid_start_microseconds"])
+    @MainActor
+    func transientAttentionRejectsFractionalProcessIdentityFields(
+        field: String
+    ) {
+        var params: [String: Any] = [
+            "source": "claude",
+            "session_id": "fractional-process-session",
+            "request_id": "fractional-process-request",
+            "workspace_id": UUID().uuidString,
+            "surface_id": UUID().uuidString,
+            "title": "Claude Code",
+            "ppid": 100,
+            "ppid_start_seconds": 10,
+            "ppid_start_microseconds": 1,
+        ]
+        params[field] = 1.5
+
+        let result = TerminalController.shared.v2FeedTransientAttentionBegin(
+            params: params
+        )
+        guard case .err(let code, _, _) = result else {
+            Issue.record("Expected invalid_params for fractional \(field), got \(result)")
+            return
+        }
+        #expect(code == "invalid_params")
     }
 
     static func resetFeedCoordinatorTestHooks() {
@@ -988,29 +1008,6 @@ struct FeedCoordinatorTests {
             DispatchQueue.main.sync(execute: reset)
         }
     }
-}
-
-private struct ImmediateFeedAttentionClock: Clock {
-    struct Instant: InstantProtocol {
-        let offset: Duration
-
-        func advanced(by duration: Duration) -> Instant {
-            Instant(offset: offset + duration)
-        }
-
-        func duration(to other: Instant) -> Duration {
-            other.offset - offset
-        }
-
-        static func < (lhs: Instant, rhs: Instant) -> Bool {
-            lhs.offset < rhs.offset
-        }
-    }
-
-    var now: Instant { Instant(offset: .zero) }
-    var minimumResolution: Duration { .zero }
-
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {}
 }
 
 private func waitForFeedTestSignal(

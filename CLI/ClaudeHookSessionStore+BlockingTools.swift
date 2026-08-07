@@ -1,10 +1,18 @@
+import CryptoKit
 import Foundation
 
 extension ClaudeHookSessionStore {
+    struct BlockingToolCorrelation: Codable, Equatable {
+        let payloadSignature: String
+        let toolUseId: String
+    }
+
     enum BlockingToolResolution: Equatable {
         case resolved
         case ignoreUnmatched
     }
+
+    private static let maximumBlockingToolCorrelationCount = 256
 
     /// Atomically records a blocking Claude tool and its Needs input lifecycle.
     /// A payload without an ID deliberately selects legacy session-wide
@@ -16,6 +24,7 @@ extension ClaudeHookSessionStore {
         cwd: String?,
         transcriptPath: String?,
         toolUseId: String?,
+        rawObject: [String: Any]?,
         lastSubtitle: String,
         lastBody: String
     ) throws {
@@ -43,8 +52,31 @@ extension ClaudeHookSessionStore {
             if let toolUseId = normalizedBlockingToolIdentifier(toolUseId) {
                 let pending = (record.pendingBlockingToolUseIds ?? []) + [toolUseId]
                 record.pendingBlockingToolUseIds = normalizedBlockingToolUseIds(pending)
+                if let payloadSignature = blockingToolPayloadSignature(from: rawObject) {
+                    var correlations = (record.pendingBlockingToolCorrelations ?? [])
+                        .filter { $0.toolUseId != toolUseId }
+                    correlations.append(BlockingToolCorrelation(
+                        payloadSignature: payloadSignature,
+                        toolUseId: toolUseId
+                    ))
+                    if correlations.count > Self.maximumBlockingToolCorrelationCount {
+                        let overflowCount =
+                            correlations.count - Self.maximumBlockingToolCorrelationCount
+                        let evictedToolUseIds = Set(
+                            correlations.prefix(overflowCount).map(\.toolUseId)
+                        )
+                        correlations.removeFirst(overflowCount)
+                        record.pendingBlockingToolUseIds = normalizedBlockingToolUseIds(
+                            (record.pendingBlockingToolUseIds ?? []).filter {
+                                !evictedToolUseIds.contains($0)
+                            }
+                        )
+                    }
+                    record.pendingBlockingToolCorrelations = correlations
+                }
             } else {
                 record.pendingBlockingToolUseIds = nil
+                record.pendingBlockingToolCorrelations = nil
             }
             state.sessions[sessionId] = record
         }
@@ -105,7 +137,8 @@ extension ClaudeHookSessionStore {
     /// poisoning a later blocker.
     func resolveBlockingToolPermissionRequest(
         sessionId: String,
-        toolUseId: String?
+        toolUseId: String?,
+        rawObject: [String: Any]?
     ) throws -> BlockingToolResolution {
         guard let sessionId = normalizedBlockingToolIdentifier(sessionId) else {
             return .resolved
@@ -116,7 +149,11 @@ extension ClaudeHookSessionStore {
             }
             let resolution = resolveBlockingTool(
                 in: &record,
-                toolUseId: toolUseId,
+                toolUseId: correlatedBlockingToolUseId(
+                    explicitToolUseId: toolUseId,
+                    rawObject: rawObject,
+                    record: record
+                ),
                 now: Date.now.timeIntervalSince1970
             )
             guard resolution == .resolved else { return resolution }
@@ -138,6 +175,9 @@ extension ClaudeHookSessionStore {
             }
             let remaining = pending.filter { $0 != toolUseId }
             record.pendingBlockingToolUseIds = remaining
+            record.pendingBlockingToolCorrelations =
+                (record.pendingBlockingToolCorrelations ?? [])
+                .filter { $0.toolUseId != toolUseId }
             record.agentLifecycle = remaining.isEmpty ? .running : .needsInput
             record.updatedAt = now
             return .resolved
@@ -145,6 +185,7 @@ extension ClaudeHookSessionStore {
 
         // Legacy records lack IDs, so the only safe behavior is the historic
         // session-wide resolution. New correlated records never return to nil.
+        record.pendingBlockingToolCorrelations = nil
         record.agentLifecycle = .running
         record.updatedAt = now
         return .resolved
@@ -183,6 +224,47 @@ extension ClaudeHookSessionStore {
 
     private func normalizedBlockingToolUseIds(_ values: [String]) -> [String] {
         Array(Set(values.compactMap { normalizedBlockingToolIdentifier($0) })).sorted()
+    }
+
+    private func correlatedBlockingToolUseId(
+        explicitToolUseId: String?,
+        rawObject: [String: Any]?,
+        record: ClaudeHookSessionRecord
+    ) -> String? {
+        if let explicitToolUseId = normalizedBlockingToolIdentifier(explicitToolUseId) {
+            return explicitToolUseId
+        }
+        guard record.pendingBlockingToolUseIds != nil,
+              let payloadSignature = blockingToolPayloadSignature(from: rawObject) else {
+            return nil
+        }
+        let pending = Set(normalizedBlockingToolUseIds(
+            record.pendingBlockingToolUseIds ?? []
+        ))
+        return record.pendingBlockingToolCorrelations?.first {
+            $0.payloadSignature == payloadSignature && pending.contains($0.toolUseId)
+        }?.toolUseId
+    }
+
+    private func blockingToolPayloadSignature(
+        from rawObject: [String: Any]?
+    ) -> String? {
+        guard let rawObject else { return nil }
+        let rawToolName = rawObject["tool_name"] ?? rawObject["toolName"]
+        let toolName = normalizedBlockingToolIdentifier(rawToolName as? String)
+        let toolInput = rawObject["tool_input"] ?? rawObject["toolInput"] ?? NSNull()
+        let canonicalPayload: [String: Any] = [
+            "tool_input": toolInput,
+            "tool_name": toolName ?? NSNull(),
+        ]
+        guard JSONSerialization.isValidJSONObject(canonicalPayload),
+              let data = try? JSONSerialization.data(
+                  withJSONObject: canonicalPayload,
+                  options: [.sortedKeys]
+              ) else {
+            return nil
+        }
+        return Data(SHA256.hash(data: data)).base64EncodedString()
     }
 
     private func normalizedBlockingToolIdentifier(_ value: String?) -> String? {

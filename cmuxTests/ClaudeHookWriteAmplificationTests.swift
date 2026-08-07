@@ -15,7 +15,7 @@ struct ClaudeHookWriteAmplificationTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "ordinary-running-tool-session"
-        let now = Date.now.timeIntervalSince1970
+        let now: TimeInterval = 4_102_444_800
         let state: [String: Any] = [
             "version": 1,
             "sessions": [
@@ -78,7 +78,7 @@ struct ClaudeHookWriteAmplificationTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "resolved-blocking-tool-session"
-        let now = Date.now.timeIntervalSince1970
+        let now: TimeInterval = 4_102_444_800
         let state: [String: Any] = [
             "version": 1,
             "sessions": [
@@ -138,7 +138,7 @@ struct ClaudeHookWriteAmplificationTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "overlapping-blocking-tool-session"
-        let now = Date.now.timeIntervalSince1970
+        let now: TimeInterval = 4_102_444_800
         let state: [String: Any] = [
             "version": 1,
             "sessions": [
@@ -361,12 +361,16 @@ struct ClaudeHookWriteAmplificationTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "request-scoped-attention-session"
         let toolUseId = "bypass-question"
+        let processIdentity = try #require(AgentPIDProcessIdentity(
+            pid: ProcessInfo.processInfo.processIdentifier
+        ))
         try Harness.writeSessionStore(
             to: context.storeURL,
             sessionId: sessionId,
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            cwd: context.root.path
+            cwd: context.root.path,
+            processIdentity: processIdentity
         )
 
         let serverHandled = Harness.startDeliveryTargetServer(
@@ -378,7 +382,7 @@ struct ClaudeHookWriteAmplificationTests {
         var environment = Harness.hookEnvironment(context: context)
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = surfaceId
-        environment["CMUX_CLAUDE_PID"] = "4242"
+        environment["CMUX_CLAUDE_PID"] = String(processIdentity.pid)
 
         func runHook(subcommand: String, eventName: String) -> Harness.ProcessRunResult {
             let result = Harness.runHookProcess(
@@ -405,7 +409,11 @@ struct ClaudeHookWriteAmplificationTests {
                 return false
             }
             return params["request_id"] as? String == toolUseId
-                && params["ppid"] as? Int == 4242
+                && params["ppid"] as? Int == Int(processIdentity.pid)
+                && params["ppid_start_seconds"] as? Int
+                    == Int(processIdentity.startSeconds)
+                && params["ppid_start_microseconds"] as? Int
+                    == Int(processIdentity.startMicroseconds)
         })
         #expect(!needsInputCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
         #expect(!needsInputCommands.contains { $0.hasPrefix("set_status ") })
@@ -557,7 +565,7 @@ struct ClaudeHookWriteAmplificationTests {
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "stale-end-current-blocker-session"
-        let now = Date.now.timeIntervalSince1970
+        let now: TimeInterval = 4_102_444_800
         let state: [String: Any] = [
             "version": 1,
             "sessions": [

@@ -16,12 +16,22 @@ extension CMUXCLI {
         toolUseId: String?,
         workspaceId: String,
         surfaceId: String,
-        ownerPID: Int?,
+        owner: ClaudeHookSessionRecord?,
         title: String,
         subtitle: String,
         body: String
     ) {
-        var params: [String: Any] = [
+        guard let owner,
+              let ownerPID = owner.pid,
+              ownerPID > 0,
+              ownerPID <= Int(Int32.max),
+              let ownerPIDStartSeconds = owner.pidStartSeconds,
+              let ownerPIDStartMicroseconds = owner.pidStartMicroseconds,
+              ownerPIDStartSeconds >= 0,
+              (0..<1_000_000).contains(ownerPIDStartMicroseconds) else {
+            return
+        }
+        let params: [String: Any] = [
             "source": "claude",
             "session_id": sessionId,
             "request_id": claudeBlockingAttentionRequestId(toolUseId: toolUseId),
@@ -30,10 +40,10 @@ extension CMUXCLI {
             "title": title,
             "subtitle": subtitle,
             "body": body,
+            "ppid": ownerPID,
+            "ppid_start_seconds": ownerPIDStartSeconds,
+            "ppid_start_microseconds": ownerPIDStartMicroseconds,
         ]
-        if let ownerPID, ownerPID > 0 {
-            params["ppid"] = ownerPID
-        }
         _ = try? client.sendV2(method: "feed.attention.begin", params: params)
     }
 

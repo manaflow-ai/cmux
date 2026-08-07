@@ -147,6 +147,12 @@ struct ClaudeHookSessionRecord: Codable, Equatable {
     /// correlation tombstone; `nil` keeps compatibility with records written
     /// before completion correlation existed.
     var pendingBlockingToolUseIds: [String]? = nil
+    /// FIFO payload signatures for correlated blockers. Claude omits
+    /// `tool_use_id` from PermissionRequest, so this sequence maps that later
+    /// payload back to the exact PreToolUse request without session-wide
+    /// cleanup. `nil` remains compatible with records written before payload
+    /// correlation existed.
+    var pendingBlockingToolCorrelations: [ClaudeHookSessionStore.BlockingToolCorrelation]? = nil
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
@@ -713,6 +719,7 @@ final class ClaudeHookSessionStore {
                 // from the finished turn cannot select legacy session-wide
                 // cleanup and overwrite attention owned by the next turn.
                 record.pendingBlockingToolUseIds = []
+                record.pendingBlockingToolCorrelations = []
             }
             let superseded: [ClaudeHookSessionRecord]
             if supersedesSameProcessSession {
@@ -3771,7 +3778,7 @@ struct CMUXCLI {
                 return
             }
             if commandArgs.first?.lowercased() == "feed" {
-                try runFeedHook(
+                _ = try runFeedHook(
                     commandArgs: Array(commandArgs.dropFirst()),
                     socketPath: resolvedSocketPath,
                     socketPassword: socketPasswordArg,
@@ -3781,7 +3788,7 @@ struct CMUXCLI {
             }
         }
         if command == "feed-hook" {
-            try runFeedHook(
+            _ = try runFeedHook(
                 commandArgs: commandArgs,
                 socketPath: resolvedSocketPath,
                 socketPassword: socketPasswordArg,
@@ -5679,7 +5686,7 @@ struct CMUXCLI {
             guard let codexDef = Self.agentDef(named: "codex") else { print("{}"); return }
             try runGenericAgentHook(def: codexDef, commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
-            try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
+            _ = try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
             try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
 
@@ -25461,17 +25468,20 @@ struct CMUXCLI {
             }
             let toolName = firstString(in: rawObject, keys: ["tool_name", "toolName"])
             let isBlockingTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
-            try runFeedHook(
+            let terminalResponse = try runFeedHook(
                 commandArgs: ["--source", "claude"],
                 client: client,
                 telemetry: telemetry,
                 stdinObject: rawObject
-            ) { _ in
-                guard isBlockingTool, let sessionId = parsedInput.sessionId else { return }
+            )
+            if terminalResponse != nil,
+               isBlockingTool,
+               let sessionId = parsedInput.sessionId {
                 do {
                     _ = try sessionStore.resolveBlockingToolPermissionRequest(
                         sessionId: sessionId,
-                        toolUseId: extractClaudeHookToolUseId(from: rawObject)
+                        toolUseId: extractClaudeHookToolUseId(from: rawObject),
+                        rawObject: rawObject
                     )
                 } catch {
                     telemetry.breadcrumb(
@@ -25491,14 +25501,12 @@ struct CMUXCLI {
             let toolName = parsedInput.object?["tool_name"] as? String
             let isBlockingNeedsInputTool = toolName == "AskUserQuestion" || toolName == "ExitPlanMode"
             let usesVerboseToolStatus = UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus")
-            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
-            if !isBlockingNeedsInputTool,
-               !usesVerboseToolStatus,
-               mappedSession?.agentLifecycle == .running {
-                telemetry.breadcrumb("claude-hook.pre-tool-use.unchanged")
+            if !isBlockingNeedsInputTool, !usesVerboseToolStatus {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.ordinary-ignored")
                 printClaudeHookAck()
                 return
             }
+            let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
             // Skip only the pid/tty scan per tool call; the cheap
             // `{surface_id}` re-home probe stays enabled so a mid-turn pane
             // move cannot make this hook mutate (and re-record) the old
@@ -25588,6 +25596,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     toolUseId: toolUseId,
+                    rawObject: parsedInput.rawObject,
                     lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
@@ -25614,7 +25623,7 @@ struct CMUXCLI {
                         toolUseId: toolUseId,
                         workspaceId: workspaceId,
                         surfaceId: existingSurfaceId,
-                        ownerPID: claudePid,
+                        owner: mappedSession,
                         title: title,
                         subtitle: waitingSubtitle,
                         body: needsInputBody
@@ -34787,18 +34796,21 @@ export default CMUXSessionRestore;
     /// Designed so agents and wrappers can point a native decision hook
     /// at it and have permission/plan/question events surface in the
     /// Feed sidebar. Agent-specific lifecycle/status hooks can be
-    /// chained separately. For Claude, `hooks claude pre-tool-use` is
-    /// async status-only telemetry; blocking decisions come through
-    /// PermissionRequest.
+    /// chained separately. Claude uses targeted, ordered PreToolUse hooks for
+    /// its blocking tools; blocking decisions come through PermissionRequest.
+    ///
+    /// - Returns: The app's terminal Feed result for an acknowledged or
+    ///   resolved request, or `nil` when no terminal response was received.
     private func runFeedHook(
         commandArgs: [String],
         client: SocketClient? = nil,
         socketPath: String? = nil,
         socketPassword: String? = nil,
         telemetry: CLISocketSentryTelemetry,
-        stdinObject: [String: Any]? = nil,
-        onTerminalResponse: (([String: Any]) -> Void)? = nil
-    ) throws {
+        // nil reads stdin; a provided dictionary, including an empty one,
+        // skips the second read after a caller already consumed stdin.
+        stdinObject: [String: Any]? = nil
+    ) throws -> [String: Any]? {
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
@@ -34809,7 +34821,7 @@ export default CMUXSessionRestore;
         // Also matches the graceful-fallback pattern of the other hooks.
         guard ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]?.isEmpty == false else {
             print("{}")
-            return
+            return nil
         }
 
         let commandEvent = optionValue(commandArgs, name: "--event")
@@ -34831,7 +34843,7 @@ export default CMUXSessionRestore;
             if let feedHookStdinLimit {
                 guard let boundedData = Self.readBoundedFeedHookStdin(maxBytes: feedHookStdinLimit) else {
                     print("{}")
-                    return
+                    return nil
                 }
                 stdinData = boundedData
             } else {
@@ -34841,7 +34853,7 @@ export default CMUXSessionRestore;
                   let decoded = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
             else {
                 print("{}")
-                return
+                return nil
             }
             stdinObj = decoded
         }
@@ -34874,7 +34886,7 @@ export default CMUXSessionRestore;
             env: env
         ) {
             print("{}")
-            return
+            return nil
         }
 
         // Capture the agent's PID (not our subprocess PID) so the
@@ -34894,7 +34906,7 @@ export default CMUXSessionRestore;
                 socketPassword: socketPassword
            ) {
             print(compactedFeedOutput)
-            return
+            return nil
         }
         let sessionId = firstString(
             in: stdinObj,
@@ -35001,7 +35013,7 @@ export default CMUXSessionRestore;
                 )
             }
             print("{}")
-            return
+            return nil
         }
 
         var ownedClient: SocketClient?
@@ -35038,13 +35050,13 @@ export default CMUXSessionRestore;
                     throw error
                 }
                 print("{}")
-                return
+                return nil
             }
             ownedClient = feedClient
             activeClient = feedClient
         } else {
             print("{}")
-            return
+            return nil
         }
 
         if shouldAwaitTelemetryIngestion {
@@ -35073,13 +35085,13 @@ export default CMUXSessionRestore;
                 throw error
             }
             print("{}")
-            return
+            return nil
         }
 
         if shouldAwaitTelemetryIngestion {
             let acknowledgedTarget = try validatePiFeedAcknowledgment(response)
             print(piHookResolvedTargetOutput(acknowledgedTarget))
-            return
+            return nil
         }
         guard let respData = response.data(using: .utf8),
               let respObj = try? JSONSerialization.jsonObject(with: respData) as? [String: Any],
@@ -35087,14 +35099,13 @@ export default CMUXSessionRestore;
               let result = respObj["result"] as? [String: Any]
         else {
             print("{}")
-            return
+            return nil
         }
 
-        onTerminalResponse?(result)
         let status = result["status"] as? String ?? "acknowledged"
         if status == "resolved", let decision = result["decision"] as? [String: Any] {
             if source == "kiro", Self.emitKiroDecisionIfHandled(decision: decision) {
-                return
+                return result
             }
             let out = Self.renderAgentDecision(
                 source: source,
@@ -35105,9 +35116,10 @@ export default CMUXSessionRestore;
                 decision: decision
             )
             print(out)
-            return
+            return result
         }
         print("{}")
+        return result
     }
 
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
@@ -35770,7 +35782,7 @@ export default CMUXSessionRestore;
         case "feed":
             telemetry.breadcrumb("hooks.feed.dispatch")
             do {
-                try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
+                _ = try runFeedHook(commandArgs: rest, client: client, telemetry: telemetry)
                 telemetry.breadcrumb("hooks.feed.completed")
             } catch {
                 telemetry.breadcrumb("hooks.feed.failure")

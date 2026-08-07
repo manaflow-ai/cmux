@@ -619,7 +619,11 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
     # Regression for #9693: ordinary tool calls must not spawn a cmux hook
     # process. Only the two blocking tools that need the bypassPermissions
     # fallback retain an ordered PreToolUse bridge.
-    ordinary_tool_groups = [group for group in pre_tool_use_groups if group.get("matcher") == ""]
+    ordinary_tool_groups = [
+        group
+        for group in pre_tool_use_groups
+        if group.get("matcher") in (None, "", "*")
+    ]
     expect(
         not ordinary_tool_groups,
         f"PreToolUse should not install a catch-all per-tool hook, got {ordinary_tool_groups}",

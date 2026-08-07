@@ -139,9 +139,11 @@ final class TerminalNotificationPolicyInFlightStore {
         identities.forEach(drainCompletedRequests)
     }
 
-    func discard(correlationKey: String) {
+    func discard(correlationKeys: Set<String>) {
+        guard !correlationKeys.isEmpty else { return }
         let idsToDiscard = requests.compactMap { id, entry in
-            entry.request.correlationKey == correlationKey ? id : nil
+            guard let correlationKey = entry.request.correlationKey else { return nil }
+            return correlationKeys.contains(correlationKey) ? id : nil
         }
         let identities = Set(idsToDiscard.compactMap(discardRequest))
         identities.forEach(drainCompletedRequests)

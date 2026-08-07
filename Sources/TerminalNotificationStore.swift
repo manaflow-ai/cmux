@@ -1669,13 +1669,43 @@ final class TerminalNotificationStore: ObservableObject {
         removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
     }
 
-    func clearNotifications(correlationKey: String) {
-        inFlightPolicyRequests.discard(correlationKey: correlationKey)
-        let ids = notifications.compactMap {
-            $0.correlationKey == correlationKey ? $0.id : nil
+    func clearNotifications(correlationKeys: Set<String>) {
+        guard !correlationKeys.isEmpty else { return }
+        inFlightPolicyRequests.discard(correlationKeys: correlationKeys)
+
+        var kept: [TerminalNotification] = []
+        kept.reserveCapacity(notifications.count)
+        var removed: [TerminalNotification] = []
+        for notification in notifications {
+            if let correlationKey = notification.correlationKey,
+               correlationKeys.contains(correlationKey) {
+                removed.append(notification)
+            } else {
+                kept.append(notification)
+            }
         }
-        ids.forEach(remove)
-        removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
+        guard !removed.isEmpty else { return }
+
+        let ids = removed.map { $0.id.uuidString }
+        notificationFeedHistory.markRead(ids: Set(removed.map(\.id)))
+        notifications = kept
+        for notification in removed {
+            clearFocusedReadIndicator(
+                forTabId: notification.tabId,
+                surfaceId: notification.surfaceId
+            )
+        }
+        removeDeliveredNotifications(withIdentifiers: ids)
+        removePendingNotificationRequests(withIdentifiers: ids)
+        let supersededDrained = removed.flatMap { notification in
+            supersededPhoneDismissBuffer.flush(
+                forKey: SupersededPhoneDismissBuffer.key(
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId
+                )
+            )
+        }
+        emitNotificationsDismissed(ids: ids, drainedSuperseded: supersededDrained)
     }
 
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
