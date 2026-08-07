@@ -3988,6 +3988,113 @@ fn runtime_host_loss_rejects_pid_and_unknown_extensions() {
 }
 
 #[test]
+fn runtime_host_loss_recorder_is_receipt_gated_and_stale_safe() {
+    let root = temp_root("runtime-host-loss-recorder");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "runtime-host-loss-recorder").unwrap();
+        let session_id = registry.session_id().to_string();
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-loss-recorder-attached",
+            "runtime.attachment.updated",
+            vec![
+                JournalSubject { kind: "session".into(), id: session_id },
+                JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+            ],
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-recorder-a",
+                "state":"attached",
+                "host_epoch":"host-epoch-recorder",
+                "lease_generation":"lease-recorder"
+            }),
+            true,
+        );
+    }
+
+    let mut registry = WorkspaceRegistry::open(&root, "runtime-host-loss-recorder").unwrap();
+    let first = registry
+        .record_runtime_host_loss_proof(
+            "test",
+            "runtime-loss-idempotency",
+            &terminal_id,
+            "runtime-recorder-a",
+            "host-epoch-recorder",
+            "lease-recorder",
+            "machine_epoch_advanced",
+        )
+        .unwrap();
+    assert!(!first.replayed);
+    let retry = registry
+        .record_runtime_host_loss_proof(
+            "test",
+            "runtime-loss-idempotency",
+            &terminal_id,
+            "runtime-recorder-a",
+            "host-epoch-recorder",
+            "lease-recorder",
+            "machine_epoch_advanced",
+        )
+        .unwrap();
+    assert!(retry.replayed);
+    assert_eq!(retry.sequence, first.sequence);
+    assert!(registry
+        .record_runtime_host_loss_proof(
+            "test",
+            "runtime-loss-idempotency",
+            &terminal_id,
+            "runtime-recorder-a",
+            "host-epoch-recorder",
+            "lease-other",
+            "machine_epoch_advanced",
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("different payload"));
+    assert!(registry
+        .record_runtime_host_loss_proof(
+            "test",
+            "runtime-loss-new-idempotency",
+            &terminal_id,
+            "runtime-recorder-a",
+            "host-epoch-recorder",
+            "lease-recorder",
+            "machine_epoch_advanced",
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("stale"));
+
+    let rows = persistence_state_rows(&registry);
+    assert!(rows.iter().any(|row| {
+        row.starts_with("runtime:")
+            && row.contains(r#""state":"interrupted""#)
+            && row.contains(r#""host_epoch":"host-epoch-recorder""#)
+            && row.contains(r#""lease_generation":"lease-recorder""#)
+    }));
+    assert!(rows.iter().any(|row| {
+        row.starts_with("lifecycle:")
+            && row.contains(r#""state":"interrupted""#)
+            && row.contains("machine_epoch_advanced")
+    }));
+    let loss_events: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM session_journal
+             WHERE kind = 'runtime.host_loss.proven'
+               AND json_extract(payload_json, '$.terminal_id') = ?1",
+            [terminal_id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(loss_events, 1);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn session_effect_workflow_rebuild_requires_intent_before_outcome_and_is_deterministic() {
     let root = temp_root("effect-workflow-intent-outcome");
     let terminal_id = terminal_resource(TERMINAL_ONE);

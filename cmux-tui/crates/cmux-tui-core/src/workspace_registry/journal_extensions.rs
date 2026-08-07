@@ -21,6 +21,8 @@ const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
 const SESSION_EFFECT_INTENT_OPERATION: &str = "session.effect.intent.record";
 #[allow(dead_code)]
 const SESSION_EFFECT_OUTCOME_OPERATION: &str = "session.effect.outcome.record";
+#[allow(dead_code)]
+const RUNTIME_HOST_LOSS_OPERATION: &str = "runtime.host_loss.record";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1436,6 +1438,152 @@ impl WorkspaceRegistry {
         insert_operation_receipt(
             &tx,
             SESSION_EFFECT_OUTCOME_OPERATION,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_runtime_host_loss_proof(
+        &mut self,
+        origin: &str,
+        idempotency_key: &str,
+        terminal_id: &TerminalPublicId,
+        runtime_id: &str,
+        host_epoch: &str,
+        lease_generation: &str,
+        proof: &str,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_identifier("runtime host loss origin", origin)?;
+        validate_identifier("runtime host loss idempotency key", idempotency_key)?;
+        validate_runtime_loss_token("runtime id", runtime_id)?;
+        validate_runtime_loss_token("host epoch", host_epoch)?;
+        validate_runtime_loss_token("lease generation", lease_generation)?;
+        anyhow::ensure!(
+            matches!(proof, "host_liveness_dead" | "machine_epoch_advanced"),
+            "runtime host loss proof is unsupported"
+        );
+        let payload = json!({
+            "format":"cmux.runtime-host-loss.v1",
+            "terminal_id":terminal_id,
+            "runtime_id":runtime_id,
+            "host_epoch":host_epoch,
+            "lease_generation":lease_generation,
+            "proof":proof,
+        });
+        let fingerprint = Sha256::digest(
+            canonical_json(&json!({
+                "kind":"runtime.host_loss.proven",
+                "payload":&payload,
+            }))?
+            .as_bytes(),
+        );
+        let tx = self.connection.transaction()?;
+        if let Some(commit) = operation_receipt(
+            &tx,
+            RUNTIME_HOST_LOSS_OPERATION,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            return Ok(commit);
+        }
+        let session_id = transaction_session_id(&tx)?;
+        let current = tx
+            .query_row(
+                "SELECT session_id, runtime_id, state, host_epoch, lease_generation
+                 FROM journal_runtime_attachment_states
+                 WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((stored_session, stored_runtime, stored_state, stored_epoch, stored_lease)) =
+            current
+        else {
+            anyhow::bail!("runtime host loss proof has no current runtime attachment");
+        };
+        anyhow::ensure!(
+            stored_session == session_id
+                && stored_runtime == runtime_id
+                && stored_epoch == host_epoch
+                && stored_lease == lease_generation
+                && matches!(stored_state.as_str(), "attached" | "detached" | "lost"),
+            "runtime host loss proof is stale"
+        );
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+        ];
+        let producer = JournalProducer {
+            kind: "trusted_local_authority".into(),
+            id: "cmux_tui".into(),
+        };
+        let authority = JournalAuthority {
+            principal_id: origin.into(),
+            lease_id: "session-persistence".into(),
+            generation: self.generation.clone(),
+            role: "session.persistence".into(),
+        };
+        let event_id = random_event_id("runtime_loss");
+        let occurred_at_ms = unix_epoch_ms()?;
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "runtime.host_loss.proven",
+                class: JournalClass::State,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms,
+                producer: &producer,
+                authority: Some(&authority),
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        apply_session_persistence_journal_record(
+            &tx,
+            sequence,
+            "runtime.host_loss.proven",
+            occurred_at_ms,
+            &producer,
+            Some(&authority),
+            &subjects,
+            &payload,
+        )?;
+        let result = json!({
+            "terminal_id":terminal_id,
+            "runtime_id":runtime_id,
+            "host_epoch":host_epoch,
+            "lease_generation":lease_generation,
+            "proof":proof,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            RUNTIME_HOST_LOSS_OPERATION,
             origin,
             idempotency_key,
             fingerprint.as_slice(),
@@ -2975,6 +3123,19 @@ fn session_effect_operation_is_supported_for_append(operation: &str) -> bool {
         operation,
         "session.hibernate" | "session.recover" | "session.restore" | "session.fork"
     )
+}
+
+#[allow(dead_code)]
+fn validate_runtime_loss_token(label: &str, value: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !value.is_empty()
+            && value.len() <= 128
+            && value.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
+            }),
+        "{label} must contain 1 to 128 ASCII letters, digits, dash, underscore, or dot"
+    );
+    Ok(())
 }
 
 fn sensitivity_rank(value: JournalSensitivity) -> u8 {
