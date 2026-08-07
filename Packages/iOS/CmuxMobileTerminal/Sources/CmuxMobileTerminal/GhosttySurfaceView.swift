@@ -1801,7 +1801,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let hasPendingScroll = pendingScrollLines != 0
             || pendingLocalScrollLines != 0
             || localScrollApplyInFlight
-        let shouldSync = TerminalNativeScrollSynchronization.shouldSynchronize(
+        let shouldSync = TerminalNativeScrollGeometry.shouldSynchronize(
             explicitlyRequested: syncToAuthoritativeOffset,
             isInteracting: isScrollMechanicsInteracting,
             hasPendingScroll: hasPendingScroll

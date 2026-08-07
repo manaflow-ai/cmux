@@ -81,12 +81,12 @@ struct TerminalNativeScrollGeometryTests {
 
     @Test("pending precise scroll prevents stale authoritative resync")
     func pendingScrollDefersResync() {
-        #expect(!TerminalNativeScrollSynchronization.shouldSynchronize(
+        #expect(!TerminalNativeScrollGeometry.shouldSynchronize(
             explicitlyRequested: false,
             isInteracting: false,
             hasPendingScroll: true
         ))
-        #expect(TerminalNativeScrollSynchronization.shouldSynchronize(
+        #expect(TerminalNativeScrollGeometry.shouldSynchronize(
             explicitlyRequested: false,
             isInteracting: false,
             hasPendingScroll: false
