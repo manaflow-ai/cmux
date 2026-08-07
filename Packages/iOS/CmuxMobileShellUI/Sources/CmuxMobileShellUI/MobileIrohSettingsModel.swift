@@ -144,14 +144,19 @@ final class MobileIrohSettingsModel {
         let generation = diagnosticReloadGeneration
         let report = await controller.irohDiagnosticReport()
         let previous = await controller.irohPreviousLaunchDiagnosticReport()
-        guard generation == diagnosticReloadGeneration else { return }
-        diagnosticReport = report
         // The export carries the previous launch's archived block first so a
         // drop that happened before a relaunch stays in the shared timeline.
-        let blocks = [previous, report].compactMap { block -> String? in
+        let reports = [previous, report].compactMap { block -> DiagnosticReport? in
             guard let block, !block.events.isEmpty else { return nil }
-            return String(decoding: block.compactExport(), as: UTF8.self)
+            return block
         }
+        var blocks: [String] = []
+        blocks.reserveCapacity(reports.count)
+        for report in reports {
+            blocks.append(await report.humanReadableText())
+        }
+        guard generation == diagnosticReloadGeneration else { return }
+        diagnosticReport = report
         diagnosticExportText = blocks.joined(separator: "\n")
     }
 }

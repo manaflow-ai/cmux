@@ -35,6 +35,8 @@ extension DockSplitStore {
                           inPane: leaf.paneId,
                           excludingStableIdentities: excludingStableIdentities,
                           sourceWorkspaceId: snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
+                          sourceSnapshotWorkspaceId:
+                            snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
                           sourceWorkspaceResolver: sourceWorkspaceResolver
                       ) else {
                     continue
@@ -78,20 +80,43 @@ extension DockSplitStore {
         return oldToNewPanelIds
     }
 
+    /// Recreates one panel inside an existing Dock pane for Dock-local
+    /// closed-item history. Unlike a full session restore, this preserves the
+    /// rest of the live Dock tree.
+    @discardableResult
+    func restoreClosedPanelSessionSnapshot(
+        _ snapshot: SessionPanelSnapshot,
+        inPane paneId: PaneID,
+        sourceWorkspaceId: UUID?,
+        sourceSnapshotWorkspaceId: UUID?,
+        sourceWorkspaceResolver: (UUID) -> Workspace?
+    ) -> UUID? {
+        createSessionRestoredPanel(
+            from: snapshot,
+            inPane: paneId,
+            excludingStableIdentities: [],
+            sourceWorkspaceId: sourceWorkspaceId,
+            sourceSnapshotWorkspaceId: sourceSnapshotWorkspaceId,
+            sourceWorkspaceResolver: sourceWorkspaceResolver
+        )
+    }
+
     private func createSessionRestoredPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
         excludingStableIdentities: Set<UUID>,
         sourceWorkspaceId: UUID?,
+        sourceSnapshotWorkspaceId: UUID?,
         sourceWorkspaceResolver: (UUID) -> Workspace?
     ) -> UUID? {
         if let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),
            let detached = sourceWorkspace.detachedSurfaceForDockSessionRestore(
                snapshot,
-               snapshotWorkspaceId: sourceWorkspaceId,
+               snapshotWorkspaceId:
+                sourceSnapshotWorkspaceId ?? sourceWorkspaceId,
                excludingStableIdentities: excludingStableIdentities
-            ) {
+           ) {
             let restoredPanelId = attachDetachedSurface(detached, inPane: paneId, focus: false)
             if restoredPanelId == nil {
                 AgentHibernationController.shared.discardTrackingStateForClosedPanel(
@@ -102,7 +127,8 @@ extension DockSplitStore {
             }
             return restoredPanelId
         }
-        if sourceWorkspaceId != nil, snapshot.terminal?.isRemoteTerminal == true {
+        if sourceWorkspaceId != nil,
+           snapshot.terminal?.isRemoteTerminal == true {
             return nil
         }
         switch snapshot.type {
