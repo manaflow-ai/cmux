@@ -501,14 +501,15 @@ struct SidebarWorkspaceTableSuspensionTests {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let model = makeGroupHeaderModel()
+        let environment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(colorScheme: .light),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
         let row = SidebarWorkspaceTableRowConfiguration(
             groupHeaderModel: model,
             actions: makeGroupHeaderActions {},
-            environment: SidebarWorkspaceTableEnvironmentSnapshot(
-                environment: .sidebarTableTestValues(colorScheme: .light),
-                globalFontMagnificationPercent: 100,
-                lazyContractProbe: SidebarLazyContractProbe()
-            )
+            environment: environment
         )
         let darkAppearance = try #require(NSAppearance(named: .darkAqua))
         let window = NSWindow(
@@ -549,9 +550,10 @@ struct SidebarWorkspaceTableSuspensionTests {
             resolvedColor = nameField.textColor?.usingColorSpace(.sRGB)
         }
         let color = try #require(resolvedColor)
+        let expected = try #require(environment.primaryTextColor.usingColorSpace(.sRGB))
 
         #expect(
-            color.redComponent < 0.5 && color.greenComponent < 0.5 && color.blueComponent < 0.5,
+            color == expected,
             "The table's explicit light palette must win over a transient dark backing appearance."
         )
     }
