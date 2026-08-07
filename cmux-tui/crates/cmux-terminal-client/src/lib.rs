@@ -202,6 +202,7 @@ struct ClientState {
     resize_delivery: Option<Arc<ResizeDelivery>>,
     resize_acknowledgement: Option<ResizeAcknowledgement>,
     native_render_events: Option<VecDeque<NativeRenderEvent>>,
+    native_render_event_lease: Option<NativeRenderEvent>,
     native_render_event_bytes: usize,
 }
 
@@ -295,12 +296,14 @@ impl ClientState {
             resize_delivery: None,
             resize_acknowledgement: None,
             native_render_events: None,
+            native_render_event_lease: None,
             native_render_event_bytes: 0,
         })
     }
 
     fn enable_native_render_events(&mut self) {
         self.native_render_events = Some(VecDeque::new());
+        self.native_render_event_lease = None;
         self.native_render_event_bytes = 0;
     }
 
