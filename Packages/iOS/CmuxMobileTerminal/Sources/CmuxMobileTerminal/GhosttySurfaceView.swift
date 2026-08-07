@@ -2756,7 +2756,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func setPendingKeyboardVisibilityIntent(_ visible: Bool) {
-        pendingKeyboardVisibilityIntent = visible
+        // Store only a bridge that anticipates a real transition. An intent
+        // already matching the system fact has no frame to wait for: a
+        // same-keyboard responder handoff (closing the composer while typing)
+        // posts no keyboard frame, so a matching intent stored there would
+        // survive until a real opposite transition — which can never satisfy
+        // the equality in `acceptKeyboardVisibilityFromSystem` — pinning the
+        // stale glyph and re-summoning a dismissed keyboard on composer close.
+        pendingKeyboardVisibilityIntent = visible == keyboardVisible ? nil : visible
         updateKeyboardTogglePresentation()
     }
 
