@@ -857,6 +857,41 @@ struct FeedCoordinatorTests {
         #expect(deliveries.events.map(\.requestId) == [firstEvent.requestId, secondEvent.requestId])
     }
 
+    @Test @MainActor
+    func transientAttentionStoreEvictsItsOldestEntryAtCapacity() {
+        let store = FeedTransientAttentionStore()
+        let target = FeedCoordinator.AttentionTarget(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            statusKey: "claude_code"
+        )
+        let firstKey = FeedTransientAttentionStore.Key(
+            source: "claude",
+            sessionId: "session-0",
+            requestId: "request-0"
+        )
+
+        for index in 0...256 {
+            let key = FeedTransientAttentionStore.Key(
+                source: "claude",
+                sessionId: "session-\(index)",
+                requestId: "request-\(index)"
+            )
+            store.insert(
+                FeedTransientAttentionStore.Entry(
+                    target: target,
+                    notificationCorrelationKey: "notification-\(index)"
+                ),
+                for: key
+            )
+        }
+
+        #expect(
+            store.entry(for: firstKey) == nil,
+            "orphaned transient requests must not grow the Feed registry without a bound"
+        )
+    }
+
     static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
