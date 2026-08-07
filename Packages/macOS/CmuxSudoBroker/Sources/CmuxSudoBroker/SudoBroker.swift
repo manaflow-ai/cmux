@@ -80,7 +80,7 @@ public actor SudoBroker {
 
     /// Creates the private spool, reconciles durable state, and begins watching.
     ///
-    /// - Returns: Newly discovered request snapshots.
+    /// - Returns: Every active request snapshot after startup reconciliation.
     /// - Throws: A spool or watcher error when safe observation cannot start.
     public func start() async throws -> [SudoPendingRequest] {
         watcherGeneration &+= 1
@@ -101,7 +101,8 @@ public actor SudoBroker {
             }
             isWatching = true
         }
-        return try await refresh()
+        _ = try await refresh()
+        return pendingRequests()
     }
 
     /// Reconciles filesystem state with the broker's in-memory presentation set.
@@ -135,10 +136,10 @@ public actor SudoBroker {
         )
         for snapshot in snapshots {
             let id = snapshot.request.id
-            let phase = store.state(id: id)?.phase ?? snapshot.phase
+            let state = store.state(id: id)
+            let phase = state?.phase ?? snapshot.phase
             phasesByID[id] = phase
-            if phase == .approved || phase == .executing,
-               let state = store.state(id: id) {
+            if phase == .approved || phase == .executing, let state {
                 recoveryStatesByID[id] = state
             }
         }
@@ -157,11 +158,13 @@ public actor SudoBroker {
         )
 
         var discovered: [SudoPendingRequest] = []
-        for snapshot in snapshots where records[snapshot.request.id] == nil {
+        for snapshot in snapshots {
             try Task.checkCancellation()
             let id = snapshot.request.id
+            let wasKnown = records[id] != nil
             let phase = phasesByID[id] ?? snapshot.phase
             if phase == .approved || phase == .executing {
+                guard !wasKnown else { continue }
                 guard recoveryStatesByID[id] != nil else {
                     settleInterruptedIfPossible(id: id, at: now)
                     continue
@@ -220,9 +223,13 @@ public actor SudoBroker {
                 phase: .pendingApproval
             )
             records[id] = pending
-            discovered.append(pending)
-            eventContinuation.yield(.discovered(pending))
-            scheduleExpiry(for: pending)
+            if !wasKnown {
+                discovered.append(pending)
+                eventContinuation.yield(.discovered(pending))
+            }
+            if expiryTasks[id] == nil {
+                scheduleExpiry(for: pending)
+            }
         }
         return discovered
     }
@@ -477,11 +484,8 @@ public actor SudoBroker {
     }
 
     private func requesterIsAvailable(_ request: SudoRequest) -> Bool {
-        guard let identity = request.requesterIdentity,
-              let inspector = dependencies.requesterInspector else {
-            return true
-        }
-        return inspector.isRunning(identity)
+        guard let identity = request.requesterIdentity else { return true }
+        return dependencies.requesterInspector.isRunning(identity)
     }
 
     private func recoverCleanupFailures(

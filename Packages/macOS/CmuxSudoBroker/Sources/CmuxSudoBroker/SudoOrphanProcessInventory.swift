@@ -20,13 +20,15 @@ struct SudoOrphanProcessInventory: Sendable {
         guard !requestedPaths.isEmpty else { return identitiesByPath }
 
         for processIdentifier in inspector.allProcessIdentifiers() {
-            guard let arguments = inspector.arguments(for: processIdentifier),
+            guard let initialIdentity = inspector.identity(for: processIdentifier),
+                  let arguments = inspector.arguments(for: processIdentifier),
                   let scriptPath = approvedScriptPath(arguments: arguments),
                   requestedPaths.contains(scriptPath),
-                  let identity = inspector.identity(for: processIdentifier) else {
+                  let finalIdentity = inspector.identity(for: processIdentifier),
+                  initialIdentity == finalIdentity else {
                 continue
             }
-            identitiesByPath[scriptPath, default: []].append(identity)
+            identitiesByPath[scriptPath, default: []].append(finalIdentity)
         }
         for path in identitiesByPath.keys {
             identitiesByPath[path]?.sort { $0.processIdentifier < $1.processIdentifier }

@@ -4,7 +4,7 @@ struct SudoBrokerDependencies: Sendable {
     let runner: any SudoRunnerLaunching
     let recovery: any SudoInterruptedExecutionRecovering
     let watcher: (any SudoSpoolWatching)?
-    let requesterInspector: (any SudoProcessInspecting)?
+    let requesterInspector: any SudoProcessInspecting
 
     init(
         clock: any SudoBrokerClock,
@@ -12,7 +12,7 @@ struct SudoBrokerDependencies: Sendable {
         runner: any SudoRunnerLaunching,
         recovery: any SudoInterruptedExecutionRecovering,
         watcher: (any SudoSpoolWatching)?,
-        requesterInspector: (any SudoProcessInspecting)? = nil
+        requesterInspector: any SudoProcessInspecting
     ) {
         self.clock = clock
         self.pam = pam
