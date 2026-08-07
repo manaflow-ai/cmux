@@ -334,24 +334,6 @@ enum DragOverlayRoutingPolicy {
         return true
     }
 
-    static func shouldCaptureSidebarExternalOverlay(
-        hasSidebarDragState: Bool,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        guard hasSidebarDragState else { return false }
-        return hasSidebarTabReorder(pasteboardTypes)
-    }
-
-    static func shouldCaptureSidebarExternalOverlay(
-        draggedTabId: UUID?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        shouldCaptureSidebarExternalOverlay(
-            hasSidebarDragState: draggedTabId != nil,
-            pasteboardTypes: pasteboardTypes
-        )
-    }
-
     static func shouldPassThroughPortalHitTesting(
         pasteboardTypes: [NSPasteboard.PasteboardType]?,
         eventType: NSEvent.EventType?

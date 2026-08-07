@@ -1129,13 +1129,6 @@ class cmux:
             raise cmuxError(response)
         return response.strip().lower() == "true"
 
-    def sidebar_overlay_gate(self, state: str = "active") -> bool:
-        """Return whether sidebar outside-drop overlay would capture for drag state."""
-        response = self._send_command(f"sidebar_overlay_gate {state}")
-        if response.startswith("ERROR"):
-            raise cmuxError(response)
-        return response.strip().lower() == "true"
-
     def drop_hit_test(self, x: float, y: float) -> Optional[str]:
         """Hit-test the file-drop overlay at normalised (0-1) coords.
 

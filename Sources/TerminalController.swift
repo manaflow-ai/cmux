@@ -2239,9 +2239,6 @@ class TerminalController {
         case "portal_hit_gate":
             return portalHitGate(args)
 
-        case "sidebar_overlay_gate":
-            return sidebarOverlayGate(args)
-
         case "terminal_drop_overlay_probe":
             return terminalDropOverlayProbe(args)
 #endif
@@ -10848,9 +10845,8 @@ class TerminalController {
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-            // Mark the drag as simulator-driven so VerticalTabsSidebar skips
-            // starting SidebarDragFailsafeMonitor — it would otherwise post
-            // mouse_up_failsafe immediately because no real mouse is pressed.
+            // Mark the drag as simulator-driven so the coordinator does not
+            // install physical mouse lifecycle monitors for a synthetic drag.
             dragState.isSimulated = true
             dragState.beginDragging(tabId: fromTabId)
             return true
@@ -11239,7 +11235,6 @@ class TerminalController {
           overlay_hit_gate <event|none> - Return true/false if file-drop overlay would capture hit-testing for event type (test-only)
           overlay_drop_gate [external|local] - Return true/false if file-drop overlay would capture drag destination routing (test-only)
           portal_hit_gate <event|none> - Return true/false if terminal portal should pass hit-testing to SwiftUI drag targets (test-only)
-          sidebar_overlay_gate [active|inactive] - Return true/false if sidebar outside-drop overlay would capture (test-only)
           terminal_drop_overlay_probe [deferred|direct] - Trigger focused terminal drop-overlay show path and report animation counts (test-only)
           activate_app                    - Bring app + main window to front (test-only)
           send_workspace <workspace_id> <text> - Send text to a workspace's selected terminal (test-only)
@@ -11584,29 +11579,6 @@ class TerminalController {
             )
         }
         return shouldPassThrough ? "true" : "false"
-    }
-
-    private func sidebarOverlayGate(_ args: String) -> String {
-        let token = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let hasSidebarDragState: Bool
-        switch token {
-        case "", "active":
-            hasSidebarDragState = true
-        case "inactive":
-            hasSidebarDragState = false
-        default:
-            return "ERROR: Usage: sidebar_overlay_gate [active|inactive]"
-        }
-
-        var shouldCapture = false
-        v2MainSync {
-            let pb = NSPasteboard(name: .drag)
-            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
-                hasSidebarDragState: hasSidebarDragState,
-                pasteboardTypes: pb.types
-            )
-        }
-        return shouldCapture ? "true" : "false"
     }
 
     private func terminalDropOverlayProbe(_ args: String) -> String {

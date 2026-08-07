@@ -219,30 +219,57 @@ struct DockPaneDropUnfocusedRoutingTests {
         ))
     }
 
-    @Test("Sidebar reorder mouse-up routing uses the active sidebar drag registry")
+    @Test("Sidebar registry never authorizes terminal mouse-up routing")
     @MainActor
-    func sidebarReorderMouseUpRoutingUsesActiveSidebarDragRegistry() async throws {
+    func sidebarRegistryNeverAuthorizesTerminalMouseUpRouting() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
             AppDelegate.shared = appDelegate
             defer { AppDelegate.shared = previousAppDelegate }
 
-            let pasteboardTypes = [DragOverlayRoutingPolicy.sidebarTabReorderType]
-            #expect(!DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-                pasteboardTypes: pasteboardTypes,
-                eventType: .leftMouseUp,
-                hasActiveDropDrag: appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
-            ))
-
             let workspaceId = UUID()
-            appDelegate.sidebarWorkspaceDragRegistry.begin(workspaceId: workspaceId)
-            defer { appDelegate.sidebarWorkspaceDragRegistry.end(workspaceId: workspaceId) }
-            #expect(DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-                pasteboardTypes: pasteboardTypes,
-                eventType: .leftMouseUp,
-                hasActiveDropDrag: appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
-            ))
+            let dragState = SidebarDragState(
+                workspaceDragRegistry: appDelegate.sidebarWorkspaceDragRegistry
+            )
+            dragState.isSimulated = true
+            dragState.beginDragging(tabId: workspaceId)
+            defer { dragState.clearDrag() }
+            #expect(appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId == workspaceId)
+
+            let dragPasteboard = NSPasteboard(name: .drag)
+            dragPasteboard.clearContents()
+            dragPasteboard.setString(
+                workspaceId.uuidString,
+                forType: DragOverlayRoutingPolicy.sidebarTabReorderType
+            )
+            defer { dragPasteboard.clearContents() }
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 320, height: 220),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer { window.orderOut(nil) }
+            let contentView = try #require(window.contentView)
+            let host = WindowTerminalHostView(frame: contentView.bounds)
+            let terminalContent = NSView(frame: host.bounds)
+            host.addSubview(terminalContent)
+            contentView.addSubview(host)
+
+            let pointInHost = NSPoint(x: host.bounds.midX, y: host.bounds.midY)
+            let pointInWindow = host.convert(pointInHost, to: nil)
+            let mouseUp = try Self.makeMouseEvent(
+                type: .leftMouseUp,
+                at: pointInWindow,
+                window: window
+            )
+
+            #expect(
+                host.performHitTest(at: pointInHost, currentEvent: mouseUp) === terminalContent,
+                "A sidebar registry entry plus stale drag pasteboard data must not swallow terminal mouse-up."
+            )
         }
     }
 
