@@ -248,7 +248,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
             emphasis: model.isAnchorActive ? 1.0 : 0.9,
             textColor: environment.primaryTextColor,
-            materialAppearance: environment.appKitAppearance,
+            materialStyle: SidebarShortcutHintMaterialStyle(environment: environment),
             representedIdentity: model.groupId
         )
 
@@ -679,6 +679,49 @@ final class SidebarHeaderGlyphButton: NSButton {
     }
 }
 
+/// Table-owned appearance inputs used to reconcile a shortcut pill with its
+/// potentially mismatched AppKit backing hierarchy.
+@MainActor
+struct SidebarShortcutHintMaterialStyle {
+    let colorScheme: ColorScheme?
+    let colorSchemeContrast: ColorSchemeContrast
+    let baseAppearance: NSAppearance?
+    let fallbackBackgroundColor: NSColor
+    let fallbackBorderColor: NSColor
+
+    init(environment: SidebarWorkspaceTableEnvironmentSnapshot) {
+        colorScheme = environment.colorScheme
+        colorSchemeContrast = environment.colorSchemeContrast
+        baseAppearance = environment.appKitAppearance
+        fallbackBackgroundColor = environment.colorScheme == .dark ? .black : .white
+        fallbackBorderColor = environment.primaryTextColor
+    }
+
+    static var inherited: Self {
+        Self(
+            colorScheme: nil,
+            colorSchemeContrast: .standard,
+            baseAppearance: nil,
+            fallbackBackgroundColor: .clear,
+            fallbackBorderColor: .clear
+        )
+    }
+
+    private init(
+        colorScheme: ColorScheme?,
+        colorSchemeContrast: ColorSchemeContrast,
+        baseAppearance: NSAppearance?,
+        fallbackBackgroundColor: NSColor,
+        fallbackBorderColor: NSColor
+    ) {
+        self.colorScheme = colorScheme
+        self.colorSchemeContrast = colorSchemeContrast
+        self.baseAppearance = baseAppearance
+        self.fallbackBackgroundColor = fallbackBackgroundColor
+        self.fallbackBorderColor = fallbackBorderColor
+    }
+}
+
 /// AppKit rendition of the sidebar shortcut-hint capsule. The outer view owns
 /// the shadow while the inner visual-effect view clips material to the capsule;
 /// putting both on one unclipped layer leaves a square material background.
@@ -688,8 +731,10 @@ final class SidebarShortcutHintPillView: NSView {
     private static let visibilityAnimationKey = "shortcutHintVisibility"
 
     private let materialView = NSVisualEffectView()
+    private let contrastFallbackView = NSView()
     private let label = NSTextField(labelWithString: "")
     private let reduceMotionProvider: () -> Bool
+    private var materialStyle = SidebarShortcutHintMaterialStyle.inherited
     private var emphasis: Double = 1.0
     private var representedIdentity: UUID?
     private var isRevealed = false
@@ -715,6 +760,12 @@ final class SidebarShortcutHintPillView: NSView {
         materialView.layer?.borderWidth = 0.8
         addSubview(materialView)
 
+        contrastFallbackView.wantsLayer = true
+        contrastFallbackView.layer?.masksToBounds = true
+        contrastFallbackView.layer?.borderWidth = 1
+        contrastFallbackView.isHidden = true
+        addSubview(contrastFallbackView)
+
         label.alignment = .center
         label.lineBreakMode = .byClipping
         materialView.addSubview(label)
@@ -731,12 +782,13 @@ final class SidebarShortcutHintPillView: NSView {
         fontSize: CGFloat,
         emphasis: Double,
         textColor: NSColor,
-        materialAppearance: NSAppearance?,
+        materialStyle: SidebarShortcutHintMaterialStyle = .inherited,
         representedIdentity: UUID? = nil
     ) {
         let identityChanged = self.representedIdentity != representedIdentity
         self.representedIdentity = representedIdentity
-        materialView.appearance = materialAppearance
+        self.materialStyle = materialStyle
+        updateMaterialPresentation()
         guard let text else {
             setRevealed(false, animated: !identityChanged)
             return
@@ -763,8 +815,10 @@ final class SidebarShortcutHintPillView: NSView {
         super.layout()
         let radius = bounds.height / 2
         materialView.frame = bounds
+        contrastFallbackView.frame = bounds
         materialView.layer?.cornerRadius = radius
-        label.frame = materialView.bounds.insetBy(dx: Self.horizontalPadding, dy: 2)
+        contrastFallbackView.layer?.cornerRadius = radius
+        label.frame = (label.superview?.bounds ?? bounds).insetBy(dx: Self.horizontalPadding, dy: 2)
         layer?.shadowPath = CGPath(
             roundedRect: bounds,
             cornerWidth: radius,
@@ -777,13 +831,70 @@ final class SidebarShortcutHintPillView: NSView {
         nil
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateMaterialPresentation()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateMaterialPresentation()
+    }
+
     func resetForReuse() {
         representedIdentity = nil
         isRevealed = false
         visibilityGeneration &+= 1
         applyImmediateVisibility(false)
         label.stringValue = ""
+        materialStyle = .inherited
+        updateMaterialPresentation()
+    }
+
+    private func updateMaterialPresentation() {
+        guard let colorScheme = materialStyle.colorScheme else {
+            showMaterial(appearance: nil)
+            return
+        }
+
+        let inheritedScheme = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
+        let intendedScheme: NSAppearance.Name = colorScheme == .dark ? .darkAqua : .aqua
+        if inheritedScheme == intendedScheme {
+            // Inherit matching appearances so AppKit keeps accessibility
+            // variants such as Increase Contrast on the material.
+            showMaterial(appearance: nil)
+        } else if materialStyle.colorSchemeContrast == .increased {
+            // High-contrast appearance names are matching-only and cannot be
+            // assigned. An opaque high-contrast fallback keeps the requested
+            // table scheme and increased contrast when the backing view has
+            // the opposite light/dark appearance.
+            showContrastFallback()
+        } else {
+            showMaterial(appearance: materialStyle.baseAppearance)
+        }
+    }
+
+    private func showMaterial(appearance: NSAppearance?) {
+        moveLabel(to: materialView)
+        materialView.appearance = appearance
+        materialView.isHidden = false
+        contrastFallbackView.isHidden = true
+    }
+
+    private func showContrastFallback() {
+        moveLabel(to: contrastFallbackView)
         materialView.appearance = nil
+        materialView.isHidden = true
+        contrastFallbackView.layer?.backgroundColor = materialStyle.fallbackBackgroundColor.cgColor
+        contrastFallbackView.layer?.borderColor = materialStyle.fallbackBorderColor.cgColor
+        contrastFallbackView.isHidden = false
+    }
+
+    private func moveLabel(to container: NSView) {
+        guard label.superview !== container else { return }
+        label.removeFromSuperview()
+        container.addSubview(label)
+        needsLayout = true
     }
 
     private func setRevealed(_ revealed: Bool, animated: Bool = true) {

@@ -919,13 +919,11 @@ struct SidebarAppKitRowCellTests {
     func shortcutHintPillKeepsVisibleDuringFadeOut() async throws {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { false })
         pill.configure(
-            text: "⌘1", fontSize: 10, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: "⌘1", fontSize: 10, emphasis: 1, textColor: .labelColor
         )
 
         pill.configure(
-            text: nil, fontSize: 10, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: nil, fontSize: 10, emphasis: 1, textColor: .labelColor
         )
 
         #expect(!pill.isHidden)
@@ -944,8 +942,7 @@ struct SidebarAppKitRowCellTests {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pill.configure(
-            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
         )
         CATransaction.commit()
 
@@ -957,16 +954,14 @@ struct SidebarAppKitRowCellTests {
         let pill = SidebarShortcutHintPillView(reduceMotionProvider: { true })
 
         pill.configure(
-            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
         )
         #expect(!pill.isHidden)
         #expect(pill.layer?.opacity == 1)
         #expect((pill.layer?.animationKeys() ?? []).isEmpty)
 
         pill.configure(
-            text: nil, fontSize: 9, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: nil, fontSize: 9, emphasis: 1, textColor: .labelColor
         )
         #expect(pill.isHidden)
         #expect(pill.layer?.opacity == 0)
@@ -1000,8 +995,7 @@ struct SidebarAppKitRowCellTests {
         let pill = SidebarShortcutHintPillView()
         pill.frame = NSRect(x: 0, y: 0, width: 32, height: 18)
         pill.configure(
-            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
         )
         pill.layoutSubtreeIfNeeded()
 
@@ -1012,8 +1006,7 @@ struct SidebarAppKitRowCellTests {
     func shortcutHintPillUsesCompactHorizontalPadding() throws {
         let pill = SidebarShortcutHintPillView()
         pill.configure(
-            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: "⌘1", fontSize: 9, emphasis: 1, textColor: .labelColor
         )
         let label = try #require(Self.descendants(of: pill).compactMap { $0 as? NSTextField }.first)
 
@@ -1025,8 +1018,7 @@ struct SidebarAppKitRowCellTests {
         let pill = SidebarShortcutHintPillView()
         pill.frame = NSRect(x: 0, y: 0, width: 36, height: 18)
         pill.configure(
-            text: "⌘1", fontSize: 10, emphasis: 1, textColor: .labelColor,
-            materialAppearance: nil
+            text: "⌘1", fontSize: 10, emphasis: 1, textColor: .labelColor
         )
         pill.layoutSubtreeIfNeeded()
 
