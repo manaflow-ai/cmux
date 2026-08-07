@@ -2506,7 +2506,16 @@
       "mapReadText": "reads terminal text from a cmux surface",
       "mapFocus": "focuses a cmux pane or workspace",
       "mapClose": "closes a cmux surface or workspace",
-      "mapList": "lists cmux panes or workspaces"
+      "mapList": "lists cmux panes or workspaces",
+      "authTitle": "Authentication across concurrent sessions",
+      "authProblem": "Running several Claude Code sessions at once — teammate agents, or just many cmux workspaces each with their own claude — is where subscription logins get flaky. Every session shares one OAuth credential whose refresh token rotates on each renewal, so after an idle stretch one session refreshes, invalidates the token the others still hold, and the rest are forced to log in again.",
+      "authFix": "Avoid the rotation race by giving every session the same long-lived token. Generate one with claude setup-token (it opens your system browser and prints an sk-ant-oat01-… token that does not rotate), then export it so cmux passes it to every agent it launches. Before relying on that token, remove conflicting credentials such as ANTHROPIC_API_KEY and any other Claude auth credentials from the shell or environment that starts cmux, because Claude Code may prefer them over CLAUDE_CODE_OAUTH_TOKEN:",
+      "authCodeCommentFile": "Add this line to ~/.zshenv by editing the file directly.",
+      "authCodeCommentReplace": "Keep it out of shell history, and replace any earlier entry.",
+      "authRestart": "Restart or reopen existing Claude sessions after updating the file. Only newly launched or restored agents inherit the fixed token, which stops them from rotating each other out.",
+      "authNoteShell": "The example targets zsh — ~/.zshenv is used because cmux launches agents through non-interactive shells, which skip ~/.zshrc and ~/.zprofile. For bash, configure the environment that launches cmux with export BASH_ENV=$HOME/.bash_env, then put the same CLAUDE_CODE_OAUTH_TOKEN export in ~/.bash_env; non-interactive bash does not read ~/.bash_profile. If your cmux launch path already sets a specific bash startup file, use that file instead. For fish, add set -x CLAUDE_CODE_OAUTH_TOKEN sk-ant-oat01-… to ~/.config/fish/config.fish. If you open cmux from Finder, Dock, or Spotlight, bash/fish startup files are not loaded by launchd; launch cmux from the configured shell, or set CLAUDE_CODE_OAUTH_TOKEN in the GUI launch environment before opening cmux.",
+      "authNoteSecret": "The token is a plaintext secret on disk — run chmod 600 on whichever file you changed (~/.zshenv, ~/.bash_env or your configured bash startup file, or ~/.config/fish/config.fish), and do not commit it.",
+      "authNoteExpiry": "Setup tokens expire after about a year (and can be revoked); when yours lapses, re-run claude setup-token and update the export."
     },
     "ohMyOpenCode": {
       "title": "oh-my-opencode",
