@@ -20664,15 +20664,17 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        if !claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs),
+        let launchesAgentSession = !claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs)
+        if launchesAgentSession,
            normalizedTmuxTarget(launchContext?.surfaceId) == nil {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
         }
-        let shimDirectory = try createClaudeTeamsShimDirectory(
+        let shimPlan = try createClaudeTeamsShimPlan(
             processEnvironment: launcherEnvironment,
             commandArgs: commandArgs,
             launchContext: launchContext
         )
+        let shimDirectory = shimPlan.directory
         // Check custom path from Settings > Automation > Claude Code first.
         // Never fall back to a cmux-bundled provider binary.
         guard let claudeExecutablePath = resolveClaudeExecutable(
@@ -20700,7 +20702,10 @@ struct CMUXCLI {
             launchContext: launchContext, commandArgs: commandArgs
         )
 
-        let launchPath = claudeExecutablePath
+        let managedClaudeWrapperURL = launchesAgentSession
+            ? shimPlan.managedClaudeWrapperURL
+            : nil
+        let launchPath = managedClaudeWrapperURL?.path ?? claudeExecutablePath
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
@@ -20708,6 +20713,15 @@ struct CMUXCLI {
             arguments: [executablePath, "claude-teams"] + launchArguments,
             workingDirectory: launcherEnvironment["PWD"]
         )
+        if managedClaudeWrapperURL != nil {
+            // The validated per-surface wrapper injects hooks/session identity.
+            // It consumes this one-shot marker while preserving the Teams launch
+            // capture above; teammate wrappers do not inherit the marker and
+            // therefore record ordinary Claude launches.
+            setenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH", "1", 1)
+        } else {
+            unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
+        }
         var argv = ([launchPath] + claudeTeamsExecArguments(commandArgs: commandArgs)).map { strdup($0) }
         defer {
             for item in argv {

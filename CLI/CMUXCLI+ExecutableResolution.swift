@@ -296,6 +296,7 @@ extension CMUXCLI {
             unsetenv(key)
         }
         unsetenv(ClaudeTeamsRespawnEnvironmentTransport.environmentKey)
+        unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
     }
 
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {

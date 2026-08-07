@@ -11,6 +11,11 @@ extension CMUXCLI {
         let surfaceId: String?
     }
 
+    struct ClaudeTeamsShimPlan {
+        let directory: URL
+        let managedClaudeWrapperURL: URL?
+    }
+
     func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
         let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
         let bundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -199,11 +204,11 @@ extension CMUXCLI {
         return environment
     }
 
-    func createClaudeTeamsShimDirectory(
+    func createClaudeTeamsShimPlan(
         processEnvironment: [String: String],
         commandArgs: [String],
         launchContext: TmuxCompatLaunchContext?
-    ) throws -> URL {
+    ) throws -> ClaudeTeamsShimPlan {
         let downstreamTmuxMissing = String(
             localized: "cli.tmux-compat.error.downstreamTmuxMissing",
             defaultValue: "cmux tmux shim: no downstream tmux executable found"
@@ -259,7 +264,11 @@ extension CMUXCLI {
                     script,
                     to: managedRoot.appendingPathComponent("tmux", isDirectory: false)
                 )
-                return managedRoot
+                return ClaudeTeamsShimPlan(
+                    directory: managedRoot,
+                    managedClaudeWrapperURL: managedRoot
+                        .appendingPathComponent("claude", isDirectory: false)
+                )
             } catch {
                 // Informational launches do not create teammates, so they may use the
                 // launcher-only compatibility directory below. Real Teams sessions must
@@ -270,9 +279,12 @@ extension CMUXCLI {
         guard claudeTeamsIsNonLaunchInvocation(commandArgs: commandArgs) else {
             throw CLIError(message: managedTerminalRequiredMessage(displayName: "Claude Teams"))
         }
-        return try createTmuxCompatShimDirectory(
-            directoryName: "claude-teams-bin",
-            tmuxShimScript: script
+        return ClaudeTeamsShimPlan(
+            directory: try createTmuxCompatShimDirectory(
+                directoryName: "claude-teams-bin",
+                tmuxShimScript: script
+            ),
+            managedClaudeWrapperURL: nil
         )
     }
 

@@ -79,6 +79,10 @@ def main() -> int:
         )
         shutil.copyfile(wrapper_source, cmux_shim_bin / "claude")
         (cmux_shim_bin / "claude").chmod(0o755)
+        # The production wrapper lives beside the bundled cmux CLI and uses it
+        # for its bounded socket-ownership probe. This fixture copies the wrapper
+        # into the per-surface directory, so provide the equivalent sibling seam.
+        make_executable(cmux_shim_bin / "cmux", "#!/usr/bin/env bash\nexit 0\n")
         make_executable(
             real_bin / "claude",
             """#!/usr/bin/env bash
