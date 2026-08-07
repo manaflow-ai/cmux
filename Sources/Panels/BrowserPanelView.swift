@@ -1249,7 +1249,7 @@ struct BrowserPanelView: View {
     private var browserToolbarDownloads: [BrowserDownloadRecord] {
         #if DEBUG
         if panel.recentDownloads.isEmpty,
-           let fixtureDownload = BrowserDownloadsPopoverAppearanceUITestProbe.fixtureDownload {
+           let fixtureDownload = BrowserDownloadsPopoverAppearanceUITestSupport().fixtureDownload {
             return [fixtureDownload]
         }
         #endif

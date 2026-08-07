@@ -330,6 +330,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
 		C67540020000000000000001 /* BrowserDownloadHTTPStatusDecision.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540020000000000000002 /* BrowserDownloadHTTPStatusDecision.swift */; };
 		C67540110000000000000001 /* BrowserDownloadRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540110000000000000002 /* BrowserDownloadRecord.swift */; };
+		D93410030000000000000001 /* BrowserDownloadsPopoverAppearanceUITestPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410030000000000000002 /* BrowserDownloadsPopoverAppearanceUITestPresenter.swift */; };
+		D93410040000000000000001 /* BrowserDownloadsPopoverAppearanceUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410040000000000000002 /* BrowserDownloadsPopoverAppearanceUITestRecorder.swift */; };
+		D93410020000000000000001 /* BrowserDownloadsPopoverAppearanceUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410020000000000000002 /* BrowserDownloadsPopoverAppearanceUITestSupport.swift */; };
 		D93410000000000000000001 /* BrowserDownloadsPopoverContrastUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */; };
 		C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */; };
 		B5A5E55B0000000000000001 /* BrowserEphemeralRestorationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */; };
@@ -3032,6 +3035,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadFilenameResolverTests.swift; sourceTree = "<group>"; };
 		C67540020000000000000002 /* BrowserDownloadHTTPStatusDecision.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadHTTPStatusDecision.swift; sourceTree = "<group>"; };
 		C67540110000000000000002 /* BrowserDownloadRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadRecord.swift; sourceTree = "<group>"; };
+		D93410030000000000000002 /* BrowserDownloadsPopoverAppearanceUITestPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/BrowserDownloadsPopoverAppearanceUITestPresenter.swift; sourceTree = "<group>"; };
+		D93410040000000000000002 /* BrowserDownloadsPopoverAppearanceUITestRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/BrowserDownloadsPopoverAppearanceUITestRecorder.swift; sourceTree = "<group>"; };
+		D93410020000000000000002 /* BrowserDownloadsPopoverAppearanceUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/UITests/BrowserDownloadsPopoverAppearanceUITestSupport.swift; sourceTree = "<group>"; };
 		D93410000000000000000002 /* BrowserDownloadsPopoverContrastUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserDownloadsPopoverContrastUITests.swift; sourceTree = "<group>"; };
 		C67540120000000000000002 /* BrowserDownloadsToolbarButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserDownloadsToolbarButton.swift; sourceTree = "<group>"; };
 		B5A5E55B0000000000000002 /* BrowserEphemeralRestorationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserEphemeralRestorationTests.swift; sourceTree = "<group>"; };
@@ -6079,6 +6085,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CA52C0170000000000000000 /* Workspace+SurfaceNavigation.swift */,
 				875200000000000000000004 /* SurfacePaneMovement.swift */,
 				822900000000000000000002 /* Workspace+TerminalResizeInteraction.swift */,
+				D93410030000000000000002 /* BrowserDownloadsPopoverAppearanceUITestPresenter.swift */,
+				D93410040000000000000002 /* BrowserDownloadsPopoverAppearanceUITestRecorder.swift */,
+				D93410020000000000000002 /* BrowserDownloadsPopoverAppearanceUITestSupport.swift */,
 				CC2639000000000000000002 /* GotoSplitCycleUITestSupport.swift */,
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
@@ -8726,6 +8735,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */,
 				C67540020000000000000001 /* BrowserDownloadHTTPStatusDecision.swift in Sources */,
 				C67540110000000000000001 /* BrowserDownloadRecord.swift in Sources */,
+				D93410030000000000000001 /* BrowserDownloadsPopoverAppearanceUITestPresenter.swift in Sources */,
+				D93410040000000000000001 /* BrowserDownloadsPopoverAppearanceUITestRecorder.swift in Sources */,
+				D93410020000000000000001 /* BrowserDownloadsPopoverAppearanceUITestSupport.swift in Sources */,
 				C67540120000000000000001 /* BrowserDownloadsToolbarButton.swift in Sources */,
 				C2035A010000000000000001 /* BrowserErrorPage.swift in Sources */,
 				C2035A020000000000000001 /* BrowserErrorPageContent.swift in Sources */,
