@@ -241,15 +241,25 @@ _NETWORK_VERB = re.compile(
     """
 )
 
-# Process-launch APIs make a quoted shell command executable. A network verb
-# inside one of these calls is not inert fixture text even though the verb itself
-# lives inside a string/argument-array literal.
-_COMMAND_LAUNCHER = re.compile(
+# Shell-string launchers evaluate their first argument as source.
+_SHELL_CALL_LAUNCHER = re.compile(
+    r"""(?x)
+    \bos\.system\s*\(
+  | \b(?:exec|execSync|execaCommand|execaCommandSync)\s*\(
+    """
+)
+
+# Argv launchers execute only their command position. Later quoted arguments
+# may be fixtures or rendered text and must not be promoted to shell source.
+_ARGV_CALL_LAUNCHER = re.compile(
     r"""(?x)
     \bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\(
-  | \bos\.system\s*\(
-  | \b(?:exec|execSync|spawn|spawnSync|execa|execaCommand|execaCommandSync)\s*\(
+  | \b(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(
     """
+)
+
+_EXPLICIT_SHELL_MODE = re.compile(
+    r"\bshell\s*(?:=|:)\s*(?:True|true)\b"
 )
 
 # Shell -c/-lc evaluates its following argument as source. Keep this separate
@@ -459,11 +469,11 @@ def _is_inside_string_literal(line: str, offset: int) -> bool:
     return 0 <= offset < len(positions) and not positions[offset]
 
 
-def _call_contains_offset(line: str, opening_paren: int, offset: int) -> bool:
-    """Whether ``offset`` is inside the call opened at ``opening_paren``."""
+def _call_end(line: str, opening_paren: int) -> int:
+    """Return the closing parenthesis offset, or the physical line end."""
     depth = 0
     executable = _executable_code_positions(line)
-    for index in range(opening_paren, min(offset + 1, len(line))):
+    for index in range(opening_paren, len(line)):
         if not executable[index]:
             continue
         character = line[index]
@@ -471,44 +481,100 @@ def _call_contains_offset(line: str, opening_paren: int, offset: int) -> bool:
             depth += 1
         elif character == ")":
             depth -= 1
-            if depth == 0 and index < offset:
-                return False
-    return depth > 0
+            if depth == 0:
+                return index
+    return len(line)
+
+
+def _quoted_argument_bounds(
+    line: str,
+    argument_start: int,
+    *,
+    allow_collection: bool = False,
+) -> Optional[tuple[int, int]]:
+    """Return content bounds for the first quoted argument or argv element."""
+    index = argument_start
+    while index < len(line) and line[index].isspace():
+        index += 1
+
+    if allow_collection and index < len(line) and line[index] in "[(":
+        index += 1
+        while index < len(line) and line[index].isspace():
+            index += 1
+
+    # Python string prefixes may precede a shell command string.
+    prefix = re.match(r"(?i)(?:[rubf]{1,2})?(?=['\"`])", line[index:])
+    if prefix:
+        index += len(prefix.group(0))
+    if index >= len(line) or line[index] not in ("'", '"', "`"):
+        return None
+
+    delimiter = "`" if line[index] == "`" else _quote_delimiter_at(line, index)
+    content_start = index + len(delimiter)
+    index = content_start
+    while index < len(line):
+        if line[index] == "\\":
+            index += 2
+            continue
+        if line.startswith(delimiter, index):
+            return content_start, index
+        index += 1
+    return content_start, len(line)
 
 
 def _quoted_argument_contains_offset(line: str, argument_start: int, offset: int) -> bool:
     """Whether ``offset`` remains inside the first quoted shell argument."""
-    index = argument_start
-    while index < len(line) and line[index].isspace():
-        index += 1
-    if index >= len(line) or line[index] not in ("'", '"') or offset <= index:
-        return False
+    bounds = _quoted_argument_bounds(line, argument_start)
+    return bounds is not None and bounds[0] <= offset < bounds[1]
 
-    quote = line[index]
-    escaped = False
-    for character in line[index + 1 : offset + 1]:
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\":
-            escaped = True
-            continue
-        if character == quote:
-            return False
-    return True
+
+def _call_uses_explicit_shell(line: str, opening_paren: int) -> bool:
+    call_end = _call_end(line, opening_paren)
+    return any(
+        not _is_inside_string_literal(line, match.start())
+        for match in _EXPLICIT_SHELL_MODE.finditer(
+            line,
+            opening_paren,
+            call_end,
+        )
+    )
 
 
 def _is_executable_network_verb(line: str, verb_start: int) -> bool:
     if not _is_inside_string_literal(line, verb_start):
         return True
 
-    for launcher in _COMMAND_LAUNCHER.finditer(line):
+    for launcher in _SHELL_CALL_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
         if _is_inside_string_literal(line, launcher.start()):
             continue
         opening_paren = line.find("(", launcher.start(), launcher.end())
-        if opening_paren != -1 and _call_contains_offset(line, opening_paren, verb_start):
+        if opening_paren == -1:
+            continue
+        bounds = _quoted_argument_bounds(line, opening_paren + 1)
+        if bounds is not None and bounds[0] <= verb_start < bounds[1]:
+            return True
+
+    for launcher in _ARGV_CALL_LAUNCHER.finditer(line):
+        if launcher.start() >= verb_start:
+            break
+        if _is_inside_string_literal(line, launcher.start()):
+            continue
+        opening_paren = line.find("(", launcher.start(), launcher.end())
+        if opening_paren == -1:
+            continue
+        bounds = _quoted_argument_bounds(
+            line,
+            opening_paren + 1,
+            allow_collection=True,
+        )
+        if bounds is None or not (bounds[0] <= verb_start < bounds[1]):
+            continue
+        command = line[bounds[0] : bounds[1]]
+        if not any(character.isspace() for character in command):
+            return True
+        if _call_uses_explicit_shell(line, opening_paren):
             return True
 
     for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
@@ -853,6 +919,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/exec_file_curl.ts",
+            'execFile("curl", ["https://api.openai.com/v1/items"], callback)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/subprocess_shell_curl.py",
+            'subprocess.run("curl https://api.openai.com/v1/items", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/template_interpolation_fetch.ts",
             'const result = `${await fetch("https://api.openai.com/v1/items")}`;\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1028,6 +1104,21 @@ def _self_test() -> int:
         (
             "web/tests/n18g.ts",
             'expect(help).toContain(\'bash -c "curl https://api.openai.com/v1/items"\')\n',
+        ),
+        # A network-looking later argv element is data passed to a different
+        # executable, not a command of its own.
+        (
+            "tests/n18h.py",
+            'subprocess.run(["printf", "curl https://api.openai.com/v1/items"])\n',
+        ),
+        (
+            "web/tests/n18i.ts",
+            'spawn("echo", ["curl https://api.openai.com/v1/items"])\n',
+        ),
+        # Python does not split a string command unless shell=True is explicit.
+        (
+            "tests/n18j.py",
+            'subprocess.run("curl https://api.openai.com/v1/items")\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
