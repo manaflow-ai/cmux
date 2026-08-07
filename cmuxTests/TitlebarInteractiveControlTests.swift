@@ -254,12 +254,14 @@ struct SidebarEmptyAreaWindowDragTests {
         var performDragCallCount = 0
         var isMovableDuringPerformDrag: Bool?
 
+        /// Records drag invocation and the movability state visible to AppKit.
         override func performDrag(with event: NSEvent) {
             performDragCallCount += 1
             isMovableDuringPerformDrag = isMovable
         }
     }
 
+    /// Creates a synthetic pointer event associated with the supplied window.
     private static func makeMouseEvent(
         type: NSEvent.EventType,
         location: NSPoint,
@@ -281,6 +283,7 @@ struct SidebarEmptyAreaWindowDragTests {
         return event
     }
 
+    /// Creates a window whose explicit drag calls can be inspected.
     private static func makeWindow() -> RecordingDragWindow {
         _ = NSApplication.shared
         let window = RecordingDragWindow(
@@ -300,20 +303,18 @@ struct SidebarEmptyAreaWindowDragTests {
         return { _ in remaining.isEmpty ? nil : remaining.removeFirst() }
     }
 
-    @Test func dragPastThresholdMovesWindowAndRestoresMovability() {
+    /// A threshold-crossing press invokes AppKit exactly once and restores window state.
+    @Test func dragPastThresholdMovesWindowAndRestoresMovability() throws {
         let window = Self.makeWindow()
         defer { window.orderOut(nil) }
         window.isMovable = false
-        guard let view = window.contentView else { return }
+        let view = try #require(window.contentView)
 
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 40, y: 80), window: window)
         let dragged = Self.makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 100), window: window)
 
-        let handled = SidebarEmptyAreaWindowDrag.perform(
-            with: down,
-            in: view,
-            nextEvent: Self.pump([dragged])
-        )
+        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([dragged]))
+        let handled = controller.perform(with: down, in: view)
 
         #expect(handled)
         #expect(window.performDragCallCount == 1)
@@ -321,43 +322,54 @@ struct SidebarEmptyAreaWindowDragTests {
         #expect(!window.isMovable)
     }
 
-    @Test func pressWithoutMovementIsNotADrag() {
+    /// A stationary click remains unhandled and replays its terminating mouse-up.
+    @Test func pressWithoutMovementIsNotADrag() throws {
         let window = Self.makeWindow()
         defer { window.orderOut(nil) }
-        guard let view = window.contentView else { return }
+        let view = try #require(window.contentView)
 
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 40, y: 80), window: window)
         let up = Self.makeMouseEvent(type: .leftMouseUp, location: NSPoint(x: 40, y: 80), window: window)
 
-        let handled = SidebarEmptyAreaWindowDrag.perform(
-            with: down,
-            in: view,
-            nextEvent: Self.pump([up])
+        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([up]))
+        let handled = controller.perform(with: down, in: view)
+        let replayed = window.nextEvent(
+            matching: [.leftMouseUp],
+            until: .now,
+            inMode: .eventTracking,
+            dequeue: true
         )
 
         #expect(!handled)
         #expect(window.performDragCallCount == 0)
+        #expect(replayed === up)
     }
 
-    @Test func movementBelowThresholdStaysAClick() {
+    /// Sub-threshold pointer jitter remains a click and replays its mouse-up.
+    @Test func movementBelowThresholdStaysAClick() throws {
         let window = Self.makeWindow()
         defer { window.orderOut(nil) }
-        guard let view = window.contentView else { return }
+        let view = try #require(window.contentView)
 
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 40, y: 80), window: window)
         let jitter = Self.makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 41, y: 81), window: window)
         let up = Self.makeMouseEvent(type: .leftMouseUp, location: NSPoint(x: 41, y: 81), window: window)
 
-        let handled = SidebarEmptyAreaWindowDrag.perform(
-            with: down,
-            in: view,
-            nextEvent: Self.pump([jitter, up])
+        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([jitter, up]))
+        let handled = controller.perform(with: down, in: view)
+        let replayed = window.nextEvent(
+            matching: [.leftMouseUp],
+            until: .now,
+            inMode: .eventTracking,
+            dequeue: true
         )
 
         #expect(!handled)
         #expect(window.performDragCallCount == 0)
+        #expect(replayed === up)
     }
 
+    /// A detached view declines the drag without consulting the injected event source.
     @Test func viewWithoutWindowIsNotADrag() {
         _ = NSApplication.shared
         let window = Self.makeWindow()
@@ -367,11 +379,8 @@ struct SidebarEmptyAreaWindowDragTests {
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 4, y: 4), window: window)
         let dragged = Self.makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 40, y: 40), window: window)
 
-        let handled = SidebarEmptyAreaWindowDrag.perform(
-            with: down,
-            in: detached,
-            nextEvent: Self.pump([dragged])
-        )
+        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([dragged]))
+        let handled = controller.perform(with: down, in: detached)
 
         #expect(!handled)
         #expect(window.performDragCallCount == 0)
