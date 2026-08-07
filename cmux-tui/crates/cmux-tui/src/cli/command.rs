@@ -2245,19 +2245,75 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
             }),
             output,
         ),
-        Err(_error) => super::wire::print_local_error(
-            &json!({
-                "code": "session.reset_state.failed",
-                "message": messages.reset_failed(&plan.session),
-                "details": {
-                    "session": plan.session,
-                    "recovery": messages.retry_after_preview,
-                },
-                "retryable": false,
-            }),
-            output,
-            1,
-        ),
+        Err(error) => {
+            let advice = reset_failure_advice(&error);
+            super::wire::print_local_error(
+                &json!({
+                    "code": advice.code,
+                    "message": format!(
+                        "{}; {}",
+                        messages.reset_failed(&plan.session),
+                        advice.recovery
+                    ),
+                    "details": {
+                        "session": plan.session,
+                        "reason": advice.reason,
+                        "recovery": advice.recovery,
+                    },
+                    "retryable": false,
+                }),
+                output,
+                1,
+            )
+        }
+    }
+}
+
+struct ResetFailureAdvice {
+    code: &'static str,
+    reason: &'static str,
+    recovery: &'static str,
+}
+
+fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
+    let messages = &crate::localization::catalog().session_reset;
+    let error = error.to_string();
+    if error.contains("already owned by another daemon") {
+        ResetFailureAdvice {
+            code: "session.reset_state.session_running",
+            reason: messages.reason_session_running,
+            recovery: messages.recovery_session_running,
+        }
+    } else if error.contains("live or unverified hosts") {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_live",
+            reason: messages.reason_terminal_hosts_live,
+            recovery: messages.recovery_terminal_hosts_live,
+        }
+    } else if error.contains("liveness cannot be verified") {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_unsupported",
+            reason: messages.reason_terminal_hosts_unsupported,
+            recovery: messages.recovery_terminal_hosts_unsupported,
+        }
+    } else if error.contains("not a directory") {
+        ResetFailureAdvice {
+            code: "session.reset_state.invalid_state_path",
+            reason: messages.reason_invalid_state_path,
+            recovery: messages.recovery_invalid_state_path,
+        }
+    } else if error.contains("changed during reset") {
+        ResetFailureAdvice {
+            code: "session.reset_state.state_changed",
+            reason: messages.reason_state_changed,
+            recovery: messages.recovery_state_changed,
+        }
+    } else {
+        ResetFailureAdvice {
+            code: "session.reset_state.filesystem",
+            reason: messages.reason_filesystem,
+            recovery: messages.recovery_filesystem,
+        }
     }
 }
 

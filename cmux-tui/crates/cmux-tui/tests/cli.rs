@@ -712,6 +712,7 @@ fn session_reset_state_refuses_live_terminal_host_state() {
     assert!(!reset.status.success(), "reset unexpectedly succeeded");
     let stderr = String::from_utf8(reset.stderr).unwrap();
     assert!(stderr.contains("could not complete saved-state reset for session"), "{stderr}");
+    assert!(stderr.contains("stop it cleanly before retrying the reset"), "{stderr}");
     assert!(!stderr.contains(&state.display().to_string()), "{stderr}");
     assert!(database.exists(), "reset removed the registry while a live host was present");
     assert!(host_root.exists(), "reset removed live terminal-host state");

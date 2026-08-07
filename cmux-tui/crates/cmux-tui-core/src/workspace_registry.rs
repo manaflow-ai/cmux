@@ -2865,7 +2865,7 @@ fn ensure_terminal_host_root_can_reset(root: &Path) -> anyhow::Result<()> {
 
 #[cfg(not(unix))]
 fn ensure_terminal_host_root_can_reset(_root: &Path) -> anyhow::Result<()> {
-    Ok(())
+    anyhow::bail!("terminal host liveness cannot be verified on this platform");
 }
 
 #[cfg(unix)]
