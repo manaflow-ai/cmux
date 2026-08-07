@@ -1390,6 +1390,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */; };
 		18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */; };
 		9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */; };
+		F33100000000000000000002 /* MobileSimulatorDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */; };
 		F33000000000000000000011 /* MobileSimulatorStreamCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */; };
 		F33000000000000000000012 /* MobileSimulatorStreamSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000002 /* MobileSimulatorStreamSession.swift */; };
 		F33000000000000000000013 /* MobileSimulatorWireEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */; };
@@ -4012,6 +4013,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		F9BC53FA4991A6EBFB930EDF /* MobilePairingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingView.swift"; sourceTree = "<group>"; };
 		5AE701F43A0B49F08835191C /* MobilePairingWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "Pairing/MobilePairingWindowController.swift"; sourceTree = "<group>"; };
 		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
+		F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorDiagnostics.swift; sourceTree = "<group>"; };
 		F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamCoordinator.swift; sourceTree = "<group>"; };
 		F33000000000000000000002 /* MobileSimulatorStreamSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorStreamSession.swift; sourceTree = "<group>"; };
 		F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileSimulatorWireEncoder.swift; sourceTree = "<group>"; };
@@ -5527,6 +5529,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				F1100000000000000000000C /* MobileBrowserStreamSession.swift */,
 				F11000000000000000000010 /* MobileBrowserDialogBroker.swift */,
 				F1100000000000000000000D /* MobileBrowserWireEncoder.swift */,
+				F33100000000000000000001 /* MobileSimulatorDiagnostics.swift */,
 				F33000000000000000000001 /* MobileSimulatorStreamCoordinator.swift */,
 				F33000000000000000000002 /* MobileSimulatorStreamSession.swift */,
 				F33000000000000000000003 /* MobileSimulatorWireEncoder.swift */,
@@ -9287,6 +9290,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A2538FE83AE79539E3BF9248 /* MobilePairingView.swift in Sources */,
 				18A8E29E9BD87E184983527C /* MobilePairingWindowController.swift in Sources */,
 				9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */,
+				F33100000000000000000002 /* MobileSimulatorDiagnostics.swift in Sources */,
 				F33000000000000000000011 /* MobileSimulatorStreamCoordinator.swift in Sources */,
 				F33000000000000000000012 /* MobileSimulatorStreamSession.swift in Sources */,
 				F33000000000000000000013 /* MobileSimulatorWireEncoder.swift in Sources */,
