@@ -33,7 +33,12 @@ public final class SudoApprovalCoordinator {
         guard lifecycle == .idle else { return }
         lifecycle = .starting
         let events = await broker.events()
-        guard lifecycle == .starting, !Task.isCancelled else { return }
+        guard lifecycle == .starting, !Task.isCancelled else {
+            if lifecycle == .starting {
+                lifecycle = .idle
+            }
+            return
+        }
         eventTask = Task { [weak self] in
             for await event in events {
                 guard !Task.isCancelled else { return }
@@ -43,7 +48,15 @@ public final class SudoApprovalCoordinator {
 
         do {
             let snapshots = try await broker.start()
-            guard lifecycle == .starting, !Task.isCancelled else { return }
+            guard lifecycle == .starting, !Task.isCancelled else {
+                eventTask?.cancel()
+                eventTask = nil
+                if lifecycle == .starting {
+                    await broker.stop()
+                    lifecycle = .idle
+                }
+                return
+            }
             lifecycle = .running
             for snapshot in snapshots {
                 present(snapshot)
@@ -67,7 +80,6 @@ public final class SudoApprovalCoordinator {
             await shutdownTask.value
             return
         }
-        guard lifecycle != .stopped else { return }
         lifecycle = .stopping
         eventTask?.cancel()
         eventTask = nil
@@ -78,7 +90,7 @@ public final class SudoApprovalCoordinator {
         shutdownTask = task
         await task.value
         shutdownTask = nil
-        lifecycle = .stopped
+        lifecycle = .idle
     }
 
     /// Applies the user's approval through the shared broker mutation path.
@@ -142,6 +154,5 @@ public final class SudoApprovalCoordinator {
         case starting
         case running
         case stopping
-        case stopped
     }
 }

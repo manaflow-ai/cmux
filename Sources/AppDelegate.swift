@@ -2018,6 +2018,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = false
         isQuitWarningConfirmed = false
         replyToTerminateOnce(false)
+        resumeSudoApprovalBrokerAfterCancelledTermination()
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -2311,6 +2312,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let runtime = SudoApprovalRuntime(coordinator: coordinator)
         sudoApprovalRuntime = runtime
+        startSudoApprovalRuntime(runtime)
+    }
+
+    private func startSudoApprovalRuntime(_ runtime: SudoApprovalRuntime) {
         runtime.start { [weak self, weak runtime] error in
             sudoApprovalLogger.error(
                 "startup failed: \(String(describing: error), privacy: .private)"
@@ -2323,9 +2328,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private func resumeSudoApprovalBrokerAfterCancelledTermination() {
+        if let sudoApprovalRuntime {
+            startSudoApprovalRuntime(sudoApprovalRuntime)
+        } else {
+            startSudoApprovalBrokerIfAvailable()
+        }
+    }
+
     private func stopSudoApprovalBroker() async {
         let runtime = sudoApprovalRuntime
-        sudoApprovalRuntime = nil
         await runtime?.stop()
     }
 
