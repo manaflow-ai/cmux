@@ -122,6 +122,28 @@ run_cleanup() {
   bash "$CLEANUP_SCRIPT"
 }
 
+discard_corrupted_scope_fixture() {
+  local system_temp_root
+  system_temp_root="$(cd /tmp && pwd -P)"
+  if [ "$CMUX_APP_HOST_HOME" != "/tmp/cmux-ah-$CMUX_APP_HOST_KEY" ]; then
+    echo "FAIL: refusing to discard an unexpected cleanup-test home"
+    exit 1
+  fi
+  if [ "$CMUX_APP_HOST_RECEIPT_DIR" != \
+    "$system_temp_root/cmux-ah-$CMUX_APP_HOST_KEY-receipts" ]; then
+    echo "FAIL: refusing to discard unexpected cleanup-test receipts"
+    exit 1
+  fi
+  if [ "$CMUX_APP_HOST_CONFIRMATION_FILE" != \
+    "$system_temp_root/cmux-ah-$CMUX_APP_HOST_KEY.confirm" ]; then
+    echo "FAIL: refusing to discard an unexpected cleanup-test confirmation"
+    exit 1
+  fi
+  rm -rf -- "$CMUX_APP_HOST_HOME"
+  rm -rf -- "$CMUX_APP_HOST_RECEIPT_DIR"
+  rm -f -- "$CMUX_APP_HOST_CONFIRMATION_FILE"
+}
+
 prepare_scope
 APP_HOST_EXECUTABLE="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
 mkdir -p "$(dirname "$APP_HOST_EXECUTABLE")"
@@ -186,6 +208,7 @@ fi
   echo "FAIL: cleanup removed a home without its confirmation record"
   exit 1
 }
+discard_corrupted_scope_fixture
 prepare_scope
 run_cleanup >/dev/null
 
@@ -205,6 +228,7 @@ grep -Fxq "FAIL: refusing app-host cleanup through a home symlink" "$TMP_DIR/sym
   exit 1
 }
 rm -f -- "$CMUX_APP_HOST_HOME"
+discard_corrupted_scope_fixture
 prepare_scope
 run_cleanup >/dev/null
 

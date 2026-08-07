@@ -32,17 +32,29 @@ app_host_config_sentinel="$app_host_home/Library/Application Support/com.mitchel
   echo "RUSTUP_HOME=${HOME}/.rustup"
 } >> "$GITHUB_ENV"
 
-rm -rf -- "$app_host_home"
-rm -rf -- "$app_host_receipt_dir"
-rm -f -- "$app_host_confirmation_file"
+if [ -e "$app_host_home" ] \
+  || [ -L "$app_host_home" ] \
+  || [ -e "$app_host_receipt_dir" ] \
+  || [ -L "$app_host_receipt_dir" ] \
+  || [ -e "$app_host_confirmation_file" ] \
+  || [ -L "$app_host_confirmation_file" ]; then
+  echo "FAIL: app-host isolation scope already exists; verified cleanup is required" >&2
+  exit 1
+fi
+
+# Claim both durable scope roots without following or replacing anything that
+# appears after the check above. A failed partial preparation remains available
+# for investigation; this script never destroys the receipts that authorize
+# process cleanup.
+mkdir -m 700 "$app_host_home"
+mkdir -m 700 "$app_host_receipt_dir"
 mkdir -p \
   "$app_host_xdg_config_home/cmux" \
   "$app_host_xdg_config_home/ghostty" \
   "$app_host_home/Library/Application Support/com.mitchellh.ghostty" \
   "$app_host_home/Library/Caches" \
   "$app_host_home/Library/Logs/DiagnosticReports" \
-  "$app_host_home/Library/Preferences" \
-  "$app_host_receipt_dir"
+  "$app_host_home/Library/Preferences"
 printf '# cmux CI app-host isolation sentinel\n' > "$app_host_config_sentinel"
 chmod -R u+rwX,go-rwx "$app_host_home"
 chmod 700 "$app_host_receipt_dir"
@@ -56,5 +68,9 @@ printf 'version=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
   "$app_host_cleanup_confirmation" \
   > "$confirmation_tmp"
 chmod 600 "$confirmation_tmp"
-mv -f -- "$confirmation_tmp" "$app_host_confirmation_file"
+if ! ln -- "$confirmation_tmp" "$app_host_confirmation_file"; then
+  echo "FAIL: app-host cleanup confirmation already exists" >&2
+  exit 1
+fi
+rm -f -- "$confirmation_tmp"
 trap - EXIT

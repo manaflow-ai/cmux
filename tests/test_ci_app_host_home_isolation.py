@@ -156,11 +156,21 @@ def main() -> int:
     }.items():
         require(prepare_app_host, needle, context)
     publish = prepare_app_host.index('>> "$GITHUB_ENV"')
-    first_home_mutation = prepare_app_host.index('rm -rf -- "$app_host_home"')
+    first_home_mutation = prepare_app_host.index('mkdir -m 700 "$app_host_home"')
     if publish > first_home_mutation:
         raise SystemExit(
             "FAIL: identity and cleanup target must be published before mutation"
         )
+    for destructive_preparation in (
+        'rm -rf -- "$app_host_home"',
+        'rm -rf -- "$app_host_receipt_dir"',
+        'rm -f -- "$app_host_confirmation_file"',
+    ):
+        if destructive_preparation in prepare_app_host:
+            raise SystemExit(
+                "FAIL: preparation must not erase existing app-host authority: "
+                f"{destructive_preparation}"
+            )
 
     app_host_job = require_job("app-host-unit-tests")
     app_host_job_environment = app_host_job.get("env")
