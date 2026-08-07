@@ -95,6 +95,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.profiles.delete",
         "browser.import.cookies",
         "mobile.attach_ticket.create",
+        // Provider discovery may read configuration or run `opencode models`;
+        // it must never hold the main actor while waiting for process I/O.
+        "mobile.task.models.list",
         // `mobile.terminal.set_font` only validates params and emits a push
         // event via thread-safe MobileHostService statics, so it runs on the worker
         // like the other mobile data-plane verbs. Without this entry the policy
@@ -148,6 +151,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // v2MainSync). Running on .mainActor would deadlock the UI for the
         // entire simulation, defeating the profiling workload.
         "debug.sidebar.simulate_drag",
+        // DEBUG builds close the selected mobile transport through its normal
+        // connection-owned shutdown path, which awaits asynchronous writers.
+        // Keep that wait off the main actor.
+        "debug.mobile.transport.disconnect",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a

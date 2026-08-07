@@ -127,6 +127,12 @@ extension BrowserPanel {
         let wasInactive = mobileBrowserStreamSignalHandlers.isEmpty
         mobileBrowserStreamSignalHandlers[handlerID] = handler
         if wasInactive {
+            // A phone mirror is a visibility touch. A session-restored or
+            // memory-discarded background tab holds only a blank web shell,
+            // and every capture of that shell is a white frame; without this
+            // restore, only a manual reload or revealing the tab on the Mac
+            // ever starts the restore navigation.
+            restoreDiscardedWebViewIfNeeded(reason: "mobile_browser_stream_start")
             installMobileBrowserDirtyBeaconIfNeeded()
             reevaluateHiddenWebViewDiscardScheduling(reason: "mobile_browser_stream_started")
         }

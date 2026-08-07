@@ -227,6 +227,7 @@ extension DockSplitStore {
 
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
+        appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
         surfaceIdToPanelId.removeValue(forKey: tabId)
@@ -275,6 +276,8 @@ extension DockSplitStore {
                 ? preservedTransfer?.directoryDisplayLabel
                 : nil,
             ttyName: preservedTransfer?.ttyName,
+            ttyNameWasReportedByCurrentRuntime: preservedTransfer?.ttyNameWasReportedByCurrentRuntime ?? false,
+            ttyReportRuntimeSurfaceGeneration: preservedTransfer?.ttyReportRuntimeSurfaceGeneration,
             cachedTitle: panel.displayTitle,
             customTitle: preservedTransfer?.customTitle,
             customTitleSource: preservedTransfer?.customTitleSource,
@@ -284,6 +287,7 @@ extension DockSplitStore {
             restorableAgentResumeState: transferredResumeState,
             restoredAgentCompletedGeneration: transferredCompletedGeneration,
             shellActivityState: transferredShellActivityState,
+            restoredPanelTitleBoundary: preservedTransfer?.restoredPanelTitleBoundary,
             restoredResumeSessionWorkingDirectory: restoredResumeSessionWorkingDirectory,
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: managedResumeBinding,
@@ -294,6 +298,7 @@ extension DockSplitStore {
             remoteTerminalLifecycleID: preservedTransfer?.remoteTerminalLifecycleID,
             remoteTerminalAttemptID: preservedTransfer?.remoteTerminalAttemptID,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
+            remoteRelayNamespaceConfiguration: preservedTransfer?.remoteRelayNamespaceConfiguration,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
@@ -350,6 +355,9 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[newTabId] = detached.panelId
+        if let browser = panel as? BrowserPanel {
+            configureBrowserPanel(browser)
+        }
         AgentHibernationController.shared.transferTrackingStateForMovedPanel(
             panelId: detached.panelId,
             from: detached.sourceWorkspaceId,
@@ -442,6 +450,9 @@ extension DockSplitStore {
             panels.removeValue(forKey: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
+        }
+        if let browser = panel as? BrowserPanel {
+            configureBrowserPanel(browser)
         }
         AgentHibernationController.shared.transferTrackingStateForMovedPanel(
             panelId: detached.panelId,

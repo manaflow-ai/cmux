@@ -63,6 +63,7 @@ MACHINE = MachineId(f"machine_{HEX_A}")
 SCREEN = ScreenId(f"screen_{HEX_C}")
 PANE = PaneId(f"pane_{HEX_A}")
 TAB = TabId(f"tab_{HEX_B}")
+PROJECTED_TAB = TabId(f"tab_{HEX_C}")
 CONNECTED_CLIENT = ConnectedClientId(f"client_{HEX_C}")
 PAIRING_REQUEST = PairingRequestId(f"pairing_{HEX_A}")
 AGENT = AgentId(f"agent_{HEX_B}")
@@ -81,7 +82,7 @@ def ok(connection, request, result):
     send_frame(
         connection,
         {
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "response",
             "id": request["id"],
             "ok": True,
@@ -94,7 +95,7 @@ def canceled_end(connection, stream_id, **fields):
     send_frame(
         connection,
         {
-            "protocol": "cmux.protocol/1",
+            "protocol": "cmux.protocol/2",
             "type": "stream_end",
             "stream_id": stream_id,
             "reason": "canceled",
@@ -177,6 +178,59 @@ class ResourceApiTests(unittest.TestCase):
             {**common, "argv": ["/bin/zsh", "-lc", "echo $(uname)"]},
         )
 
+    def test_terminal_project_preserves_one_runtime_and_encodes_the_new_view(self) -> None:
+        observed = []
+
+        def handler(connection, _index):
+            request = next(frames(connection))
+            observed.append(request)
+            ok(
+                connection,
+                request,
+                {
+                    "value": {
+                        "id": str(PROJECTED_TAB),
+                        "pane_id": str(PANE),
+                        "name": "mirror",
+                        "index": 2,
+                        "focused": False,
+                        "content_kind": "terminal",
+                        "content_id": str(TERMINAL),
+                    },
+                    "generation": "generation-a",
+                    "revision": "7",
+                    "replayed": False,
+                },
+            )
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path) as client:
+                projected = client.session(SESSION).terminal(TERMINAL).project(
+                    destination_workspace=WORKSPACE,
+                    destination_screen=SCREEN,
+                    destination_pane=PANE,
+                    index=2,
+                    name="mirror",
+                    idempotency_key="project-terminal",
+                )
+
+        self.assertEqual(projected.value.snapshot.id, PROJECTED_TAB)
+        self.assertEqual(projected.value.snapshot.content_id, TERMINAL)
+        self.assertEqual(observed[0]["operation"], "terminal.project")
+        self.assertEqual(
+            observed[0]["params"],
+            {
+                "machine": "current",
+                "session": str(SESSION),
+                "terminal": str(TERMINAL),
+                "destination_workspace": str(WORKSPACE),
+                "destination_screen": str(SCREEN),
+                "destination_pane": str(PANE),
+                "index": 2,
+                "name": "mirror",
+            },
+        )
+
     def test_every_created_path_operation_sends_a_validated_correlation_key(
         self,
     ) -> None:
@@ -193,7 +247,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "response",
                         "id": request["id"],
                         "ok": False,
@@ -296,7 +350,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "response",
                             "id": request["id"],
                             "ok": False,
@@ -317,7 +371,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "stream_item",
                             "stream_id": request["params"]["stream_id"],
                             "sequence": "18446744073709551615",
@@ -327,7 +381,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "stream_item",
                             "stream_id": request["params"]["stream_id"],
                             "sequence": "18446744073709551614",
@@ -406,7 +460,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "response",
                             "id": request["id"],
                             "ok": False,
@@ -426,7 +480,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "response",
                             "id": request["id"],
                             "ok": False,
@@ -661,7 +715,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "stream_item",
                         "stream_id": stream_id,
                         "sequence": "1",
@@ -706,7 +760,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "response",
                         "id": request["id"],
                         "ok": False,
@@ -982,7 +1036,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "response",
                         "id": request["id"],
                         "ok": False,
@@ -1147,6 +1201,7 @@ class ResourceApiTests(unittest.TestCase):
         base = {
             "id": str(TERMINAL),
             "tab_id": str(TAB),
+            "tab_ids": [str(TAB)],
             "title": "fixture",
             "cols": 80,
             "rows": 24,
@@ -1192,6 +1247,40 @@ class ResourceApiTests(unittest.TestCase):
                 snapshot = client.session(SESSION).terminal(TERMINAL).refresh()
         self.assertEqual(snapshot.lifecycle, "exited")
         self.assertIsInstance(snapshot.exit.outcome, cmux.TerminalExitCode)
+
+    def test_terminal_snapshot_accepts_protocol_one_tab_id_only(self) -> None:
+        responses = [
+            {
+                "id": str(TERMINAL),
+                "tab_id": str(TAB),
+                "title": "attached",
+                "cols": 80,
+                "rows": 24,
+                "running": True,
+                "lifecycle": "running",
+            },
+            {
+                "id": str(TERMINAL),
+                "tab_id": None,
+                "title": "detached",
+                "cols": 80,
+                "rows": 24,
+                "running": True,
+                "lifecycle": "running",
+            },
+        ]
+
+        def handler(connection, _index):
+            request = next(frames(connection))
+            ok(connection, request, responses.pop(0))
+
+        expected = [(TAB, (TAB,)), (None, ())]
+        for tab_id, tab_ids in expected:
+            with UnixJsonServer(handler) as server:
+                with Client(server.path) as client:
+                    snapshot = client.session(SESSION).terminal(TERMINAL).refresh()
+                    self.assertEqual(snapshot.tab_id, tab_id)
+                    self.assertEqual(snapshot.tab_ids, tab_ids)
 
     def test_sync_request_options_apply_one_call_deadline(self) -> None:
         def handler(connection, _index):
@@ -1504,6 +1593,44 @@ class ResourceApiTests(unittest.TestCase):
                     ["terminal.wait", "request.cancel", "session.ping"],
                 )
 
+    def test_request_cancel_false_rejects_malformed_result_in_both_orders(
+        self,
+    ) -> None:
+        for response_first in (False, True):
+            with self.subTest(response_first=response_first):
+                disconnected = threading.Event()
+
+                def handler(connection, _index):
+                    try:
+                        requests = frames(connection)
+                        target = next(requests)
+                        canceled = next(requests)
+                        if response_first:
+                            ok(connection, target, {"matched": True})
+                            ok(connection, canceled, {"canceled": False})
+                        else:
+                            ok(connection, canceled, {"canceled": False})
+                            ok(connection, target, {"matched": True})
+                        list(requests)
+                    finally:
+                        disconnected.set()
+
+                with UnixJsonServer(handler) as server:
+                    with Client(server.path, timeout=0.05) as client:
+                        terminal = client.session(SESSION).terminal(TERMINAL)
+                        with self.assertRaises(cmux.TimeoutError):
+                            client.with_request_options(
+                                RequestOptions(timeout=0.01),
+                                terminal.wait,
+                                cmux.TerminalWaitOptions("never"),
+                            )
+                        self.assertTrue(client.closed)
+                        with self.assertRaises(
+                            (CmuxConnectionError, cmux.ProtocolError)
+                        ):
+                            client.session(SESSION).ping()
+                        self.assertTrue(disconnected.wait(0.5))
+
     def test_unconfirmed_terminal_wait_cancel_closes_without_masking_timeout(
         self,
     ) -> None:
@@ -1543,7 +1670,7 @@ class ResourceApiTests(unittest.TestCase):
                                 send_frame(
                                     connection,
                                     {
-                                        "protocol": "cmux.protocol/1",
+                                        "protocol": "cmux.protocol/2",
                                         "type": "response",
                                         "id": target["id"],
                                         "ok": True,
@@ -1641,7 +1768,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "stream_item",
                     "stream_id": stream_id,
                     "sequence": "1",
@@ -1765,7 +1892,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "response",
                             "id": canceled["id"],
                             "ok": False,
@@ -2076,15 +2203,17 @@ class ResourceApiTests(unittest.TestCase):
         disconnected = threading.Event()
 
         def handler(connection, _index):
-            for request in frames(connection):
-                observed.append(request)
-                open_seen.set()
-                ok(
-                    connection,
-                    request,
-                    {"stream_id": request["params"]["stream_id"]},
-                )
-            disconnected.set()
+            try:
+                for request in frames(connection):
+                    observed.append(request)
+                    open_seen.set()
+                    ok(
+                        connection,
+                        request,
+                        {"stream_id": request["params"]["stream_id"]},
+                    )
+            finally:
+                disconnected.set()
 
         expected = CmuxConnectionError(
             "synthetic failure after the complete frame was delivered"
@@ -2134,7 +2263,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": opened["id"],
                     "ok": False,
@@ -2263,7 +2392,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": canceled["id"],
                     "ok": False,
@@ -2321,7 +2450,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "stream_item",
                             "stream_id": stream_id,
                             "sequence": "1",
@@ -2351,7 +2480,7 @@ class ResourceApiTests(unittest.TestCase):
                         send_frame(
                             connection,
                             {
-                                "protocol": "cmux.protocol/1",
+                                "protocol": "cmux.protocol/2",
                                 "type": "stream_item",
                                 "stream_id": stream_id,
                                 "sequence": "2",
@@ -2538,7 +2667,7 @@ class ResourceApiTests(unittest.TestCase):
                         canceled = next(requests)
                         observed.append(canceled)
                         end = {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "stream_end",
                             "stream_id": stream_id,
                             "reason": "canceled",
@@ -2579,7 +2708,7 @@ class ResourceApiTests(unittest.TestCase):
 
         def with_id(request, fields):
             return {
-                "protocol": "cmux.protocol/1",
+                "protocol": "cmux.protocol/2",
                 "type": "response",
                 "id": request["id"],
                 **fields,
@@ -2701,7 +2830,7 @@ class ResourceApiTests(unittest.TestCase):
                         ok(connection, opened, {"stream_id": stream_id})
                         release_item.wait(1)
                         item = {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "stream_item",
                             "stream_id": stream_id,
                             "sequence": "1",
@@ -2743,7 +2872,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "stream_item",
                         "stream_id": stream_id,
                         "sequence": "1",
@@ -2794,7 +2923,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "stream_item",
                         "stream_id": stream_id,
                         "sequence": "1",
@@ -2846,7 +2975,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "stream_item",
                         "stream_id": stream_id,
                         "sequence": "1",
@@ -2907,7 +3036,7 @@ class ResourceApiTests(unittest.TestCase):
                     send_frame(
                         connection,
                         {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "stream_item",
                             "stream_id": stream_id,
                             "sequence": str(sequence),
@@ -3063,7 +3192,7 @@ class ResourceApiTests(unittest.TestCase):
                 send_frame(
                     connection,
                     {
-                        "protocol": "cmux.protocol/1",
+                        "protocol": "cmux.protocol/2",
                         "type": "stream_item",
                         "stream_id": stream_id,
                         "sequence": str(sequence),
@@ -3078,7 +3207,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "response",
                     "id": canceled["id"],
                     "ok": False,
@@ -3366,7 +3495,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "stream_item",
                     "stream_id": stream_id,
                     "sequence": "1",
@@ -3402,7 +3531,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "stream_item",
                     "stream_id": stream_id,
                     "sequence": "1",
@@ -3427,6 +3556,7 @@ class ResourceApiTests(unittest.TestCase):
                                 "value": {
                                     "id": str(TERMINAL),
                                     "tab_id": str(TAB),
+                                    "tab_ids": [str(TAB)],
                                     "title": "typed",
                                     "cwd": "/tmp",
                                     "cols": 80,
@@ -3442,7 +3572,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "stream_item",
                     "stream_id": stream_id,
                     "sequence": "2",
@@ -3486,7 +3616,7 @@ class ResourceApiTests(unittest.TestCase):
 
                     def item(sequence, blob):
                         return {
-                            "protocol": "cmux.protocol/1",
+                            "protocol": "cmux.protocol/2",
                             "type": "stream_item",
                             "stream_id": stream_id,
                             "sequence": str(sequence),
@@ -3556,7 +3686,7 @@ class ResourceApiTests(unittest.TestCase):
             send_frame(
                 connection,
                 {
-                    "protocol": "cmux.protocol/1",
+                    "protocol": "cmux.protocol/2",
                     "type": "stream_item",
                     "stream_id": stream_id,
                     "sequence": "1",
@@ -3617,12 +3747,18 @@ class ResourceApiTests(unittest.TestCase):
 
     def test_aio_cancellation_preserves_connection_and_releases_threads(self) -> None:
         request_seen = threading.Event()
+        observed = []
 
         def handler(connection, _index):
             requests = frames(connection)
-            next(requests)
+            wait = next(requests)
+            observed.append(wait)
             request_seen.set()
+            cancel = next(requests)
+            observed.append(cancel)
+            ok(connection, cancel, {"canceled": True})
             ping = next(requests)
+            observed.append(ping)
             ok(
                 connection,
                 ping,
@@ -3637,7 +3773,10 @@ class ResourceApiTests(unittest.TestCase):
 
         async def exercise(path):
             client = cmux.aio.Client(path)
-            task = asyncio.create_task(client.list_machines())
+            terminal = client.session(SESSION).terminal(TERMINAL)
+            task = asyncio.create_task(
+                terminal.wait(cmux.TerminalWaitOptions("never"))
+            )
             await asyncio.to_thread(request_seen.wait, 1)
             task.cancel()
             with self.assertRaises(asyncio.CancelledError):
@@ -3649,6 +3788,15 @@ class ResourceApiTests(unittest.TestCase):
 
         with UnixJsonServer(handler) as server:
             asyncio.run(exercise(server.path))
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["terminal.wait", "request.cancel", "session.ping"],
+        )
+        self.assertEqual(
+            observed[1]["params"],
+            {"request_id": observed[0]["id"]},
+        )
 
         leaked = [
             thread.name

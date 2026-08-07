@@ -1,8 +1,9 @@
 # cmux-presence
 
-Realtime device presence service: a Cloudflare Worker with one `TeamPresence`
-Durable Object per team. Hosts announce themselves with heartbeats; clients
-subscribe to a live presence map with explicit online/offline transitions.
+Realtime device presence and connectivity invalidation service. One
+`TeamPresence` Durable Object per team owns presence, and one separately named
+object per verified user owns revision-only connectivity invalidations. Hosts
+announce heartbeats; clients subscribe to explicit online/offline transitions.
 Design, decision memo, and client integration: `docs/presence-service.md`.
 
 ## API
@@ -17,8 +18,9 @@ solo-account user id).
 | `/healthz` | GET | liveness (no auth) |
 | `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
 | `/v1/presence/snapshot` | GET | one-shot presence map |
-| `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events. With `?deviceScope=<deviceId>` it is instead a directed nudge channel: WebSocket-only, no snapshot, only `nudge` frames for that device |
-| `/v1/presence/nudge` | POST | directed wake-up `{deviceId, tag?, kind}` delivered to that device's `deviceScope` subscribers; caller must be the device's pinned owner |
+| `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
+| `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |
+| `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
 `offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
@@ -41,25 +43,19 @@ user to announce a `deviceId` owns it, and a heartbeat for that device from a
 different team member is rejected with `403 device_owner_mismatch`, so a
 co-member cannot forge another member's device online or goodbye it offline.
 
-Nudges reuse that pin on both ends. Subscribing device-scoped requires being
-the device's pinned owner (an unpinned device is allowed so a Mac can
-subscribe before its first heartbeat, but the subscription never writes the
-pin), and `POST /v1/presence/nudge` rejects callers who are not the pinned
-owner (`404 device_unknown` when unpinned). `kind` comes from a server-side
-allowlist (currently `iroh-binding-changed`); the frame tells the device
-"server-side state for you changed, re-check now", carries no route or binding
-data, and delivery is best-effort (`delivered: 0` is success — an offline Mac
-catches up on its next scheduled round trip). Nudge frames are sent only to
-device-scoped sockets, mirroring how sync frames are gated on `sync.hello`, so
-legacy presence decoders that throw on unknown event types never see them.
-
-The pin's known first-writer residual (a team member can claim an unclaimed
-device id by heartbeating it first) extends to nudges, accepted deliberately:
-the worker keeps no synchronous registry dependency, and a squatted pin only
-costs the real Mac the acceleration — it falls back to its pre-nudge renewal
-cadence, never to a correctness failure. Registry-anchored device credentials
-(the planned key-pinning phase) replace the pin for both heartbeats and
-nudges when they land.
+Connectivity invalidation is separate from team presence because Iroh routes
+belong to the personal Stack account even when two devices select different
+teams. The worker derives a dedicated Durable Object id from the verified user
+id, pins that same id in every socket attachment, and accepts only one bounded
+wire shape: `{type:"connectivity.invalidate", protocolVersion:1, revision, at}`.
+No route, binding, endpoint, or path data crosses this channel. Mac and iPhone
+use the revision only to fetch and atomically install the complete
+`/api/connectivity/v2/sync` snapshot. Delivery is best-effort, so sleeping
+devices and reordered frames affect refresh latency rather than correctness.
+Publication also requires the server-only
+`X-Cmux-Connectivity-Publisher-Secret`, matched against the Worker's
+`CONNECTIVITY_INVALIDATION_SECRET`; a native client access token cannot forge
+a revision.
 
 ## Develop
 
@@ -89,6 +85,10 @@ Required GitHub repository secrets:
 
 - `CLOUDFLARE_API_TOKEN`: API token with Workers Scripts:Edit on the account.
 - `CLOUDFLARE_ACCOUNT_ID`: the Cloudflare account id.
+
+The Worker secret `CONNECTIVITY_INVALIDATION_SECRET` and web server secret
+`CMUX_CONNECTIVITY_INVALIDATION_SECRET` must contain the same random value of
+at least 32 characters.
 
 One-time Worker secrets (survive deploys; production Stack project values):
 
@@ -143,9 +143,11 @@ developer — multiple people dogfood worker changes simultaneously without
 clobbering each other or the shared baseline. Because Cloudflare secrets are
 scoped to each Worker, the script also provisions the new Worker with the dev
 Stack Auth values from your shell environment or `.dev.vars`
-(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, optional `STACK_API_URL`);
-it refuses to deploy if those values are missing. The script prints the worker
-URL and the env var to export:
+(`STACK_PROJECT_ID`, `STACK_PUBLISHABLE_CLIENT_KEY`, and
+`CONNECTIVITY_INVALIDATION_SECRET`, plus optional `STACK_API_URL`); it refuses
+to deploy if those values are missing. Configure the web backend's
+`CMUX_CONNECTIVITY_INVALIDATION_SECRET` to the same value. The script prints the
+worker URL and the env var to export:
 
 ```
 export CMUX_PRESENCE_BASE_URL=https://cmux-presence-dev-<slug>.<subdomain>.workers.dev

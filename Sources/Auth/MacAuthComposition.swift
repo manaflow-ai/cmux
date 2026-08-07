@@ -20,6 +20,10 @@ struct MacAuthComposition {
     let callbackRouter: AuthCallbackRouter
     /// The token store the Stack client persists through.
     let tokenStore: any StackAuthTokenStoreProtocol
+    /// The hosted-browser sign-in flow used by app-session recovery.
+    let browserSignIn: HostBrowserSignInFlow
+    /// Bridges the native Stack session into explicitly opened cmux web panes.
+    let browserAppSession: BrowserAppSessionController
     /// Shared observable account projection used by Settings and sidebar UI.
     let accountFlow: HostAccountFlow
 
@@ -122,6 +126,7 @@ struct MacAuthComposition {
         )
 
         let anchor = AuthPresentationContextProvider()
+        let browserAppSessionSignInRelay = BrowserAppSessionSignInRelay()
         let coordinator = AuthCoordinator(
             client: client,
             sessionCache: sessionCache,
@@ -132,9 +137,30 @@ struct MacAuthComposition {
             ),
             anchor: anchor,
             config: config,
-            launch: launch
+            launch: launch,
+            onSessionWillTransition: {
+                browserAppSessionSignInRelay.sessionWillTransition()
+            },
+            onSignedIn: {
+                await browserAppSessionSignInRelay.signedIn()
+            }
         )
         self.coordinator = coordinator
+        let browserAppSession = BrowserAppSessionController(
+            coordinator: coordinator,
+            webOrigin: AuthEnvironment.appSessionHandoffOrigin,
+            projectID: stackProjectID,
+            defaults: defaults
+        )
+        self.browserAppSession = browserAppSession
+        browserAppSessionSignInRelay.bind(
+            beginTransition: { [weak browserAppSession] in
+                browserAppSession?.beginAuthTransition()
+            },
+            resume: { [weak browserAppSession] in
+                await browserAppSession?.resumeAfterSignIn()
+            }
+        )
         let callbackRouter = AuthCallbackRouter(
             extraAllowedScheme: AuthEnvironment.callbackScheme
         )
@@ -148,7 +174,11 @@ struct MacAuthComposition {
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
             beginSignOut: {
+                browserAppSession.beginAuthTransition()
                 MobileHostIrohRuntime.shared.beginSignOutPreparation()
+            },
+            localSignOut: {
+                await browserAppSession.clearCmuxWebSession()
             },
             onSignedOut: { accessToken, refreshToken in
                 await MobileHostIrohRuntime.shared.revokeAfterSignOut(
@@ -157,6 +187,7 @@ struct MacAuthComposition {
                 )
             }
         )
+        self.browserSignIn = browserSignIn
         self.accountFlow = HostAccountFlow(
             coordinator: coordinator,
             browserSignIn: browserSignIn

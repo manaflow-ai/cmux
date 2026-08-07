@@ -18,6 +18,13 @@ import AppKit
 #endif
 
 struct WorkspaceDetailView: View {
+    static func reconnectAction(
+        connectionRequiresReauth: Bool,
+        reconnect: @escaping () -> Void
+    ) -> (() -> Void)? {
+        connectionRequiresReauth ? nil : reconnect
+    }
+
     let host: String
     let connectionStatus: MobileMacConnectionStatus
     let workspace: MobileWorkspacePreview
@@ -59,6 +66,10 @@ struct WorkspaceDetailView: View {
     @State private var contentWidth: CGFloat = 0
     /// Terminal captured for the current "View as Text" sheet presentation.
     @State private var textSheetSurfaceID: String?
+    /// Identity of the in-flight New Browser creation. A late RPC result must
+    /// not activate its panel over a selection the user made in the meantime,
+    /// so completion applies only while its request is still current.
+    @State private var browserCreateRequest: UUID?
     @State var terminalPickerRows: [TerminalPickerMenuRow] = []
     /// Chat-mode toggle for inline agent chat in place of the terminal.
     @State var isChatMode = false
@@ -323,10 +334,9 @@ struct WorkspaceDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
-        // With the fullscreen overlay gone, the disconnected terminal stays
-        // visible; block interaction so keystrokes aren't silently dropped by
-        // the disconnected drain path. The pill and toast overlays attach
-        // after this modifier and stay tappable.
+        // The disconnected terminal stays visible; block interaction so
+        // keystrokes aren't silently dropped by the disconnected drain path.
+        // The status pill attaches after this modifier and stays tappable.
         .allowsHitTesting(!terminalInputIsBlocked)
         #if os(iOS)
         // Hit-testing only blocks new touches: a terminal focused before the
@@ -345,26 +355,19 @@ struct WorkspaceDetailView: View {
         #endif
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(alignment: .topLeading) {
+            // The terminal's only connection chrome: last-known content stays
+            // visible and scrollable underneath while the pill shows the
+            // reconnect progress (or offers Reconnect once attempts stop).
             MobileMacConnectionStatusPill(
                 host: host,
-                // Flag off keeps the raw per-workspace status (legacy
-                // byte-for-byte); flag on folds in foreground recovery so
-                // the pill matches the toast capsule and input gating.
-                status: toasts.isEnabled ? effectiveConnectionStatus : connectionStatus,
-                reconnect: toasts.isEnabled ? { reconnectToWorkspaceMac() } : nil
+                status: effectiveConnectionStatus,
+                reconnect: Self.reconnectAction(
+                    connectionRequiresReauth: store.connectionRequiresReauth,
+                    reconnect: { reconnectToWorkspaceMac() }
+                )
             )
                 .padding(.top, 10)
                 .padding(.leading, 10)
-        }
-        .overlay {
-            // Show a reconnecting/offline state instead of a black terminal.
-            if !toasts.isEnabled && connectionStatus != .connected {
-                TerminalDisconnectedOverlay(
-                    status: connectionStatus,
-                    host: host,
-                    theme: store.activeTerminalTheme
-                ) { reconnectToWorkspaceMac() }
-            }
         }
         #if os(iOS) && DEBUG
         // DEBUG/UI-test-only store-side composer probe.
@@ -418,35 +421,20 @@ struct WorkspaceDetailView: View {
 
     private func reconnectToWorkspaceMac() {
         Task {
-            if toasts.isEnabled {
-                await store.reconnectToMac(
-                    macDeviceID: workspace.macDeviceID,
-                    instanceTag: workspace.macInstanceTag
-                )
-                return
-            }
-            // Flag off is byte-for-byte legacy: the fullscreen overlay's
-            // Reconnect keeps the original sequence, including switchToMac's
-            // already-foreground fast path and aggregate recovery.
-            if let macDeviceID = workspace.macDeviceID,
-               !macDeviceID.isEmpty,
-               await store.switchToMac(
-                   macDeviceID: macDeviceID,
-                   instanceTag: workspace.macInstanceTag
-               ) {
-                return
-            }
-            await store.reconnectOrRefresh()
+            await store.reconnectToMac(
+                macDeviceID: workspace.macDeviceID,
+                instanceTag: workspace.macInstanceTag
+            )
         }
     }
 
     /// Same-client foreground recovery flips the store's recovery flags while
-    /// `workspace.macConnectionStatus` stays `.connected`; the flag-on pill
-    /// reflects the recovery, matching the presenter's derivation. Input
-    /// gating deliberately does NOT use this (see `terminalInputIsBlocked`):
-    /// a probe's "Reconnecting" display coexists with a working keyboard.
-    /// Hidden retained details keep their raw status: the guard only applies
-    /// to the selected workspace on the foreground connection.
+    /// `workspace.macConnectionStatus` stays `.connected`; the pill reflects
+    /// the recovery. Input gating deliberately does NOT use this (see
+    /// `terminalInputIsBlocked`): a probe's "Reconnecting" display coexists
+    /// with a working keyboard. Hidden retained details keep their raw
+    /// status: the guard only applies to the selected workspace on the
+    /// foreground connection.
     private var effectiveConnectionStatus: MobileMacConnectionStatus {
         if store.selectedWorkspaceID == workspace.id,
            store.selectedWorkspaceUsesForegroundConnection {
@@ -468,7 +456,6 @@ struct WorkspaceDetailView: View {
     /// actually failed. Internal so the +Surfaces chrome-return refocus can
     /// share the same policy.
     var terminalInputIsBlocked: Bool {
-        guard toasts.isEnabled else { return false }
         if connectionStatus != .connected {
             return true
         }
@@ -624,7 +611,7 @@ struct WorkspaceDetailView: View {
                 createWorkspace: createWorkspaceFromToolbar,
                 createTerminal: createTerminalFromToolbar,
                 openBrowser: openBrowserFromToolbar,
-                selectBrowserStream: selectBrowserStreamFromToolbar,
+                selectBrowserStream: { selectBrowserStreamFromToolbar($0) },
                 openTextSheet: openTextSheetFromMenu,
                 copyDebugLogs: {
                     #if DEBUG
@@ -858,6 +845,7 @@ struct WorkspaceDetailView: View {
 
     private func createTerminalFromToolbar() {
         dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
         // Creating a terminal from the (shared) chrome must surface it. If a
         // browser pane is up, close it so `body` leaves the browser branch and
         // shows the new terminal instead of staying on the browser.
@@ -868,15 +856,42 @@ struct WorkspaceDetailView: View {
 
     private func openBrowserFromToolbar() {
         dismissTerminalKeyboardForChrome()
-        // Opens (or reveals the existing) browser pane for this workspace. The
-        // detail view flips to the browser because `activeBrowser` becomes
-        // non-nil; the picker shows a check next to "New Browser" while it is up.
+        // New Browser creates a real Mac browser pane and streams it, so it
+        // shows the same surface as the Mac Browsers rows. The phone-local
+        // WKWebView pane remains only as a fallback for Macs that cannot
+        // create panels (older builds, disconnected, or creation rejected).
+        guard store.supportsBrowserStreamCreate else {
+            openLocalBrowserFallback()
+            return
+        }
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        let request = UUID()
+        browserCreateRequest = request
+        Task {
+            let descriptor = await store.createMobileBrowserPanel(workspaceID: workspaceID)
+            guard browserCreateRequest == request else { return }
+            browserCreateRequest = nil
+            guard let descriptor else {
+                openLocalBrowserFallback()
+                return
+            }
+            selectBrowserStreamFromToolbar(descriptor.panelID, dismissKeyboard: false)
+        }
+    }
+
+    /// Opens (or reveals) the phone-local browser pane for this workspace. The
+    /// detail view flips to the browser because `activeBrowser` becomes
+    /// non-nil; the picker shows a check next to "New Browser" while it is up.
+    private func openLocalBrowserFallback() {
         browserStore.openBrowser(for: workspace.id.rawValue)
         stopActiveBrowserStream()
     }
 
-    private func selectBrowserStreamFromToolbar(_ panelID: String) {
-        dismissTerminalKeyboardForChrome()
+    private func selectBrowserStreamFromToolbar(_ panelID: String, dismissKeyboard: Bool = true) {
+        if dismissKeyboard {
+            dismissTerminalKeyboardForChrome()
+        }
+        browserCreateRequest = nil
         browserStore.closeBrowser(for: workspace.id.rawValue)
         if let previous = activeBrowserStream, previous.id != panelID {
             Task { await store.stopMobileBrowserStream(panelID: previous.id) }
@@ -893,6 +908,7 @@ struct WorkspaceDetailView: View {
 
     private func selectTerminalFromPicker(_ terminalID: MobileTerminalPreview.ID) {
         dismissTerminalKeyboardForChrome()
+        browserCreateRequest = nil
         // Choosing a terminal returns from the browser pane (if up) to the
         // terminal. Closing the browser is enough to flip the detail view back.
         browserStore.closeBrowser(for: workspace.id.rawValue)

@@ -1279,6 +1279,12 @@ describe("Iroh trust broker database behavior", () => {
 
     expect(pageCounts).toEqual([128, 128, 45]);
     expect(bindingIds.size).toBe(301);
+    const complete = await Effect.runPromise(repo.discoverySnapshot({
+      userId,
+      now: new Date(NOW.getTime() + 302_000),
+    }));
+    expect(complete.bindings).toHaveLength(301);
+    expect(complete.accountRevision).toBe(registration.accountRevision);
   });
 
   dbTest("enforces the UDP port range for each direct-address family", async () => {
@@ -1333,7 +1339,7 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-revoked-direct-ports",
       bindingId,
       now: NOW,
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
 
     const [stored] = await requiredSql()<Array<{
       directPortV4: number | null;
@@ -1388,7 +1394,7 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       bindingId: firstBindingId,
       now: NOW,
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     const afterFirstRevoke = await Effect.runPromise(repo.discoveryPage({
       userId,
       now: NOW,
@@ -1400,7 +1406,7 @@ describe("Iroh trust broker database behavior", () => {
       userId,
       bindingId: firstBindingId,
       now: new Date(NOW.getTime() + 60_000),
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     const [retriedBinding] = await requiredSql()<Array<{ revokedAt: Date }>>`
       select revoked_at as "revokedAt"
       from iroh_endpoint_bindings
@@ -1416,14 +1422,14 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-lan-other",
       bindingId: firstBindingId,
       now: NOW,
-    }))).toBe(false);
+    }))).toEqual({ revoked: false, accountRevision: 0 });
     expect(await Effect.runPromise(repo.revokeBinding({
       userId,
       bindingId: randomUUID(),
       now: NOW,
-    }))).toBe(false);
+    }))).toEqual({ revoked: false, accountRevision: 1 });
 
-    let concurrentDiscovery: ReturnType<typeof Effect.runPromise> | undefined;
+    let concurrentSnapshot: ReturnType<typeof Effect.runPromise> | undefined;
     await requiredSql().begin(async (revocationSql) => {
       await revocationSql`
         select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${userId}`}, 0))
@@ -1436,20 +1442,22 @@ describe("Iroh trust broker database behavior", () => {
       `;
       await revocationSql`
         update iroh_account_security_states
-        set lan_discovery_generation = lan_discovery_generation + 1, updated_at = ${NOW}
+        set lan_discovery_generation = lan_discovery_generation + 1,
+            route_revision = route_revision + 1,
+            updated_at = ${NOW}
         where user_id = ${userId}
       `;
-      concurrentDiscovery = Effect.runPromise(repo.discoveryPage({
+      concurrentSnapshot = Effect.runPromise(repo.discoverySnapshot({
         userId,
         now: NOW,
-        pageSize: 256,
       }));
       await waitForAdvisoryLockWaiter();
     });
-    if (!concurrentDiscovery) throw new Error("concurrent discovery was not started");
-    const afterConcurrentRevoke = await concurrentDiscovery;
+    if (!concurrentSnapshot) throw new Error("concurrent discovery was not started");
+    const afterConcurrentRevoke = await concurrentSnapshot;
     expect(afterConcurrentRevoke).toMatchObject({
       lanDiscoveryGeneration: 3,
+      accountRevision: 2,
       bindings: [],
     });
     const otherAfter = await Effect.runPromise(repo.discoveryPage({
@@ -1660,7 +1668,7 @@ describe("Iroh trust broker database behavior", () => {
       userId: "user-relay-race",
       bindingId,
       now: new Date(NOW.getTime() + 1_000),
-    }))).toBe(true);
+    }))).toEqual({ revoked: true, accountRevision: 1 });
     expect(await Effect.runPromise(repo.completeRelayIssuance({
       userId: "user-relay-race",
       issuanceId: reservation.issuanceId,
