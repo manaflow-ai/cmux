@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 import CmuxFoundation
@@ -116,5 +117,24 @@ private final class FakeWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
 
         registry.end(workspaceId: second)
         #expect(registry.currentWorkspaceId == nil)
+    }
+
+    @Test func appResignClearsActiveWorkspaceDrag() async {
+        let registry = SidebarWorkspaceDragRegistry()
+        let workspaceId = UUID()
+
+        registry.begin(workspaceId: workspaceId)
+        #expect(registry.currentWorkspaceId == workspaceId)
+
+        NotificationCenter.default.post(
+            name: NSApplication.didResignActiveNotification,
+            object: nil
+        )
+        await Task.yield()
+
+        #expect(
+            registry.currentWorkspaceId == nil,
+            "A workspace drag must not keep process-wide pointer routing latched after app deactivation."
+        )
     }
 }
