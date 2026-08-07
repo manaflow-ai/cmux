@@ -165,6 +165,50 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(context.createInputs == nil)
     }
 
+    @Test(
+        "terminal creation RPCs reject non-string types before creation",
+        arguments: [
+            ("surface.split", .bool(true)),
+            ("surface.split", .int(1)),
+            ("surface.split", .object(["kind": .string("terminal")])),
+            ("pane.create", .bool(true)),
+            ("pane.create", .int(1)),
+            ("pane.create", .object(["kind": .string("terminal")])),
+            ("surface.create", .bool(true)),
+            ("surface.create", .int(1)),
+            ("surface.create", .object(["kind": .string("terminal")])),
+        ] as [(String, JSONValue)]
+    )
+    func terminalCreationRejectsNonStringType(
+        method: String,
+        type: JSONValue
+    ) {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        var params: [String: JSONValue] = [
+            "type": type,
+            "initial_input": .string("echo should-not-run\r"),
+        ]
+        if method != "surface.create" {
+            params["direction"] = .string("right")
+        }
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: method,
+            params: params
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "app-localized terminal creation type error",
+            data: .object(["type": type])
+        ))
+        #expect(context.paneCreateInputs == nil)
+        #expect(context.splitInputs == nil)
+        #expect(context.createInputs == nil)
+    }
+
     @Test func surfaceCreateDockPayloadUsesDockScopedIDs() throws {
         let windowID = UUID()
         let workspaceID = UUID()

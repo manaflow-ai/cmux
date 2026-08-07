@@ -130,6 +130,47 @@ import Testing
         #expect(panel.surface.debugWaitAfterCommand() == false)
     }
 
+    @Test func focusedInitialInputDoesNotScheduleAutomaticWelcomeCommand() async throws {
+        _ = try #require(AppDelegate.shared)
+        let defaults = UserDefaults.standard
+        let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
+        let previousWelcomeShown = defaults.object(forKey: welcomeShownKey)
+        defer {
+            if let previousWelcomeShown {
+                defaults.set(previousWelcomeShown, forKey: welcomeShownKey)
+            } else {
+                defaults.removeObject(forKey: welcomeShownKey)
+            }
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let initialWorkspaceIDs = Set(manager.tabs.map(\.id))
+        let initialInput = "printf 'requested command only\\n'\r"
+        let readyNotifications = NotificationCenter.default.notifications(
+            named: .terminalSurfaceDidBecomeReady
+        )
+        defaults.removeObject(forKey: welcomeShownKey)
+
+        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+            "initial_input": initialInput,
+            "focus": true,
+        ], tabManager: manager)
+
+        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
+        if panel.surface.surface == nil {
+            for await notification in readyNotifications {
+                guard notification.userInfo?["workspaceId"] as? UUID == created.id else {
+                    continue
+                }
+                break
+            }
+        }
+
+        #expect(panel.surface.debugInitialInputForTesting() == initialInput)
+        #expect(defaults.object(forKey: welcomeShownKey) == nil)
+    }
+
     @Test(
         "terminal creation RPCs inject input into an interactive shell",
         arguments: ["surface.split", "pane.create", "surface.create"]
