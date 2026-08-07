@@ -40,6 +40,20 @@ struct PortalHitTestingPerformanceTests {
         }
     }
 
+    private final class SubviewReadCountingView: NSView {
+        private(set) var subviewReadCount = 0
+
+        override var subviews: [NSView] {
+            get {
+                subviewReadCount += 1
+                return super.subviews
+            }
+            set {
+                super.subviews = newValue
+            }
+        }
+    }
+
     private final class SplitDelegate: NSObject, NSSplitViewDelegate {}
 
     private func makeMouseEvent(type: NSEvent.EventType, at locationInWindow: NSPoint, window: NSWindow) -> NSEvent {
@@ -124,6 +138,10 @@ struct PortalHitTestingPerformanceTests {
         let unrelatedLeaf = NSView(frame: contentView.bounds)
         unrelatedMiddle.addSubview(unrelatedLeaf)
         unrelatedContainer.addSubview(unrelatedMiddle)
+        let scaleContainers = (0..<1_000).map { _ in SubviewReadCountingView(frame: .zero) }
+        for scaleContainer in scaleContainers {
+            unrelatedContainer.addSubview(scaleContainer)
+        }
         contentView.addSubview(unrelatedContainer)
 
         let host = WindowTerminalHostView(frame: contentView.bounds)
@@ -140,6 +158,7 @@ struct PortalHitTestingPerformanceTests {
         let initialRectConversionCount = splitView.rectConversionCount
 
         #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
+        let subviewReadCountAfterCacheWarmup = scaleContainers.reduce(0) { $0 + $1.subviewReadCount }
         #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
         #expect(
             splitView.rectConversionCount - initialRectConversionCount == 2,
@@ -149,11 +168,19 @@ struct PortalHitTestingPerformanceTests {
             splitView.pointConversionCount == 0,
             "Repeated pointer moves should hit cached divider rectangles instead of converting through each split view."
         )
+        #expect(
+            scaleContainers.reduce(0) { $0 + $1.subviewReadCount } == subviewReadCountAfterCacheWarmup,
+            "A cache hit should not re-walk a large unrelated view hierarchy."
+        )
         unrelatedLeaf.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1)))
         #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
         #expect(
             splitView.rectConversionCount - initialRectConversionCount == 2,
             "Unrelated deep subtree mutations should not rebuild the cached divider geometry."
+        )
+        #expect(
+            scaleContainers.reduce(0) { $0 + $1.subviewReadCount } == subviewReadCountAfterCacheWarmup,
+            "Unrelated mutations should not make the next pointer hit re-walk the hierarchy."
         )
     }
 
