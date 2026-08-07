@@ -26,7 +26,13 @@ extension CMUXCLI {
         localCommandScript: String?,
         sshFallbackCommand: String
     ) -> String {
-        let invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
+        var invocationOptions = sshCommandOptionsWithoutRemoteCommand(options)
+        // Mosh owns terminal allocation. Its already-built direct SSH fallback
+        // retains the caller's RequestTTY intent.
+        invocationOptions.sshOptions = SSHAgentSocketResolver().removingOptions(
+            named: "RequestTTY",
+            from: invocationOptions.sshOptions
+        )
         let capabilityProbeSSHArguments = sshArgumentsOverridingHostRemoteCommand(
             baseSSHArguments(invocationOptions)
         )

@@ -3522,6 +3522,36 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
+    func testSSHLeadingTTYDisablePersistsRequestTTYForRestoration() throws {
+        let run = try runMockedSSH(arguments: ["-T"])
+        let configureParams = try XCTUnwrap(
+            params(for: "workspace.remote.configure", in: run.requests)
+        )
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+
+        XCTAssertEqual(
+            sshOptions.filter { $0.lowercased().hasPrefix("requesttty=") },
+            ["RequestTTY=no"]
+        )
+    }
+
+    func testSSHLeadingTTYSequencePersistsEffectiveRequestTTY() throws {
+        let run = try runMockedSSH(arguments: [
+            "--ssh-option", "RequestTTY=yes",
+            "-T", "-tt",
+            "printf", "ready",
+        ])
+        let configureParams = try XCTUnwrap(
+            params(for: "workspace.remote.configure", in: run.requests)
+        )
+        let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
+
+        XCTAssertEqual(
+            sshOptions.filter { $0.lowercased().hasPrefix("requesttty=") },
+            ["RequestTTY=force"]
+        )
+    }
+
     func testSSHForwardAgentFlagPropagatesCallerAgentSocket() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(

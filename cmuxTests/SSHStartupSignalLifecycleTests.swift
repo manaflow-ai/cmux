@@ -616,6 +616,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "-w", "/workspaces/demo",
                 "vsc-demo", "/bin/bash",
             ],
+            usesRemoteCommandSeparator: false,
             returnsInitialCommand: true
         )
         let startupURL = URL(
@@ -654,9 +655,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sshArguments = try String(contentsOf: sshArgumentsLog, encoding: .utf8)
             .split(separator: "\n")
             .map(String.init)
-        XCTAssertTrue(
-            sshArguments.contains("-t"),
-            "The leading OpenSSH PTY flag must stay on the ssh invocation: \(sshArguments)"
+        let ttyIndex = try XCTUnwrap(sshArguments.firstIndex(of: "-t"))
+        let destinationIndex = try XCTUnwrap(sshArguments.firstIndex(of: "cmux-macmini"))
+        XCTAssertLessThan(
+            ttyIndex,
+            destinationIndex,
+            "The OpenSSH PTY flag must precede the SSH destination: \(sshArguments)"
         )
         let dockerArguments = try String(contentsOf: dockerArgumentsLog, encoding: .utf8)
             .split(separator: "\n")
@@ -1328,6 +1332,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ],
         additionalArguments: [String] = [],
         remoteCommandArguments: [String] = [],
+        usesRemoteCommandSeparator: Bool = true,
         returnsInitialCommand: Bool = false
     ) throws -> String {
         let cliPath = try bundledCLIPath()
@@ -1402,7 +1407,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         arguments += additionalArguments
         arguments.append("cmux-macmini")
         if !remoteCommandArguments.isEmpty {
-            arguments.append("--")
+            if usesRemoteCommandSeparator {
+                arguments.append("--")
+            }
             arguments += remoteCommandArguments
         }
 

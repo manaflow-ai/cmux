@@ -693,7 +693,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		812600000000000000000007 /* CMUXCLI+SSHHelp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 812600000000000000000008 /* CMUXCLI+SSHHelp.swift */; };
 		C77070000000000000000008 /* CMUXCLI+SSHPTYAttachBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C77070000000000000000009 /* CMUXCLI+SSHPTYAttachBridge.swift */; };
 			6702F211735472DC14581CA7 /* CMUXCLI+SSHReconnectPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCF61A4F72B75DC4EA47DF6F /* CMUXCLI+SSHReconnectPrompt.swift */; };
-		970500000000000000000001 /* CMUXCLI+SSHRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970500000000000000000002 /* CMUXCLI+SSHRemoteCommand.swift */; };
 			CBF07000000000000000002 /* CMUXCLI+SSHStartupScripts.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBF07000000000000000001 /* CMUXCLI+SSHStartupScripts.swift */; };
 		B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */; };
 		B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */; };
@@ -3408,7 +3407,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		812600000000000000000008 /* CMUXCLI+SSHHelp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHHelp.swift"; sourceTree = "<group>"; };
 		C77070000000000000000009 /* CMUXCLI+SSHPTYAttachBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHPTYAttachBridge.swift"; sourceTree = "<group>"; };
 			DCF61A4F72B75DC4EA47DF6F /* CMUXCLI+SSHReconnectPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHReconnectPrompt.swift"; sourceTree = "<group>"; };
-		970500000000000000000002 /* CMUXCLI+SSHRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHRemoteCommand.swift"; sourceTree = "<group>"; };
 			CBF07000000000000000001 /* CMUXCLI+SSHStartupScripts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHStartupScripts.swift"; sourceTree = "<group>"; };
 		B900002CA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Themes.swift"; sourceTree = "<group>"; };
 		B900002DA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ThemeSupport.swift"; sourceTree = "<group>"; };
@@ -7314,7 +7312,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE1A060000000000000002 /* cmux_layout.swift */,
 				B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */,
 				812600000000000000000002 /* CMUXCLI+SSHCommandOptions.swift */,
-				970500000000000000000002 /* CMUXCLI+SSHRemoteCommand.swift */,
 				812600000000000000000006 /* CMUXCLI+MoshTerminalTransport.swift */,
 				812600000000000000000008 /* CMUXCLI+SSHHelp.swift */,
 				8300A0010000000000000001 /* CMUXCLI+SSHConnectionSharing.swift */,
@@ -10377,7 +10374,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				812600000000000000000007 /* CMUXCLI+SSHHelp.swift in Sources */,
 				C77070000000000000000008 /* CMUXCLI+SSHPTYAttachBridge.swift in Sources */,
 				6702F211735472DC14581CA7 /* CMUXCLI+SSHReconnectPrompt.swift in Sources */,
-				970500000000000000000001 /* CMUXCLI+SSHRemoteCommand.swift in Sources */,
 					CBF07000000000000000002 /* CMUXCLI+SSHStartupScripts.swift in Sources */,
 				B900002EA1B2C3D4E5F60719 /* CMUXCLI+Themes.swift in Sources */,
 				B900002FA1B2C3D4E5F60719 /* CMUXCLI+ThemeSupport.swift in Sources */,

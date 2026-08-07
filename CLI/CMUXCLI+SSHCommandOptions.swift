@@ -25,6 +25,18 @@ extension CMUXCLI {
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
 
+        /// Explicit TTY flags, or cmux's forced-PTY default when no caller
+        /// `RequestTTY` option controls the interactive session.
+        var effectiveTTYRequestArguments: [String] {
+            if !remoteCommand.ttyRequestArguments.isEmpty {
+                return remoteCommand.ttyRequestArguments
+            }
+            guard !SSHAgentSocketResolver().hasOptionKey(sshOptions, key: "RequestTTY") else {
+                return []
+            }
+            return ["-tt"]
+        }
+
         init(
             destination: String,
             displayDestination: String? = nil,
