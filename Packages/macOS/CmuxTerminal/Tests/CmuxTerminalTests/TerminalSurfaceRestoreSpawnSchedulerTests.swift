@@ -14,7 +14,7 @@ import CmuxTerminalCore
             delayer: delayer
         )
         let ids = (0..<3).map { _ in UUID() }
-        var spawned: [UUID] = []
+        let spawned = RestoreSpawnRecorder<UUID>()
 
         for id in ids {
             scheduler.scheduleRestoredSurfaceSpawn(surfaceId: id) {
@@ -23,15 +23,15 @@ import CmuxTerminalCore
         }
 
         await delayer.waitForDelayCount(1)
-        #expect(spawned == [ids[0]])
+        #expect(spawned.values == [ids[0]])
 
         delayer.releaseNextDelay()
         await delayer.waitForDelayCount(2)
-        #expect(spawned == [ids[0], ids[1]])
+        #expect(spawned.values == [ids[0], ids[1]])
 
         delayer.releaseNextDelay()
-        await waitForSpawnCount(3, spawned: { spawned.count })
-        #expect(spawned == ids)
+        await spawned.waitForCount(3)
+        #expect(spawned.values == ids)
     }
 
     @Test func twelveRestoredSurfaceBurstDrainsOneNativeSpawnPerCadence() async {
@@ -41,7 +41,7 @@ import CmuxTerminalCore
             delayer: delayer
         )
         let ids = (0..<12).map { _ in UUID() }
-        var spawned: [UUID] = []
+        let spawned = RestoreSpawnRecorder<UUID>()
 
         for id in ids {
             scheduler.scheduleRestoredSurfaceSpawn(surfaceId: id) {
@@ -50,21 +50,21 @@ import CmuxTerminalCore
         }
 
         await delayer.waitForDelayCount(1)
-        #expect(spawned == [ids[0]])
+        #expect(spawned.values == [ids[0]])
 
         for expectedSpawnCount in 2...ids.count {
             delayer.releaseNextDelay()
-            await waitForSpawnCount(expectedSpawnCount, spawned: { spawned.count })
-            #expect(spawned == Array(ids.prefix(expectedSpawnCount)))
+            await spawned.waitForCount(expectedSpawnCount)
+            #expect(spawned.values == Array(ids.prefix(expectedSpawnCount)))
         }
 
-        #expect(spawned == ids)
+        #expect(spawned.values == ids)
     }
 
     @Test func duplicateReadinessCallbacksForOneSurfaceCoalesce() async {
         let scheduler = TerminalSurfaceRestoreSpawnScheduler(interSpawnDelay: .zero)
         let id = UUID()
-        var spawned: [String] = []
+        let spawned = RestoreSpawnRecorder<String>()
 
         scheduler.scheduleRestoredSurfaceSpawn(surfaceId: id) {
             spawned.append("first")
@@ -73,8 +73,8 @@ import CmuxTerminalCore
             spawned.append("duplicate")
         }
 
-        await waitForSpawnCount(1, spawned: { spawned.count })
-        #expect(spawned == ["first"])
+        await spawned.waitForCount(1)
+        #expect(spawned.values == ["first"])
     }
 
     @Test func laterReadinessDuringCooldownStillWaitsForDelay() async {
@@ -84,24 +84,24 @@ import CmuxTerminalCore
             delayer: delayer
         )
         let ids = (0..<2).map { _ in UUID() }
-        var spawned: [UUID] = []
+        let spawned = RestoreSpawnRecorder<UUID>()
 
         scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[0]) {
             spawned.append(ids[0])
         }
 
         await delayer.waitForDelayCount(1)
-        #expect(spawned == [ids[0]])
+        #expect(spawned.values == [ids[0]])
 
         scheduler.scheduleRestoredSurfaceSpawn(surfaceId: ids[1]) {
             spawned.append(ids[1])
         }
 
-        #expect(spawned == [ids[0]])
+        #expect(spawned.values == [ids[0]])
 
         delayer.releaseNextDelay()
-        await waitForSpawnCount(2, spawned: { spawned.count })
-        #expect(spawned == ids)
+        await spawned.waitForCount(2)
+        #expect(spawned.values == ids)
     }
 
     @Test func restorePacedTerminalSurfaceQueuesNativeCreationBeforeGhosttyWork() {
@@ -146,7 +146,7 @@ import CmuxTerminalCore
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
 
         await shimInstaller.complete()
-        await waitForSpawnCount(1, spawned: { scheduler.scheduledSurfaceIds.count })
+        await scheduler.waitForScheduledCount(1)
 
         #expect(scheduler.scheduledSurfaceIds == [surface.id])
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
@@ -420,14 +420,6 @@ import CmuxTerminalCore
         #expect(scheduler.scheduledSurfaceIds.isEmpty)
         #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
         #expect(surface.runtimeSurfacePointer == nil)
-    }
-
-    private func waitForSpawnCount(_ count: Int, spawned: () -> Int) async {
-        for _ in 0..<100 {
-            if spawned() >= count { return }
-            await Task.yield()
-        }
-        Issue.record("Timed out waiting for \(count) scheduled restored surface spawns")
     }
 
     private func makeSurface(
