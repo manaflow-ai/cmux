@@ -173,12 +173,16 @@ struct ClaudeHookSessionRecord: Codable {
     /// cannot generate a title. This is separate from the successful naming
     /// baseline so compaction remains detectable while naming is suppressed.
     var autoNameLastObservedLineCount: Int?
-    /// Compare-and-set token for the hook pass that most recently observed the
-    /// transcript. Finishers only lower the high-water while this token still
-    /// belongs to their observation.
+    /// Compare-and-set token for the hook pass that owns the current in-flight
+    /// operation. Observers that skip behind that owner join its accumulator
+    /// without rotating the token.
     var autoNameLastObservationGeneration: String?
     var autoNameLastNamedAt: TimeInterval?
     var autoNameInFlightAt: TimeInterval?
+    /// Highest transcript size observed while the current in-flight owner was
+    /// summarizing or reconciling. Its finisher consumes the accumulator only
+    /// while it still owns `autoNameLastObservationGeneration`.
+    var autoNameInFlightObservedLineCount: Int?
     /// A durable compact-lifecycle obligation. `SessionStart(source=compact)`
     /// sets it before best-effort replay, and a later Stop clears it only after
     /// the app confirms every affected title target was resolved.
@@ -331,7 +335,10 @@ final class ClaudeHookSessionStore {
             let snapshot = AutoNamingSessionSnapshot(
                 lastTitle: record.autoNameLastTitle,
                 lastLineCount: record.autoNameLastLineCount,
-                lastObservedLineCount: record.autoNameLastObservedLineCount,
+                lastObservedLineCount: max(
+                    record.autoNameLastObservedLineCount ?? 0,
+                    record.autoNameInFlightObservedLineCount ?? 0
+                ),
                 lastNamedAt: record.autoNameLastNamedAt,
                 inFlightAt: record.autoNameInFlightAt,
                 lastAttemptAt: record.autoNameLastAttemptAt
@@ -341,15 +348,28 @@ final class ClaudeHookSessionStore {
                 transcriptLineCount: transcriptLineCount,
                 now: now
             )
-            let observationGeneration = recordAutoNamingObservation(
-                transcriptLineCount,
-                record: &record
-            )
+            let observationGeneration: String?
             switch decision {
             case .proceed where allowNewTitleGeneration, .reseedBaseline:
+                observationGeneration = claimAutoNamingObservation(
+                    transcriptLineCount,
+                    record: &record
+                )
                 record.autoNameInFlightAt = now.timeIntervalSince1970
-            case .proceed, .skipShortTranscript, .skipInFlight, .skipTooSoon, .skipInsufficientGrowth:
-                break
+            case .skipInFlight:
+                observationGeneration = nil
+                recordUnclaimedAutoNamingObservation(
+                    transcriptLineCount,
+                    joiningLiveClaim: true,
+                    record: &record
+                )
+            case .proceed, .skipShortTranscript, .skipTooSoon, .skipInsufficientGrowth:
+                observationGeneration = nil
+                recordUnclaimedAutoNamingObservation(
+                    transcriptLineCount,
+                    joiningLiveClaim: false,
+                    record: &record
+                )
             }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
@@ -361,19 +381,79 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    /// Records one transcript observation and returns the token its finisher
-    /// must still own before lowering the persisted high-water.
-    private func recordAutoNamingObservation(
-        _ lineCount: Int,
+    /// Starts a new in-flight observation claim. Any expired owner's accumulated
+    /// observation first joins the stable high-water so a failed replacement
+    /// cannot erase it.
+    private func claimAutoNamingObservation(
+        _ lineCount: Int?,
         record: inout ClaudeHookSessionRecord
     ) -> String {
+        foldAutoNamingInFlightObservationIntoHighWater(record: &record)
+        if let lineCount {
+            record.autoNameLastObservedLineCount = max(
+                lineCount,
+                record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+            )
+        }
         let generation = UUID().uuidString
+        record.autoNameLastObservationGeneration = generation
+        record.autoNameInFlightObservedLineCount = lineCount
+        return generation
+    }
+
+    /// Records a pass that did not claim work. A live in-flight owner consumes
+    /// the observation; otherwise it advances the stable high-water directly.
+    private func recordUnclaimedAutoNamingObservation(
+        _ lineCount: Int,
+        joiningLiveClaim: Bool,
+        record: inout ClaudeHookSessionRecord
+    ) {
+        if joiningLiveClaim {
+            if record.autoNameLastObservationGeneration != nil {
+                record.autoNameInFlightObservedLineCount = max(
+                    lineCount,
+                    record.autoNameInFlightObservedLineCount ?? lineCount
+                )
+            } else {
+                // Legacy stores can have a live marker without an ownership
+                // token. Preserve its dedupe window and record conservatively.
+                record.autoNameLastObservedLineCount = max(
+                    lineCount,
+                    record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+                )
+            }
+            return
+        }
+        foldAutoNamingInFlightObservationIntoHighWater(record: &record)
+        // A non-joining pass has already established that any old marker is
+        // expired. Revoke it so a late finisher cannot mutate newer state.
+        record.autoNameInFlightAt = nil
+        record.autoNameLastObservationGeneration = nil
+        record.autoNameInFlightObservedLineCount = nil
         record.autoNameLastObservedLineCount = max(
             lineCount,
             record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
         )
-        record.autoNameLastObservationGeneration = generation
-        return generation
+    }
+
+    private func foldAutoNamingInFlightObservationIntoHighWater(
+        record: inout ClaudeHookSessionRecord
+    ) {
+        guard let inFlightObservedLineCount = record.autoNameInFlightObservedLineCount else { return }
+        record.autoNameLastObservedLineCount = max(
+            inFlightObservedLineCount,
+            record.autoNameLastObservedLineCount ?? record.autoNameLastLineCount ?? 0
+        )
+    }
+
+    private func autoNamingObservedHighWater(in record: ClaudeHookSessionRecord) -> Int {
+        max(
+            record.autoNameLastLineCount ?? 0,
+            max(
+                record.autoNameLastObservedLineCount ?? 0,
+                record.autoNameInFlightObservedLineCount ?? 0
+            )
+        )
     }
 
     /// Records an explicit Claude compaction before any best-effort title
@@ -420,34 +500,57 @@ final class ClaudeHookSessionStore {
             let hasLiveInFlight = record.autoNameInFlightAt.map {
                 now.timeIntervalSince1970 - $0 < engine.config.inFlightExpiry
             } ?? false
-            let observedHighWater = max(
-                record.autoNameLastLineCount ?? 0,
-                record.autoNameLastObservedLineCount ?? 0
-            )
+            let observedHighWater = autoNamingObservedHighWater(in: record)
             let compactedLineCount: Int? = transcriptLineCount.flatMap { current in
                 guard observedHighWater > 0,
                       record.autoNameLastNamedAt != nil,
                       current < observedHighWater else { return nil }
                 return current
             }
-            let observationGeneration = transcriptLineCount.map {
-                recordAutoNamingObservation($0, record: &record)
-            }
-            record.updatedAt = now.timeIntervalSince1970
-            state.sessions[normalized] = record
             guard let title = record.autoNameLastTitle else {
                 if hasLiveInFlight {
-                    return (true, nil, nil, nil, observationGeneration)
+                    if let transcriptLineCount {
+                        recordUnclaimedAutoNamingObservation(
+                            transcriptLineCount,
+                            joiningLiveClaim: true,
+                            record: &record
+                        )
+                    }
+                    record.updatedAt = now.timeIntervalSince1970
+                    state.sessions[normalized] = record
+                    return (true, nil, nil, nil, nil)
+                }
+                if let transcriptLineCount {
+                    recordUnclaimedAutoNamingObservation(
+                        transcriptLineCount,
+                        joiningLiveClaim: false,
+                        record: &record
+                    )
                 }
                 record.autoNameTitleReconciliationGeneration = nil
                 record.autoNameInFlightAt = nil
+                record.autoNameLastObservationGeneration = nil
+                record.autoNameInFlightObservedLineCount = nil
                 record.updatedAt = now.timeIntervalSince1970
                 state.sessions[normalized] = record
-                return (false, nil, nil, nil, observationGeneration)
+                return (false, nil, nil, nil, nil)
             }
             if hasLiveInFlight {
-                return (true, nil, nil, nil, observationGeneration)
+                if let transcriptLineCount {
+                    recordUnclaimedAutoNamingObservation(
+                        transcriptLineCount,
+                        joiningLiveClaim: true,
+                        record: &record
+                    )
+                }
+                record.updatedAt = now.timeIntervalSince1970
+                state.sessions[normalized] = record
+                return (true, nil, nil, nil, nil)
             }
+            let observationGeneration = claimAutoNamingObservation(
+                transcriptLineCount,
+                record: &record
+            )
             record.autoNameInFlightAt = now.timeIntervalSince1970
             record.updatedAt = now.timeIntervalSince1970
             state.sessions[normalized] = record
@@ -456,8 +559,8 @@ final class ClaudeHookSessionStore {
     }
 
     /// Completes a transcript-shrink reconciliation without changing normal
-    /// naming cooldown or title history. The compacted baseline becomes
-    /// durable only after the app confirms that it preserved the stored title.
+    /// naming cooldown or title history. A confirmed owner advances both the
+    /// baseline and high-water through observations that joined while it ran.
     func finishAutoNamingReconciliation(
         sessionId: String,
         compactedLineCount: Int?,
@@ -470,29 +573,41 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
-            record.autoNameInFlightAt = nil
-            if confirmedApply,
-               record.autoNameTitleReconciliationGeneration == claimedReconciliationGeneration {
+            guard let observationGeneration,
+                  record.autoNameLastObservationGeneration == observationGeneration else {
+                return
+            }
+            let ownsPendingGeneration = record.autoNameTitleReconciliationGeneration
+                == claimedReconciliationGeneration
+            if confirmedApply, ownsPendingGeneration {
                 if let compactedLineCount {
-                    record.autoNameLastLineCount = compactedLineCount
-                    if let observationGeneration,
-                       record.autoNameLastObservationGeneration == observationGeneration {
-                        record.autoNameLastObservedLineCount = compactedLineCount
-                    }
+                    let reconciledLineCount = max(
+                        compactedLineCount,
+                        record.autoNameInFlightObservedLineCount ?? compactedLineCount
+                    )
+                    record.autoNameLastLineCount = reconciledLineCount
+                    record.autoNameLastObservedLineCount = reconciledLineCount
+                } else {
+                    foldAutoNamingInFlightObservationIntoHighWater(record: &record)
                 }
                 if clearPendingOnConfirmation,
                    claimedReconciliationGeneration != nil {
                     record.autoNameTitleReconciliationGeneration = nil
                 }
+            } else {
+                foldAutoNamingInFlightObservationIntoHighWater(record: &record)
             }
+            record.autoNameInFlightAt = nil
+            record.autoNameLastObservationGeneration = nil
+            record.autoNameInFlightObservedLineCount = nil
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
         }
     }
 
     /// Records a completed naming pass. On a confirmed apply, the durable
-    /// baseline (title, line count, timestamp) advances; on failure only the
-    /// in-flight marker clears, so the next qualifying Stop retries.
+    /// baseline (title, line count, timestamp) advances. Failure retains the
+    /// observed high-water while releasing the owned claim for a later retry.
     func finishAutoNaming(
         sessionId: String,
         appliedTitle: String?,
@@ -504,7 +619,15 @@ final class ClaudeHookSessionStore {
         guard !normalized.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalized] else { return }
+            guard let observationGeneration,
+                  record.autoNameLastObservationGeneration == observationGeneration else {
+                return
+            }
+            let inFlightObservedLineCount = record.autoNameInFlightObservedLineCount
+            foldAutoNamingInFlightObservationIntoHighWater(record: &record)
             record.autoNameInFlightAt = nil
+            record.autoNameLastObservationGeneration = nil
+            record.autoNameInFlightObservedLineCount = nil
             // Stamp every completed pass (success or failure) so the throttle
             // enforces a cooldown before retrying a failing summarizer.
             record.autoNameLastAttemptAt = now.timeIntervalSince1970
@@ -514,13 +637,15 @@ final class ClaudeHookSessionStore {
                 record.autoNameLastLineCount = baselineLineCount
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
                 if isFirstConfirmedTitle,
-                   let observationGeneration,
-                   record.autoNameLastObservationGeneration == observationGeneration {
+                   let inFlightObservedLineCount {
                     // A failed first attempt may have observed a larger
                     // pre-compaction transcript. Once the first title is
-                    // confirmed, discard that stale high-water unless a newer
-                    // hook observation won the compare-and-set.
-                    record.autoNameLastObservedLineCount = baselineLineCount
+                    // confirmed, discard that stale high-water while retaining
+                    // observations that joined this owned attempt.
+                    record.autoNameLastObservedLineCount = max(
+                        baselineLineCount,
+                        inFlightObservedLineCount
+                    )
                 }
             }
             record.updatedAt = Date().timeIntervalSince1970
