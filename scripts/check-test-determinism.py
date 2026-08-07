@@ -379,9 +379,21 @@ def _parenthesis_delta_outside_quoted_strings(line: str) -> int:
     return delta
 
 
-def _assertion_statement_contexts(lines: list[str]) -> dict[int, str]:
-    """Map each assertion line to its complete, possibly multiline expression."""
-    contexts: dict[int, str] = {}
+def _store_assertion_statement_contexts(
+    contexts: dict[int, tuple[str, int]],
+    indexes: list[int],
+    lines: list[str],
+) -> None:
+    statement = "\n".join(lines)
+    line_offset = 0
+    for index, line in zip(indexes, lines):
+        contexts[index] = (statement, line_offset)
+        line_offset += len(line) + 1
+
+
+def _assertion_statement_contexts(lines: list[str]) -> dict[int, tuple[str, int]]:
+    """Map assertion lines to their complete expression and line offset."""
+    contexts: dict[int, tuple[str, int]] = {}
     assertion_depth: Optional[int] = None
     assertion_indexes: list[int] = []
     assertion_lines: list[str] = []
@@ -395,32 +407,101 @@ def _assertion_statement_contexts(lines: list[str]) -> dict[int, str]:
         assertion_lines.append(line)
         assertion_depth += _parenthesis_delta_outside_quoted_strings(line)
         if assertion_depth <= 0:
-            statement = "\n".join(assertion_lines)
-            contexts.update((statement_index, statement) for statement_index in assertion_indexes)
+            _store_assertion_statement_contexts(
+                contexts,
+                assertion_indexes,
+                assertion_lines,
+            )
             assertion_depth = None
             assertion_indexes = []
             assertion_lines = []
 
     if assertion_indexes:
-        statement = "\n".join(assertion_lines)
-        contexts.update((statement_index, statement) for statement_index in assertion_indexes)
+        _store_assertion_statement_contexts(
+            contexts,
+            assertion_indexes,
+            assertion_lines,
+        )
     return contexts
 
 
-_QUOTED_COMMAND_EXECUTOR = re.compile(
-    r"""(?x)
-    \b(?:ba|da|z)?sh\s+-c\b
-  | \b(?:
-        subprocess\.(?:run|call|Popen|check_call|check_output)
-      | os\.system
-      | child_process\.(?:exec|execSync|spawn|spawnSync)
-      | exec|execSync|spawn|spawnSync|system|eval
-    )\s*\(
-    """
-)
+_INERT_TEXT_MATCHER = re.compile(r"\.(?:toContain|toStartWith)\s*\(")
 
 
-def detect_live_network_host(line: str, *, assertion_context: Optional[str] = None) -> bool:
+def _quoted_string_span_containing(
+    text: str,
+    index: int,
+) -> Optional[tuple[int, int, str]]:
+    quote: Optional[str] = None
+    quote_start = -1
+    escaped = False
+    for position, char in enumerate(text):
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote is None:
+            if char in ("'", '"', "`"):
+                quote = char
+                quote_start = position
+        elif char == quote:
+            if quote_start < index < position:
+                return (quote_start, position, quote)
+            quote = None
+            quote_start = -1
+        if position > index and quote is None:
+            return None
+
+    if quote is not None and quote_start < index:
+        return (quote_start, len(text), quote)
+    return None
+
+
+def _string_literal_interpolates(
+    text: str,
+    start: int,
+    end: int,
+) -> bool:
+    prefix_start = start
+    while prefix_start > 0 and text[prefix_start - 1] in "rRbBuUfF":
+        prefix_start -= 1
+    prefix = text[prefix_start:start]
+    content = text[start + 1:end]
+    return (
+        "f" in prefix.lower()
+        or "${" in content
+        or "$(" in content
+        or "\\(" in content
+        or "#{" in content
+    )
+
+
+def _is_static_text_matcher_literal(
+    statement: str,
+    verb_index: int,
+) -> bool:
+    span = _quoted_string_span_containing(statement, verb_index)
+    if span is None:
+        return False
+    quote_start, quote_end, _quote = span
+    if _string_literal_interpolates(statement, quote_start, quote_end):
+        return False
+
+    for matcher in _INERT_TEXT_MATCHER.finditer(statement):
+        if matcher.end() > quote_start:
+            continue
+        if statement[matcher.end():quote_start].strip():
+            continue
+        if re.match(r"^\s*,?\s*\)", statement[quote_end + 1:]):
+            return True
+    return False
+
+
+def detect_live_network_host(
+    line: str,
+    *,
+    assertion_context: Optional[tuple[str, int]] = None,
+) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
     # requests/urlopen/...). A URL used as a string fixture (markdown builder,
@@ -430,20 +511,22 @@ def detect_live_network_host(line: str, *, assertion_context: Optional[str] = No
     verb_matches = list(_NETWORK_VERB.finditer(line))
     if not verb_matches:
         return False
-    # A network-looking command asserted as rendered text is inert, including
-    # when the string argument spans several lines. Keep executable command
-    # strings and JavaScript template interpolation active: bash/subprocess/
-    # exec/eval can run a quoted curl, and `${fetch(...)}` runs code even though
-    # the verb is lexically inside a backtick string.
-    all_verbs_quoted = all(
+    # Exempt only a proven static expected-text literal: the whole first
+    # argument to a known text matcher. Everything else—including arbitrary
+    # command wrappers and language interpolation—remains executable by
+    # default instead of relying on an incomplete executor allowlist.
+    if assertion_context is not None:
+        statement, line_offset = assertion_context
+    else:
+        statement, line_offset = "", 0
+    if all(
         not _starts_outside_quoted_string(line, match.start())
+        and assertion_context is not None
+        and _is_static_text_matcher_literal(
+            statement,
+            line_offset + match.start(),
+        )
         for match in verb_matches
-    )
-    if (
-        assertion_context is not None
-        and all_verbs_quoted
-        and not _QUOTED_COMMAND_EXECUTOR.search(assertion_context)
-        and "${" not in assertion_context
     ):
         return False
     for match in _URL.finditer(line):
