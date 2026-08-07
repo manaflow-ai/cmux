@@ -1442,7 +1442,6 @@ jobs:
           set +e
           run_unit_tests | tee "$TEST_OUTPUT"
           EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
@@ -1450,7 +1449,7 @@ jobs:
           # clearing the SwiftPM cache to recover from transient corruption.
           # Keep the admission-produced DerivedData intact: this job is
           # intentionally forbidden from compiling again after admission.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$TEST_OUTPUT"; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
@@ -1461,17 +1460,10 @@ jobs:
             set +e
             run_unit_tests | tee "$TEST_OUTPUT"
             EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
             set -e
           fi
 
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            # Expected failures are normalized inside run_unit_test_batch. Any
-            # remaining non-zero status is a real batch failure or an incomplete
-            # run with no trustworthy summary and must stay red.
-            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
-            exit "$EXIT_CODE"
-          fi
+          scripts/ci/classify-app-host-test-result.sh "$EXIT_CODE" "$TEST_OUTPUT"
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
