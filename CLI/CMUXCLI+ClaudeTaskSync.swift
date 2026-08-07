@@ -41,7 +41,15 @@ extension CMUXCLI {
                 return
             }
 
-            guard shouldApplyClaudeHookVisibleMutation(
+            let environment = ProcessInfo.processInfo.environment
+            let configuredTaskListID = environment["CLAUDE_CODE_TASK_LIST_ID"].flatMap {
+                $0.isEmpty ? nil : $0
+            }
+            // Configured task lists are list-scoped, not session-scoped: a
+            // leader and its teammates have different session IDs, and every
+            // hook rereads the same authoritative directory under the lock.
+            // Session-owned task directories retain the active-session guard.
+            guard configuredTaskListID != nil || shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
                 workspaceId: resolvedTarget.workspaceId,
@@ -55,9 +63,8 @@ extension CMUXCLI {
 
             // Nested teammates mutate the same authoritative task list. Their
             // task hooks must publish it even though other visible mutations
-            // stay suppressed; live routing and session staleness were already
-            // validated above.
-            let environment = ProcessInfo.processInfo.environment
+            // stay suppressed; live routing was already validated above, while
+            // the resolved list identity owns shared synchronization.
             let tasksRootURL = ClaudeTaskRootResolver(
                 environment: environment,
                 homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
@@ -70,8 +77,7 @@ extension CMUXCLI {
             try withClaudeTaskSnapshotLock(loader: loader) {
                 let currentRecord = try sessionStore.lookup(sessionId: sessionID)
                 let snapshot: ClaudeTaskSnapshot?
-                if let taskListID = environment["CLAUDE_CODE_TASK_LIST_ID"],
-                   !taskListID.isEmpty {
+                if let taskListID = configuredTaskListID {
                     snapshot = try loader.loadConfiguredTaskList(taskListID: taskListID)
                 } else {
                     snapshot = try loader.load(
