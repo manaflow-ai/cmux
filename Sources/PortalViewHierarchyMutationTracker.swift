@@ -10,6 +10,9 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     private weak var window: NSWindow?
     private var generation: UInt64 = 0
     private let registrations = NSHashTable<PortalViewHierarchyMutationRegistration>.weakObjects()
+    // Each entry exists only across one synchronous `sortSubviews` call and is
+    // removed by `finishSort`, including nested sorts of the same parent.
+    private var activeSortDepths: [ObjectIdentifier: Int] = [:]
 
     private init(window: NSWindow) {
         self.window = window
@@ -27,7 +30,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
               let tracker = tracker(for: window, createIfNeeded: true) else {
             return nil
         }
-        tracker.index(hierarchyNodes)
+        tracker.index(hierarchyNodes, rootView: rootView)
         let registration = PortalViewHierarchyMutationRegistration(
             tracker: tracker,
             rootView: rootView,
@@ -42,8 +45,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     /// branch stays on the fast path without a full cache rebuild.
     static func recordInsertion(
         parentView: NSView,
-        insertedView: NSView,
-        previousWindow: NSWindow?
+        insertedView: NSView
     ) {
         guard let window = parentView.window,
               let tracker = tracker(for: window, createIfNeeded: false),
@@ -52,8 +54,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         }
         tracker.recordInsertion(
             parentView: parentView,
-            insertedView: insertedView,
-            cameFromSameWindow: previousWindow === window
+            insertedView: insertedView
         )
     }
 
@@ -72,8 +73,8 @@ final class PortalViewHierarchyMutationTracker: NSObject {
 
     static func recordReplacement(
         parentView: NSView,
+        oldView: NSView,
         newView: NSView,
-        newViewPreviousWindow: NSWindow?,
         parentWindow: NSWindow?
     ) {
         guard let window = parentWindow,
@@ -81,32 +82,61 @@ final class PortalViewHierarchyMutationTracker: NSObject {
               tracker.hasActiveCaches else {
             return
         }
-        tracker.recordInsertion(
+        tracker.recordReplacement(
             parentView: parentView,
-            insertedView: newView,
-            cameFromSameWindow: newViewPreviousWindow === window
+            oldView: oldView,
+            newView: newView
         )
     }
 
-    static func recordSubviewsReplacement(parentView: NSView, parentWindow: NSWindow?) {
+    static func recordSubviewsReplacement(
+        parentView: NSView,
+        parentWindow: NSWindow?,
+        newSubviews: [NSView]
+    ) {
         guard let window = parentWindow,
               let tracker = tracker(for: window, createIfNeeded: false),
-              tracker.hasActiveCaches,
-              tracker.currentNodeState(for: parentView) != nil else {
+              tracker.hasActiveCaches else {
             return
         }
-        tracker.markDirty()
+        tracker.recordSubviewsReplacement(parentView: parentView, newSubviews: newSubviews)
     }
 
-    static func recordSort(parentView: NSView, parentWindow: NSWindow?) {
+    static func subviewOrderBeforeSort(
+        parentView: NSView,
+        parentWindow: NSWindow?
+    ) -> [NSView]? {
         guard let window = parentWindow,
               let tracker = tracker(for: window, createIfNeeded: false),
               tracker.hasActiveCaches,
               let parentState = tracker.currentNodeState(for: parentView),
               parentState.containsSplitView else {
+            return nil
+        }
+        tracker.beginSort(parentView: parentView)
+        return parentView.subviews
+    }
+
+    static func recordSortIfNeeded(
+        parentView: NSView,
+        parentWindow: NSWindow?,
+        previousSubviews: [NSView]
+    ) {
+        guard let window = parentWindow,
+              let tracker = tracker(for: window, createIfNeeded: false),
+              tracker.finishSort(parentView: parentView) else {
             return
         }
+        guard tracker.hasActiveCaches,
+              let parentState = tracker.currentNodeState(for: parentView),
+              parentState.containsSplitView,
+              !haveSameIdentityOrder(previousSubviews, parentView.subviews) else { return }
         tracker.markDirty()
+    }
+
+    private static func haveSameIdentityOrder(_ lhs: [NSView], _ rhs: [NSView]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy { $0 === $1 }
     }
 
     private static func tracker(
@@ -132,30 +162,39 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         registeredRootView === requestedRootView
             && requestedRootView.window === window
             && registrationGeneration == generation
+            && currentNodeState(for: requestedRootView)?.registeredRootGeneration == generation
     }
 
-    private func index(_ nodes: [(view: NSView, containsSplitView: Bool)]) {
+    private func index(
+        _ nodes: [(view: NSView, containsSplitView: Bool)],
+        rootView: NSView
+    ) {
         for node in nodes {
             guard let state = nodeState(for: node.view, createIfNeeded: true) else { continue }
             state.tracker = self
             state.generation = generation
             state.containsSplitView = node.containsSplitView
         }
+        currentNodeState(for: rootView)?.registeredRootGeneration = generation
     }
 
     private func recordInsertion(
         parentView: NSView,
-        insertedView: NSView,
-        cameFromSameWindow: Bool
+        insertedView: NSView
     ) {
-        guard let parentState = currentNodeState(for: parentView) else { return }
+        guard !isSorting(parentView: parentView) else { return }
+        guard let parentState = currentNodeState(for: parentView) else {
+            if isCurrentRegisteredRoot(insertedView) {
+                markDirty()
+            }
+            return
+        }
         if parentState.containsSplitView || insertedView is NSSplitView {
             markDirty()
             return
         }
 
-        if cameFromSameWindow,
-           let insertedState = currentNodeState(for: insertedView) {
+        if let insertedState = currentNodeState(for: insertedView) {
             if insertedState.containsSplitView {
                 markDirty()
             }
@@ -175,10 +214,58 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     }
 
     private func recordRemoval(parentView: NSView, removedView: NSView) {
-        guard let parentState = currentNodeState(for: parentView) else { return }
+        guard !isSorting(parentView: parentView) else { return }
+        guard let parentState = currentNodeState(for: parentView) else {
+            if isCurrentRegisteredRoot(removedView) {
+                markDirty()
+            }
+            return
+        }
         if parentState.containsSplitView || currentNodeState(for: removedView)?.containsSplitView == true {
             markDirty()
         }
+    }
+
+    private func recordReplacement(parentView: NSView, oldView: NSView, newView: NSView) {
+        guard !isSorting(parentView: parentView) else { return }
+        guard currentNodeState(for: parentView) != nil else {
+            if isCurrentRegisteredRoot(oldView) || isCurrentRegisteredRoot(newView) {
+                markDirty()
+            }
+            return
+        }
+        recordInsertion(parentView: parentView, insertedView: newView)
+    }
+
+    private func recordSubviewsReplacement(parentView: NSView, newSubviews: [NSView]) {
+        guard !isSorting(parentView: parentView) else { return }
+        if currentNodeState(for: parentView) != nil
+            || newSubviews.contains(where: isCurrentRegisteredRoot) {
+            markDirty()
+        }
+    }
+
+    private func isCurrentRegisteredRoot(_ view: NSView) -> Bool {
+        currentNodeState(for: view)?.registeredRootGeneration == generation
+    }
+
+    private func beginSort(parentView: NSView) {
+        activeSortDepths[ObjectIdentifier(parentView), default: 0] += 1
+    }
+
+    private func finishSort(parentView: NSView) -> Bool {
+        let id = ObjectIdentifier(parentView)
+        guard let depth = activeSortDepths[id], depth > 0 else { return false }
+        if depth == 1 {
+            activeSortDepths.removeValue(forKey: id)
+        } else {
+            activeSortDepths[id] = depth - 1
+        }
+        return true
+    }
+
+    private func isSorting(parentView: NSView) -> Bool {
+        activeSortDepths[ObjectIdentifier(parentView)] != nil
     }
 
     private func currentNodeState(for view: NSView) -> PortalViewHierarchyNodeState? {

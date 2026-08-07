@@ -10,12 +10,10 @@ private typealias PortalSubviewComparator = @convention(c) (
 private extension NSView {
     @objc(cmux_portalAddSubview:)
     func cmux_portalAddSubview(_ subview: NSView) {
-        let previousWindow = subview.window
         cmux_portalAddSubview(subview)
         PortalViewHierarchyMutationTracker.recordInsertion(
             parentView: self,
-            insertedView: subview,
-            previousWindow: previousWindow
+            insertedView: subview
         )
     }
 
@@ -25,12 +23,10 @@ private extension NSView {
         positioned place: NSWindow.OrderingMode,
         relativeTo otherView: NSView?
     ) {
-        let previousWindow = subview.window
         cmux_portalAddSubview(subview, positioned: place, relativeTo: otherView)
         PortalViewHierarchyMutationTracker.recordInsertion(
             parentView: self,
-            insertedView: subview,
-            previousWindow: previousWindow
+            insertedView: subview
         )
     }
 
@@ -40,7 +36,8 @@ private extension NSView {
         cmux_portalSetSubviews(newSubviews)
         PortalViewHierarchyMutationTracker.recordSubviewsReplacement(
             parentView: self,
-            parentWindow: parentWindow
+            parentWindow: parentWindow,
+            newSubviews: newSubviews
         )
     }
 
@@ -72,12 +69,11 @@ private extension NSView {
 
     @objc func cmux_portalReplaceSubview(_ oldView: NSView, with newView: NSView) {
         let parentWindow = window
-        let newViewPreviousWindow = newView.window
         cmux_portalReplaceSubview(oldView, with: newView)
         PortalViewHierarchyMutationTracker.recordReplacement(
             parentView: self,
+            oldView: oldView,
             newView: newView,
-            newViewPreviousWindow: newViewPreviousWindow,
             parentWindow: parentWindow
         )
     }
@@ -87,10 +83,16 @@ private extension NSView {
         context: UnsafeMutableRawPointer?
     ) {
         let parentWindow = window
-        cmux_portalSortSubviews(compare, context: context)
-        PortalViewHierarchyMutationTracker.recordSort(
+        let previousSubviews = PortalViewHierarchyMutationTracker.subviewOrderBeforeSort(
             parentView: self,
             parentWindow: parentWindow
+        )
+        cmux_portalSortSubviews(compare, context: context)
+        guard let previousSubviews else { return }
+        PortalViewHierarchyMutationTracker.recordSortIfNeeded(
+            parentView: self,
+            parentWindow: parentWindow,
+            previousSubviews: previousSubviews
         )
     }
 }

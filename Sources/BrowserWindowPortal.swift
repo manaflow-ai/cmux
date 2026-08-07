@@ -1761,6 +1761,18 @@ final class WindowBrowserSlotView: NSView {
             overlayContainer.addSubview(dropZoneOverlayView, positioned: .above, relativeTo: nil)
         }
 
+        var previousPriority = Int.min
+        var needsReordering = false
+        for subview in subviews {
+            let priority = interactionLayerPriority(of: subview)
+            if priority < previousPriority {
+                needsReordering = true
+                break
+            }
+            previousPriority = priority
+        }
+        guard needsReordering else { return }
+
         let context = Unmanaged.passUnretained(self).toOpaque()
         sortSubviews({ lhs, rhs, context in
             guard let context else { return .orderedSame }
