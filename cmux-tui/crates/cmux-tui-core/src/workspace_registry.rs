@@ -413,8 +413,7 @@ pub fn reset_persistent_session_state(
                 terminal_host_root.display()
             );
         }
-        ensure_terminal_host_root_can_reset(&terminal_host_root)?;
-        remove_dead_terminal_host_records_for_reset(&terminal_host_root)?;
+        prepare_terminal_host_root_for_reset(&terminal_host_root)?;
     }
     if terminal_host_root.exists() {
         fs::remove_dir_all(&terminal_host_root).with_context(|| {
@@ -2851,8 +2850,9 @@ fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<Sess
 }
 
 #[cfg(unix)]
-fn ensure_terminal_host_root_can_reset(root: &Path) -> anyhow::Result<()> {
-    for (record_path, record) in crate::terminal_host_runtime::load_terminal_host_records(root)? {
+fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
+    let records = crate::terminal_host_runtime::load_terminal_host_records(root)?;
+    for (record_path, record) in &records {
         match crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record)? {
             TerminalHostLiveness::Dead => {}
             TerminalHostLiveness::Live | TerminalHostLiveness::Indeterminate => {
@@ -2860,17 +2860,7 @@ fn ensure_terminal_host_root_can_reset(root: &Path) -> anyhow::Result<()> {
             }
         }
     }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn ensure_terminal_host_root_can_reset(_root: &Path) -> anyhow::Result<()> {
-    anyhow::bail!("terminal host liveness cannot be verified on this platform");
-}
-
-#[cfg(unix)]
-fn remove_dead_terminal_host_records_for_reset(root: &Path) -> anyhow::Result<()> {
-    for (record_path, record) in crate::terminal_host_runtime::load_terminal_host_records(root)? {
+    for (record_path, record) in records {
         if !crate::terminal_host_runtime::remove_stale_terminal_host_record(&record_path, &record)?
         {
             anyhow::bail!("terminal host state changed during reset");
@@ -2880,8 +2870,8 @@ fn remove_dead_terminal_host_records_for_reset(root: &Path) -> anyhow::Result<()
 }
 
 #[cfg(not(unix))]
-fn remove_dead_terminal_host_records_for_reset(_root: &Path) -> anyhow::Result<()> {
-    Ok(())
+fn prepare_terminal_host_root_for_reset(_root: &Path) -> anyhow::Result<()> {
+    anyhow::bail!("terminal host liveness cannot be verified on this platform");
 }
 
 fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<ResourceEffectPepper> {
