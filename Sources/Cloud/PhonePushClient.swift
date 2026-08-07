@@ -778,7 +778,7 @@ final class PhonePushClient {
         )
     }
 
-    private static func logValue(_ result: PhonePushHTTPResult) -> String {
+    nonisolated private static func logValue(_ result: PhonePushHTTPResult) -> String {
         switch result {
         case .accepted: "accepted"
         case .partial: "partial"
