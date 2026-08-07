@@ -182,7 +182,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             SWIFT_OPTIMIZATION_LEVEL=-O \
-            SWIFT_COMPILATION_MODE=wholemodule \
+            SWIFT_COMPILATION_MODE=singlefile \
             GCC_OPTIMIZATION_LEVEL=s
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
 
@@ -206,7 +206,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             SWIFT_OPTIMIZATION_LEVEL=-O \
-            SWIFT_COMPILATION_MODE=wholemodule \
+            SWIFT_COMPILATION_MODE=singlefile \
             GCC_OPTIMIZATION_LEVEL=s
           sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
           [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
