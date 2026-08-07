@@ -2771,6 +2771,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Whether the active saved Mac has an exact device-local Tailscale grant.
+    /// Settings uses this to decide whether Tailscale Only can be applied
+    /// immediately or must first collect a pairing code.
+    public var activeMacHasAuthorizedTailscaleRoute: Bool {
+        guard let mac = pairedMacs.first(where: \.isActive) else { return false }
+        return !Self.storedReconnectRoutes(
+            mac.routes,
+            supportedKinds: runtime?.supportedRouteKinds ?? [],
+            preferNonLoopback: Self.prefersNonLoopbackRoutes,
+            tailscaleRequirement: TailscaleRouteRequirement(
+                macDeviceID: mac.macDeviceID,
+                grantRoutes: mac.legacyTailscaleRoutes ?? []
+            )
+        ).isEmpty
+    }
+
+
     /// Visible store rows for identity-sensitive paths; ``pairedMacs`` is display-coalesced.
     private var storedPairedMacs: [MobilePairedMac] = []
     /// Every scoped SQLite row, including hidden rows, for route refresh and hidden presentation.

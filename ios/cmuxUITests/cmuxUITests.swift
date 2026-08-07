@@ -290,13 +290,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
         XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
         tap(tailscaleMethod, in: app)
+        // An install without a device-local Tailscale grant opens pairing, but
+        // the strict user choice remains selected if pairing is cancelled.
+        let stagedScannerPreview = element("MobilePairingScannerPreview")
+        XCTAssertTrue(stagedScannerPreview.waitForExistence(timeout: 4))
+        app.buttons["MobileScannerCancelButton"].tap()
+        assertPageVisible(connectScene, timeout: 4)
         XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
-        XCTAssertTrue(app.staticTexts[
-            "Connect only over Tailscale. Install it on both devices, join the same network, then scan the pairing code shown by cmux on your Mac."
-        ].waitForExistence(timeout: 4))
-        // The choice is exclusive: selecting one method must deselect the other.
-        XCTAssertTrue(tailscaleMethod.isSelected)
         XCTAssertFalse(automaticMethod.isSelected)
+        XCTAssertTrue(tailscaleMethod.isSelected)
         tap(automaticMethod, in: app)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
         XCTAssertTrue(automaticMethod.isSelected)

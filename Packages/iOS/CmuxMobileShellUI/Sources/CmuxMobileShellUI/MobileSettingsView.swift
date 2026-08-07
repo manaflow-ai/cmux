@@ -162,6 +162,8 @@ struct MobileSettingsView: View {
                 if let connectionMethodStore {
                     MobileConnectionMethodSection(
                         store: connectionMethodStore,
+                        hasAuthorizedTailscaleRoute:
+                            store?.activeMacHasAuthorizedTailscaleRoute == true,
                         startPairingScanner: startPairingScanner
                     )
                 }
@@ -494,7 +496,7 @@ struct MobileSettingsView: View {
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
-                    onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    onSelectConnectionMethod: { requestConnectionMethod($0) },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,
@@ -538,6 +540,17 @@ struct MobileSettingsView: View {
                 "mobile.settings.activeTransport.simulator",
                 defaultValue: "Simulator"
             )
+        }
+    }
+
+    private func requestConnectionMethod(_ method: MobileConnectionMethod) {
+        guard let connectionMethodStore else { return }
+        if connectionMethodStore.request(
+            method,
+            hasAuthorizedTailscaleRoute: store?.activeMacHasAuthorizedTailscaleRoute == true
+        ) {
+            showingOnboarding = false
+            startPairingScanner?()
         }
     }
 
