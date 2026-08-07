@@ -49,6 +49,7 @@ import pathlib
 import re
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Iterable, Optional
 
 # ---------------------------------------------------------------------------
@@ -280,10 +281,6 @@ _SHELL_COMMAND_LAUNCHER = re.compile(
     """
 )
 
-_PYTHON_F_STRING_PREFIX = re.compile(
-    r"(?i)(?<![A-Za-z0-9_])(?:fr|rf|f)$"
-)
-
 # Private / loopback hostnames and IPs that are NOT live network.
 _PRIVATE_HOST = re.compile(
     r"""(?xi)
@@ -360,7 +357,21 @@ def _is_assertion_line(line: str) -> bool:
 
 
 def _python_f_string_starts_at(line: str, quote_index: int) -> bool:
-    return bool(_PYTHON_F_STRING_PREFIX.search(line[:quote_index]))
+    # A string prefix is at most two characters. Inspect only that local token:
+    # searching the entire preceding source for every quote makes a whole-file
+    # lexical pass quadratic on large test fixtures.
+    for prefix_length, valid_prefixes in ((2, ("fr", "rf")), (1, ("f",))):
+        prefix_start = quote_index - prefix_length
+        if prefix_start < 0:
+            continue
+        if line[prefix_start:quote_index].lower() not in valid_prefixes:
+            continue
+        if prefix_start > 0:
+            previous = line[prefix_start - 1]
+            if previous.isascii() and (previous.isalnum() or previous == "_"):
+                continue
+        return True
+    return False
 
 
 def _quote_delimiter_at(line: str, quote_index: int) -> str:
@@ -369,7 +380,8 @@ def _quote_delimiter_at(line: str, quote_index: int) -> str:
     return triple if line.startswith(triple, quote_index) else quote
 
 
-def _executable_code_positions(line: str) -> list[bool]:
+@lru_cache(maxsize=128)
+def _executable_code_positions(line: str) -> tuple[bool, ...]:
     """Return which character offsets are executable code on this source line.
 
     The network detector intentionally accepts URLs in string arguments to real
@@ -440,6 +452,13 @@ def _executable_code_positions(line: str) -> list[bool]:
             continue
 
         executable[index] = True
+        if character == "\\" and index + 1 < len(line):
+            # Outside a literal, shell uses a backslash to quote the next
+            # character (notably the close/escaped/reopen idiom: '\\''), and
+            # every scanned language uses backslash-newline continuation. The
+            # escaped character is data, not a delimiter or grouping token.
+            index += 2
+            continue
         if character in ("'", '"'):
             quote_delimiter = _quote_delimiter_at(line, index)
             for delimiter_index in range(index, min(index + len(quote_delimiter), len(line))):
@@ -452,7 +471,7 @@ def _executable_code_positions(line: str) -> list[bool]:
             contexts.append((string_kind, 0, quote_delimiter))
             index += len(quote_delimiter)
             continue
-        elif character == "`":
+        if character == "`":
             executable[index] = False
             contexts.append(("template-text", 0, "`"))
         elif kind in ("template-expression", "f-string-expression") and character == "{":
@@ -464,7 +483,7 @@ def _executable_code_positions(line: str) -> list[bool]:
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
-    return executable
+    return tuple(executable)
 
 
 def _is_inside_string_literal(line: str, offset: int) -> bool:
@@ -492,18 +511,11 @@ def _call_end(line: str, opening_paren: int) -> int:
 def _quoted_argument_bounds(
     line: str,
     argument_start: int,
-    *,
-    allow_collection: bool = False,
 ) -> Optional[tuple[int, int]]:
-    """Return content bounds for the first quoted argument or argv element."""
+    """Return content bounds for the first quoted argument."""
     index = argument_start
     while index < len(line) and line[index].isspace():
         index += 1
-
-    if allow_collection and index < len(line) and line[index] in "[(":
-        index += 1
-        while index < len(line) and line[index].isspace():
-            index += 1
 
     # Python string prefixes may precede a shell command string.
     prefix = re.match(r"(?i)(?:[rubf]{1,2})?(?=['\"`])", line[index:])
@@ -579,16 +591,11 @@ def _argv_shell_source_contains_offset(
         opening_paren + 1,
         _call_end(line, opening_paren),
     )
-    if len(literals) < 3:
+    token_index = _argv_executable_index(line, literals)
+    if token_index is None or len(literals) - token_index < 3:
         return False
 
-    token_index = 0
     executable = line[literals[token_index][0] : literals[token_index][1]]
-    if executable.rsplit("/", 1)[-1] == "env":
-        token_index += 1
-        if token_index >= len(literals):
-            return False
-        executable = line[literals[token_index][0] : literals[token_index][1]]
     if executable.rsplit("/", 1)[-1] not in _SHELL_EXECUTABLES:
         return False
 
@@ -601,6 +608,48 @@ def _argv_shell_source_contains_offset(
         if not flag.startswith("-"):
             return False
     return False
+
+
+def _argv_executable_index(
+    line: str,
+    literals: list[tuple[int, int]],
+) -> Optional[int]:
+    if not literals:
+        return None
+    first = line[literals[0][0] : literals[0][1]]
+    if first.rsplit("/", 1)[-1] != "env":
+        return 0
+
+    index = 1
+    while index < len(literals):
+        token = line[literals[index][0] : literals[index][1]]
+        if token == "--":
+            index += 1
+            break
+        if token in ("-u", "--unset"):
+            index += 2
+            continue
+        if token.startswith("--unset=") or token.startswith("-"):
+            index += 1
+            continue
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
+            index += 1
+            continue
+        break
+    return index if index < len(literals) else None
+
+
+def _argv_executable_bounds(
+    line: str,
+    opening_paren: int,
+) -> Optional[tuple[int, int]]:
+    literals = _quoted_literals_in_range(
+        line,
+        opening_paren + 1,
+        _call_end(line, opening_paren),
+    )
+    index = _argv_executable_index(line, literals)
+    return literals[index] if index is not None else None
 
 
 def _is_executable_network_verb(line: str, verb_start: int) -> bool:
@@ -629,11 +678,7 @@ def _is_executable_network_verb(line: str, verb_start: int) -> bool:
             continue
         if _argv_shell_source_contains_offset(line, opening_paren, verb_start):
             return True
-        bounds = _quoted_argument_bounds(
-            line,
-            opening_paren + 1,
-            allow_collection=True,
-        )
+        bounds = _argv_executable_bounds(line, opening_paren)
         if bounds is None or not (bounds[0] <= verb_start < bounds[1]):
             continue
         command = line[bounds[0] : bounds[1]]
@@ -686,12 +731,11 @@ def detect_live_network_host(line: str) -> bool:
     # A verb mentioned inside asserted/rendered text is fixture data, not code
     # that can drive the network. URLs remain inspectable inside string
     # arguments because only the verb's lexical position is filtered here.
-    if not any(
-        _is_executable_network_verb(line, match.start())
-        for match in _NETWORK_VERB.finditer(line)
-    ):
-        return False
-    for match in _URL.finditer(line):
+    return bool(_live_network_verb_offsets(line))
+
+
+def _contains_public_network_url(source: str) -> bool:
+    for match in _URL.finditer(source):
         host = match.group(1)
         if "." not in host:
             continue  # bare hostname, not a real domain
@@ -701,6 +745,16 @@ def detect_live_network_host(line: str) -> bool:
             continue
         return True
     return False
+
+
+def _live_network_verb_offsets(source: str) -> list[int]:
+    if not _contains_public_network_url(source):
+        return []
+    return [
+        match.start()
+        for match in _NETWORK_VERB.finditer(source)
+        if _is_executable_network_verb(source, match.start())
+    ]
 
 
 def _looks_like_ipv4(text: str) -> bool:
@@ -832,11 +886,89 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     return True
 
 
+def _logical_network_chunks(source: str) -> list[tuple[int, str]]:
+    """Group continuations for network calls without inheriting outer test scopes."""
+    if not source:
+        return []
+
+    executable = _executable_code_positions(source)
+    chunks: list[tuple[int, str]] = []
+    start = 0
+    start_line = 1
+    physical_line_start = 0
+    current_line = 1
+    paren_depth = 0
+    bracket_depth = 0
+    network_context = False
+
+    for index, character in enumerate(source):
+        if executable[index]:
+            if character == "(":
+                paren_depth += 1
+            elif character == ")":
+                paren_depth = max(0, paren_depth - 1)
+            elif character == "[":
+                bracket_depth += 1
+            elif character == "]":
+                bracket_depth = max(0, bracket_depth - 1)
+
+        if character != "\n":
+            continue
+
+        physical_line = source[physical_line_start:index]
+        network_context = network_context or any(
+            pattern.search(physical_line)
+            for pattern in (
+                _NETWORK_VERB,
+                _SHELL_CALL_LAUNCHER,
+                _ARGV_CALL_LAUNCHER,
+                _SHELL_COMMAND_LAUNCHER,
+            )
+        )
+        previous = index - 1
+        while previous >= start and source[previous] in " \t":
+            previous -= 1
+        line_continues = (
+            previous >= start
+            and source[previous] == "\\"
+            and executable[previous]
+        )
+        should_split = (
+            executable[index]
+            and not line_continues
+            and (
+                not network_context
+                or (paren_depth == 0 and bracket_depth == 0)
+            )
+        )
+        if should_split:
+            chunks.append((start_line, source[start:index]))
+            start = index + 1
+            start_line = current_line + 1
+            paren_depth = 0
+            bracket_depth = 0
+            network_context = False
+        physical_line_start = index + 1
+        current_line += 1
+
+    chunks.append((start_line, source[start:]))
+    return chunks
+
+
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
-    code_lines = [_strip_comment(l, suffix) for l in raw_lines]
+    code_lines = [_strip_comment(line, suffix) for line in raw_lines]
     findings: list[Finding] = []
+    network_source = "\n".join(code_lines)
+    if _NETWORK_VERB.search(network_source) and _contains_public_network_url(network_source):
+        live_network_lines = {
+            start_line + chunk.count("\n", 0, offset)
+            for start_line, chunk in _logical_network_chunks(network_source)
+            for offset in _live_network_verb_offsets(chunk)
+        }
+    else:
+        live_network_lines = set()
 
     for i, code in enumerate(code_lines):
         if not code.strip():
@@ -846,7 +978,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
         if detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code):
+        if line_no in live_network_lines:
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
