@@ -67,6 +67,23 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentPIDRecordCall == nil)
     }
 
+    @Test func localBuiltInAgentPIDRequiresExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_pid",
+            args: "codex 4242 --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Agent process generation is required for 'codex'"
+        )
+        #expect(context.agentPIDRecordCall == nil)
+    }
+
     @Test func partialAgentProcessGenerationIsRejected() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -101,6 +118,25 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(
             response
                 == "ERROR: Agent process generation is required for 'codex'"
+        )
+        #expect(context.agentLifecycleCall == nil)
+    }
+
+    @Test func unsupportedAgentLifecycleKeyIsRejected() {
+        let context = FakeSidebarV1ControlCommandContext()
+        context.allowsAgentLifecycleKey = false
+        context.requiresAgentProcessGeneration = false
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_agent_lifecycle",
+            args: "unknown-agent running --tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(
+            response
+                == "ERROR: Unsupported agent lifecycle key 'unknown-agent'"
         )
         #expect(context.agentLifecycleCall == nil)
     }

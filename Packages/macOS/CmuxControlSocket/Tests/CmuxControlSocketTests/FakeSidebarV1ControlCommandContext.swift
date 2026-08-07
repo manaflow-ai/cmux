@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor
 final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
+    nonisolated(unsafe) var allowsAgentLifecycleKey = true
     nonisolated(unsafe) var requiresAgentProcessGeneration = true
     var workspaceLoadingResult: ControlSidebarWorkspaceLoadingState?
     var workspaceLoadingCall: (tabArg: String?, key: String, on: Bool)?
@@ -80,7 +81,7 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> Bool {
-        true
+        allowsAgentLifecycleKey
     }
 
     nonisolated func controlSidebarRequiresAgentProcessGeneration(

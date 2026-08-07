@@ -1138,7 +1138,6 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             )
 
         older_process = subprocess.Popen(["/bin/sleep", "30"])
-        time.sleep(0.02)
         newer_process = subprocess.Popen(["/bin/sleep", "30"])
         try:
             generation_session_id = (
@@ -1152,6 +1151,21 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
                 generation_state_dir
             )
             newer_env["CMUX_GEMINI_PID"] = str(newer_process.pid)
+            older_env = newer_env.copy()
+            older_env["CMUX_GEMINI_PID"] = str(older_process.pid)
+            older_probe_session_id = f"{generation_session_id}-older-probe"
+            record_work(
+                source="gemini",
+                session_id=older_probe_session_id,
+                turn_id="older-generation-probe",
+                work_id="older-generation-probe",
+                env=older_env,
+            )
+            older_owner = session_state(
+                generation_state_dir,
+                "gemini",
+                older_probe_session_id,
+            ).get("backgroundWorkProcessGeneration")
             record_work(
                 source="gemini",
                 session_id=generation_session_id,
@@ -1170,9 +1184,25 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
                     "Structured-work overflow did not retain its process owner: "
                     f"{generation_state!r}"
                 )
+            if not isinstance(older_owner, dict):
+                raise AssertionError(
+                    "Could not capture the older process generation: "
+                    f"{older_owner!r}"
+                )
+            older_start = (
+                int(older_owner.get("startSeconds", -1)),
+                int(older_owner.get("startMicroseconds", -1)),
+            )
+            newer_start = (
+                int(owner.get("startSeconds", -1)),
+                int(owner.get("startMicroseconds", -1)),
+            )
+            if newer_start <= older_start:
+                raise AssertionError(
+                    "Expected the second process generation to be newer: "
+                    f"older={older_owner!r} newer={owner!r}"
+                )
 
-            older_env = newer_env.copy()
-            older_env["CMUX_GEMINI_PID"] = str(older_process.pid)
             session_start_payload = {
                 "session_id": generation_session_id,
                 "cwd": str(root),
@@ -2943,6 +2973,15 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
 
     try:
         with FakeCmuxSocket(socket_path, None) as fake:
+            id_suffix = str(os.getpid())
+            requested_tool_call_id = f"cursor-call-requested-{id_suffix}"
+            auto_tool_call_id = f"cursor-call-auto-{id_suffix}"
+            concurrent_requested_tool_call_id = (
+                f"cursor-call-concurrent-requested-{id_suffix}"
+            )
+            concurrent_auto_tool_call_id = (
+                f"cursor-call-concurrent-auto-{id_suffix}"
+            )
             requested_payload = {
                 "conversation_id": "cursor-session",
                 "generation_id": "cursor-turn-1",
@@ -2950,7 +2989,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 "cwd": str(root),
                 "tool_name": "Shell",
                 "tool_input": {"command": "rm -rf build-output"},
-                "tool_use_id": "cursor-call-requested",
+                "tool_use_id": requested_tool_call_id,
             }
             # The detached observer starts from a bounded historical tail so a
             # native decision written before the child is scheduled cannot be
@@ -2958,7 +2997,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             # satisfying any later observation.
             append_native_decision(
                 "Shell permissions: requesting shell approval",
-                "cursor-call-requested",
+                requested_tool_call_id,
                 command_padding=20 * 1024,
             )
             requested_stdout = run_cursor_feed(
@@ -3029,7 +3068,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 **requested_payload,
                 "generation_id": "cursor-turn-2",
                 "tool_input": {"command": "git status --short"},
-                "tool_use_id": "cursor-call-auto",
+                "tool_use_id": auto_tool_call_id,
             }
             before_auto = len(fake.frames)
             auto_stdout = run_cursor_feed("preToolUse", auto_payload)
@@ -3037,12 +3076,12 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 raise AssertionError(
                     f"Cursor auto-approved hook emitted a decision: {auto_stdout!r}"
                 )
-            wait_for_cursor_observer("cursor-call-auto", present=True)
+            wait_for_cursor_observer(auto_tool_call_id, present=True)
             append_native_decision(
                 "Shell permissions: auto-approved shell command",
-                "cursor-call-auto",
+                auto_tool_call_id,
             )
-            wait_for_cursor_observer("cursor-call-auto", present=False)
+            wait_for_cursor_observer(auto_tool_call_id, present=False)
             leaked_attention = [
                 frame
                 for frame in fake.frames[before_auto:]
@@ -3059,21 +3098,21 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 **requested_payload,
                 "generation_id": "cursor-turn-3",
                 "tool_input": {"command": "make release"},
-                "tool_use_id": "cursor-call-concurrent-requested",
+                "tool_use_id": concurrent_requested_tool_call_id,
             }
             concurrent_auto = {
                 **concurrent_requested,
                 "tool_input": {"command": "pwd"},
-                "tool_use_id": "cursor-call-concurrent-auto",
+                "tool_use_id": concurrent_auto_tool_call_id,
             }
             run_cursor_feed("preToolUse", concurrent_requested)
             run_cursor_feed("preToolUse", concurrent_auto)
             wait_for_cursor_observer(
-                "cursor-call-concurrent-requested",
+                concurrent_requested_tool_call_id,
                 present=True,
             )
             wait_for_cursor_observer(
-                "cursor-call-concurrent-auto",
+                concurrent_auto_tool_call_id,
                 present=True,
             )
             # Deliver the decisions in the opposite order. Exact tool-use
@@ -3081,11 +3120,11 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             # the real prompt and vice versa.
             append_native_decision(
                 "Shell permissions: auto-approved shell command",
-                "cursor-call-concurrent-auto",
+                concurrent_auto_tool_call_id,
             )
             append_native_decision(
                 "Shell permissions: requesting shell approval",
-                "cursor-call-concurrent-requested",
+                concurrent_requested_tool_call_id,
             )
             concurrent_begin = wait_for_method(
                 fake,
@@ -3093,11 +3132,11 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 after=concurrent_start,
             )
             wait_for_cursor_observer(
-                "cursor-call-concurrent-requested",
+                concurrent_requested_tool_call_id,
                 present=False,
             )
             wait_for_cursor_observer(
-                "cursor-call-concurrent-auto",
+                concurrent_auto_tool_call_id,
                 present=False,
             )
             concurrent_begins = [

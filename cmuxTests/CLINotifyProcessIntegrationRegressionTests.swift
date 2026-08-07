@@ -3468,6 +3468,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(subagentStop.timedOut, subagentStop.stderr)
         XCTAssertEqual(subagentStop.status, 0, subagentStop.stderr)
 
+        XCTAssertTrue(
+            waitForMockSocketCommand(in: context.state) {
+                $0.hasPrefix(
+                    "notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|"
+                )
+            },
+            "Codex must replay completion when the structured subagent set becomes empty, saw \(context.state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForMockSocketCommand(in: context.state) {
+                $0.contains("set_agent_lifecycle codex idle")
+            },
+            "Settled Codex work must publish Idle, saw \(context.state.snapshot())"
+        )
         let settledCommands = Array(context.state.snapshot().dropFirst(settledStopStart))
         XCTAssertTrue(
             settledCommands.contains {
@@ -9276,22 +9290,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
-        var environment = [
-            "HOME": context.root.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-            "PWD": context.root.path,
-            "CMUX_SOCKET_PATH": context.socketPath,
-            "CMUX_WORKSPACE_ID": context.workspaceId,
-            "CMUX_SURFACE_ID": context.surfaceId,
-            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
-            "CMUX_CLI_SENTRY_DISABLED": "1",
-        ]
-        environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
-
         return runProcess(
             executablePath: context.cliPath,
             arguments: ["hooks", agent, subcommand],
-            environment: environment,
+            environment: agentHookEnvironment(
+                context: context,
+                extraEnvironment: extraEnvironment
+            ),
             standardInput: standardInput,
             timeout: 5
         )
@@ -9304,6 +9309,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         standardInput: String,
         extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
+        runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "feed", "--source", source, "--event", event],
+            environment: agentHookEnvironment(
+                context: context,
+                extraEnvironment: extraEnvironment
+            ),
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func agentHookEnvironment(
+        context: ClaudeHookContext,
+        extraEnvironment: [String: String]
+    ) -> [String: String] {
         var environment = [
             "HOME": context.root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -9315,14 +9336,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             "CMUX_CLI_SENTRY_DISABLED": "1",
         ]
         environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
-
-        return runProcess(
-            executablePath: context.cliPath,
-            arguments: ["hooks", "feed", "--source", source, "--event", event],
-            environment: environment,
-            standardInput: standardInput,
-            timeout: 5
-        )
+        return environment
     }
 
     /// Serves this context's agent-hook mock socket for the rest of the test. One

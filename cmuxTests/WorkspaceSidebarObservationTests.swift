@@ -13,6 +13,7 @@ import CmuxSidebar
 #endif
 
 @MainActor
+@Suite(.serialized)
 struct WorkspaceSidebarObservationTests {
     @Test func sidebarObservationPublisherEmitsForLateStatusSubscriber() {
         let workspace = Workspace()
@@ -413,6 +414,7 @@ struct WorkspaceSidebarObservationTests {
                         let lifecycle = workspace.agentLifecycleStatesByPanelId[panelId]?["codex"]
                         return workspace.agentPIDs["codex.process-exit"] == nil
                             && lifecycle == nil
+                            && workspace.statusEntries["codex"] == nil
                     }
                     if isCleared {
                         return true
