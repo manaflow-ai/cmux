@@ -929,6 +929,127 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func freezeStopsExclusiveGroupBeforeFinalSnapshot(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-exclusive-group-freeze-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_select_exclusive_groups() {
+          printf '777\n' > "$cmux_ssh_auth_owned_groups"
+        }
+        cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
+        cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '101 1 777 T Thu Jan 1 00:00:00 1970\n102 1 777 T Thu Jan 1 00:00:00 1970\n' \
+            > "$1"
+        }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_stable_identity() {
+          printf '777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n102 1 777 Thu_Jan_1_00:00:00_1970 S\n' \
+          > "$CMUX_TEST_OWNED"
+        : > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_groups="$CMUX_TEST_GROUPS.next"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_freeze_owned_processes || exit 99
+        /usr/bin/grep -Fqx -- '-STOP -- -777' "$CMUX_TEST_SIGNALS" || exit 98
+        /usr/bin/grep -Fqx \
+          '777 101 1 Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_TEST_SIGNALED_GROUPS" || exit 97
+        test ! -s "$CMUX_TEST_SIGNALED_PIDS" || exit 96
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root),
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func freezeRejectsRunningDescendantThatEscapesExclusiveGroup(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-exclusive-group-escape-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_select_exclusive_groups() {
+          printf '777\n' > "$cmux_ssh_auth_owned_groups"
+        }
+        cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
+        cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '101 1 777 T Thu Jan 1 00:00:00 1970\n102 101 778 S Thu Jan 1 00:00:00 1970\n' \
+            > "$1"
+        }
+        cmux_ssh_auth_expand_owned_processes() {
+          printf '101 1 777 Thu_Jan_1_00:00:00_1970 T\n102 101 778 Thu_Jan_1_00:00:00_1970 S\n' \
+            > "$cmux_ssh_auth_owned_processes"
+        }
+        cmux_ssh_auth_stable_identity() {
+          printf '777|Thu_Jan_1_00:00:00_1970\n'
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n' > "$CMUX_TEST_OWNED"
+        : > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_groups="$CMUX_TEST_GROUPS.next"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
+        /usr/bin/grep -Fqx -- '-STOP -- -777' "$CMUX_TEST_SIGNALS" || exit 98
+        ! /usr/bin/grep -Fq -- '-STOP -- -778' "$CMUX_TEST_SIGNALS" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root),
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func freezeBatchesSharedGroupAboveWriteAheadStopBudget(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -2825,6 +2946,68 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let result = try runShellCommand(command, environment: [
             "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
             "CMUX_TEST_GROUP_RECORD": groupRecord.path,
+        ])
+        let groupID = try #require(processGroupID(in: groupRecord))
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        #expect(Darwin.kill(-groupID, 0) != 0)
+    }
+
+    @Test func killedPublisherCannotStrandPublishedAnchor() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-published-anchor-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let groupRecord = root.appendingPathComponent("group-record")
+        let readyMarker = root.appendingPathComponent("ready")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer {
+            if let groupID = processGroupID(in: groupRecord) {
+                Darwin.kill(-groupID, SIGKILL)
+            }
+            try? fileManager.removeItem(at: root)
+        }
+
+        let policy = SSHForegroundAuthenticationRetryPolicy()
+        let classifiedAuthentication = policy.classifyingTransientFailure(
+            in: ": > \"$CMUX_TEST_READY_MARKER\"; while :; do /bin/sleep 30; done"
+        )
+        let command = """
+        ( \(classifiedAuthentication) ) &
+        cmux_test_auth_root=$!
+        cmux_test_publish_attempt=0
+        while { [ ! -f "$CMUX_TEST_READY_MARKER" ] || \
+          [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" ] || \
+          [ ! -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher" ]; } && \
+          [ "$cmux_test_publish_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_publish_attempt=$((cmux_test_publish_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 99
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/identity" || exit 98
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/publisher" || exit 97
+        /bin/cp "$CMUX_SSH_AUTH_GROUP_DIR/identity" "$CMUX_TEST_GROUP_RECORD" || exit 96
+        cmux_test_publisher=$(/usr/bin/awk -F '|' '{ print $1 }' \
+          "$CMUX_SSH_AUTH_GROUP_DIR/publisher")
+        cmux_test_group=$(/usr/bin/awk -F '|' '{ print $2 }' \
+          "$CMUX_TEST_GROUP_RECORD")
+        /bin/kill -KILL "$cmux_test_publisher" 2>/dev/null || exit 95
+        cmux_test_group_attempt=0
+        while /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null && \
+          [ "$cmux_test_group_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_group_attempt=$((cmux_test_group_attempt + 1))
+        done
+        /bin/kill -KILL "$cmux_test_auth_root" 2>/dev/null || true
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        if /bin/kill -0 -- "-$cmux_test_group" 2>/dev/null; then exit 94; fi
+        """
+
+        let result = try runShellCommand(command, environment: [
+            "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+            "CMUX_TEST_GROUP_RECORD": groupRecord.path,
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
         ])
         let groupID = try #require(processGroupID(in: groupRecord))
 
