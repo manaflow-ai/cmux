@@ -28,7 +28,7 @@
 
 static int CmuxAppHostReceiptFD = -1;
 
-static void CmuxFailAppHostProcessReceipt(NSString *reason) {
+__attribute__((noreturn)) static void CmuxFailAppHostProcessReceipt(NSString *reason) {
     fprintf(stderr, "FAIL: app-host process receipt: %s\n", reason.UTF8String);
     abort();
 }
@@ -47,6 +47,13 @@ static BOOL CmuxWriteAll(int descriptor, NSData *data) {
         }
     }
     return YES;
+}
+
+static void CmuxDiscardTemporaryAppHostReceipt(int descriptor, NSURL *temporaryURL) {
+    int savedErrno = errno;
+    close(descriptor);
+    unlink(temporaryURL.fileSystemRepresentation);
+    errno = savedErrno;
 }
 
 static void CmuxWriteAppHostProcessReceipt(void) {
@@ -84,14 +91,29 @@ static void CmuxWriteAppHostProcessReceipt(void) {
     NSURL *receiptURL = [directoryURL URLByAppendingPathComponent:
                          [NSString stringWithFormat:@"app-host-%d.receipt", pid]
                                             isDirectory:NO];
-    int descriptor = open(receiptURL.fileSystemRepresentation,
-                          O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
+    int descriptor = -1;
+    NSURL *temporaryURL = nil;
+    for (NSUInteger attempt = 0; attempt < 8; attempt++) {
+        NSString *temporaryName = [NSString stringWithFormat:
+                                   @".app-host-%d-%@.receipt.tmp",
+                                   pid, NSUUID.UUID.UUIDString.lowercaseString];
+        temporaryURL = [directoryURL URLByAppendingPathComponent:temporaryName
+                                                      isDirectory:NO];
+        descriptor = open(temporaryURL.fileSystemRepresentation,
+                          O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
                           S_IRUSR | S_IWUSR);
-    if (descriptor < 0) {
-        CmuxFailAppHostProcessReceipt(@"receipt file could not be opened safely");
+        if (descriptor >= 0) {
+            break;
+        }
+        if (errno != EEXIST) {
+            CmuxFailAppHostProcessReceipt(@"temporary receipt file could not be opened safely");
+        }
+    }
+    if (descriptor < 0 || temporaryURL == nil) {
+        CmuxFailAppHostProcessReceipt(@"a unique temporary receipt file could not be created");
     }
     if (fchmod(descriptor, S_IRUSR | S_IWUSR) != 0) {
-        close(descriptor);
+        CmuxDiscardTemporaryAppHostReceipt(descriptor, temporaryURL);
         CmuxFailAppHostProcessReceipt(@"receipt permissions could not be restricted");
     }
     NSString *receipt = [NSString stringWithFormat:
@@ -99,8 +121,13 @@ static void CmuxWriteAppHostProcessReceipt(void) {
                          appHostKey, pid, executablePath, descriptor];
     NSData *receiptData = [receipt dataUsingEncoding:NSUTF8StringEncoding];
     if (!CmuxWriteAll(descriptor, receiptData) || fsync(descriptor) != 0) {
-        close(descriptor);
+        CmuxDiscardTemporaryAppHostReceipt(descriptor, temporaryURL);
         CmuxFailAppHostProcessReceipt(@"receipt contents could not be persisted");
+    }
+    if (rename(temporaryURL.fileSystemRepresentation,
+               receiptURL.fileSystemRepresentation) != 0) {
+        CmuxDiscardTemporaryAppHostReceipt(descriptor, temporaryURL);
+        CmuxFailAppHostProcessReceipt(@"receipt file could not be published atomically");
     }
     CmuxAppHostReceiptFD = descriptor;
 }
