@@ -1421,10 +1421,23 @@ extension Workspace {
                     return nil
                 }
                 if restoresRemoteWorkspaceTerminalSnapshot {
-                    // Only remote-report provenance is safe to send to the far
-                    // host. `savedWorkingDirectory` is nil when the snapshot's
-                    // directory still requires remote trust.
-                    return savedWorkingDirectory
+                    // Keep directory-keyed agents in the launch namespace while
+                    // id-keyed agents may follow the latest remote runtime cwd.
+                    // Snapshot agent paths are eligible only when the panel's
+                    // remote-directory provenance says they are trusted.
+                    let hasTrustedRemoteDirectory = snapshot.directoryIsTrustedRemoteReport == true
+                    let trustedRuntimeWorkingDirectory = hasTrustedRemoteDirectory
+                        ? savedWorkingDirectory
+                        : nil
+                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory
+                        ? (restorableAgent.workingDirectory
+                            ?? restorableAgent.launchCommand?.workingDirectory)
+                        : nil
+                    return AgentResumeWorkingDirectory().resolve(
+                        kind: restorableAgent.kind.rawValue,
+                        runtimeCwd: trustedRuntimeWorkingDirectory,
+                        launchWorkingDirectory: trustedAgentWorkingDirectory
+                    )
                 }
                 return restorableAgent.workingDirectory
                     ?? restorableAgent.launchCommand?.workingDirectory
