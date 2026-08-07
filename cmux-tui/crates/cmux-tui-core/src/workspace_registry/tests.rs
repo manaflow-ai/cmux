@@ -35,6 +35,18 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
 }
 
 #[test]
+fn session_guard_lock_paths_are_bounded() {
+    let root = temp_root("session-guard-bounds");
+    let lock_dir = root.join(SESSION_GUARD_DIR);
+    let paths = (0..10_000)
+        .map(|index| session_guard_lock_path(&lock_dir, &format!("ephemeral-session-{index}")))
+        .collect::<HashSet<_>>();
+
+    assert!(paths.len() <= SESSION_GUARD_BUCKETS as usize);
+    assert!(paths.iter().all(|path| path.parent() == Some(lock_dir.as_path())));
+}
+
+#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";

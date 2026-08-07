@@ -479,9 +479,11 @@ pub fn reset_persistent_session_state(
         &terminal_host_root,
         confirm_reset,
     )?;
-    if terminal_host_root_exists {
-        prepare_terminal_host_root_for_reset(&terminal_host_root)?;
-    }
+    let _orphan_live_marker_leases = if terminal_host_root_exists {
+        prepare_terminal_host_root_for_reset(&terminal_host_root)?
+    } else {
+        Vec::new()
+    };
     if terminal_host_root_exists {
         fs::remove_dir_all(&terminal_host_root).with_context(|| {
             format!("remove terminal host state {}", terminal_host_root.display())
@@ -3093,6 +3095,7 @@ fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Resul
 const MACHINE_ID_FILE: &str = "machine-id";
 const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
 const SESSION_GUARD_DIR: &str = "session-locks";
+const SESSION_GUARD_BUCKETS: u64 = 4096;
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
@@ -3105,16 +3108,29 @@ fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Re
     fs::create_dir_all(&lock_dir)
         .with_context(|| format!("create session lock directory {}", lock_dir.display()))?;
     platform::restrict_directory(&lock_dir)?;
-    let lock_path = lock_dir.join(format!("{}.lock", session_storage_component(session_name)));
+    let lock_path = session_guard_lock_path(&lock_dir, session_name);
     SessionLease::acquire(&lock_path)
 }
 
+fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
+    let mut hash = Sha256::new();
+    hash.update(b"cmux-session-guard-v1");
+    hash.update(session_name.len().to_le_bytes());
+    hash.update(session_name.as_bytes());
+    let digest = hash.finalize();
+    let mut bytes = [0_u8; 8];
+    bytes.copy_from_slice(&digest[..8]);
+    let bucket = u64::from_le_bytes(bytes) % SESSION_GUARD_BUCKETS;
+    lock_dir.join(format!("{bucket:03x}.lock"))
+}
+
 #[cfg(unix)]
-fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
+fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<Vec<OrphanLiveMarkerLease>> {
     use std::os::unix::fs::MetadataExt;
 
     let records = crate::terminal_host_runtime::load_terminal_host_records(root)?;
     let expected_uid = fs::metadata(root)?.uid();
+    let mut orphan_live_marker_leases = Vec::new();
     let expected_live_markers = records
         .iter()
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
@@ -3125,9 +3141,11 @@ fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
         let path = entry?.path();
         if path.extension().and_then(|value| value.to_str()) == Some("live")
             && !expected_live_markers.contains(&path)
-            && !remove_verified_dead_orphan_live_marker(&path, expected_uid)?
         {
-            anyhow::bail!("terminal host state still has live or unverified hosts");
+            let Some(lease) = lock_verified_dead_orphan_live_marker(&path, expected_uid)? else {
+                anyhow::bail!("terminal host state still has live or unverified hosts");
+            };
+            orphan_live_marker_leases.push(lease);
         }
     }
     for (record_path, record) in &records {
@@ -3144,7 +3162,7 @@ fn prepare_terminal_host_root_for_reset(root: &Path) -> anyhow::Result<()> {
             anyhow::bail!("terminal host state changed during reset");
         }
     }
-    Ok(())
+    Ok(orphan_live_marker_leases)
 }
 
 #[cfg(unix)]
@@ -3156,7 +3174,15 @@ fn terminal_host_live_marker_path(
 }
 
 #[cfg(unix)]
-fn remove_verified_dead_orphan_live_marker(path: &Path, expected_uid: u32) -> anyhow::Result<bool> {
+struct OrphanLiveMarkerLease {
+    _file: File,
+}
+
+#[cfg(unix)]
+fn lock_verified_dead_orphan_live_marker(
+    path: &Path,
+    expected_uid: u32,
+) -> anyhow::Result<Option<OrphanLiveMarkerLease>> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
@@ -3167,8 +3193,8 @@ fn remove_verified_dead_orphan_live_marker(path: &Path, expected_uid: u32) -> an
         .open(path)
     {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
-        Err(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Ok(None),
     };
     let metadata = file.metadata()?;
     if !metadata.file_type().is_file()
@@ -3176,31 +3202,37 @@ fn remove_verified_dead_orphan_live_marker(path: &Path, expected_uid: u32) -> an
         || metadata.nlink() != 1
         || metadata.mode() & 0o077 != 0
     {
-        return Ok(false);
+        return Ok(None);
     }
     loop {
         // SAFETY: flock only observes/changes the advisory lock on this valid file descriptor.
         let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
         if result == 0 {
-            // SAFETY: same valid descriptor as above. Unlock before closing the probe descriptor.
-            let _ = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
-            drop(file);
-            match fs::remove_file(path) {
-                Ok(()) => return Ok(true),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(true),
+            let current = match fs::symlink_metadata(path) {
+                Ok(current) => current,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
                 Err(error) => return Err(error.into()),
+            };
+            if current.dev() != metadata.dev() || current.ino() != metadata.ino() {
+                return Ok(None);
             }
+            return Ok(Some(OrphanLiveMarkerLease { _file: file }));
         }
         let error = std::io::Error::last_os_error();
         if error.kind() == std::io::ErrorKind::Interrupted {
             continue;
         }
-        return Ok(false);
+        return Ok(None);
     }
 }
 
 #[cfg(not(unix))]
-fn prepare_terminal_host_root_for_reset(_root: &Path) -> anyhow::Result<()> {
+struct OrphanLiveMarkerLease;
+
+#[cfg(not(unix))]
+fn prepare_terminal_host_root_for_reset(
+    _root: &Path,
+) -> anyhow::Result<Vec<OrphanLiveMarkerLease>> {
     anyhow::bail!("terminal host liveness cannot be verified on this platform");
 }
 
