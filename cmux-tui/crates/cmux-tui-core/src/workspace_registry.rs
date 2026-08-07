@@ -379,14 +379,6 @@ pub struct WorkspaceRegistry {
     _session_guard: Option<SessionLease>,
 }
 
-impl Drop for WorkspaceRegistry {
-    fn drop(&mut self) {
-        // Keep the coordination guard held until the writer lease is gone.
-        self._lease.take();
-        self._session_guard.take();
-    }
-}
-
 pub fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
     root.join(session_storage_component(session_name))
 }
@@ -461,7 +453,7 @@ pub fn reset_persistent_session_state(
             anyhow::bail!("workspace session state path has no registry");
         }
     }
-    let _lease = if session_dir_exists {
+    let lease = if session_dir_exists {
         platform::restrict_directory(&session_dir)?;
         Some(SessionLease::acquire(&session_dir.join("writer.lock"))?)
     } else {
@@ -490,9 +482,18 @@ pub fn reset_persistent_session_state(
         })?;
         reset.removed_terminal_hosts = true;
     }
+    let renamed_session_dir = if session_dir_exists {
+        Some(rename_session_dir_for_reset(root, session_name, &session_dir)?)
+    } else {
+        None
+    };
+    drop(lease);
     if session_dir_exists {
-        fs::remove_dir_all(&session_dir)
-            .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
+        let renamed_session_dir =
+            renamed_session_dir.expect("renamed session dir exists when session dir exists");
+        fs::remove_dir_all(&renamed_session_dir).with_context(|| {
+            format!("remove workspace session state {}", renamed_session_dir.display())
+        })?;
         reset.removed_session_state = true;
     }
     cleanup_session_guard_after_reset(root, session_name, &session_guard);
@@ -521,6 +522,35 @@ fn validate_reset_child_dir(path: &Path, label: &str) -> anyhow::Result<bool> {
         anyhow::bail!("{label} is not a directory: {}", path.display());
     }
     Ok(true)
+}
+
+fn rename_session_dir_for_reset(
+    root: &Path,
+    session_name: &str,
+    session_dir: &Path,
+) -> anyhow::Result<PathBuf> {
+    let storage_component = session_storage_component(session_name);
+    for _ in 0..16 {
+        let candidate =
+            root.join(format!(".reset-{storage_component}-{}.deleting", try_new_uuid_v4()?));
+        match fs::rename(session_dir, &candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "move workspace session state {} to private reset path {}",
+                        session_dir.display(),
+                        candidate.display()
+                    )
+                });
+            }
+        }
+    }
+    anyhow::bail!(
+        "could not allocate private reset path for workspace session state {}",
+        session_dir.display()
+    )
 }
 
 fn require_reset_confirmation(
