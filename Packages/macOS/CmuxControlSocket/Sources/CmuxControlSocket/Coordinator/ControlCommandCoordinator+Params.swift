@@ -24,6 +24,18 @@ extension ControlCommandCoordinator {
         return (trimmed?.isEmpty == false) ? trimmed : nil
     }
 
+    /// A raw string preserved byte-for-byte, or `nil` when it is blank.
+    nonisolated func nonBlankRawString(
+        _ params: [String: JSONValue],
+        _ key: String
+    ) -> String? {
+        guard let raw = rawString(params, key),
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return raw
+    }
+
     /// `v2StringArray`: a JSON string array (trimmed, empties dropped); a single
     /// trimmed non-empty string yields a one-element array; otherwise `nil`.
     func stringArray(_ params: [String: JSONValue], _ key: String) -> [String]? {

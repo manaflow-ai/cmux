@@ -320,6 +320,7 @@ extension ControlCommandCoordinator {
             hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
+            initialInput: nonBlankRawString(params, "initial_input"),
             tmuxStartCommand: optionalTrimmedRawString(params, "tmux_start_command"),
             startupEnvironment: trimmedStringMap(params, keys: ["startup_environment", "initial_env"]),
             requestedSourceSurfaceID: string(params, "surface_id").flatMap(UUID.init(uuidString:)),

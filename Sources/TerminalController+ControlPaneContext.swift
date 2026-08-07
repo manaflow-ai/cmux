@@ -276,6 +276,7 @@ extension TerminalController: ControlPaneContext {
                     insertFirst: insertFirst,
                     workingDirectory: inputs.workingDirectory,
                     initialCommand: inputs.initialCommand,
+                    initialInput: inputs.initialInput,
                     tmuxStartCommand: inputs.tmuxStartCommand,
                     startupEnvironment: inputs.startupEnvironment,
                     initialDividerPosition: initialDividerPosition
@@ -307,6 +308,7 @@ extension TerminalController: ControlPaneContext {
                 insertFirst: insertFirst,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: initialDividerPosition
@@ -345,6 +347,7 @@ extension TerminalController: ControlPaneContext {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) },

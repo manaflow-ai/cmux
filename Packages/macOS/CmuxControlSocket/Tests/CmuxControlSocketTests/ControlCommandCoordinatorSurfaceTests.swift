@@ -13,10 +13,11 @@ struct ControlCommandCoordinatorSurfaceTests {
         return (ControlCommandCoordinator(context: context), context)
     }
 
-    private func capturedInitialCommand(
+    private func capturedCreationInputs(
         method: String,
-        initialCommand: JSONValue?
-    ) -> (wasCaptured: Bool, initialCommand: String?) {
+        initialCommand: JSONValue? = nil,
+        initialInput: JSONValue? = nil
+    ) -> (wasCaptured: Bool, initialCommand: String?, initialInput: String?) {
         let context = FakeSurfaceControlCommandContext()
         context.paneCreateResolution = .createFailed
         context.splitResolution = .createFailed
@@ -29,6 +30,9 @@ struct ControlCommandCoordinatorSurfaceTests {
         if let initialCommand {
             params["initial_command"] = initialCommand
         }
+        if let initialInput {
+            params["initial_input"] = initialInput
+        }
 
         _ = coordinator.handle(ControlRequest(
             id: .int(1),
@@ -38,14 +42,26 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         switch method {
         case "surface.split":
-            return (context.splitInputs != nil, context.splitInputs?.initialCommand)
+            return (
+                context.splitInputs != nil,
+                context.splitInputs?.initialCommand,
+                context.splitInputs?.initialInput
+            )
         case "pane.create":
-            return (context.paneCreateInputs != nil, context.paneCreateInputs?.initialCommand)
+            return (
+                context.paneCreateInputs != nil,
+                context.paneCreateInputs?.initialCommand,
+                context.paneCreateInputs?.initialInput
+            )
         case "surface.create":
-            return (context.createInputs != nil, context.createInputs?.initialCommand)
+            return (
+                context.createInputs != nil,
+                context.createInputs?.initialCommand,
+                context.createInputs?.initialInput
+            )
         default:
             Issue.record("unexpected creation method \(method)")
-            return (false, nil)
+            return (false, nil, nil)
         }
     }
 
@@ -55,7 +71,7 @@ struct ControlCommandCoordinatorSurfaceTests {
     )
     func terminalCreationPreservesInitialCommandQuoting(method: String) {
         let command = #"printf '%s\n' "spaces 'single' \"double\" $HOME $(printf nested) \\tail 日本語"#
-        let capture = capturedInitialCommand(
+        let capture = capturedCreationInputs(
             method: method,
             initialCommand: .string(command)
         )
@@ -69,13 +85,40 @@ struct ControlCommandCoordinatorSurfaceTests {
         arguments: ["surface.split", "pane.create", "surface.create"]
     )
     func terminalCreationOmitsInitialCommand(method: String) {
-        let capture = capturedInitialCommand(
+        let capture = capturedCreationInputs(method: method)
+
+        #expect(capture.wasCaptured)
+        #expect(capture.initialCommand == nil)
+    }
+
+    @Test(
+        "terminal creation RPCs preserve initial-input bytes",
+        arguments: ["surface.split", "pane.create", "surface.create"]
+    )
+    func terminalCreationPreservesInitialInput(method: String) {
+        let input = " printf '  preserved  '\t\r"
+        let capture = capturedCreationInputs(
             method: method,
-            initialCommand: nil
+            initialInput: .string(input)
         )
 
         #expect(capture.wasCaptured)
         #expect(capture.initialCommand == nil)
+        #expect(capture.initialInput == input)
+    }
+
+    @Test(
+        "terminal creation RPCs omit blank initial_input",
+        arguments: ["surface.split", "pane.create", "surface.create"]
+    )
+    func terminalCreationOmitsBlankInitialInput(method: String) {
+        let capture = capturedCreationInputs(
+            method: method,
+            initialInput: .string(" \n\t ")
+        )
+
+        #expect(capture.wasCaptured)
+        #expect(capture.initialInput == nil)
     }
 
     @Test func surfaceCreateDockPayloadUsesDockScopedIDs() throws {

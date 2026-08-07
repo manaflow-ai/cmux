@@ -104,6 +104,7 @@ extension TerminalController {
                 title: execution.title,
                 workingDirectory: execution.workingDirectory,
                 initialTerminalCommand: execution.layoutNode == nil ? execution.initialCommand : nil,
+                initialTerminalInput: execution.layoutNode == nil ? execution.initialInput : nil,
                 initialTerminalEnvironment: execution.layoutNode == nil ? execution.initialEnvironment : [:],
                 workspaceEnvironment: execution.workspaceEnvironment,
                 select: execution.shouldFocus,

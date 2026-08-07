@@ -4847,7 +4847,7 @@ struct CMUXCLI {
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
-            applyInitialCommandOption(commandOpt, to: &params)
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat))
@@ -4959,7 +4959,7 @@ struct CMUXCLI {
                 params["profile"] = profile
             }
             if let placement { params["placement"] = placement }
-            applyInitialCommandOption(commandOpt, to: &params)
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
@@ -4991,7 +4991,7 @@ struct CMUXCLI {
                !workingDirectory.isEmpty {
                 params["working_directory"] = resolvePath(workingDirectory)
             }
-            applyInitialCommandOption(commandOpt, to: &params)
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
@@ -7916,7 +7916,7 @@ struct CMUXCLI {
             params["cwd"] = resolvePath(cwdOpt)
         }
         if layoutOpt == nil {
-            applyInitialCommandOption(commandOpt, to: &params)
+            applyTerminalCreationCommandOption(commandOpt, to: &params)
         }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
@@ -17661,12 +17661,12 @@ struct CMUXCLI {
         return "\"\(escaped)\""
     }
 
-    /// Adds a non-empty user command to a terminal creation request.
+    /// Adds a non-empty user command as spawn-time input for a new terminal.
     ///
-    /// The receiving creation RPC owns command execution and terminal startup, so
-    /// the CLI preserves every command byte and never follows creation with a
-    /// separate `surface.send_text` keystroke injection.
-    private func applyInitialCommandOption(
+    /// This preserves `new-workspace`'s legacy text+Enter behavior, including
+    /// its escape conversion, while letting Ghostty deliver the input only after
+    /// the interactive shell starts.
+    private func applyTerminalCreationCommandOption(
         _ command: String?,
         to params: inout [String: Any]
     ) {
@@ -17674,7 +17674,7 @@ struct CMUXCLI {
               !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
-        params["initial_command"] = command
+        params["initial_input"] = unescapeSendText(command + "\\n")
     }
 
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {

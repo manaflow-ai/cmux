@@ -123,6 +123,7 @@ extension TerminalController {
                 insertFirst: direction.insertFirst,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: inputs.initialDividerPosition,
@@ -170,6 +171,7 @@ extension TerminalController {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: dividerPosition,
@@ -364,6 +366,7 @@ extension TerminalController {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID
@@ -403,6 +406,7 @@ extension TerminalController {
                 focus: focus,
                 workingDirectory: inputs.workingDirectory,
                 initialCommand: inputs.initialCommand,
+                initialInput: inputs.initialInput,
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 remotePTYSessionID: inputs.remotePTYSessionID,

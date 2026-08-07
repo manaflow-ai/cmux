@@ -903,7 +903,7 @@ jobs:
             -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
             test
 
-      - name: Run terminal creation initial-command CLI regression
+      - name: Run terminal creation interactive-shell CLI regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
