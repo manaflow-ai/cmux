@@ -2657,16 +2657,11 @@ fn ghostty_defaults_from_sources(
     theme_dirs: Vec<PathBuf>,
     helper_defaults: GhosttyHelperDefaults,
 ) -> DefaultColors {
-    #[cfg(not(test))]
-    let _ = (&config_paths, &theme_dirs);
     let parsed = match helper_defaults {
         GhosttyHelperDefaults::Resolved(defaults) => defaults,
-        #[cfg(test)]
         GhosttyHelperDefaults::Unavailable => {
             parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
         }
-        #[cfg(not(test))]
-        GhosttyHelperDefaults::Unavailable => DefaultColors::default(),
         GhosttyHelperDefaults::TimedOut => DefaultColors::default(),
     };
     resolve_ghostty_application_defaults(parsed)
@@ -2824,7 +2819,6 @@ fn scrub_ghostty_helper_secret_environment(command: &mut Command) {
     }
 }
 
-#[cfg(test)]
 fn parse_ghostty_defaults_from_paths(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
