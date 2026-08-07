@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 10, IR c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd. */
+/* cmux-tui mux protocol 10, IR 95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -30,6 +30,16 @@ export type ApplyLayoutResult = {
   "screen": Id;
 };
 
+export type AttachedViewOutcomeResult = {
+  "outcome": ViewAttachmentOutcome;
+};
+
+export type AttachedViewResizeResult = {
+  "accepted": boolean;
+  "outcome": ViewAttachmentOutcome;
+  "reservation_id": (bigint) | null;
+};
+
 export type Base64 = string;
 
 export type BrowserFrame = {
@@ -49,6 +59,12 @@ export type CellPixelResize = {
   "reservation_id": bigint;
   "rows": number;
   "surface": Id;
+};
+
+export type CellPixelSurface = {
+  "height_px": number;
+  "surface": Id;
+  "width_px": number;
 };
 
 export type ClientInfo = {
@@ -139,6 +155,12 @@ export type FrontendProjection = {
   "subject_key": string;
 };
 
+export type GetCellPixelsResult = {
+  "height_px": number;
+  "surfaces": Array<CellPixelSurface>;
+  "width_px": number;
+};
+
 export type Id = bigint;
 
 export type IdMapping = {
@@ -165,6 +187,23 @@ export type IdentifyResult = {
 
 export type IdsResult = {
   "ids": Array<IdMapping>;
+};
+
+export type KittyGraphicsState = {
+  "alternate_next_image_id": number;
+  "alternate_replay_next_image_id": number;
+  "image_bytes": bigint;
+  "images": bigint;
+  "inflight_bytes": bigint;
+  "placements": bigint;
+  "primary_next_image_id": number;
+  "primary_replay_next_image_id": number;
+  "replay_cursor_offset": number;
+};
+
+export type KittyImageAlias = {
+  "image_id": number;
+  "image_number": number;
 };
 
 export type Layout = ({ "type": "leaf" } & {
@@ -291,6 +330,7 @@ export type ReadScreenResult = {
 };
 
 export type ReadScrollbackResult = {
+  "epoch": bigint;
   "rows": Array<RenderRow>;
   "start": number;
   "total": number;
@@ -303,6 +343,55 @@ export type RenderCursor = {
   "visible": boolean;
   "x": number;
   "y": number;
+};
+
+export type RenderGraphicFormat = "rgb" | "rgba";
+
+export type RenderGraphicImage = {
+  "data": Base64;
+  "format": RenderGraphicFormat;
+  "generation": bigint;
+  "height": number;
+  "id": number;
+  "width": number;
+};
+
+export type RenderGraphicPlacement = {
+  "anchor_col"?: number;
+  "anchor_row"?: number;
+  "columns": number;
+  "grid_cols": number;
+  "grid_rows": number;
+  "image_id": number;
+  "ordinal": number;
+  "pixel_height": number;
+  "pixel_width": number;
+  "placement_id": number;
+  "rows": number;
+  "source_height": number;
+  "source_width": number;
+  "source_x": number;
+  "source_y": number;
+  "viewport_col": number;
+  "viewport_row": number;
+  "viewport_visible": boolean;
+  "x_offset": number;
+  "y_offset": number;
+  "z": number;
+};
+
+export type RenderGraphics = {
+  "generation": bigint;
+  "images"?: Array<RenderGraphicImage>;
+  "placements": Array<RenderGraphicPlacement>;
+  "removed_image_ids"?: Array<number>;
+};
+
+export type RenderGraphicsDelta = {
+  "generation": bigint;
+  "images"?: Array<RenderGraphicImage>;
+  "placements"?: Array<RenderGraphicPlacement>;
+  "removed_image_ids"?: Array<number>;
 };
 
 export type RenderRow = {
@@ -344,6 +433,25 @@ export type ResolveTerminalResult = {
   "terminal_incarnation": (string) | null;
   "terminal_revision": bigint;
   "workspace_key": string;
+};
+
+export type ResourceSelectors = {
+  "agent"?: (string) | null;
+  "browser"?: (string) | null;
+  "client"?: (string) | null;
+  "frontend_projection"?: (string) | null;
+  "machine"?: (string) | null;
+  "notification"?: (string) | null;
+  "pairing_request"?: (string) | null;
+  "pane"?: (string) | null;
+  "screen"?: (string) | null;
+  "session"?: (string) | null;
+  "sidebar_view"?: (string) | null;
+  "split"?: (string) | null;
+  "stream"?: (string) | null;
+  "tab"?: (string) | null;
+  "terminal"?: (string) | null;
+  "workspace"?: (string) | null;
 };
 
 export type RunResult = {
@@ -504,9 +612,13 @@ export type Tree = {
   "workspaces": Array<Workspace>;
 };
 
+export type ViewAttachmentOutcome = "applied" | "passive" | "superseded";
+
 export type VtStateResult = {
   "cols": number;
   "data": Base64;
+  "kitty_graphics_state"?: KittyGraphicsState;
+  "kitty_image_aliases"?: Array<KittyImageAlias>;
   "rows": number;
 };
 

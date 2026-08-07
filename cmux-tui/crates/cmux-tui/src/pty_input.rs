@@ -25,6 +25,8 @@ const REMOTE_RELEASE_MAX_ATTEMPTS: u8 = 3;
 
 pub type PtyInputBytes = SmallVec<[u8; 64]>;
 type MutationCoalesceKey = (&'static str, u64, u64);
+#[cfg(test)]
+type DeliveredWriteObserver = Arc<dyn Fn(SurfaceId, &[u8]) + Send + Sync>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PtyInputKind {
@@ -334,6 +336,8 @@ struct SharedQueue {
     changed: Condvar,
     #[cfg(test)]
     after_operation_before_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    delivered_write_observer: Mutex<Option<DeliveredWriteObserver>>,
 }
 
 pub struct PtyInputDispatcher {
@@ -376,6 +380,11 @@ impl PtyInputDispatcher {
     #[cfg(test)]
     pub fn enqueue(&self, event: PtyInputEvent) -> PtyInputEnqueueResult {
         self.sender.enqueue(event)
+    }
+
+    #[cfg(test)]
+    pub fn set_delivered_write_observer(&self, observer: Option<DeliveredWriteObserver>) {
+        *self.sender.queue.delivered_write_observer.lock().unwrap() = observer;
     }
 
     pub fn enqueue_with_reservation(
@@ -1006,11 +1015,20 @@ fn process_event(
         event.remote_release_attempts = event.remote_release_attempts.saturating_add(1);
     }
     let after_operation = event.after_operation.take();
+    #[cfg(test)]
+    let is_write = event.mutation.is_none();
     let result = if let Some(operation) = event.mutation.take() {
         operation()
     } else {
         event.surface.write_bytes(&event.bytes)
     };
+    #[cfg(test)]
+    if is_write && result.is_ok() {
+        let observer = queue.delivered_write_observer.lock().unwrap().clone();
+        if let Some(observer) = observer {
+            observer(event.surface_id, &event.bytes);
+        }
+    }
     #[cfg(test)]
     let before_cleanup = queue.after_operation_before_cleanup.lock().unwrap().clone();
     #[cfg(test)]

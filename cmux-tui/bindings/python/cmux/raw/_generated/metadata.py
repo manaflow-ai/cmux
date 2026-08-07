@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 10
-IR_SHA256 = 'c2045074ed470d4c98e9abaaae8697f3473cca1aca24863a3566b9e63c526fbd'
+IR_SHA256 = '95b6c2dc8101ca1690c39b3dd40e32565dd23e01ed9fabe55270c56ba5532f91'
 
 
 @dataclass(frozen=True)
@@ -356,6 +356,29 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'create-surface-with-receipt': CommandMetadata(
+        'create-surface-with-receipt',
+        'control',
+        10,
+        'creation-receipts-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'argv': CommandFieldMetadata(None, None),
+            'cols': CommandFieldMetadata(None, None),
+            'cwd': CommandFieldMetadata(None, None),
+            'operation': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'receipt': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
+            'selector_fallbacks': CommandFieldMetadata(None, None),
+            'selectors': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+            'width': CommandFieldMetadata(None, None),
+            'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
     'create-terminal': CommandMetadata(
         'create-terminal',
         'control',
@@ -393,6 +416,18 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'detach-attached-view': CommandMetadata(
+        'detach-attached-view',
+        'frontend',
+        10,
+        'view-attachment-detach-v1',
+        ('frontend',),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'detach-client': CommandMetadata(
@@ -438,6 +473,16 @@ COMMANDS = {
         None,
         {
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'get-cell-pixels': CommandMetadata(
+        'get-cell-pixels',
+        'frontend',
+        6,
+        None,
+        ('frontend',),
+        None,
+        {
         },
     ),
     'get-frontend-projection': CommandMetadata(
@@ -770,6 +815,18 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'release-attached-view-size': CommandMetadata(
+        'release-attached-view-size',
+        'frontend',
+        10,
+        'view-attachment-lease-v1',
+        ('frontend',),
+        None,
+        {
+            'lease': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'release-surface-size': CommandMetadata(
         'release-surface-size',
         'control',
@@ -869,6 +926,20 @@ COMMANDS = {
             'session': CommandFieldMetadata(None, None),
             'source': CommandFieldMetadata(None, None),
             'state': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'resize-attached-view': CommandMetadata(
+        'resize-attached-view',
+        'frontend',
+        10,
+        'view-attachment-lease-v1',
+        ('frontend',),
+        None,
+        {
+            'cols': CommandFieldMetadata(None, None),
+            'lease': CommandFieldMetadata(None, None),
+            'rows': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
         },
     ),
@@ -1106,6 +1177,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
             'pid': CommandFieldMetadata(None, None),
         },
@@ -1237,6 +1309,7 @@ EVENTS = {
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
+    'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),

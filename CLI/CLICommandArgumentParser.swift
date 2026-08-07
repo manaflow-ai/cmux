@@ -149,9 +149,19 @@ struct CLICommandArgumentParser {
     }
 
     private var knownFlags: String {
-        options.isEmpty
-            ? String(localized: "cli.arguments.knownFlags.none", defaultValue: "(none)")
-            : options.map(\.usage).joined(separator: ", ")
+        guard !options.isEmpty else {
+            return String(localized: "cli.arguments.knownFlags.none", defaultValue: "(none)")
+        }
+        let sortedOptions = options.sorted { $0.name < $1.name }
+        let format = String(
+            localized: "cli.arguments.knownFlags.list",
+            defaultValue: "%@. Usage: %@"
+        )
+        return String.localizedStringWithFormat(
+            format,
+            sortedOptions.map(\.name).joined(separator: ", "),
+            sortedOptions.map(\.usage).joined(separator: ", ")
+        )
     }
 
     private func unknownFlagError(_ flag: String) -> CLIError {

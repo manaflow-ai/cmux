@@ -54,10 +54,11 @@ pub use resource_store::{
 use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope, validate_resource_invariants,
+    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    resource_tabs_has_legacy_content_uniqueness, validate_resource_invariants,
 };
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
@@ -71,6 +72,44 @@ const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cl
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedWorkspaceRegistrySchema {
+    found: i64,
+    newest_supported: i64,
+    database_path: Option<PathBuf>,
+    registry_id: Option<String>,
+}
+
+impl UnsupportedWorkspaceRegistrySchema {
+    pub fn found(&self) -> i64 {
+        self.found
+    }
+
+    pub fn newest_supported(&self) -> i64 {
+        self.newest_supported
+    }
+
+    pub fn database_path(&self) -> Option<&Path> {
+        self.database_path.as_deref()
+    }
+
+    pub fn registry_id(&self) -> Option<&str> {
+        self.registry_id.as_deref()
+    }
+}
+
+impl std::fmt::Display for UnsupportedWorkspaceRegistrySchema {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "unsupported workspace registry schema {}; newest supported is {}",
+            self.found, self.newest_supported
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedWorkspaceRegistrySchema {}
 
 struct ResourceEffectPepper(Zeroizing<[u8; RESOURCE_EFFECT_PEPPER_BYTES]>);
 
@@ -339,6 +378,7 @@ impl WorkspaceRegistry {
             MachinePublicId::random()?,
             ResourceEffectPepper::random()?,
             None,
+            None,
         )
     }
 
@@ -350,8 +390,13 @@ impl WorkspaceRegistry {
             format!("create workspace state directory {}", session_dir.display())
         })?;
         platform::restrict_directory(&session_dir)?;
-        let lease = SessionLease::acquire(&session_dir.join("writer.lock"))?;
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        if db_path.is_file()
+            && let Some(error) = preflight_unsupported_schema(&db_path)
+        {
+            return Err(error.into());
+        }
+        let lease = SessionLease::acquire(&session_dir.join("writer.lock"))?;
         let connection = Connection::open(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
         platform::restrict_file(&db_path)?;
@@ -361,6 +406,7 @@ impl WorkspaceRegistry {
             machine_id,
             resource_effect_pepper,
             Some(lease),
+            Some(db_path),
         )
     }
 
@@ -370,6 +416,7 @@ impl WorkspaceRegistry {
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
         lease: Option<SessionLease>,
+        database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         connection.execute_batch(
@@ -390,6 +437,13 @@ impl WorkspaceRegistry {
             .map(str::parse::<i64>)
             .transpose()
             .context("workspace registry schema is invalid")?;
+        // Existing registries may carry the pre-multiview terminal-to-workspace
+        // foreign key even when a development build already stamped the
+        // current schema number. Revalidate and normalize every existing DB.
+        let migrate_existing_registry = stored_schema.is_some();
+        if migrate_existing_registry {
+            connection.execute_batch("PRAGMA foreign_keys=OFF;")?;
+        }
         let cleanup_pending =
             match meta_value(&connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)?.as_deref() {
                 None => false,
@@ -404,9 +458,13 @@ impl WorkspaceRegistry {
         let resource_effect_pepper_id = resource_effect_pepper.identifier();
         match stored_schema {
             Some(value) if value > SCHEMA_VERSION => {
-                anyhow::bail!(
-                    "unsupported workspace registry schema {value}; newest supported is {SCHEMA_VERSION}"
-                );
+                return Err(UnsupportedWorkspaceRegistrySchema {
+                    found: value,
+                    newest_supported: SCHEMA_VERSION,
+                    registry_id: meta_value(&connection, "registry_id")?,
+                    database_path,
+                }
+                .into());
             }
             Some(value) if value == SCHEMA_VERSION => {
                 let tx = connection.unchecked_transaction()?;
@@ -427,6 +485,22 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
+            Some(8) => {
+                let tx = connection.unchecked_transaction()?;
+                create_workspace_schema(&tx)?;
+                create_terminal_schema(&tx)?;
+                create_resource_schema(&tx)?;
+                create_resource_effect_schema(&tx)?;
+                migrate_resource_tabs_to_multiview(&tx)?;
+                ensure_session_public_id(&tx)?;
+                backfill_workspace_public_ids(&tx)?;
+                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
+                tx.execute(
+                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+                    [SCHEMA_VERSION.to_string()],
+                )?;
+                tx.commit()?;
+            }
             Some(6) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
@@ -444,6 +518,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_tabs_to_multiview(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -464,6 +539,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_tabs_to_multiview(&tx)?;
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.execute(
                     "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
@@ -478,6 +554,7 @@ impl WorkspaceRegistry {
                 create_resource_schema(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_tabs_to_multiview(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -489,6 +566,7 @@ impl WorkspaceRegistry {
                 create_resource_effect_schema(&tx)?;
                 migrate_resource_browser_metadata(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_tabs_to_multiview(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -501,6 +579,7 @@ impl WorkspaceRegistry {
                 migrate_resource_browser_metadata(&tx)?;
                 create_resource_effect_schema(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_tabs_to_multiview(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -522,6 +601,7 @@ impl WorkspaceRegistry {
                 ensure_session_public_id(&tx)?;
                 backfill_workspace_public_ids(&tx)?;
                 migrate_resource_agent_projections(&tx)?;
+                migrate_resource_tabs_to_multiview(&tx)?;
                 migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
@@ -556,6 +636,40 @@ impl WorkspaceRegistry {
                 )?;
                 ensure_session_public_id(&tx)?;
                 tx.commit()?;
+            }
+        }
+        if migrate_existing_registry && resource_tabs_has_legacy_content_uniqueness(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_resource_tabs_to_multiview(&tx)?;
+            tx.commit()?;
+        }
+        if terminal_hosts_has_workspace_foreign_key(&connection)? {
+            let tx = connection.unchecked_transaction()?;
+            migrate_terminal_hosts_to_session_ownership(&tx)?;
+            tx.commit()?;
+        }
+        if migrate_existing_registry {
+            connection.execute_batch("PRAGMA foreign_keys=ON;")?;
+            let violation = connection
+                .query_row(
+                    "SELECT \"table\", rowid, parent, fkid
+                     FROM pragma_foreign_key_check
+                     LIMIT 1",
+                    [],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, Option<i64>>(1)?,
+                            row.get::<_, String>(2)?,
+                            row.get::<_, i64>(3)?,
+                        ))
+                    },
+                )
+                .optional()?;
+            if violation.is_some() {
+                anyhow::bail!(
+                    "saved session data could not be loaded; start a new session or restore this session from a backup"
+                );
             }
         }
         if needs_sensitive_receipt_cleanup {
@@ -593,6 +707,7 @@ impl WorkspaceRegistry {
         }
         {
             let tx = connection.unchecked_transaction()?;
+            initialize_compatibility_active_workspace(&tx)?;
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
@@ -753,7 +868,7 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
                     launch_spec_json, exit_json
-             FROM terminal_placements
+             FROM terminal_hosts
              WHERE lifecycle != 'tombstoned'
              ORDER BY created_revision ASC, terminal_id ASC",
         )?;
@@ -862,7 +977,9 @@ impl WorkspaceRegistry {
             });
         }
         validate_terminal_transition(existing.as_ref(), terminal)?;
-        if terminal.lifecycle != TerminalLifecycle::Tombstoned {
+        if terminal.lifecycle != TerminalLifecycle::Tombstoned
+            && existing.as_ref().is_none_or(|stored| stored.workspace_key != terminal.workspace_key)
+        {
             require_live_workspace(&tx, &terminal.workspace_key)?;
         }
 
@@ -872,7 +989,7 @@ impl WorkspaceRegistry {
         let sqlite_revision =
             i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
         tx.execute(
-            "INSERT INTO terminal_placements(
+            "INSERT INTO terminal_hosts(
                terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
                exit_json, created_revision, updated_revision, deleted_revision
              ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
@@ -1016,7 +1133,7 @@ impl WorkspaceRegistry {
         });
         let result_json = canonical_json(&result)?;
         tx.execute(
-            "UPDATE terminal_placements
+            "UPDATE terminal_hosts
              SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
              WHERE terminal_id = ?2",
             params![sqlite_revision, terminal_id],
@@ -1069,7 +1186,7 @@ impl WorkspaceRegistry {
         if enabled {
             self.connection.execute_batch(
                 "CREATE TEMP TRIGGER cmux_test_fail_terminal_close
-                 BEFORE UPDATE OF lifecycle ON terminal_placements
+                 BEFORE UPDATE OF lifecycle ON terminal_hosts
                  BEGIN SELECT RAISE(ABORT, 'forced terminal close failure'); END;",
             )?;
         } else {
@@ -1730,11 +1847,33 @@ fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> 
 }
 
 fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let legacy_exists: bool = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'terminal_placements'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    let hosts_exist: bool = transaction.query_row(
+        "SELECT EXISTS(
+           SELECT 1 FROM sqlite_master
+           WHERE type = 'table' AND name = 'terminal_hosts'
+         )",
+        [],
+        |row| row.get(0),
+    )?;
+    anyhow::ensure!(
+        !(legacy_exists && hosts_exist),
+        "workspace registry contains both legacy terminal placements and terminal hosts"
+    );
+    if legacy_exists {
+        transaction.execute_batch("ALTER TABLE terminal_placements RENAME TO terminal_hosts;")?;
+    }
     transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS terminal_placements (
+        "CREATE TABLE IF NOT EXISTS terminal_hosts (
            terminal_id TEXT PRIMARY KEY NOT NULL,
-           workspace_key TEXT NOT NULL REFERENCES workspaces(workspace_key)
-             DEFERRABLE INITIALLY DEFERRED,
+           workspace_key TEXT NOT NULL,
            incarnation TEXT,
            lifecycle TEXT NOT NULL CHECK(
              lifecycle IN ('launching','adopting','running','exited','tombstoned')
@@ -1746,9 +1885,9 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
            deleted_revision INTEGER
          );
          CREATE UNIQUE INDEX IF NOT EXISTS terminal_incarnation
-           ON terminal_placements(incarnation) WHERE incarnation IS NOT NULL;
+           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
          CREATE INDEX IF NOT EXISTS live_terminals_by_workspace
-           ON terminal_placements(workspace_key, updated_revision)
+           ON terminal_hosts(workspace_key, updated_revision)
            WHERE lifecycle != 'tombstoned';
          CREATE TABLE IF NOT EXISTS terminal_mutations (
            origin TEXT NOT NULL,
@@ -1769,6 +1908,59 @@ fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
          );
          CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
            ON terminal_events(terminal_id, revision);",
+    )?;
+    Ok(())
+}
+
+fn terminal_hosts_has_workspace_foreign_key(connection: &Connection) -> anyhow::Result<bool> {
+    let mut statement = connection.prepare("PRAGMA foreign_key_list(terminal_hosts)")?;
+    let mut rows = statement.query([])?;
+    while let Some(row) = rows.next()? {
+        let table = row.get::<_, String>(2)?;
+        let from = row.get::<_, String>(3)?;
+        if table == "workspaces" && from == "workspace_key" {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Remove the legacy ownership edge from terminals to workspaces. The
+/// workspace key remains useful placement history, but terminal lifetime is
+/// session-owned and therefore survives removal of every view.
+fn migrate_terminal_hosts_to_session_ownership(
+    transaction: &Transaction<'_>,
+) -> anyhow::Result<()> {
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS terminal_incarnation;
+         DROP INDEX IF EXISTS live_terminals_by_workspace;
+         CREATE TABLE terminal_hosts_session_owned (
+           terminal_id TEXT PRIMARY KEY NOT NULL,
+           workspace_key TEXT NOT NULL,
+           incarnation TEXT,
+           lifecycle TEXT NOT NULL CHECK(
+             lifecycle IN ('launching','adopting','running','exited','tombstoned')
+           ),
+           launch_spec_json TEXT NOT NULL,
+           exit_json TEXT,
+           created_revision INTEGER NOT NULL,
+           updated_revision INTEGER NOT NULL,
+           deleted_revision INTEGER
+         );
+         INSERT INTO terminal_hosts_session_owned(
+           terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+           exit_json, created_revision, updated_revision, deleted_revision
+         )
+         SELECT terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
+                exit_json, created_revision, updated_revision, deleted_revision
+         FROM terminal_hosts;
+         DROP TABLE terminal_hosts;
+         ALTER TABLE terminal_hosts_session_owned RENAME TO terminal_hosts;
+         CREATE UNIQUE INDEX terminal_incarnation
+           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
+         CREATE INDEX live_terminals_by_workspace
+           ON terminal_hosts(workspace_key, updated_revision)
+           WHERE lifecycle != 'tombstoned';",
     )?;
     Ok(())
 }
@@ -1839,6 +2031,37 @@ fn backfill_workspace_public_ids(transaction: &Transaction<'_>) -> anyhow::Resul
                 updated_revision,
                 deleted_revision
             ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Seed the shared compatibility default after legacy workspace backfill.
+///
+/// Frontends keep their actual focus in client-local state. The registry still
+/// exposes one default for legacy commands and initial placement, and older
+/// registries can have live public workspaces without that metadata. Preserve
+/// any stored value so invariant validation still rejects dangling selections.
+fn initialize_compatibility_active_workspace(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    if meta_value(transaction, "active_workspace_id")?.is_some() {
+        return Ok(());
+    }
+    let active_workspace = transaction
+        .query_row(
+            "SELECT rw.public_id
+             FROM workspaces w
+             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
+             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
+             ORDER BY w.position ASC, w.workspace_key ASC
+             LIMIT 1",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if let Some(active_workspace) = active_workspace {
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)",
+            [active_workspace],
         )?;
     }
     Ok(())
@@ -2075,7 +2298,7 @@ fn close_terminals_in_transaction(
             "reason": reason,
         }))?;
         transaction.execute(
-            "UPDATE terminal_placements
+            "UPDATE terminal_hosts
              SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
              WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
             params![sqlite_revision, terminal.terminal_id],
@@ -2144,8 +2367,12 @@ fn commit_workspace_registry_in_transaction(
         );
     }
 
+    // Terminals are session-owned. Their workspace_key records their latest
+    // canonical placement but is intentionally allowed to outlive that
+    // workspace, so closing a workspace removes views without terminating the
+    // underlying terminal.
     let terminal_batch =
-        tombstone_terminals_in_removed_workspaces(transaction, workspaces, mutation)?;
+        TerminalBatchClose { revision: transaction_terminal_revision(transaction)?, closed: 0 };
     transaction.execute(
         "UPDATE workspaces SET tombstoned = 1, position = NULL,
          updated_revision = ?1, deleted_revision = ?1
@@ -2200,85 +2427,6 @@ fn commit_workspace_registry_in_transaction(
         ],
     )?;
     Ok((revision, terminal_batch))
-}
-
-fn tombstone_terminals_in_removed_workspaces(
-    transaction: &Transaction<'_>,
-    remaining_workspaces: &[RegistryWorkspace],
-    mutation: &WorkspaceMutation,
-) -> anyhow::Result<TerminalBatchClose> {
-    let remaining =
-        remaining_workspaces.iter().map(|workspace| workspace.key.as_str()).collect::<HashSet<_>>();
-    let terminals = {
-        let mut statement = transaction.prepare(
-            "SELECT terminal_id, workspace_key, incarnation
-             FROM terminal_placements
-             WHERE lifecycle != 'tombstoned'
-             ORDER BY created_revision ASC, terminal_id ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    let removed = terminals
-        .into_iter()
-        .filter(|(_, workspace_key, _)| !remaining.contains(workspace_key.as_str()))
-        .collect::<Vec<_>>();
-    if removed.is_empty() {
-        return Ok(TerminalBatchClose {
-            revision: transaction_terminal_revision(transaction)?,
-            closed: 0,
-        });
-    }
-
-    let mut revision = transaction_terminal_revision(transaction)?;
-    let mut closed = 0usize;
-    for (terminal_id, workspace_key, incarnation) in removed {
-        revision = revision
-            .checked_add(1)
-            .ok_or_else(|| anyhow::anyhow!("terminal revision exhausted"))?;
-        let sqlite_revision =
-            i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
-        let result = serde_json::json!({
-            "terminal_id": terminal_id,
-            "workspace_key": workspace_key,
-            "incarnation": incarnation,
-            "closed": true,
-            "reason": "workspace-closed",
-        });
-        let result_json = canonical_json(&result)?;
-        transaction.execute(
-            "UPDATE terminal_placements
-             SET lifecycle = 'tombstoned', updated_revision = ?1, deleted_revision = ?1
-             WHERE terminal_id = ?2 AND lifecycle != 'tombstoned'",
-            params![sqlite_revision, terminal_id],
-        )?;
-        transaction.execute(
-            "INSERT INTO terminal_events(
-               revision, kind, terminal_id, workspace_key, origin, mutation_id, result_json
-             ) VALUES(?1, 'terminal-closed', ?2, ?3, ?4, ?5, ?6)",
-            params![
-                sqlite_revision,
-                terminal_id,
-                workspace_key,
-                mutation.origin,
-                mutation.id,
-                result_json,
-            ],
-        )?;
-        closed += 1;
-    }
-    transaction.execute(
-        "UPDATE meta SET value = ?1 WHERE key = 'terminal_revision'",
-        [revision.to_string()],
-    )?;
-    Ok(TerminalBatchClose { revision, closed })
 }
 
 fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
@@ -2422,7 +2570,7 @@ fn read_terminal(
         .query_row(
             "SELECT terminal_id, workspace_key, incarnation, lifecycle,
                     launch_spec_json, exit_json
-             FROM terminal_placements WHERE terminal_id = ?1",
+             FROM terminal_hosts WHERE terminal_id = ?1",
             [terminal_id],
             |row| {
                 Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
@@ -2522,6 +2670,42 @@ fn canonical_json(value: &Value) -> anyhow::Result<String> {
     let mut output = String::new();
     write(value, &mut output)?;
     Ok(output)
+}
+
+fn preflight_unsupported_schema(
+    database_path: &Path,
+) -> Option<UnsupportedWorkspaceRegistrySchema> {
+    // This probe only improves a writer-conflict error. Initialization remains
+    // authoritative, so read-only I/O and SQL failures must not block startup.
+    try_preflight_unsupported_schema(database_path).ok().flatten()
+}
+
+fn try_preflight_unsupported_schema(
+    database_path: &Path,
+) -> anyhow::Result<Option<UnsupportedWorkspaceRegistrySchema>> {
+    let connection = Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    connection.busy_timeout(std::time::Duration::from_millis(500))?;
+    let has_meta: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'meta')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_meta {
+        return Ok(None);
+    }
+    let Some(found) = meta_value(&connection, "schema_version")? else {
+        return Ok(None);
+    };
+    let found = found.parse::<i64>().context("workspace registry schema is invalid")?;
+    if found <= SCHEMA_VERSION {
+        return Ok(None);
+    }
+    Ok(Some(UnsupportedWorkspaceRegistrySchema {
+        found,
+        newest_supported: SCHEMA_VERSION,
+        database_path: Some(database_path.to_path_buf()),
+        registry_id: meta_value(&connection, "registry_id")?,
+    }))
 }
 
 fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {

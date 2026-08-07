@@ -16,6 +16,8 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
     private final Field<String> defaultBg;
     private final Field<String> defaultFg;
     private final boolean full;
+    private final Field<RenderGraphicsDelta> graphics;
+    private final Field<UInt64> historyEpoch;
     private final List<RenderRow> rows;
     private final Field<Long> scrollbackRows;
     private final Field<Size> size;
@@ -28,6 +30,8 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
         this.defaultFg = builder.defaultFg;
         if (!builder.fullSet) throw new IllegalArgumentException("full is required");
         this.full = builder.full;
+        this.graphics = builder.graphics;
+        this.historyEpoch = builder.historyEpoch;
         if (!builder.rowsSet) throw new IllegalArgumentException("rows is required");
         this.rows = List.copyOf(Wire.nonNull(builder.rows, "rows"));
         this.scrollbackRows = builder.scrollbackRows;
@@ -42,6 +46,8 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
     public Field<String> defaultBg() { return defaultBg; }
     public Field<String> defaultFg() { return defaultFg; }
     public boolean full() { return full; }
+    public Field<RenderGraphicsDelta> graphics() { return graphics; }
+    public Field<UInt64> historyEpoch() { return historyEpoch; }
     public List<RenderRow> rows() { return rows; }
     public Field<Long> scrollbackRows() { return scrollbackRows; }
     public Field<Size> size() { return size; }
@@ -64,6 +70,14 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
         }
         Object rawFull = Wire.required(object, "full");
         builder.full(Wire.bool(rawFull, "RenderDeltaEvent.full"));
+        Object rawGraphics = Wire.optional(object, "graphics");
+        if (!Wire.isMissing(rawGraphics)) {
+            builder.graphics(RenderGraphicsDelta.fromWire(rawGraphics));
+        }
+        Object rawHistoryEpoch = Wire.optional(object, "history_epoch");
+        if (!Wire.isMissing(rawHistoryEpoch)) {
+            builder.historyEpoch(Wire.uint64(rawHistoryEpoch, "RenderDeltaEvent.history_epoch"));
+        }
         Object rawRows = Wire.required(object, "rows");
         builder.rows(Wire.array(rawRows, "RenderDeltaEvent.rows", item -> RenderRow.fromWire(item)));
         Object rawScrollbackRows = Wire.optional(object, "scrollback_rows");
@@ -87,6 +101,8 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
         Wire.put(object, "default_bg", defaultBg);
         Wire.put(object, "default_fg", defaultFg);
         Wire.put(object, "full", full);
+        Wire.put(object, "graphics", graphics);
+        Wire.put(object, "history_epoch", historyEpoch);
         Wire.put(object, "rows", rows);
         Wire.put(object, "scrollback_rows", scrollbackRows);
         Wire.put(object, "size", size);
@@ -97,11 +113,11 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof RenderDeltaEvent that)) return false;
-        return Objects.equals(cursor, that.cursor) && Objects.equals(defaultBg, that.defaultBg) && Objects.equals(defaultFg, that.defaultFg) && Objects.equals(full, that.full) && Objects.equals(rows, that.rows) && Objects.equals(scrollbackRows, that.scrollbackRows) && Objects.equals(size, that.size) && Objects.equals(surface, that.surface);
+        return Objects.equals(cursor, that.cursor) && Objects.equals(defaultBg, that.defaultBg) && Objects.equals(defaultFg, that.defaultFg) && Objects.equals(full, that.full) && Objects.equals(graphics, that.graphics) && Objects.equals(historyEpoch, that.historyEpoch) && Objects.equals(rows, that.rows) && Objects.equals(scrollbackRows, that.scrollbackRows) && Objects.equals(size, that.size) && Objects.equals(surface, that.surface);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cursor, defaultBg, defaultFg, full, rows, scrollbackRows, size, surface); }
+    public int hashCode() { return Objects.hash(cursor, defaultBg, defaultFg, full, graphics, historyEpoch, rows, scrollbackRows, size, surface); }
 
     @Override
     public String toString() { return "RenderDeltaEvent" + toWire(); }
@@ -113,6 +129,8 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
         private Field<String> defaultFg = Field.omitted();
         private Boolean full;
         private boolean fullSet;
+        private Field<RenderGraphicsDelta> graphics = Field.omitted();
+        private Field<UInt64> historyEpoch = Field.omitted();
         private List<RenderRow> rows;
         private boolean rowsSet;
         private Field<Long> scrollbackRows = Field.omitted();
@@ -136,6 +154,14 @@ public final class RenderDeltaEvent implements WireValue, ProtocolEvent, RenderA
         public Builder full(boolean value) {
             this.full = value;
             this.fullSet = true;
+            return this;
+        }
+        public Builder graphics(RenderGraphicsDelta value) {
+            this.graphics = Field.of(value);
+            return this;
+        }
+        public Builder historyEpoch(UInt64 value) {
+            this.historyEpoch = Field.of(value);
             return this;
         }
         public Builder rows(List<RenderRow> value) {

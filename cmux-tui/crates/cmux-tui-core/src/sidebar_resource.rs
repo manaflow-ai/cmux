@@ -12,9 +12,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::resource::{ResourceError, Selector, SessionPublicId, SidebarViewPublicId};
+use crate::surface::RenderAttachFrameReceiver;
 use crate::{
-    Mux, RenderAttachFrame, RenderAttachStream, ResourceSelectors, ResourceTarget, Rgb, Surface,
-    SurfaceKind, SurfaceRenderFrame,
+    Mux, RenderAttachStream, ResourceSelectors, ResourceTarget, Rgb, Surface, SurfaceKind,
+    SurfaceRenderFrame,
 };
 
 pub(crate) const SIDEBAR_VIEW_NAME: &str = "sidebar";
@@ -25,7 +26,7 @@ pub(crate) fn sidebar_view_id(
     session_id: &SessionPublicId,
 ) -> Result<SidebarViewPublicId, ResourceError> {
     let mut digest = Sha256::new();
-    digest.update(b"cmux.protocol/1/sidebar-view/");
+    digest.update(b"cmux.protocol/2/sidebar-view/");
     digest.update(session_id.as_str().as_bytes());
     let digest = digest.finalize();
     let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
@@ -85,7 +86,7 @@ pub(crate) struct SidebarRenderAttachment {
     pub sidebar_view_id: SidebarViewPublicId,
     pub sidebar_view: Value,
     pub initial: Arc<SurfaceRenderFrame>,
-    pub stream: std::sync::mpsc::Receiver<RenderAttachFrame>,
+    pub stream: RenderAttachFrameReceiver,
 }
 
 pub(crate) fn attach_sidebar_render(
@@ -96,7 +97,7 @@ pub(crate) fn attach_sidebar_render(
     if surface.kind() != SurfaceKind::Pty || surface.is_dead() {
         return Err(ResourceError::not_found("sidebar_view", id.as_str()));
     }
-    let RenderAttachStream { initial, stream } =
+    let RenderAttachStream { initial, stream, .. } =
         surface.attach_render_stream().map_err(|error| {
             ResourceError::operation_failed(
                 "sidebar_view.attach",

@@ -35,7 +35,9 @@ public final class ResourceApiTest {
         terminalWaitTimeoutCancelsAndReusesConnection();
         terminalWaitAbortGatesConcurrentReuse();
         terminalWaitFalseRaceDrainsTargetResponse();
+        terminalWaitResponseFirstFalseRaceDrainsCancelResponse();
         terminalWaitCleanupFailureClosesButPreservesAbort();
+        terminalWaitCleanupDeadlineClosesButPreservesAbort();
         terminalWaitPredispatchInterruptSendsNothing();
         terminalWaitUncertainSendClosesWithoutCancel();
         typedStream();
@@ -476,6 +478,7 @@ public final class ResourceApiTest {
         Snapshots.TerminalSnapshot terminal = Client.decodeTerminal(Map.of(
             "id", "term_" + HEX,
             "tab_id", "tab_" + HEX,
+            "tab_ids", List.of("tab_" + HEX),
             "title", "done",
             "cols", 80,
             "rows", 24,
@@ -494,11 +497,39 @@ public final class ResourceApiTest {
                     Results.TerminalExitCode,
             "terminal snapshot exposes typed lifecycle and exit"
         );
+        Snapshots.TerminalSnapshot legacyTerminal = Client.decodeTerminal(Map.of(
+            "id", "term_" + HEX,
+            "tab_id", "tab_" + HEX,
+            "title", "legacy",
+            "cols", 80,
+            "rows", 24,
+            "running", true,
+            "lifecycle", "running"
+        ));
+        require(
+            legacyTerminal.tabIds().equals(List.of(legacyTerminal.tabId().orElseThrow())),
+            "protocol-one terminal tab_id expands to tabIds"
+        );
+        Map<String, Object> legacyDetachedFields = new LinkedHashMap<>();
+        legacyDetachedFields.put("id", "term_" + HEX);
+        legacyDetachedFields.put("tab_id", null);
+        legacyDetachedFields.put("title", "legacy detached");
+        legacyDetachedFields.put("cols", 80);
+        legacyDetachedFields.put("rows", 24);
+        legacyDetachedFields.put("running", true);
+        legacyDetachedFields.put("lifecycle", "running");
+        Snapshots.TerminalSnapshot legacyDetached =
+            Client.decodeTerminal(legacyDetachedFields);
+        require(
+            legacyDetached.tabId().isEmpty() && legacyDetached.tabIds().isEmpty(),
+            "protocol-one detached terminal expands to empty tabIds"
+        );
         expect(
             IllegalArgumentException.class,
             () -> Client.decodeTerminal(Map.of(
                 "id", "term_" + HEX,
                 "tab_id", "tab_" + HEX,
+                "tab_ids", List.of("tab_" + HEX),
                 "title", "bad",
                 "cols", 80,
                 "rows", 24,
@@ -799,6 +830,53 @@ public final class ResourceApiTest {
         }
     }
 
+    private static void terminalWaitResponseFirstFalseRaceDrainsCancelResponse() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            AtomicReference<Boolean> interruptRestored =
+                new AtomicReference<>(false);
+            Thread waiter = new Thread(() -> {
+                try {
+                    waitTerminal(client).waitFor(waitOptions());
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                    interruptRestored.set(Thread.currentThread().isInterrupted());
+                }
+            }, "terminal-wait-response-first-race");
+            waiter.start();
+            require(transport.awaitWait(), "response-first wait was dispatched");
+            waiter.interrupt();
+            require(
+                transport.awaitRequestCancel(),
+                "response-first abort dispatched request.cancel"
+            );
+            transport.respondTarget(Map.of(
+                "matched", true,
+                "text", "raced"
+            ));
+            sleep(Duration.ofMillis(40));
+            require(
+                waiter.isAlive(),
+                "response-first race waits for request.cancel response"
+            );
+            transport.respondCancel(Map.of("canceled", false));
+            join(waiter, Duration.ofSeconds(1), "response-first race drain");
+            require(
+                failure.get() instanceof TransportError &&
+                    failure.get().getMessage().contains("interrupted"),
+                "response-first race preserves the original abort"
+            );
+            require(
+                interruptRestored.get(),
+                "response-first race restores the interrupt"
+            );
+            client.machine(Selector.current())
+                .session(Selector.current())
+                .ping(Options.Read.defaults());
+        }
+    }
+
     private static void terminalWaitCleanupFailureClosesButPreservesAbort() {
         for (boolean malformedTarget : List.of(false, true)) {
             WaitCancelTransport transport = new WaitCancelTransport();
@@ -856,6 +934,44 @@ public final class ResourceApiTest {
                     "reuse after cleanup failure fails promptly"
                 );
             }
+        }
+    }
+
+    private static void terminalWaitCleanupDeadlineClosesButPreservesAbort() {
+        WaitCancelTransport transport = new WaitCancelTransport();
+        try (Client client = waitClient(transport, Duration.ofSeconds(2))) {
+            AtomicReference<RuntimeException> failure = new AtomicReference<>();
+            Thread waiter = new Thread(() -> {
+                try {
+                    waitTerminal(client).waitFor(waitOptions());
+                } catch (RuntimeException error) {
+                    failure.set(error);
+                }
+            }, "terminal-wait-cleanup-deadline");
+            waiter.start();
+            require(transport.awaitWait(), "deadline wait was dispatched");
+            waiter.interrupt();
+            require(
+                transport.awaitRequestCancel(),
+                "deadline abort dispatched request.cancel"
+            );
+            long started = System.nanoTime();
+            join(waiter, Duration.ofSeconds(2), "request cleanup deadline");
+            Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+            require(
+                elapsed.compareTo(Duration.ofMillis(1500)) < 0,
+                "request cleanup exceeded its deadline: " + elapsed
+            );
+            require(
+                failure.get() instanceof TransportError &&
+                    failure.get().getMessage().contains("interrupted"),
+                "cleanup deadline preserves the original abort"
+            );
+            require(client.isClosed(), "cleanup deadline closes transport");
+            require(
+                transport.operationCount("request.cancel") == 1,
+                "cleanup deadline sends one request.cancel"
+            );
         }
     }
 
@@ -2699,7 +2815,7 @@ public final class ResourceApiTest {
             Map<String, Object> result
         ) {
             return new LinkedHashMap<>(Map.of(
-                "protocol", "cmux.protocol/1",
+                "protocol", "cmux.protocol/2",
                 "type", "response",
                 "id", id,
                 "ok", true,
@@ -2867,7 +2983,7 @@ public final class ResourceApiTest {
                 if (cancelableStream) {
                     if (malformedKnownItemBeforeCancelEnd) {
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", openStreamId,
                             "sequence", "0",
@@ -2888,7 +3004,7 @@ public final class ResourceApiTest {
                     }
                     if (malformedKnownItemAfterCancelEnd) {
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", openStreamId,
                             "sequence", "1",
@@ -2905,7 +3021,7 @@ public final class ResourceApiTest {
                             "revision", "1"
                         );
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", openStreamId,
                             "sequence", "1",
@@ -3037,7 +3153,7 @@ public final class ResourceApiTest {
                                 Map.of()
                             ));
                             inbound.add(Map.of(
-                                "protocol", "cmux.protocol/1",
+                                "protocol", "cmux.protocol/2",
                                 "type", "stream_item",
                                 "stream_id", streamId,
                                 "sequence", "0",
@@ -3065,7 +3181,7 @@ public final class ResourceApiTest {
                         }
                         case MALFORMED_CORRELATED_RESPONSE -> {
                             inbound.add(Map.of(
-                                "protocol", "cmux.protocol/1",
+                                "protocol", "cmux.protocol/2",
                                 "type", "response",
                                 "id", id,
                                 "ok", "invalid",
@@ -3223,7 +3339,7 @@ public final class ResourceApiTest {
                             index <= Client.MAX_STREAM_MESSAGES;
                             index++) {
                         inbound.add(Map.of(
-                            "protocol", "cmux.protocol/1",
+                            "protocol", "cmux.protocol/2",
                             "type", "stream_item",
                             "stream_id", streamId,
                             "sequence", String.valueOf(index),
@@ -3482,7 +3598,7 @@ public final class ResourceApiTest {
             String marker
         ) {
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("protocol", "cmux.protocol/1");
+            item.put("protocol", "cmux.protocol/2");
             item.put("type", "stream_item");
             item.put("stream_id", streamId);
             item.put("sequence", "18446744073709551615");
@@ -3499,7 +3615,7 @@ public final class ResourceApiTest {
             }
             inbound.add(item);
             inbound.add(Map.of(
-                "protocol", "cmux.protocol/1",
+                "protocol", "cmux.protocol/2",
                 "type", "stream_end",
                 "stream_id", streamId,
                 "reason", "completed"
@@ -3511,7 +3627,7 @@ public final class ResourceApiTest {
             CancelEndMode mode
         ) {
             Map<String, Object> end = new LinkedHashMap<>();
-            end.put("protocol", "cmux.protocol/1");
+            end.put("protocol", "cmux.protocol/2");
             end.put("type", "stream_end");
             end.put(
                 "stream_id",
@@ -3622,7 +3738,7 @@ public final class ResourceApiTest {
             Map<String, Object> error
         ) {
             Map<String, Object> value = new LinkedHashMap<>();
-            value.put("protocol", "cmux.protocol/1");
+            value.put("protocol", "cmux.protocol/2");
             value.put("type", "response");
             value.put("id", id);
             value.put("ok", ok);
