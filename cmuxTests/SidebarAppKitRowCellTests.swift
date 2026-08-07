@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSidebar
+import CmuxWorkspaces
 import SwiftUI
 import Testing
 @testable import cmux_DEV
@@ -57,9 +58,12 @@ struct SidebarAppKitRowCellTests {
         title: String = "Workspace",
         customDescription: String? = nil,
         isPinned: Bool = false,
-        metadataEntries: [SidebarStatusEntry] = []
+        metadataEntries: [SidebarStatusEntry] = [],
+        checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
-        SidebarWorkspaceSnapshotBuilder.Snapshot(
+        let completedCount = checklistItems.count { $0.state == .completed }
+        let firstUncheckedText = checklistItems.first { $0.state != .completed }?.text
+        return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                 showsAgentActivity: false
@@ -91,10 +95,10 @@ struct SidebarAppKitRowCellTests {
             taskStatus: nil,
             todoStatusMenuModel: nil,
             hasManualTaskStatus: false,
-            checklistItems: [],
-            checklistCompletedCount: 0,
-            checklistTotalCount: 0,
-            checklistFirstUncheckedText: nil
+            checklistItems: checklistItems,
+            checklistCompletedCount: completedCount,
+            checklistTotalCount: checklistItems.count,
+            checklistFirstUncheckedText: firstUncheckedText
         )
     }
 
@@ -106,7 +110,8 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
-        shortcutHintText: String? = nil
+        shortcutHintText: String? = nil,
+        checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceRowModel {
         let resolvedSettings = settings
             ?? SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!)
@@ -116,7 +121,8 @@ struct SidebarAppKitRowCellTests {
             snapshot: makeSnapshot(
                 customDescription: customDescription,
                 isPinned: isPinned,
-                metadataEntries: metadataEntries
+                metadataEntries: metadataEntries,
+                checklistItems: checklistItems
             ),
             settings: resolvedSettings,
             isActive: isActive,
@@ -1159,7 +1165,7 @@ struct SidebarAppKitRowCellTests {
             backing: .buffered,
             defer: false
         )
-        window.appearance = try #require(NSAppearance(named: .aqua))
+        window.appearance = NSAppearance(named: .aqua)
         window.contentView = root
         defer {
             window.contentView = nil
@@ -1170,6 +1176,62 @@ struct SidebarAppKitRowCellTests {
         let headerTitleColor = try Self.resolvedTextColor(in: headerCell, matching: headerModel.name)
         #expect(workspaceTitleColor == expectedPrimary)
         #expect(headerTitleColor == expectedPrimary)
+    }
+
+    @Test
+    func checklistPaletteReconfiguresWhenContrastChanges() throws {
+        let checklistText = "Verify contrast repaint"
+        let model = Self.makeModel(
+            checklistItems: [WorkspaceChecklistItem(text: checklistText)]
+        )
+        let standardSwiftUIEnvironment = EnvironmentValues.sidebarTableTestValues(
+            colorScheme: .dark
+        )
+        let increasedSwiftUIEnvironment = EnvironmentValues.sidebarTableTestValues(
+            colorScheme: .dark,
+            colorSchemeContrast: .increased
+        )
+        let standardTableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: standardSwiftUIEnvironment,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let increasedTableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: increasedSwiftUIEnvironment,
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let expectedStandard = try Self.appKitColor(
+            from: Color.secondary.resolve(in: standardSwiftUIEnvironment)
+        )
+        let expectedIncreased = try Self.appKitColor(
+            from: Color.secondary.resolve(in: increasedSwiftUIEnvironment)
+        )
+        let cell = Self.configuredCell(
+            model: model,
+            environment: standardTableEnvironment
+        )
+
+        let standardColor = try Self.resolvedTextColor(
+            in: cell,
+            matching: checklistText
+        )
+        cell.configure(
+            model: model,
+            environment: increasedTableEnvironment,
+            actions: Self.makeActions(model: model),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        let increasedColor = try Self.resolvedTextColor(
+            in: cell,
+            matching: checklistText
+        )
+
+        #expect(expectedStandard != expectedIncreased)
+        #expect(standardColor == expectedStandard)
+        #expect(increasedColor == expectedIncreased)
     }
 
     @Test
