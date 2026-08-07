@@ -19,10 +19,20 @@ import Testing
 @Suite("Feed event classification")
 struct FeedEventClassificationTests {
     private func classify(_ source: String, _ event: String, tool: String = "")
-        -> (name: String, actionable: Bool, notifiesNativeApprovalPrompt: Bool)
+        -> (
+            name: String,
+            actionable: Bool,
+            notifiesNativeApprovalPrompt: Bool,
+            clearsNativeApprovalPrompt: Bool
+        )
     {
         let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
-        return (result.hookEventName, result.isActionable, result.notifiesNativeApprovalPrompt)
+        return (
+            result.hookEventName,
+            result.isActionable,
+            result.notifiesNativeApprovalPrompt,
+            result.clearsNativeApprovalPrompt
+        )
     }
 
     // MARK: Hermes Agent (the reported bug)
@@ -150,6 +160,25 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "PostToolUse", tool: "shell").notifiesNativeApprovalPrompt == false)
         #expect(classify("hermes-agent", "pre_approval_request").notifiesNativeApprovalPrompt == false)
         #expect(classify("totally-new-agent", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
+    }
+
+    /// Codex's tool lifecycle progress proves any pending native approval
+    /// prompt resolved (approved by the user or by Codex's own auto-review),
+    /// so those events clear the pane's stale permission notification —
+    /// mirroring Claude's `pre-tool-use` `clear_notifications` contract. The
+    /// clear stays scoped: agents that never raise native approval prompts
+    /// must not have their tool telemetry touch the notification queue, and
+    /// the prompt event itself notifies rather than clears.
+    @Test func codexToolLifecycleClearsNativeApprovalPrompt() {
+        #expect(classify("codex", "PreToolUse", tool: "shell").clearsNativeApprovalPrompt == true)
+        #expect(classify("codex", "pre_tool_use", tool: "shell").clearsNativeApprovalPrompt == true)
+        #expect(classify("codex", "PostToolUse", tool: "shell").clearsNativeApprovalPrompt == true)
+        #expect(classify("codex", "post_tool_use", tool: "shell").clearsNativeApprovalPrompt == true)
+        #expect(classify("codex", "PermissionRequest", tool: "shell").clearsNativeApprovalPrompt == false)
+        #expect(classify("codex", "Stop", tool: "").clearsNativeApprovalPrompt == false)
+        #expect(classify("claude", "PreToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
+        #expect(classify("gemini", "PreToolUse", tool: "Read").clearsNativeApprovalPrompt == false)
+        #expect(classify("totally-new-agent", "PreToolUse", tool: "Bash").clearsNativeApprovalPrompt == false)
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {

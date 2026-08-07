@@ -34644,21 +34644,14 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed (workstream) hook bridge
 
-    /// Builds the fire-and-forget `notify_target_async` line for a feed
-    /// event classified as a native approval prompt (the agent is blocked
-    /// in its OWN approval UI, e.g. Codex's reviewer — see
-    /// ``FeedEventClassification/notifiesNativeApprovalPrompt``). Routes
-    /// through the same classifier + payload meta the generic agent
-    /// `notification` hook uses, so the alert gates under the app's
-    /// "Agent Needs Permission" setting exactly like Claude's
-    /// permission_prompt. Returns `nil` when the caller's workspace or
-    /// surface identity is missing or not a UUID: the notification is
-    /// best-effort and must never fail or delay the hook.
-    private func nativeApprovalPromptNotifyCommand(
-        source: String,
+    /// Resolves the caller pane's (workspace, surface) UUID pair for the
+    /// best-effort native-approval-prompt notification commands. Returns
+    /// `nil` when either identity is missing or not a UUID: the commands
+    /// are advisory and must never fail or delay the hook.
+    private func nativeApprovalPromptTarget(
         eventDict: [String: Any],
         env: [String: String]
-    ) -> String? {
+    ) -> (workspaceId: UUID, surfaceId: UUID)? {
         guard let workspaceRaw = (eventDict["workspace_id"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               let workspaceId = UUID(uuidString: workspaceRaw),
@@ -34666,25 +34659,70 @@ export default CMUXSessionRestore;
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceId = UUID(uuidString: surfaceRaw)
         else { return nil }
+        return (workspaceId, surfaceId)
+    }
+
+    /// Builds the fire-and-forget `notify_target_async` line for a feed
+    /// event classified as a native approval prompt (the agent is blocked
+    /// in its OWN approval UI, e.g. Codex's reviewer — see
+    /// ``FeedEventClassification/notifiesNativeApprovalPrompt``). Carries
+    /// the same `needs-permission` payload meta the generic agent
+    /// `notification` hook uses, so the alert gates under the app's
+    /// "Agent Needs Permission" setting exactly like Claude's
+    /// permission_prompt. The body deliberately names only the TOOL —
+    /// mirroring the in-app Feed approval banner
+    /// (`feed.notification.permission.body`) — and never the tool input:
+    /// commands can embed credentials, and notification banners reach lock
+    /// screens, paired phones, and the recorded notification history.
+    private func nativeApprovalPromptNotifyCommand(
+        source: String,
+        toolName: String,
+        eventDict: [String: Any],
+        env: [String: String]
+    ) -> String? {
+        guard let target = nativeApprovalPromptTarget(eventDict: eventDict, env: env) else {
+            return nil
+        }
         let displayName = Self.agentDef(named: source)?.displayName ?? source
-        let toolSummary = (eventDict["context"] as? [String: Any])?["toolSummary"] as? String
-        // "PermissionRequest" is the classifier's permission cue, yielding the
-        // shared "Permission" / "Approval needed" strings and the
-        // needs-permission gate category; the tool summary (command, path)
-        // becomes the body when present.
-        let summary = AgentHookNotificationClassifier.classify(
-            displayName: displayName,
-            signal: "PermissionRequest",
-            message: toolSummary ?? "",
-            isFallback: false
-        )
+        let body: String
+        if toolName.isEmpty {
+            body = String(
+                localized: "agent.generic.notification.body.approvalNeeded",
+                defaultValue: "Approval needed"
+            )
+        } else {
+            body = String(
+                localized: "feed.notification.permission.body",
+                defaultValue: "\(toolName) needs approval"
+            )
+        }
         let payload = notificationPayload(
             title: displayName,
-            subtitle: summary.subtitle,
-            body: summary.body,
-            meta: summary.notifyCategory.metaSegment(pending: false)
+            subtitle: String(
+                localized: "agent.generic.notification.subtitle.permission",
+                defaultValue: "Permission"
+            ),
+            body: body,
+            meta: AgentHookNotifyCategory.needsPermission.metaSegment(pending: false)
         )
-        return "notify_target_async \(workspaceId.uuidString) \(surfaceId.uuidString) \(payload)"
+        return "notify_target_async \(target.workspaceId.uuidString) \(target.surfaceId.uuidString) \(payload)"
+    }
+
+    /// Builds the `clear_notifications` line sent when tool execution
+    /// proceeds for a native-approval-prompt agent (see
+    /// ``FeedEventClassification/clearsNativeApprovalPrompt``): the pending
+    /// approval resolved — approved by the user or by the agent's own
+    /// auto-reviewer — so the pane's stale notifications are cleared. Same
+    /// contract as Claude's `pre-tool-use` hook, which clears the pane's
+    /// notifications whenever the agent continues.
+    private func nativeApprovalPromptClearCommand(
+        eventDict: [String: Any],
+        env: [String: String]
+    ) -> String? {
+        guard let target = nativeApprovalPromptTarget(eventDict: eventDict, env: env) else {
+            return nil
+        }
+        return "clear_notifications --tab=\(target.workspaceId.uuidString)\(socketPanelOption(target.surfaceId.uuidString))"
     }
 
     /// Reads an agent hook JSON payload from stdin, forwards it to the
@@ -34900,14 +34938,25 @@ export default CMUXSessionRestore;
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this
             // (telemetry) event is their only signal, so the permission-prompt
-            // notification rides the same best-effort lane as the feed frame.
-            let notifyLine = classification.notifiesNativeApprovalPrompt
-                ? nativeApprovalPromptNotifyCommand(source: source, eventDict: eventDict, env: env)
-                : nil
+            // notification — and the clear once execution proceeds — ride the
+            // same best-effort lane as the feed frame.
+            let promptLine: String?
+            if classification.notifiesNativeApprovalPrompt {
+                promptLine = nativeApprovalPromptNotifyCommand(
+                    source: source,
+                    toolName: toolName,
+                    eventDict: eventDict,
+                    env: env
+                )
+            } else if classification.clearsNativeApprovalPrompt {
+                promptLine = nativeApprovalPromptClearCommand(eventDict: eventDict, env: env)
+            } else {
+                promptLine = nil
+            }
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
-                if let notifyLine {
-                    _ = try? client.sendOneWay(command: notifyLine, writeTimeout: 0.05)
+                if let promptLine {
+                    _ = try? client.sendOneWay(command: promptLine, writeTimeout: 0.05)
                 }
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
@@ -34915,10 +34964,10 @@ export default CMUXSessionRestore;
                     line: line,
                     socketPassword: socketPassword
                 )
-                if let notifyLine {
+                if let promptLine {
                     sendBestEffortFeedTelemetry(
                         socketPath: socketPath,
-                        line: notifyLine,
+                        line: promptLine,
                         socketPassword: socketPassword
                     )
                 }

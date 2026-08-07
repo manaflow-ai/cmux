@@ -32,6 +32,13 @@ struct FeedEventClassification: Equatable {
     /// agent is silent indefinitely.
     /// https://github.com/manaflow-ai/cmux/issues/9592
     let notifiesNativeApprovalPrompt: Bool
+    /// Execution proceeded for an agent whose approval prompts notify via
+    /// ``notifiesNativeApprovalPrompt`` — the approval resolved (user or
+    /// auto-reviewer), so the bridge clears the pane's stale notifications.
+    /// Mirrors Claude's `pre-tool-use` hook, which runs `clear_notifications`
+    /// whenever the agent continues. Also the self-heal path for a prompt the
+    /// agent's auto-reviewer approved without user input.
+    let clearsNativeApprovalPrompt: Bool
 }
 
 struct FeedEventClassifier {
@@ -54,7 +61,29 @@ struct FeedEventClassifier {
         toolName: String
     ) -> FeedEventClassification {
         let semantic = feedEventSemantic(source: source, event: event)
-        return wireMapping(for: semantic, source: source, toolName: toolName)
+        let wire = wireMapping(for: semantic, source: source, toolName: toolName)
+        // Tool lifecycle progress proves any pending native approval prompt
+        // resolved; scoped to sources that actually raise those prompts so
+        // other agents' tool telemetry never touches the notification queue.
+        let clearsPrompt: Bool
+        switch semantic {
+        case .toolStart, .toolEnd:
+            clearsPrompt = sourceRaisesNativeApprovalPrompts(source)
+        default:
+            clearsPrompt = false
+        }
+        return FeedEventClassification(
+            hookEventName: wire.hookEventName,
+            isActionable: wire.isActionable,
+            notifiesNativeApprovalPrompt: wire.notifiesNativeApprovalPrompt,
+            clearsNativeApprovalPrompt: clearsPrompt
+        )
+    }
+
+    /// Whether any of `source`'s registered events carry the
+    /// ``FeedEventSemantic/nativeApprovalPrompt`` semantic.
+    private static func sourceRaisesNativeApprovalPrompts(_ source: String) -> Bool {
+        feedEventSemanticRegistry[source]?.values.contains(.nativeApprovalPrompt) == true
     }
 
     /// User-attention semantic of a hook/feed event, independent of the
@@ -161,7 +190,8 @@ struct FeedEventClassifier {
             return FeedEventClassification(
                 hookEventName: "PreToolUse",
                 isActionable: false,
-                notifiesNativeApprovalPrompt: true
+                notifiesNativeApprovalPrompt: true,
+                clearsNativeApprovalPrompt: false
             )
         case .toolEnd:
             return telemetry("PostToolUse")
@@ -193,7 +223,8 @@ struct FeedEventClassifier {
         FeedEventClassification(
             hookEventName: hookEventName,
             isActionable: true,
-            notifiesNativeApprovalPrompt: false
+            notifiesNativeApprovalPrompt: false,
+            clearsNativeApprovalPrompt: false
         )
     }
 
@@ -201,7 +232,8 @@ struct FeedEventClassifier {
         FeedEventClassification(
             hookEventName: hookEventName,
             isActionable: false,
-            notifiesNativeApprovalPrompt: false
+            notifiesNativeApprovalPrompt: false,
+            clearsNativeApprovalPrompt: false
         )
     }
 
