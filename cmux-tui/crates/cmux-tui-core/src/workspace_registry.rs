@@ -414,21 +414,20 @@ pub fn reset_persistent_session_state(
             );
         }
         ensure_terminal_host_root_can_reset(&terminal_host_root)?;
+        remove_dead_terminal_host_records_for_reset(&terminal_host_root)?;
+    }
+    if terminal_host_root.exists() {
+        fs::remove_dir_all(&terminal_host_root).with_context(|| {
+            format!("remove terminal host state {}", terminal_host_root.display())
+        })?;
+        reset.removed_terminal_hosts = true;
     }
     if session_dir.exists() {
         fs::remove_dir_all(&session_dir)
             .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
         reset.removed_session_state = true;
     }
-    if terminal_host_root.exists() {
-        remove_dead_terminal_host_records_for_reset(&terminal_host_root)?;
-        fs::remove_dir_all(&terminal_host_root).with_context(|| {
-            format!("remove terminal host state {}", terminal_host_root.display())
-        })?;
-        reset.removed_terminal_hosts = true;
-    }
-    platform::sync_directory(root)
-        .with_context(|| format!("sync workspace state root {}", root.display()))?;
+    let _ = platform::sync_directory(root);
     Ok(reset)
 }
 

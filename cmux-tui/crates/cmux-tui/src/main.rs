@@ -863,7 +863,6 @@ fn session_reset_state_command(session: &str, state_root: Option<&Path>) -> Stri
         command.push_str(" --state ");
         command.push_str(&shell_quote(&state_root.display().to_string()));
     }
-    command.push_str(" --force");
     command
 }
 

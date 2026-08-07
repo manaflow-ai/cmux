@@ -451,6 +451,13 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!english.contains("nothing needs to be stopped"), "{english}");
     assert!(
         english.contains(&format!(
+            "cmux session '{session}' reset-state --state '{}'",
+            state.display()
+        )),
+        "{english}"
+    );
+    assert!(
+        !english.contains(&format!(
             "cmux session '{session}' reset-state --state '{}' --force",
             state.display()
         )),
@@ -591,6 +598,13 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!japanese.contains("停止は不要"), "{japanese}");
     assert!(
         japanese.contains(&format!(
+            "cmux session '{session}' reset-state --state '{}'",
+            state.display()
+        )),
+        "{japanese}"
+    );
+    assert!(
+        !japanese.contains(&format!(
             "cmux session '{session}' reset-state --state '{}' --force",
             state.display()
         )),
@@ -697,7 +711,7 @@ fn session_reset_state_refuses_live_terminal_host_state() {
         .unwrap();
     assert!(!reset.status.success(), "reset unexpectedly succeeded");
     let stderr = String::from_utf8(reset.stderr).unwrap();
-    assert!(stderr.contains("could not reset saved state for session"), "{stderr}");
+    assert!(stderr.contains("could not complete saved-state reset for session"), "{stderr}");
     assert!(!stderr.contains(&state.display().to_string()), "{stderr}");
     assert!(database.exists(), "reset removed the registry while a live host was present");
     assert!(host_root.exists(), "reset removed live terminal-host state");
