@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,25 +7,32 @@ import XCTest
 @testable import cmux
 #endif
 
-final class AmpVaultRegistrationTests: XCTestCase {
-    func testBuiltInAmpRegistrationUsesCmuxOwnedHookStore() throws {
+@Suite
+struct AmpVaultRegistrationTests {
+    @Test
+    func builtInAmpRegistrationUsesCmuxOwnedHookStore() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-amp-registry-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: root.path)
-        let registration = try XCTUnwrap(registry.registration(id: "amp"))
+        let registration = try #require(registry.registration(id: "amp"))
 
-        XCTAssertEqual(registration, .builtInAmp)
-        XCTAssertEqual(registration.name, "Amp")
-        XCTAssertEqual(registration.iconAssetName, "AgentIcons/Amp")
-        XCTAssertEqual(registration.detect.processName, "amp")
-        XCTAssertEqual(registration.sessionIdSource, .cmuxHookStore(.amp))
-        XCTAssertEqual(registration.resumeCommand, "amp threads continue {{sessionId}}")
+        #expect(registration == .builtInAmp)
+        #expect(registration.name == "Amp")
+        #expect(registration.iconAssetName == "AgentIcons/Amp")
+        #expect(registration.detect.processName == "amp")
+        #expect(registration.sessionIdSource == .cmuxHookStore(.amp))
+        #expect(registration.resumeCommand == "amp threads continue {{sessionId}}")
+        let taskManagerDefinition = try #require(
+            CmuxTaskManagerCodingAgentDefinition.builtIns.first { $0.id == "amp" }
+        )
+        #expect(taskManagerDefinition.assetName == registration.iconAssetName)
     }
 
-    func testCmuxHookStoreCapabilityCannotBeClaimedByConfig() {
+    @Test
+    func cmuxHookStoreCapabilityCannotBeClaimedByConfig() {
         let data = Data(#"""
         {
           "id": "custom-amp-store",
@@ -35,10 +43,13 @@ final class AmpVaultRegistrationTests: XCTestCase {
         }
         """#.utf8)
 
-        XCTAssertThrowsError(try JSONDecoder().decode(CmuxVaultAgentRegistration.self, from: data))
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(CmuxVaultAgentRegistration.self, from: data)
+        }
     }
 
-    func testAmpHookStoreIsSortedSearchableAndResumesCapturedThread() throws {
+    @Test
+    func ampHookStoreIsSortedSearchableAndResumesCapturedThread() throws {
         let storeURL = try writeStore([
             "T-older": [
                 "sessionId": "T-older",
@@ -77,7 +88,7 @@ final class AmpVaultRegistrationTests: XCTestCase {
         ])
         defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
 
-        let errors = ErrorBag()
+        let errors = SessionIndexStore.ErrorBag()
         let all = SessionIndexStore.loadCmuxHookStoreEntries(
             registration: .builtInAmp,
             needle: "",
@@ -88,9 +99,9 @@ final class AmpVaultRegistrationTests: XCTestCase {
             storeURL: storeURL
         )
 
-        XCTAssertEqual(errors.snapshot(), [])
-        XCTAssertEqual(all.map(\.sessionId), ["T-newer", "T-older"])
-        XCTAssertTrue(all.allSatisfy {
+        #expect(errors.snapshot() == [])
+        #expect(all.map(\.sessionId) == ["T-newer", "T-older"])
+        #expect(all.allSatisfy {
             $0.agent == .registered(RegisteredSessionAgent(registration: .builtInAmp))
         })
 
@@ -103,32 +114,33 @@ final class AmpVaultRegistrationTests: XCTestCase {
             errorBag: errors,
             storeURL: storeURL
         )
-        let entry = try XCTUnwrap(searched.first)
-        XCTAssertEqual(searched.count, 1)
-        XCTAssertEqual(entry.title, "Ship first-class Amp")
-        XCTAssertEqual(entry.cwd, "/tmp/amp repo")
-        XCTAssertNil(entry.fileURL)
+        let entry = try #require(searched.first)
+        #expect(searched.count == 1)
+        #expect(entry.title == "Ship first-class Amp")
+        #expect(entry.cwd == "/tmp/amp repo")
+        #expect(entry.fileURL == nil)
 
-        let resume = try XCTUnwrap(entry.resumeCommand)
-        XCTAssertTrue(resume.contains("CMUX_AMP_WRAPPER_SHIM"), resume)
-        XCTAssertTrue(resume.contains("T-newer"), resume)
-        XCTAssertTrue(resume.contains("--mode"), resume)
-        XCTAssertTrue(resume.contains("smart"), resume)
-        XCTAssertTrue(resume.contains("--effort"), resume)
-        XCTAssertTrue(resume.contains("high"), resume)
-        XCTAssertTrue(resume.contains("AMP_SETTINGS_FILE=/tmp/amp-settings.json"), resume)
-        XCTAssertFalse(resume.contains("T-stale"), resume)
-        XCTAssertFalse(resume.contains("OPENAI_API_KEY"), resume)
+        let resume = try #require(entry.resumeCommand)
+        #expect(resume.contains("CMUX_AMP_WRAPPER_SHIM"))
+        #expect(resume.contains("T-newer"))
+        #expect(resume.contains("--mode"))
+        #expect(resume.contains("smart"))
+        #expect(resume.contains("--effort"))
+        #expect(resume.contains("high"))
+        #expect(resume.contains("AMP_SETTINGS_FILE=/tmp/amp-settings.json"))
+        #expect(!resume.contains("T-stale"))
+        #expect(!resume.contains("OPENAI_API_KEY"))
     }
 
-    func testAmpHookStoreFallsBackTitlesAndReportsMalformedStoreSafely() throws {
+    @Test
+    func ampHookStoreFallsBackTitlesAndReportsMalformedStoreSafely() throws {
         let validStoreURL = try writeStore([
             "T-cwd": ["sessionId": "T-cwd", "cwd": "/tmp/amp project", "startedAt": 20.0],
             "T-generic": ["sessionId": "T-generic", "startedAt": 10.0],
         ])
         defer { try? FileManager.default.removeItem(at: validStoreURL.deletingLastPathComponent()) }
 
-        let validErrors = ErrorBag()
+        let validErrors = SessionIndexStore.ErrorBag()
         let entries = SessionIndexStore.loadCmuxHookStoreEntries(
             registration: .builtInAmp,
             needle: "",
@@ -138,8 +150,8 @@ final class AmpVaultRegistrationTests: XCTestCase {
             errorBag: validErrors,
             storeURL: validStoreURL
         )
-        XCTAssertEqual(entries.map(\.title), ["Amp session in amp project", "Amp session"])
-        XCTAssertEqual(entries.last?.resumeCommand?.contains("T-generic"), true)
+        #expect(entries.map(\.title) == ["Amp session in amp project", "Amp session"])
+        #expect(entries.last?.resumeCommand?.contains("T-generic") == true)
 
         let malformedDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-amp-malformed-\(UUID().uuidString)", isDirectory: true)
@@ -147,7 +159,7 @@ final class AmpVaultRegistrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: malformedDirectory) }
         let malformedURL = malformedDirectory.appendingPathComponent("amp-hook-sessions.json")
         try Data("{".utf8).write(to: malformedURL)
-        let malformedErrors = ErrorBag()
+        let malformedErrors = SessionIndexStore.ErrorBag()
 
         let malformedEntries = SessionIndexStore.loadCmuxHookStoreEntries(
             registration: .builtInAmp,
@@ -159,9 +171,9 @@ final class AmpVaultRegistrationTests: XCTestCase {
             storeURL: malformedURL
         )
 
-        XCTAssertEqual(malformedEntries, [])
-        XCTAssertEqual(malformedErrors.snapshot(), ["Amp: cannot read amp-hook-sessions.json"])
-        XCTAssertFalse(malformedErrors.snapshot().joined().contains(malformedURL.path))
+        #expect(malformedEntries == [])
+        #expect(malformedErrors.snapshot() == ["Amp: cannot read amp-hook-sessions.json"])
+        #expect(!malformedErrors.snapshot().joined().contains(malformedURL.path))
     }
 
     private func writeStore(_ sessions: [String: [String: Any]]) throws -> URL {

@@ -216,15 +216,18 @@ public struct AgentRestorePlanner: Sendable {
             return arguments
         }
 
-        if first != restoreLaunch.executableName {
+        environment.merge(AgentResumeArgv.managedWrapperCustomExecutableEnvironment(
+            kind: kind,
+            executablePath: request.launchCommand?.executablePath,
+            arguments: request.launchCommand?.arguments ?? []
+        )) { _, captured in captured }
+        if first != restoreLaunch.executableName,
+           (first as NSString).lastPathComponent == restoreLaunch.executableName {
             environment[restoreLaunch.customExecutablePathEnvironmentKey] = first
         }
         environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
-        let shimKey = kind == "claude"
-            ? "CMUX_CLAUDE_WRAPPER_SHIM"
-            : "CMUX_CODEX_WRAPPER_SHIM"
         let routedExecutable =
-            normalized(environment[shimKey])
+            normalized(environment[restoreLaunch.wrapperShimEnvironmentKey])
                 .flatMap { isExecutableFile($0) ? $0 : nil }
             ?? (first.contains("/") && isExecutableFile(first) ? first : nil)
             ?? restoreLaunch.executableName

@@ -122,6 +122,61 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Amp completion did not reconcile to idle: \(completionCommands)"
         )
 
+        let errorTurnID = "amp-error-turn"
+        let errorPrompt = runAmpHook(
+            context: context,
+            subcommand: "prompt-submit",
+            sessionID: sessionID,
+            pid: ampProcess.processIdentifier,
+            fields: [
+                "hook_event_name": "UserPromptSubmit",
+                "turn_id": errorTurnID,
+                "prompt": "fail after settling",
+                "title": "Amp lifecycle thread",
+            ]
+        )
+        XCTAssertFalse(errorPrompt.timedOut, errorPrompt.stderr)
+        XCTAssertEqual(errorPrompt.status, 0, errorPrompt.stderr)
+
+        let beforeIdleError = context.state.snapshot().count
+        let idleError = runAmpHook(
+            context: context,
+            subcommand: "lifecycle",
+            sessionID: sessionID,
+            pid: ampProcess.processIdentifier,
+            fields: [
+                "hook_event_name": "Lifecycle",
+                "agent_state": "idle",
+                "turn_outcome": "error",
+                "notification_type": "error",
+                "turn_id": errorTurnID,
+            ]
+        )
+        XCTAssertFalse(idleError.timedOut, idleError.stderr)
+        XCTAssertEqual(idleError.status, 0, idleError.stderr)
+        let idleErrorCommands = Array(context.state.snapshot().dropFirst(beforeIdleError))
+        XCTAssertTrue(
+            idleErrorCommands.contains {
+                $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Amp|")
+                    && $0.contains("Amp reported an error")
+            },
+            "Amp idle-after-error did not use agent error notification delivery: \(idleErrorCommands)"
+        )
+        XCTAssertTrue(
+            idleErrorCommands.contains {
+                $0.hasPrefix("set_status amp ")
+                    && $0.contains("--icon=exclamationmark.triangle.fill")
+            },
+            "Amp idle-after-error was misclassified as completion: \(idleErrorCommands)"
+        )
+        let settledErrorRecord = try readClaudeHookSession(sessionID, context: context)
+        XCTAssertNil(settledErrorRecord["activePromptDepth"])
+        XCTAssertEqual(settledErrorRecord["lastPromptTurnId"] as? String, errorTurnID)
+        XCTAssertEqual(settledErrorRecord["title"] as? String, "Amp lifecycle thread")
+        XCTAssertTrue(
+            (settledErrorRecord["terminalPromptTurnIds"] as? [String])?.contains(errorTurnID) == true
+        )
+
         let beforeError = context.state.snapshot().count
         let error = runAmpHook(
             context: context,

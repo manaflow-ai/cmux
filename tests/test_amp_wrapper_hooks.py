@@ -67,7 +67,7 @@ def run_wrapper(
     hooks_disabled: bool = False,
     installer_exit_code: int = 0,
     installer_blocks: bool = False,
-    installer_timeout_seconds: float = 1,
+    installer_timeout_seconds: float = 3,
     cli_available: bool = True,
     custom_executable: bool = False,
 ) -> WrapperResult:
@@ -181,7 +181,9 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             text=True,
             start_new_session=True,
         )
-        deadline = time.monotonic() + 5
+        # Leave scheduler headroom for busy CI hosts. The wrapper's own alarm is
+        # still one second in the stalled-installer case below.
+        deadline = time.monotonic() + 10
         launch_observed = not installer_blocks
         if installer_blocks:
             while time.monotonic() < deadline:

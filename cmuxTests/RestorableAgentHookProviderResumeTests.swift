@@ -393,10 +393,15 @@ extension SocketListenerAcceptPolicyTests {
             "cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ] && 'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto'"
         )
         XCTAssertEqual(pi.resumeCommand, "cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ] && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
-        XCTAssertEqual(
-            amp.resumeCommand,
-            "cd -- '/tmp/amp repo' 2>/dev/null || [ ! -d '/tmp/amp repo' ] && 'env' 'AMP_SETTINGS_FILE=/tmp/amp-settings.json' '/Users/example/.local/bin/amp' 'threads' 'continue' '--mode' 'smart' '--effort' 'high' 'T-019e032c-c31a-77a9-ad87-8298ec47029f'"
-        )
+        guard let ampResume = amp.resumeCommand else {
+            XCTFail("Expected Amp resume command")
+            return
+        }
+        XCTAssertTrue(ampResume.contains("CMUX_AMP_WRAPPER_SHIM"), ampResume)
+        XCTAssertTrue(ampResume.contains("CMUX_CUSTOM_AMP_PATH=/Users/example/.local/bin/amp"), ampResume)
+        XCTAssertTrue(ampResume.contains("AMP_SETTINGS_FILE=/tmp/amp-settings.json"), ampResume)
+        XCTAssertTrue(ampResume.contains("T-019e032c-c31a-77a9-ad87-8298ec47029f"), ampResume)
+        XCTAssertFalse(ampResume.contains("T-old-thread"), ampResume)
     }
 
     func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {

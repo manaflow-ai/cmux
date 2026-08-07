@@ -56,6 +56,7 @@ struct ClaudeHookParsedInput {
     let turnId: String?
     let cwd: String?
     let transcriptPath: String?
+    let title: String?
 }
 
 enum AgentHookRuntimeStatus: String, Codable {
@@ -132,6 +133,7 @@ struct ClaudeHookSessionRecord: Codable {
     var workspaceId: String
     var surfaceId: String
     var cwd: String?
+    var title: String? = nil
     var transcriptPath: String?
     var pid: Int?
     /// Exact process-generation identity captured when the hook recorded `pid`.
@@ -650,6 +652,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus? = nil,
         updateRuntimeStatus: Bool = false,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        title: String? = nil,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false,
@@ -700,6 +703,7 @@ final class ClaudeHookSessionStore {
                 runtimeStatus: runtimeStatus,
                 updateRuntimeStatus: updateRuntimeStatus,
                 hadPendingBackgroundWorkAtStop: hadPendingBackgroundWorkAtStop,
+                title: title,
                 now: now
             )
             let superseded: [ClaudeHookSessionRecord]
@@ -1082,6 +1086,7 @@ final class ClaudeHookSessionStore {
         runtimeStatus: AgentHookRuntimeStatus?,
         updateRuntimeStatus: Bool,
         hadPendingBackgroundWorkAtStop: Bool? = nil,
+        title: String? = nil,
         now: TimeInterval
     ) {
         record.workspaceId = workspaceId
@@ -1090,6 +1095,9 @@ final class ClaudeHookSessionStore {
         }
         if let cwd = normalizeOptional(cwd) {
             record.cwd = cwd
+        }
+        if let title = normalizeOptional(title) {
+            record.title = title
         }
         if let transcriptPath = normalizeOptional(transcriptPath) {
             record.transcriptPath = transcriptPath
@@ -27724,21 +27732,18 @@ struct CMUXCLI {
         let extra = (object["extra"] as? [String: Any]) ?? [:]
         let signalParts = [
             firstString(in: object, keys: ["event", "event_name", "hook_event_name", "hookEventName", "type", "kind"]),
-            firstString(in: object, keys: ["notification_type", "notificationType", "matcher", "reason"]),
+            firstString(in: object, keys: ["notification_type", "notificationType", "agent_state", "turn_outcome", "matcher", "reason"]),
             firstString(in: nested, keys: ["type", "kind", "reason"]),
         ]
+        let hasExplicitClassificationSignal = signalParts.dropFirst().contains { $0 != nil }
         let messageCandidates = [
             firstString(in: object, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
             firstString(in: extra, keys: ["message", "body", "text", "prompt", "summary", "description", "error", "title"]),
         ]
-        let fallbackBody = String.localizedStringWithFormat(
-            String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
-            def.displayName
-        )
-        let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
+        let message = messageCandidates.compactMap { $0 }.first
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
-        let normalizedMessage = normalizedSingleLine(message)
+        let normalizedMessage = message.map { normalizedSingleLine($0) } ?? ""
         if let hermesApprovalMessage = hermesAgentApprovalNotificationMessage(def: def, object: object) {
             return classifyAgentHookNotification(
                 def: def,
@@ -27771,7 +27776,7 @@ struct CMUXCLI {
             def: def,
             signal: signal,
             message: normalizedMessage,
-            isFallback: message == fallbackBody
+            isFallback: message == nil && !hasExplicitClassificationSignal
         )
     }
 
@@ -28135,6 +28140,7 @@ struct CMUXCLI {
         case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
         case "rovodev": envKey = "CMUX_ROVODEV_PID"
         case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
+        case "amp": envKey = "CMUX_AMP_PID"
         case "copilot": envKey = "CMUX_COPILOT_PID"
         case "kiro": envKey = "CMUX_KIRO_PID"
         default: return nil
@@ -31084,7 +31090,36 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
-        let action = Self.subcommandActions[subcommand] ?? .noop
+        let lifecycleRoute = AgentHookLifecycleReconciler().route(
+            subcommand: subcommand,
+            payload: input.rawObject,
+            processID: inferredPID
+        )
+        let action: AgentHookAction
+        let notificationCompletesTurn: Bool
+        switch lifecycleRoute {
+        case .running?:
+            action = .approvalResponse
+            notificationCompletesTurn = false
+        case .notification?:
+            action = .notification
+            notificationCompletesTurn = false
+        case .terminalNotification?:
+            action = .notification
+            notificationCompletesTurn = true
+        case .stop?:
+            action = .stop
+            notificationCompletesTurn = false
+        case .ignore?:
+            action = .noop
+            notificationCompletesTurn = false
+        case .rejectStaleProcess?:
+            print("{}")
+            return
+        case nil:
+            action = Self.subcommandActions[subcommand] ?? .noop
+            notificationCompletesTurn = false
+        }
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) resumed=\(env["CMUX_AGENT_RESUME_LAUNCH"] == "1" ? 1 : 0) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
@@ -31390,6 +31425,40 @@ export default CMUXSessionRestore;
         }
 
         switch action {
+        case .titleUpdate:
+            didSendFeedTelemetry = true
+            let collapsedTitle = input.title?
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !sessionId.isEmpty,
+                  let rawTitle = collapsedTitle,
+                  !rawTitle.isEmpty else {
+                break
+            }
+            let title: String = {
+                guard rawTitle.count > 200 else { return rawTitle }
+                let end = rawTitle.index(rawTitle.startIndex, offsetBy: 199)
+                return String(rawTitle[..<end]) + "…"
+            }()
+            let mapped = try? store.lookup(sessionId: sessionId)
+            guard let target = resolveAgentHookTarget(mapped: mapped) else { break }
+            let launchCommand = mapped?.launchCommand ?? agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: inferredPID,
+                fallbackKind: def.name,
+                cwd: hookCwd ?? mapped?.cwd
+            )
+            _ = try? store.upsert(
+                sessionId: sessionId,
+                workspaceId: target.workspaceId,
+                surfaceId: target.surfaceId,
+                cwd: hookCwd ?? mapped?.cwd,
+                transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                pid: mapped?.pid ?? inferredPID,
+                launchCommand: launchCommand,
+                title: title
+            )
+
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -31447,6 +31516,7 @@ export default CMUXSessionRestore;
                         agentLifecycle: .unknown,
                         runtimeStatus: suppressVisibleMutations ? nil : .running,
                         updateRuntimeStatus: !suppressVisibleMutations,
+                        title: input.title,
                         supersedesSameProcessSession: def.name == "omp"
                     )) ?? []
                     acceptedSessionStart = true
@@ -31774,7 +31844,8 @@ export default CMUXSessionRestore;
                         launchCommand: resumeLaunchCommand,
                         agentLifecycle: .running,
                         runtimeStatus: .running,
-                        updateRuntimeStatus: true
+                        updateRuntimeStatus: true,
+                        title: input.title
                     )
                     acceptedRunningUpdate = true
                 }
@@ -32461,7 +32532,9 @@ export default CMUXSessionRestore;
                 let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
-                if (def.name == "grok" || def.name == "antigravity"),
+                if (notificationCompletesTurn
+                        || def.name == "grok"
+                        || def.name == "antigravity"),
                    summary.status == .idle || summary.status == .error {
                     _ = try? store.recordPromptStop(
                         sessionId: sessionId,
@@ -32469,6 +32542,7 @@ export default CMUXSessionRestore;
                         surfaceId: surfaceId,
                         cwd: notificationCwd,
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        turnId: input.turnId,
                         pid: pid,
                         launchCommand: launchCommand,
                         agentLifecycle: lifecycle,
@@ -32879,6 +32953,7 @@ export default CMUXSessionRestore;
         case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
         case "rovodev": envKey = "CMUX_ROVODEV_PID"
         case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
+        case "amp": envKey = "CMUX_AMP_PID"
         case "copilot": envKey = "CMUX_COPILOT_PID"
         case "kiro": envKey = "CMUX_KIRO_PID"
         default: envKey = ""

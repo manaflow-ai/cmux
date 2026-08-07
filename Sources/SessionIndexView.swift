@@ -1026,7 +1026,7 @@ private extension SessionEntry {
         if agent == .grok {
             return true
         }
-        guard case .registered(let registration) = specifics else {
+        guard case .registered(let registration, _) = specifics else {
             return false
         }
         if case .grokSessionDirectory = registration.sessionIdSource {

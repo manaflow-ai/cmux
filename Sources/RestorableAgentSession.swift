@@ -395,7 +395,7 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        let environmentParts = launchEnvironmentParts(kind: kind, launchCommand: launchCommand)
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
@@ -417,8 +417,8 @@ enum AgentResumeCommandBuilder {
                 )
             }
             : commandParts
-        // Render the claude/codex executable as the wrapper shim token so the
-        // executed command routes through cmux's `claude`/`codex` wrapper
+        // Render managed-agent executables as wrapper shim tokens so the
+        // executed command routes through cmux's provider wrapper
         // (re-injecting the agent hooks) even when an `env`-prefixed invocation
         // would otherwise bypass the shell integration's PATH shim / shell
         // function and hit the user's real binary. Without this, an auto-resumed
@@ -436,6 +436,16 @@ enum AgentResumeCommandBuilder {
             )
         case .codex:
             shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: TerminalStartupShellQuoting.singleQuoted
+            )
+        case .amp:
+            shellCommand = AgentResumeArgv.renderedPortableAmpResumeShellCommand(
+                parts: sanitizedCommandParts,
+                quote: TerminalStartupShellQuoting.singleQuoted
+            )
+        case .custom where customRegistration?.registeredResumeKind == .amp:
+            shellCommand = AgentResumeArgv.renderedPortableAmpResumeShellCommand(
                 parts: sanitizedCommandParts,
                 quote: TerminalStartupShellQuoting.singleQuoted
             )
@@ -475,11 +485,15 @@ enum AgentResumeCommandBuilder {
 
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
-        environment: [String: String]?
+        launchCommand: AgentLaunchCommandSnapshot?
     ) -> [String] {
-        guard let environment, !environment.isEmpty else {
-            return []
-        }
+        var environment = launchCommand?.environment ?? [:]
+        environment.merge(AgentResumeArgv.managedWrapperCustomExecutableEnvironment(
+            kind: kind.rawValue,
+            executablePath: launchCommand?.executablePath,
+            arguments: launchCommand?.arguments ?? []
+        )) { _, wrapperValue in wrapperValue }
+        guard !environment.isEmpty else { return [] }
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []

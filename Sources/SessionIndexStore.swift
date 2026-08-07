@@ -1296,7 +1296,8 @@ final class SessionIndexStore: ObservableObject {
                 needle: needle,
                 cwdFilter: cwdFilter,
                 offset: offset,
-                limit: limit
+                limit: limit,
+                errorBag: errorBag
             )
         }
     }
