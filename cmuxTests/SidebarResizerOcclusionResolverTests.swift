@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -8,6 +9,32 @@ import Testing
 
 @MainActor
 @Suite struct SidebarResizerOcclusionResolverTests {
+    @Test func eitherLeftColumnDividerIsInsideTheOcclusionBand() {
+        let resolver = SidebarResizerOcclusionResolver { _ in 10 }
+        let bounds = NSRect(x: 0, y: 0, width: 1_000, height: 800)
+
+        #expect(
+            resolver.dividerBandContains(
+                point: NSPoint(x: 168, y: 400),
+                contentBounds: bounds,
+                isLeftSidebarVisible: true,
+                leftDividerXs: [168, 408],
+                isRightSidebarVisible: false,
+                rightDividerX: 1_000
+            )
+        )
+        #expect(
+            resolver.dividerBandContains(
+                point: NSPoint(x: 408, y: 400),
+                contentBounds: bounds,
+                isLeftSidebarVisible: true,
+                leftDividerXs: [168, 408],
+                isRightSidebarVisible: false,
+                rightDividerX: 1_000
+            )
+        )
+    }
+
     @Test func draggingBypassesPointerWindowGate() {
         var queryCount = 0
         let resolver = SidebarResizerOcclusionResolver { _ in

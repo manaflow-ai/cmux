@@ -53,7 +53,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isPinned: Bool
     let isAnchorActive: Bool
     let isMultiSelected: Bool
-    let multiSelectionBackgroundStyle: SidebarWorkspaceRowBackgroundStyle
+    let multiSelectionBackgroundStyle: SidebarListRowBackgroundStyle
     let memberCount: Int
     let anchorUnreadCount: Int
     let canMarkRead: Bool
@@ -278,7 +278,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             }
         }
         .padding(.vertical, 5)
-        .padding(.trailing, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
+        .padding(.trailing, SidebarListMetrics.rowContentHorizontalPadding)
         .contentShape(Rectangle())
         .background(
             isAnchorActive
@@ -297,7 +297,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetX: shortcutHintXOffset,
             offsetY: shortcutHintYOffset
         )
-        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
+        .padding(.horizontal, SidebarListMetrics.rowOuterHorizontalPadding)
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {

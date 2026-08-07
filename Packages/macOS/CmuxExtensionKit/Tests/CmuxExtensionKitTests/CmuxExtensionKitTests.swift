@@ -7,12 +7,30 @@ struct CMUXExtensionKitTests {
     @Test
     func testSidebarSnapshotRoundTripsStableContract() throws {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let creationContext = CmuxSidebarCreationContext(
+            id: "local",
+            title: "This Mac",
+            detail: "Create local terminals",
+            systemImageName: "desktopcomputer",
+            kind: .local,
+            isSelected: true,
+            workspaceCount: 1,
+            workspaceIDs: [workspaceID],
+            focusedWorkspaceID: workspaceID,
+            capabilities: [.attachRemoteCmuxTUI],
+            childColumn: CmuxSidebarChildColumn(
+                id: "local.children",
+                rendererID: "dev.example.projects"
+            )
+        )
         let snapshot = CmuxSidebarSnapshot(
             sequence: 42,
             windowID: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
             selectedWorkspaceID: workspaceID,
             grantedReadScopes: [.workspaceMetadata, .workspacePaths, .notifications, .networkPorts, .pullRequests],
             grantedActionScopes: [.selectWorkspace],
+            creationContexts: [creationContext],
+            selectedCreationContextID: creationContext.id,
             workspaces: [
                 CmuxSidebarWorkspace(
                     id: workspaceID,
@@ -37,6 +55,71 @@ struct CMUXExtensionKitTests {
         #expect(decoded.apiVersion == CmuxExtensionAPIVersion.sidebarV2)
         #expect(decoded.grantedReadScopes.contains(.workspaceMetadata))
         #expect(decoded.grantedActionScopes == [.selectWorkspace])
+        #expect(decoded.creationContexts == [creationContext])
+        #expect(decoded.creationContexts.first?.focusedWorkspaceID == workspaceID)
+        #expect(decoded.creationContexts.first?.capabilities == [.attachRemoteCmuxTUI])
+        #expect(decoded.selectedCreationContextID == creationContext.id)
+        #expect(decoded.selectedChildColumn == creationContext.childColumn)
+    }
+
+    @Test
+    func testCreationContextDecodingDefaultsLegacyChildRouteToSharedWorkspaces() throws {
+        let payload = Data("""
+        {
+          "id": "remote-a",
+          "title": "Build Mac",
+          "systemImageName": "network",
+          "kind": "remote",
+          "isSelected": true,
+          "workspaceCount": 0
+        }
+        """.utf8)
+
+        let context = try JSONDecoder().decode(CmuxSidebarCreationContext.self, from: payload)
+
+        #expect(context.childColumn == .sharedWorkspaces(parentID: "remote-a"))
+        #expect(context.focusedWorkspaceID == nil)
+        #expect(context.capabilities.isEmpty)
+    }
+
+    @Test
+    func testCreationContextsArePermissionedIndependentlyFromWorkspaces() throws {
+        let workspaceID = UUID()
+        let context = CmuxSidebarCreationContext(
+            id: "remote-a",
+            title: "Build Mac",
+            systemImageName: "network",
+            kind: .remote,
+            isSelected: true,
+            workspaceCount: 2,
+            workspaceIDs: [workspaceID],
+            connectionState: "connected"
+        )
+        let snapshot = CmuxSidebarSnapshot(
+            sequence: 7,
+            windowID: UUID(),
+            selectedWorkspaceID: UUID(),
+            creationContexts: [context],
+            selectedCreationContextID: context.id,
+            workspaces: [CmuxSidebarWorkspace(id: workspaceID, title: "Private")]
+        )
+
+        let contextsOnly = snapshot.filtered(for: [.creationContexts])
+        #expect(contextsOnly.creationContexts.count == 1)
+        #expect(contextsOnly.creationContexts.first?.workspaceIDs == [])
+        #expect(contextsOnly.selectedCreationContextID == context.id)
+        #expect(contextsOnly.workspaces.isEmpty)
+        #expect(contextsOnly.selectedWorkspaceID == nil)
+
+        let workspacesOnly = snapshot.filtered(for: [.workspaceMetadata])
+        #expect(workspacesOnly.creationContexts.isEmpty)
+        #expect(workspacesOnly.selectedCreationContextID == nil)
+        #expect(workspacesOnly.workspaces.count == 1)
+
+        let contextsAndWorkspaces = snapshot.filtered(
+            for: [.creationContexts, .workspaceList]
+        )
+        #expect(contextsAndWorkspaces.creationContexts.first?.workspaceIDs == [workspaceID])
     }
 
     @Test
@@ -257,6 +340,13 @@ struct CMUXExtensionKitTests {
         )
 
         host.refresh()
+        try await host.moveWorkspaces([workspaceID], toCreationContext: "remote-a")
+        try await host.addSSHMachine("builder@example.test", select: false)
+        try await host.attachRemoteCmuxTUI(
+            contextID: "remote-a",
+            sessionName: "agents",
+            in: workspaceID
+        )
         try await host.selectWorkspace(workspaceID)
         try await host.closeWorkspace(workspaceID)
         try await host.createWorkspace(title: "Scratch", select: false)
@@ -269,6 +359,16 @@ struct CMUXExtensionKitTests {
 
         #expect(refreshCount == 1)
         #expect(actions == [
+            .moveWorkspacesToCreationContext(
+                workspaceIDs: [workspaceID],
+                contextID: "remote-a"
+            ),
+            .addSSHMachine(destination: "builder@example.test", select: false),
+            .attachRemoteCmuxTUI(
+                contextID: "remote-a",
+                sessionName: "agents",
+                workspaceID: workspaceID
+            ),
             .selectWorkspace(workspaceID),
             .closeWorkspace(workspaceID),
             .createWorkspace(title: "Scratch", workingDirectory: nil, select: false),
@@ -342,6 +442,37 @@ struct CMUXExtensionKitTests {
     func testWorkspaceCreationWithPathRequiresWorkspacePathScope() {
         #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: nil, select: true).requiredScopes == [.createWorkspace])
         #expect(CmuxSidebarAction.createWorkspace(title: nil, workingDirectory: "/tmp/project", select: true).requiredScopes == [.createWorkspace, .createWorkspaceWithPath])
+    }
+
+    @Test
+    func testSelectingCreationContextRequiresDedicatedScope() {
+        #expect(
+            CmuxSidebarAction.selectCreationContext("local").requiredScopes
+                == [.selectCreationContext]
+        )
+        #expect(
+            CmuxSidebarAction.reorderCreationContext(id: "local", toIndex: 0).requiredScopes
+                == [.reorderCreationContexts]
+        )
+        #expect(
+            CmuxSidebarAction.moveWorkspacesToCreationContext(
+                workspaceIDs: [UUID()],
+                contextID: "local"
+            ).requiredScopes == [.reorderCreationContexts]
+        )
+        #expect(
+            CmuxSidebarAction.addSSHMachine(
+                destination: "builder@example.test",
+                select: true
+            ).requiredScopes == [.addSSHMachine]
+        )
+        #expect(
+            CmuxSidebarAction.attachRemoteCmuxTUI(
+                contextID: "remote-a",
+                sessionName: "main",
+                workspaceID: nil
+            ).requiredScopes == [.attachRemoteSession]
+        )
     }
 
     @Test

@@ -35,13 +35,15 @@ struct SidebarResizerOcclusionResolver {
         point: NSPoint,
         contentBounds: NSRect,
         isLeftSidebarVisible: Bool,
-        leftDividerX: CGFloat,
+        leftDividerXs: [CGFloat],
         isRightSidebarVisible: Bool,
         rightDividerX: CGFloat
     ) -> Bool {
         guard point.y >= contentBounds.minY, point.y <= contentBounds.maxY else { return false }
         if isLeftSidebarVisible,
-           SidebarResizeInteraction.Edge.leading.hitRange(dividerX: leftDividerX).contains(point.x) {
+           leftDividerXs.contains(where: {
+               SidebarResizeInteraction.Edge.leading.hitRange(dividerX: $0).contains(point.x)
+           }) {
             return true
         }
         return isRightSidebarVisible &&

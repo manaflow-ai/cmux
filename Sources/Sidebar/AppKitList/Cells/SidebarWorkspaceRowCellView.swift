@@ -169,7 +169,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         return false
     }
 
-    private func applyBackgroundStyle(_ style: SidebarWorkspaceRowBackgroundStyle) {
+    private func applyBackgroundStyle(_ style: SidebarListRowBackgroundStyle) {
         backgroundView.layer?.backgroundColor = (style.color ?? .clear)
             .withAlphaComponent((style.color == nil ? 0 : style.opacity) * ((style.color?.alphaComponent) ?? 1)).cgColor
     }
@@ -183,7 +183,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         layer?.masksToBounds = false
 
         backgroundView.wantsLayer = true
-        backgroundView.layer?.cornerRadius = 6
+        backgroundView.layer?.cornerRadius = SidebarListMetrics.rowCornerRadius
         backgroundView.layer?.cornerCurve = .continuous
         backgroundView.layer?.borderWidth = 0
         addSubview(backgroundView)
@@ -357,7 +357,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let settings = model.settings
 
         // Chrome
-        let style = sidebarWorkspaceRowBackgroundStyle(
+        let style = sidebarListRowBackgroundStyle(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             isActive: model.isActive,
             isMultiSelected: model.isMultiSelected,
@@ -372,7 +372,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         } else {
             backgroundView.layer?.borderWidth = 0
         }
-        let railColor = sidebarWorkspaceRowExplicitRailNSColor(
+        let railColor = sidebarListRowExplicitRailNSColor(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             customColorHex: snapshot.customColorHex,
             colorScheme: palette.colorScheme
@@ -451,7 +451,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
 #endif
         titleView.stringValue = boundedTitle
-        titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        titleView.font = .systemFont(
+            ofSize: model.scaled(SidebarListMetrics.titleFontSize),
+            weight: .semibold
+        )
         titleView.textColor = palette.primaryText
 
         // Badges / spinner / close
@@ -504,7 +507,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                 maxDisplayedLines: subtitleLineLimit,
                 maxDisplayedCharacters: 4096
             )
-            subtitleView.font = .systemFont(ofSize: model.scaled(10))
+            subtitleView.font = .systemFont(
+                ofSize: model.scaled(SidebarListMetrics.subtitleFontSize)
+            )
             subtitleView.textColor = palette.secondary(0.8)
         }
 
@@ -998,7 +1003,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         guard let model else { return }
         isEditing = true
         renameField.stringValue = model.snapshot.title
-        renameField.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
+        renameField.font = .systemFont(
+            ofSize: model.scaled(SidebarListMetrics.titleFontSize),
+            weight: .semibold
+        )
         renameField.textColor = palette(model).selectedForeground(1.0)
         renameField.isHidden = false
         titleView.isHidden = true
@@ -1063,13 +1071,13 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// row height. Returns total height including vertical padding.
     @discardableResult
     func layoutContent(model: SidebarWorkspaceRowModel, width: CGFloat, apply: Bool) -> CGFloat {
-        let outerPad = SidebarWorkspaceListMetrics.rowOuterHorizontalPadding
-        let contentPad = SidebarWorkspaceListMetrics.rowContentHorizontalPadding
+        let outerPad = SidebarListMetrics.rowOuterHorizontalPadding
+        let contentPad = SidebarListMetrics.rowContentHorizontalPadding
         let leading = outerPad + contentPad + (model.isGrouped ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
         let trailing = width - outerPad - contentPad
         let contentWidth = max(10, trailing - leading)
-        var y: CGFloat = 8
-        let spacing: CGFloat = 4
+        var y = SidebarListMetrics.rowVerticalPadding
+        let spacing = SidebarListMetrics.rowContentSpacing
 
         // Title line
         let titleRowSpacing: CGFloat = (model.settings.loadingSpinnerPosition == .leading
@@ -1077,7 +1085,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         var x = leading
         let badgeSide = 16 * model.fontScale
         let spinnerSide = max(10, 12 * model.fontScale)
-        let firstLineCenter = model.scaled(12.5) * 0.6 + y
+        let firstLineCenter = model.scaled(SidebarListMetrics.titleFontSize) * 0.6 + y
 
         func place(_ view: NSView, size: NSSize, centerY: CGFloat) {
             guard apply else { return }
@@ -1313,7 +1321,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
 
-        y += 8
+        y += SidebarListMetrics.rowVerticalPadding
 
         if apply {
             contentContainer.frame = NSRect(x: 0, y: 0, width: width, height: y)

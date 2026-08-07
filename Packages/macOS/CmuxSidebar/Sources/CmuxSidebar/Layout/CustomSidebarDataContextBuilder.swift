@@ -28,9 +28,11 @@ public struct CustomSidebarDataContextBuilder {
     ///
     /// Mirrors the original `customSidebarDataContext(now:)` output exactly:
     /// `workspaces`, `workspaceCount`, `selectedTitle`, `selectedId`,
-    /// `unreadTotal`, and `clock`.
+    /// `unreadTotal`, `creationContexts`, `selectedCreationContextId`, and
+    /// `clock`.
     public func dataContext(for snapshot: CustomSidebarContextSnapshot) -> [String: SwiftValue] {
         let workspaces: [SwiftValue] = snapshot.workspaces.map(workspaceValue(_:))
+        let creationContexts: [SwiftValue] = snapshot.creationContexts.map(creationContextValue(_:))
         let components = calendar.dateComponents(
             [.hour, .minute, .second, .weekday],
             from: snapshot.now
@@ -52,8 +54,40 @@ public struct CustomSidebarDataContextBuilder {
             "selectedTitle": .string(snapshot.selectedWorkspaceTitle),
             "selectedId": .string(snapshot.selectedWorkspaceId?.uuidString ?? ""),
             "unreadTotal": .int(snapshot.totalUnreadCount),
+            "creationContexts": .array(creationContexts),
+            "selectedCreationContextId": .string(snapshot.selectedCreationContextId),
             "clock": clock,
         ]
+    }
+
+    /// Projects one execution context into the interpreter value tree.
+    public func creationContextValue(
+        _ context: CustomSidebarCreationContextSnapshot
+    ) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(context.id),
+            "title": .string(context.title),
+            "systemImage": .string(context.systemImageName),
+            "selected": .bool(context.isSelected),
+            "kind": .string(context.kind),
+            "workspaceCount": .int(context.workspaceCount),
+            "workspaceIds": .array(context.workspaceIDs.map { .string($0.uuidString) }),
+            "capabilities": .array(context.capabilities.map { .string($0) }),
+            "childColumn": .object([
+                "id": .string(context.childColumn.id),
+                "rendererId": .string(context.childColumn.rendererID),
+            ]),
+        ]
+        if let subtitle = context.subtitle, !subtitle.isEmpty {
+            fields["subtitle"] = .string(subtitle)
+        }
+        if let connectionState = context.connectionState, !connectionState.isEmpty {
+            fields["connectionState"] = .string(connectionState)
+        }
+        if let focusedWorkspaceID = context.focusedWorkspaceID {
+            fields["focusedWorkspaceId"] = .string(focusedWorkspaceID.uuidString)
+        }
+        return .object(fields)
     }
 
     /// Projects one workspace's snapshot into the interpreter value tree.

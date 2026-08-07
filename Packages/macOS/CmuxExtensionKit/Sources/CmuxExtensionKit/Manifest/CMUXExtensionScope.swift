@@ -1,6 +1,7 @@
 import Foundation
 
 public enum CmuxExtensionScope: String, Codable, CaseIterable, Equatable, Sendable {
+    case creationContexts
     case workspaceList
     case workspaceMetadata
     case surfaceMetadata
@@ -11,6 +12,10 @@ public enum CmuxExtensionScope: String, Codable, CaseIterable, Equatable, Sendab
 }
 
 public enum CmuxExtensionActionScope: String, Codable, CaseIterable, Equatable, Sendable {
+    case selectCreationContext
+    case reorderCreationContexts
+    case addSSHMachine
+    case attachRemoteSession
     case createWorkspace
     case selectWorkspace
     case closeWorkspace
