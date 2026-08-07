@@ -255,6 +255,7 @@ struct PanelOwnedNativeViewSessionTests {
 struct FilePreviewPDFSharingTests {
     private final class SharingPickerProbe: NSSharingServicePicker {
         let sharedItems: [Any]
+        let standardItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         private let dispatchedEventType: () -> NSEvent.EventType?
         private(set) weak var presentedView: NSView?
         private(set) var presentedRect: NSRect?
@@ -285,6 +286,10 @@ struct FilePreviewPDFSharingTests {
         override func close() {
             closeCount += 1
         }
+
+        override var standardShareMenuItem: NSMenuItem {
+            standardItem
+        }
     }
 
     @Test
@@ -298,7 +303,9 @@ struct FilePreviewPDFSharingTests {
 
         var dispatchedEventType: NSEvent.EventType?
         var pickers: [SharingPickerProbe] = []
-        let presenter = FilePreviewPDFSharingPresenter { items in
+        let presenter = FilePreviewPDFSharingPresenter(
+            currentEventType: { _ in dispatchedEventType }
+        ) { items in
             let picker = SharingPickerProbe(
                 items: items,
                 dispatchedEventType: { dispatchedEventType }
@@ -367,7 +374,9 @@ struct FilePreviewPDFSharingTests {
         try Data("%PDF-1.4".utf8).write(to: secondURL)
 
         var pickers: [SharingPickerProbe] = []
-        let presenter = FilePreviewPDFSharingPresenter { items in
+        let presenter = FilePreviewPDFSharingPresenter(
+            currentEventType: { _ in .leftMouseDown }
+        ) { items in
             let picker = SharingPickerProbe(items: items)
             pickers.append(picker)
             return picker
@@ -412,6 +421,61 @@ struct FilePreviewPDFSharingTests {
 
         container.close()
         #expect(secondPicker.closeCount == 1)
+    }
+
+    @Test
+    func accessibilityActivationUsesStandardShareMenuItem() throws {
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-9128-pdf-share-accessibility-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data("%PDF-1.4".utf8).write(to: fileURL)
+
+        var pickers: [SharingPickerProbe] = []
+        var presentedMenu: NSMenu?
+        var presentedAnchor: NSView?
+        let presenter = FilePreviewPDFSharingPresenter(
+            currentEventType: { _ in nil },
+            presentMenu: { menu, anchorView in
+                presentedMenu = menu
+                presentedAnchor = anchorView
+            },
+            makePicker: { items in
+                let picker = SharingPickerProbe(items: items)
+                pickers.append(picker)
+                return picker
+            }
+        )
+        let container = FilePreviewPDFContainerView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 480),
+            sharingPresenter: presenter
+        )
+        defer { container.close() }
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        container.setPanel(panel)
+        container.setURL(fileURL, revision: panel.previewRevision)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        container.layoutSubtreeIfNeeded()
+        defer { window.close() }
+
+        let shareButton = try #require(shareButton(in: container))
+        #expect(shareButton.accessibilityPerformPress())
+
+        let picker = try #require(pickers.first)
+        let menu = try #require(presentedMenu)
+        #expect((picker.sharedItems as? [URL]) == [fileURL])
+        #expect(presentedAnchor === shareButton)
+        #expect(menu.items.count == 1)
+        #expect(menu.items.first === picker.standardItem)
+        #expect(picker.presentedView == nil)
     }
 
     private func shareButton(in view: NSView) -> NSButton? {
