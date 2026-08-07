@@ -9,7 +9,7 @@
 public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
     /// Decoder user-info key for a caller-owned ``NestedTopologyLimits`` value.
     ///
-    /// Decoding uses ``NestedTopologyLimits/standard`` when this key is absent.
+    /// Decoding uses a default ``NestedTopologyLimits`` value when this key is absent.
     /// A caller that encoded a snapshot accepted under custom limits should put
     /// the same limits in `JSONDecoder.userInfo` before decoding.
     public static let decodingLimitsUserInfoKey = CodingUserInfoKey(
@@ -63,7 +63,7 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
         panes: [NestedPaneNode],
         agents: [NestedAgentNode],
         focus: NestedTopologyFocus,
-        limits: NestedTopologyLimits = .standard
+        limits: NestedTopologyLimits = NestedTopologyLimits()
     ) throws {
         self = try NestedTopologyReducer(limits: limits).makeSnapshot(
             provider: provider,
@@ -111,7 +111,7 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
     /// - Parameter decoder: Decoder containing the snapshot fields.
     public init(from decoder: any Decoder) throws {
         let limits = decoder.userInfo[Self.decodingLimitsUserInfoKey]
-            as? NestedTopologyLimits ?? .standard
+            as? NestedTopologyLimits ?? NestedTopologyLimits()
         self = try NestedTopologySnapshotDecoder(limits: limits).decode(from: decoder)
     }
 

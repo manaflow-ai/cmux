@@ -9,7 +9,7 @@ public struct NestedTopologyReducer: Sendable {
     /// Creates a pure topology reducer.
     ///
     /// - Parameter limits: Resource limits for validation and publication.
-    public init(limits: NestedTopologyLimits = .standard) {
+    public init(limits: NestedTopologyLimits = NestedTopologyLimits()) {
         self.limits = limits
     }
 

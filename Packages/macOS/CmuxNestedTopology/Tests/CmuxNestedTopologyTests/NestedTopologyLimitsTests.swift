@@ -215,7 +215,7 @@ struct NestedTopologyLimitsTests {
             title: NestedNodeTitle(value: "Provider title", authority: .provider)
         )])
         let oversizedInference = fixture.pane(title: NestedNodeTitle(
-            value: String(repeating: "x", count: NestedTopologyLimits.standard.maximumTitleBytes + 1),
+            value: String(repeating: "x", count: NestedTopologyLimits().maximumTitleBytes + 1),
             authority: .inferred
         ))
 

@@ -1,22 +1,5 @@
 /// Resource limits applied before a nested topology can be published.
 public struct NestedTopologyLimits: Equatable, Sendable {
-    /// Production defaults for local nested-provider snapshots.
-    public static let standard = NestedTopologyLimits(
-        maximumWorkspaces: 128,
-        maximumTabs: 512,
-        maximumPanes: 2_048,
-        maximumAgents: 2_048,
-        maximumTotalNodes: 4_096,
-        maximumEventsPerBatch: 4_096,
-        maximumDepth: 4,
-        maximumIdentifierBytes: 1_024,
-        maximumTitleBytes: 4_096,
-        maximumRawStatusBytes: 256,
-        maximumSessionIDBytes: 1_024,
-        maximumCapabilities: 128,
-        maximumCapabilityBytes: 256
-    )
-
     /// Maximum workspace nodes.
     public let maximumWorkspaces: Int
 
@@ -56,7 +39,7 @@ public struct NestedTopologyLimits: Equatable, Sendable {
     /// Maximum UTF-8 bytes for one semantic capability token.
     public let maximumCapabilityBytes: Int
 
-    /// Creates topology resource limits.
+    /// Creates topology resource limits with production defaults for omitted values.
     ///
     /// Nonpositive limits are rejected by the reducer before inspecting input.
     ///
@@ -75,19 +58,19 @@ public struct NestedTopologyLimits: Equatable, Sendable {
     ///   - maximumCapabilities: Maximum distinct capabilities.
     ///   - maximumCapabilityBytes: Maximum capability-token bytes.
     public init(
-        maximumWorkspaces: Int,
-        maximumTabs: Int,
-        maximumPanes: Int,
-        maximumAgents: Int,
-        maximumTotalNodes: Int,
-        maximumEventsPerBatch: Int,
-        maximumDepth: Int,
-        maximumIdentifierBytes: Int,
-        maximumTitleBytes: Int,
-        maximumRawStatusBytes: Int,
-        maximumSessionIDBytes: Int,
-        maximumCapabilities: Int,
-        maximumCapabilityBytes: Int
+        maximumWorkspaces: Int = 128,
+        maximumTabs: Int = 512,
+        maximumPanes: Int = 2_048,
+        maximumAgents: Int = 2_048,
+        maximumTotalNodes: Int = 4_096,
+        maximumEventsPerBatch: Int = 4_096,
+        maximumDepth: Int = 4,
+        maximumIdentifierBytes: Int = 1_024,
+        maximumTitleBytes: Int = 4_096,
+        maximumRawStatusBytes: Int = 256,
+        maximumSessionIDBytes: Int = 1_024,
+        maximumCapabilities: Int = 128,
+        maximumCapabilityBytes: Int = 256
     ) {
         self.maximumWorkspaces = maximumWorkspaces
         self.maximumTabs = maximumTabs

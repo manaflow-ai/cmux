@@ -101,7 +101,7 @@ struct NestedTopologyTestFixture {
         panes: [NestedPaneNode]? = nil,
         agents: [NestedAgentNode]? = nil,
         focus: NestedTopologyFocus = .none,
-        limits: NestedTopologyLimits = .standard
+        limits: NestedTopologyLimits = NestedTopologyLimits()
     ) throws -> NestedTopologySnapshot {
         try NestedTopologySnapshot(
             provider: provider,
@@ -120,25 +120,25 @@ struct NestedTopologyTestFixture {
     }
 
     func limits(
-        maximumWorkspaces: Int = NestedTopologyLimits.standard.maximumWorkspaces,
-        maximumEventsPerBatch: Int = NestedTopologyLimits.standard.maximumEventsPerBatch,
-        maximumTotalNodes: Int = NestedTopologyLimits.standard.maximumTotalNodes,
-        maximumCapabilities: Int = NestedTopologyLimits.standard.maximumCapabilities
+        maximumWorkspaces: Int? = nil,
+        maximumEventsPerBatch: Int? = nil,
+        maximumTotalNodes: Int? = nil,
+        maximumCapabilities: Int? = nil
     ) -> NestedTopologyLimits {
-        let standard = NestedTopologyLimits.standard
+        let standard = NestedTopologyLimits()
         return NestedTopologyLimits(
-            maximumWorkspaces: maximumWorkspaces,
+            maximumWorkspaces: maximumWorkspaces ?? standard.maximumWorkspaces,
             maximumTabs: standard.maximumTabs,
             maximumPanes: standard.maximumPanes,
             maximumAgents: standard.maximumAgents,
-            maximumTotalNodes: maximumTotalNodes,
-            maximumEventsPerBatch: maximumEventsPerBatch,
+            maximumTotalNodes: maximumTotalNodes ?? standard.maximumTotalNodes,
+            maximumEventsPerBatch: maximumEventsPerBatch ?? standard.maximumEventsPerBatch,
             maximumDepth: standard.maximumDepth,
             maximumIdentifierBytes: standard.maximumIdentifierBytes,
             maximumTitleBytes: standard.maximumTitleBytes,
             maximumRawStatusBytes: standard.maximumRawStatusBytes,
             maximumSessionIDBytes: standard.maximumSessionIDBytes,
-            maximumCapabilities: maximumCapabilities,
+            maximumCapabilities: maximumCapabilities ?? standard.maximumCapabilities,
             maximumCapabilityBytes: standard.maximumCapabilityBytes
         )
     }

@@ -174,7 +174,7 @@ struct NestedTopologyCodableTests {
     @Test("custom validation limits can be supplied when decoding a snapshot")
     func customLimitRoundTrip() throws {
         let fixture = NestedTopologyTestFixture()
-        let standard = NestedTopologyLimits.standard
+        let standard = NestedTopologyLimits()
         let limits = NestedTopologyLimits(
             maximumWorkspaces: standard.maximumWorkspaces,
             maximumTabs: standard.maximumTabs,

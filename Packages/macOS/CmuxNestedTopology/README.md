@@ -65,7 +65,7 @@ Published snapshots guarantee:
 
 Every event carries provider identity separately, including focus-clear events. Reducers reject a stale generation before applying any mutation.
 
-Snapshots remember the validation policy that accepted them, so a reducer with stricter limits revalidates even no-op events. Limits are trust policy rather than provider data and are not serialized. To decode data that was accepted under custom limits, put the same `NestedTopologyLimits` value in `JSONDecoder.userInfo` under `NestedTopologySnapshot.decodingLimitsUserInfoKey`; decoding otherwise uses `.standard`.
+Snapshots remember the validation policy that accepted them, so a reducer with stricter limits revalidates even no-op events. Limits are trust policy rather than provider data and are not serialized. To decode data that was accepted under custom limits, put the same `NestedTopologyLimits` value in `JSONDecoder.userInfo` under `NestedTopologySnapshot.decodingLimitsUserInfoKey`; decoding otherwise uses a freshly constructed `NestedTopologyLimits()` value with production defaults.
 
 Snapshot decoding stops before materializing node or capability collections beyond those limits and validates each decoded value before retaining the next one. A `Decoder` cannot report the original frame byte count, so socket and file adapters must additionally cap the raw payload before creating `JSONDecoder`; that transport boundary belongs to the planned provider adapter rather than this model package.
 
