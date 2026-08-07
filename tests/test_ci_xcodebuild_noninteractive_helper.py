@@ -281,6 +281,81 @@ def main() -> int:
         )
         return 1
 
+    expected_xctest_failure_without_swift_child = textwrap.dedent(
+        """
+        print("Test Suite 'Selected tests' failed at now", flush=True)
+        print("\\t Executed 1 test, with 1 failure (0 unexpected) in 0.001 seconds", flush=True)
+        """
+    )
+    expected_xctest_failure_without_swift_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            expected_xctest_failure_without_swift_child,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=expected_mixed_framework_env,
+    )
+    if (
+        expected_xctest_failure_without_swift_result.returncode
+        != EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    ):
+        print(expected_xctest_failure_without_swift_result.stdout, end="")
+        print(
+            expected_xctest_failure_without_swift_result.stderr,
+            end="",
+            file=sys.stderr,
+        )
+        print(
+            "FAIL: an expected XCTest failure must not hide a missing Swift Testing phase "
+            "after child exit, "
+            f"got {expected_xctest_failure_without_swift_result.returncode}"
+        )
+        return 1
+
+    expected_xctest_failure_timeout_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' failed at now", flush=True)
+        print("\\t Executed 1 test, with 1 failure (0 unexpected) in 0.001 seconds", flush=True)
+        time.sleep(10)
+        """
+    )
+    expected_xctest_failure_timeout_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            expected_xctest_failure_timeout_child,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=expected_mixed_framework_env,
+    )
+    if (
+        expected_xctest_failure_timeout_result.returncode
+        != EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    ):
+        print(expected_xctest_failure_timeout_result.stdout, end="")
+        print(expected_xctest_failure_timeout_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: an expected XCTest failure must not hide a missing Swift Testing phase "
+            "after post-test timeout, "
+            f"got {expected_xctest_failure_timeout_result.returncode}"
+        )
+        return 1
+
     mixed_framework_child = textwrap.dedent(
         """
         import time
