@@ -614,6 +614,7 @@ fn pending_session_reset_dirs(
         return Ok(Vec::new());
     }
 
+    let root_device = reset_root_device(root)?;
     let storage_component = session_storage_component(session_name);
     let prefix = format!(".reset-{storage_component}-");
     let suffix = ".deleting";
@@ -641,6 +642,7 @@ fn pending_session_reset_dirs(
         if !metadata.file_type().is_dir() {
             anyhow::bail!("private reset path is not a directory: {}", path.display());
         }
+        ensure_reset_device_boundary(&path, root_device, reset_metadata_device(&metadata))?;
         reset_dirs.push(PendingSessionResetDir { path, kind });
     }
     reset_dirs.sort_by(|left, right| left.path.cmp(&right.path));
@@ -1000,6 +1002,12 @@ fn reset_metadata_device(metadata: &fs::Metadata) -> Option<u64> {
     Some(metadata.dev())
 }
 
+fn reset_root_device(root: &Path) -> anyhow::Result<Option<u64>> {
+    let metadata = fs::metadata(root)
+        .with_context(|| format!("inspect workspace state root {}", root.display()))?;
+    Ok(reset_metadata_device(&metadata))
+}
+
 #[cfg(not(unix))]
 fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
     None
@@ -1007,16 +1015,21 @@ fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
 
 #[cfg(unix)]
 fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
-    let metadata = fs::symlink_metadata(path)
-        .with_context(|| format!("inspect {label} {}", path.display()))?;
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("open {label} {}", path.display()))?;
+    let metadata =
+        directory.metadata().with_context(|| format!("inspect {label} {}", path.display()))?;
     if !metadata.file_type().is_dir() {
         anyhow::bail!("{label} is not a directory: {}", path.display());
     }
     let root_device = metadata.dev();
     let root_inode = metadata.ino();
-    remove_reset_dir_children_on_device(path, label, root_device)?;
+    remove_reset_dir_children_from_handle(&directory, path, label, root_device)?;
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect {label} {}", path.display()))?;
     if !current.file_type().is_dir() || current.dev() != root_device || current.ino() != root_inode
@@ -1027,60 +1040,231 @@ fn remove_reset_dir_all(path: &Path, label: &str) -> anyhow::Result<()> {
 }
 
 #[cfg(unix)]
-fn remove_reset_dir_children_on_device(
-    path: &Path,
+fn remove_reset_dir_children_from_handle(
+    directory: &File,
+    display_path: &Path,
     label: &str,
     root_device: u64,
 ) -> anyhow::Result<()> {
+    use std::os::fd::AsRawFd;
     use std::os::unix::fs::MetadataExt;
 
-    let mut children = Vec::new();
-    for entry in fs::read_dir(path).with_context(|| format!("read {label} {}", path.display()))? {
-        let child_path = entry?.path();
-        let metadata = fs::symlink_metadata(&child_path)
-            .with_context(|| format!("inspect {label} {}", child_path.display()))?;
-        ensure_reset_device_boundary(&child_path, Some(root_device), Some(metadata.dev()))?;
-        children.push((child_path, metadata.file_type().is_dir(), metadata.dev(), metadata.ino()));
-    }
-    children.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut children = reset_dir_child_names(directory, display_path, label)?;
+    children.sort();
 
-    for (child_path, was_dir, expected_device, expected_inode) in children {
-        let current = match fs::symlink_metadata(&child_path) {
-            Ok(current) => current,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("inspect {label} {}", child_path.display()));
-            }
-        };
-        if current.dev() != expected_device || current.ino() != expected_inode {
-            anyhow::bail!("reset path changed during reset: {}", child_path.display());
-        }
-        ensure_reset_device_boundary(&child_path, Some(root_device), Some(current.dev()))?;
-        if was_dir {
-            if !current.file_type().is_dir() {
-                anyhow::bail!("reset path changed during reset: {}", child_path.display());
-            }
-            remove_reset_dir_children_on_device(&child_path, label, root_device)?;
-            let current = fs::symlink_metadata(&child_path)
-                .with_context(|| format!("inspect {label} {}", child_path.display()))?;
-            if !current.file_type().is_dir()
-                || current.dev() != expected_device
-                || current.ino() != expected_inode
+    for child_name in children {
+        let child_display = display_path.join(&child_name);
+        let child_stat = match reset_child_stat(directory.as_raw_fd(), &child_name, &child_display)
+        {
+            Ok(child_stat) => child_stat,
+            Err(error)
+                if error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
             {
-                anyhow::bail!("reset path changed during reset: {}", child_path.display());
+                continue;
             }
-            fs::remove_dir(&child_path)
-                .with_context(|| format!("remove {label} {}", child_path.display()))?;
+            Err(error) => return Err(error),
+        };
+        let child_device = reset_stat_device(&child_stat);
+        ensure_reset_device_boundary(&child_display, Some(root_device), Some(child_device))?;
+        if reset_stat_is_dir(&child_stat) {
+            let child_directory =
+                open_reset_child_dir(directory.as_raw_fd(), &child_name, &child_display)?;
+            let opened = child_directory
+                .metadata()
+                .with_context(|| format!("inspect {label} {}", child_display.display()))?;
+            if !opened.file_type().is_dir()
+                || opened.dev() != child_device
+                || opened.ino() != reset_stat_inode(&child_stat)
+            {
+                anyhow::bail!("reset path changed during reset: {}", child_display.display());
+            }
+            remove_reset_dir_children_from_handle(
+                &child_directory,
+                &child_display,
+                label,
+                root_device,
+            )?;
+            let current = reset_child_stat(directory.as_raw_fd(), &child_name, &child_display)?;
+            if !reset_stat_is_dir(&current)
+                || reset_stat_device(&current) != child_device
+                || reset_stat_inode(&current) != reset_stat_inode(&child_stat)
+            {
+                anyhow::bail!("reset path changed during reset: {}", child_display.display());
+            }
+            reset_unlink_child(
+                directory.as_raw_fd(),
+                &child_name,
+                &child_display,
+                libc::AT_REMOVEDIR,
+            )?;
         } else {
-            if current.file_type().is_dir() {
-                anyhow::bail!("reset path changed during reset: {}", child_path.display());
-            }
-            fs::remove_file(&child_path)
-                .with_context(|| format!("remove {label} {}", child_path.display()))?;
+            reset_unlink_child(directory.as_raw_fd(), &child_name, &child_display, 0)?;
         }
     }
     Ok(())
+}
+
+#[cfg(unix)]
+struct ResetDirStream(*mut libc::DIR);
+
+#[cfg(unix)]
+impl Drop for ResetDirStream {
+    fn drop(&mut self) {
+        // SAFETY: fdopendir returned this DIR pointer and ownership belongs to this guard.
+        unsafe {
+            libc::closedir(self.0);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn reset_dir_child_names(
+    directory: &File,
+    display_path: &Path,
+    label: &str,
+) -> anyhow::Result<Vec<std::ffi::OsString>> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+
+    // SAFETY: dup only duplicates this valid directory file descriptor.
+    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
+    if duplicate < 0 {
+        return Err(std::io::Error::last_os_error())
+            .with_context(|| format!("read {label} {}", display_path.display()));
+    }
+    // SAFETY: fdopendir takes ownership of the duplicated descriptor on success.
+    let raw_stream = unsafe { libc::fdopendir(duplicate) };
+    if raw_stream.is_null() {
+        let error = std::io::Error::last_os_error();
+        // SAFETY: fdopendir did not take ownership when it failed.
+        unsafe {
+            libc::close(duplicate);
+        }
+        return Err(error).with_context(|| format!("read {label} {}", display_path.display()));
+    }
+    let stream = ResetDirStream(raw_stream);
+    let mut names = Vec::new();
+    loop {
+        // SAFETY: stream owns a valid DIR pointer for the duration of this loop.
+        let entry = unsafe { libc::readdir(stream.0) };
+        if entry.is_null() {
+            break;
+        }
+        // SAFETY: d_name is a nul-terminated C string for a live dirent.
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        let name = name.to_bytes();
+        if name == b"." || name == b".." {
+            continue;
+        }
+        names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
+    }
+    Ok(names)
+}
+
+#[cfg(unix)]
+fn open_reset_child_dir(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<File> {
+    use std::os::fd::FromRawFd;
+
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: openat reads a nul-terminated child name relative to a valid parent directory fd.
+        let fd = unsafe {
+            libc::openat(
+                parent_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
+            )
+        };
+        if fd >= 0 {
+            // SAFETY: openat returned a new owned file descriptor.
+            return Ok(unsafe { File::from_raw_fd(fd) });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn reset_child_stat(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<libc::stat> {
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        // SAFETY: fstatat writes to stat and reads a nul-terminated child name relative to parent_fd.
+        let result = unsafe {
+            libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
+        };
+        if result == 0 {
+            // SAFETY: fstatat initialized stat on success.
+            return Ok(unsafe { stat.assume_init() });
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error)
+            .with_context(|| format!("inspect reset path {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn reset_unlink_child(
+    parent_fd: std::os::fd::RawFd,
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+    flags: i32,
+) -> anyhow::Result<()> {
+    let name = reset_child_c_string(name, display_path)?;
+    loop {
+        // SAFETY: unlinkat reads a nul-terminated child name relative to a valid parent directory fd.
+        let result = unsafe { libc::unlinkat(parent_fd, name.as_ptr(), flags) };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(error).with_context(|| format!("remove reset path {}", display_path.display()));
+    }
+}
+
+#[cfg(unix)]
+fn reset_child_c_string(
+    name: &std::ffi::OsStr,
+    display_path: &Path,
+) -> anyhow::Result<std::ffi::CString> {
+    use std::os::unix::ffi::OsStrExt;
+
+    std::ffi::CString::new(name.as_bytes())
+        .with_context(|| format!("reset path has an invalid file name: {}", display_path.display()))
+}
+
+#[cfg(unix)]
+fn reset_stat_is_dir(stat: &libc::stat) -> bool {
+    stat.st_mode & libc::S_IFMT == libc::S_IFDIR
+}
+
+#[cfg(unix)]
+fn reset_stat_device(stat: &libc::stat) -> u64 {
+    stat.st_dev as u64
+}
+
+#[cfg(unix)]
+fn reset_stat_inode(stat: &libc::stat) -> u64 {
+    stat.st_ino as u64
 }
 
 #[cfg(not(unix))]
