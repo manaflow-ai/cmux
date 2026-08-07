@@ -679,6 +679,44 @@ fn machine_agent_is_a_real_entrypoint_without_changing_ordinary_cli_dispatch() {
     assert!(String::from_utf8(version.stdout).unwrap().starts_with("cmux "));
 }
 
+#[test]
+fn ghostty_config_helper_outputs_resolved_file_defaults() {
+    let dir = unique_temp_dir("ghostty-config-helper-output");
+    let config_home = dir.join("config");
+    let ghostty_dir = config_home.join("ghostty");
+    fs::create_dir_all(&ghostty_dir).unwrap();
+    fs::write(
+        ghostty_dir.join("config"),
+        "foreground = #010203\n\
+         background = #040506\n\
+         cursor-color = #070809\n\
+         cursor-style = underline\n\
+         cursor-style-blink = false\n\
+         palette = 2=#0a0b0c\n",
+    )
+    .unwrap();
+
+    let output = Command::new(bin())
+        .arg("__ghostty-config-defaults")
+        .env("HOME", dir.join("home"))
+        .env("CFFIXED_USER_HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    assert!(stdout.contains("foreground = #010203\n"), "{stdout}");
+    assert!(stdout.contains("background = #040506\n"), "{stdout}");
+    assert!(stdout.contains("cursor-color = #070809\n"), "{stdout}");
+    assert!(stdout.contains("cursor-style = underline\n"), "{stdout}");
+    assert!(stdout.contains("cursor-style-blink = false\n"), "{stdout}");
+    assert!(stdout.contains("palette = 2=#0a0b0c\n"), "{stdout}");
+}
+
 #[cfg(unix)]
 #[test]
 fn machine_agent_argument_failures_are_stable_and_localized() {
@@ -892,27 +930,17 @@ impl Drop for DisconnectablePtyChild {
 
 #[cfg(unix)]
 #[test]
-fn startup_config_helper_inherits_no_provider_secrets() {
-    let dir = unique_temp_dir("provider-secret-config-helper");
+fn startup_does_not_invoke_external_ghostty_config_resolver() {
+    let dir = unique_temp_dir("external-ghostty-config-resolver");
     fs::create_dir_all(&dir).unwrap();
-    let helper = dir.join("ghostty-secret-probe");
-    let capture = dir.join("inherited-env.txt");
+    let helper = dir.join("ghostty-config-probe");
+    let capture = dir.join("resolver-invoked.txt");
     let socket = dir.join("mux.sock");
     fs::write(
         &helper,
         r#"#!/bin/sh
-{
-if [ "${CMUX_MACHINE_PROVIDER_TOKEN+x}" = x ]; then
-    echo token=present
-else
-    echo token=absent
-fi
-if [ "${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}" = x ]; then
-    echo authority=present
-else
-    echo authority=absent
-fi
-} > "$CMUX_TEST_SECRET_CAPTURE"
+echo invoked > "$CMUX_TEST_GHOSTTY_CAPTURE"
+exit 0
 "#,
     )
     .unwrap();
@@ -922,7 +950,7 @@ fi
         .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])
         .arg(&socket)
         .env("GHOSTTY_BIN", &helper)
-        .env("CMUX_TEST_SECRET_CAPTURE", &capture)
+        .env("CMUX_TEST_GHOSTTY_CAPTURE", &capture)
         .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")
         .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-workspace-authority-test-00000001")
         .env_remove("CMUX_TUI_SOCKET")
@@ -930,8 +958,7 @@ fi
         .unwrap();
 
     assert!(!output.status.success(), "conflicting provider launch unexpectedly succeeded");
-    let inherited = fs::read_to_string(&capture).unwrap();
-    assert_eq!(inherited, "token=absent\nauthority=absent\n");
+    assert!(!capture.exists(), "startup invoked external Ghostty config resolver");
     fs::remove_dir_all(dir).unwrap();
 }
 

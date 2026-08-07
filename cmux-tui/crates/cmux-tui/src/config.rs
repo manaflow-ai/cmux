@@ -118,11 +118,17 @@
 //! keys.
 
 use std::collections::{HashMap, HashSet};
+#[cfg(not(test))]
+use std::io::Read;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(any(not(test), all(test, unix)))]
+use std::process::Command;
+#[cfg(not(test))]
+use std::process::Stdio as ProcessStdio;
 #[cfg(all(test, unix))]
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::process::Stdio;
+#[cfg(not(test))]
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -2632,11 +2638,14 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
+    #[cfg(test)]
     let parsed = parse_ghostty_defaults_from_paths(
         platform::ghostty_config_paths(),
         platform::ghostty_theme_dirs(),
     )
     .unwrap_or_default();
+    #[cfg(not(test))]
+    let parsed = parse_ghostty_defaults_from_helper().unwrap_or_default();
     resolve_ghostty_application_defaults(parsed)
 }
 
@@ -2690,21 +2699,66 @@ pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
     parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
 }
 
+pub(crate) fn is_ghostty_config_helper_invocation(args: &[String]) -> bool {
+    args.first().map(String::as_str) == Some("__ghostty-config-defaults")
+}
+
+pub(crate) fn run_ghostty_config_helper() -> i32 {
+    let defaults = parse_ghostty_defaults_from_paths(
+        platform::ghostty_config_paths(),
+        platform::ghostty_theme_dirs(),
+    )
+    .unwrap_or_default();
+    print!("{}", serialize_ghostty_defaults(defaults));
+    0
+}
+
+#[cfg(not(test))]
+fn parse_ghostty_defaults_from_helper() -> Option<DefaultColors> {
+    let exe = std::env::current_exe().ok()?;
+    let mut command = Command::new(exe);
+    command
+        .arg("__ghostty-config-defaults")
+        .stdin(ProcessStdio::null())
+        .stdout(ProcessStdio::piped())
+        .stderr(ProcessStdio::null());
+    scrub_ghostty_helper_secret_environment(&mut command);
+    let mut child = command.spawn().ok()?;
+    let mut stdout = child.stdout.take()?;
+    let started_at = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                if !status.success() {
+                    return None;
+                }
+                let mut output = String::new();
+                stdout.read_to_string(&mut output).ok()?;
+                return Some(parse_resolved_ghostty_defaults(&output));
+            }
+            Ok(None) if started_at.elapsed() >= GHOSTTY_CONFIG_PARSE_DEADLINE => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            Ok(None) => thread::yield_now(),
+            Err(_) => return None,
+        }
+    }
+}
+
+#[cfg(any(not(test), all(test, unix)))]
+fn scrub_ghostty_helper_secret_environment(command: &mut Command) {
+    for name in ["CMUX_MACHINE_PROVIDER_TOKEN", "CMUX_PROVIDER_WORKSPACE_AUTHORITY"] {
+        command.env_remove(name);
+    }
+}
+
 fn parse_ghostty_defaults_from_paths(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
 ) -> Option<DefaultColors> {
-    let (tx, rx) = mpsc::channel();
-    thread::Builder::new()
-        .name("cmux-tui-ghostty-config".to_owned())
-        .spawn(move || {
-            let parsed = config_paths
-                .iter()
-                .find_map(|path| parse_ghostty_defaults_from_path(path, &theme_dirs));
-            let _ = tx.send(parsed);
-        })
-        .ok()?;
-    rx.recv_timeout(GHOSTTY_CONFIG_PARSE_DEADLINE).ok().flatten()
+    config_paths.iter().find_map(|path| parse_ghostty_defaults_from_path(path, &theme_dirs))
 }
 
 #[cfg(test)]
@@ -2756,25 +2810,15 @@ fn parse_ghostty_config_file(
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
             continue;
         }
-        let metadata = match std::fs::metadata(&pending.path) {
-            Ok(metadata) if metadata.file_type().is_file() => metadata,
-            _ if pending.depth == 0 => return None,
-            _ => continue,
-        };
-        if bytes_loaded.saturating_add(metadata.len()) > GHOSTTY_CONFIG_MAX_BYTES {
-            if pending.depth == 0 && files_loaded == 0 {
-                return None;
-            }
-            continue;
-        }
         let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
         if !loaded.insert(identity) {
             continue;
         }
-        let text = match std::fs::read_to_string(&pending.path) {
-            Ok(text) => text,
-            Err(_) if pending.depth == 0 && files_loaded == 0 => return None,
-            Err(_) => continue,
+        let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        let text = match read_ghostty_regular_file(&pending.path, remaining_bytes) {
+            Some(text) => text,
+            None if pending.depth == 0 && files_loaded == 0 => return None,
+            None => continue,
         };
         bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
         files_loaded += 1;
@@ -3028,6 +3072,49 @@ fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
     defaults
 }
 
+fn serialize_ghostty_defaults(defaults: DefaultColors) -> String {
+    let mut out = String::new();
+    if let Some(color) = defaults.fg {
+        out.push_str(&format!("foreground = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.bg {
+        out.push_str(&format!("background = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.cursor {
+        out.push_str(&format!("cursor-color = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.selection_bg {
+        out.push_str(&format!("selection-background = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.selection_fg {
+        out.push_str(&format!("selection-foreground = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(style) = defaults.cursor_style {
+        let style = match style {
+            CursorShape::Block => Some("block"),
+            CursorShape::Underline => Some("underline"),
+            CursorShape::Bar => Some("bar"),
+            CursorShape::BlockHollow => None,
+        };
+        if let Some(style) = style {
+            out.push_str(&format!("cursor-style = {style}\n"));
+        }
+    }
+    if let Some(blink) = defaults.cursor_blink {
+        out.push_str(&format!("cursor-style-blink = {blink}\n"));
+    }
+    for (index, color) in defaults.palette.into_iter().enumerate() {
+        if let Some(color) = color {
+            out.push_str(&format!("palette = {index}={}\n", format_ghostty_rgb(color)));
+        }
+    }
+    out
+}
+
+fn format_ghostty_rgb(color: Rgb) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+}
+
 fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
     let value = value.strip_prefix('"').and_then(|value| value.strip_suffix('"')).unwrap_or(value);
     match key {
@@ -3088,8 +3175,20 @@ fn load_ghostty_theme(
 ) -> Option<DefaultColors> {
     let theme = selected_ghostty_theme(candidate.value.trim_matches('"'), theme_mode);
     let path = resolve_ghostty_theme_path(theme, candidate.base_dir.as_deref(), theme_dirs)?;
-    let text = std::fs::read_to_string(path).ok()?;
+    let text = read_ghostty_regular_file(&path, GHOSTTY_CONFIG_MAX_BYTES)?;
     Some(parse_resolved_ghostty_defaults(&text))
+}
+
+fn read_ghostty_regular_file(path: &Path, max_bytes: u64) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > max_bytes {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    if text.len() as u64 > max_bytes {
+        return None;
+    }
+    Some(text)
 }
 
 fn resolve_ghostty_theme_path(
@@ -4167,6 +4266,66 @@ mod tests {
 
         assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
         assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[test]
+    fn ghostty_theme_loader_skips_non_regular_and_oversized_candidates() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-size-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        let themes = ghostty_dir.join("themes");
+        std::fs::create_dir_all(themes.join("Theme Directory")).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "theme = Theme Directory\n\
+             theme = Huge Theme\n\
+             theme = Readable Theme\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Huge Theme"),
+            "foreground = #a0a1a2\n".repeat((GHOSTTY_CONFIG_MAX_BYTES as usize / 20) + 1),
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Readable Theme"),
+            "foreground = #010203\nbackground = #040506\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(
+            &ghostty_dir.join("config"),
+            std::slice::from_ref(&themes),
+        )
+        .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_scrubs_provider_secret_environment() {
+        let output = {
+            let mut command = Command::new("/usr/bin/env");
+            command
+                .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")
+                .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-workspace-authority-test")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            scrub_ghostty_helper_secret_environment(&mut command);
+            command.output().unwrap()
+        };
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!stdout.contains("CMUX_MACHINE_PROVIDER_TOKEN="), "{stdout}");
+        assert!(!stdout.contains("CMUX_PROVIDER_WORKSPACE_AUTHORITY="), "{stdout}");
     }
 
     #[test]
