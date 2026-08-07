@@ -47,6 +47,10 @@ private struct ConnectedFrontend: Sendable {
   let error: String
 }
 
+private struct DetachedRequestFailure: Error, Sendable {
+  let message: String
+}
+
 private func decodeError(_ buffer: [CChar]) -> String {
   String(
     decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
@@ -123,14 +127,18 @@ actor FrontendService {
           )
         }
       }
-      guard let result else { return Result<String, String>.failure(decodeError(error)) }
+      guard let result else {
+        return Result<String, DetachedRequestFailure>.failure(
+          DetachedRequestFailure(message: decodeError(error))
+        )
+      }
       defer { cmux_frontend_string_free(result) }
-      return Result<String, String>.success(String(cString: result))
+      return Result<String, DetachedRequestFailure>.success(String(cString: result))
     }.value
     let payload: String
     switch response {
     case .success(let value): payload = value
-    case .failure(let error): throw FrontendServiceError.message(error)
+    case .failure(let error): throw FrontendServiceError.message(error.message)
     }
     let data = Data(payload.utf8)
     return try JSONDecoder().decode(type, from: data)
