@@ -929,6 +929,8 @@ final class TerminalModel {
             inputQueue.removeAll()
             isConnected = false
             frame = ""
+            dirtyRows = []
+            dirtyRowText = [:]
             diagnostics = ""
             geometryDelivery.resetConnection()
             client = nil
@@ -985,6 +987,8 @@ final class TerminalModel {
         inputQueue.removeAll()
         isConnected = false
         frame = ""
+        dirtyRows = []
+        dirtyRowText = [:]
         diagnostics = ""
         geometryDelivery.resetConnection()
         connectionOperation &+= 1
@@ -1194,6 +1198,7 @@ final class TerminalModel {
                         break
                     }
                 }
+                nextRender = clock.now.advanced(by: .milliseconds(33))
                 guard let snapshot = await client.snapshot() else { continue }
                 guard let self,
                     operation == self.connectionOperation,
@@ -1201,7 +1206,6 @@ final class TerminalModel {
                     !self.isShuttingDown
                 else { break }
                 self.apply(snapshot, from: client)
-                nextRender = clock.now.advanced(by: .milliseconds(33))
             }
             await client.stopUpdates(generation: updates.generation)
         }

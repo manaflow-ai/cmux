@@ -218,7 +218,9 @@ final class TerminalTextView: NSTextView {
             let first = dirtyRows.min().map(Int.init),
             let last = dirtyRows.max().map(Int.init),
             last < terminalRows.count,
-            terminalRowOffsets.count == terminalRows.count + 1
+            terminalRowOffsets.count == terminalRows.count + 1,
+            !(dirtyRows.first == 0 && dirtyRows.count == last + 1)
+                || last + 1 == terminalRows.count
         {
             let changedRows = (first...last).map { row in
                 dirtyRowText[UInt16(row)] ?? terminalRows[row]

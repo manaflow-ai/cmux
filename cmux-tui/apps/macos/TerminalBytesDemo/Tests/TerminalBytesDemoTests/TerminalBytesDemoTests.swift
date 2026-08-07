@@ -199,6 +199,21 @@ final class TerminalBytesDemoTests: XCTestCase {
         XCTAssertEqual(terminal.string, "first\nchanged\nthird\n")
     }
 
+    @MainActor
+    func testFullDirtyRowsResetCachedTopologyWhenViewportShrinks() {
+        let terminal = TerminalTextView()
+        terminal.configureForTerminal()
+        terminal.applyTerminalFrame("one\ntwo\nthree\n")
+
+        terminal.applyTerminalFrame(
+            "one\ntwo\n",
+            dirtyRows: [0, 1],
+            dirtyRowText: [0: "one\n", 1: "two\n"]
+        )
+
+        XCTAssertEqual(terminal.string, "one\ntwo\n")
+    }
+
     func testLauncherUsesAnInvocationOwnedSwiftBuildDirectory() throws {
         let demoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
