@@ -823,7 +823,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_freeze_owned_processes || exit 99
         test ! -s "$CMUX_TEST_SIGNALS" || exit 98
-        test ! -s "$CMUX_TEST_SIGNALED_PIDS" || exit 97
+        /usr/bin/grep -Fqx '101 1 2 Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_TEST_SIGNALED_PIDS" || exit 97
         test ! -s "$CMUX_TEST_FROZEN" || exit 96
         """
 
@@ -858,7 +859,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_identity_calls=$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS") || return 1
           cmux_test_identity_calls=$((cmux_test_identity_calls + 1))
           printf '%s\n' "$cmux_test_identity_calls" > "$CMUX_TEST_IDENTITY_CALLS" || return 1
-          if [ "$cmux_test_identity_calls" -le 2 ]; then
+          if [ "$cmux_test_identity_calls" -eq 1 ]; then
             printf '1|2|Thu_Jan_1_00:00:00_1970\n'
           else
             printf '9|99|Thu_Jan_1_00:00:00_1970\n'
@@ -890,7 +891,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_freeze_owned_processes || exit 99
         test -f "$CMUX_TEST_RECORDED_BEFORE_STOP" || exit 98
-        test "$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS")" -eq 3 || exit 97
+        test "$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS")" -eq 2 || exit 97
         /usr/bin/grep -Fqx -- '-STOP 101' "$CMUX_TEST_SIGNALS" || exit 96
         /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
         test ! -s "$CMUX_TEST_FROZEN" || exit 94

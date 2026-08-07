@@ -286,10 +286,21 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) continue ;;
             esac
+            cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+            # Publish the exact resume identity before STOP so an interrupted
+            # cleanup can safely recover a process frozen at the next line.
+            printf '%s %s %s %s\n' "$cmux_ssh_auth_pid" "$cmux_ssh_auth_parent" \
+              "$cmux_ssh_auth_group" "$cmux_ssh_auth_started" \
+              >> "$cmux_ssh_auth_signaled_processes" || return 1
+            cmux_ssh_auth_current_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")
+            if [ "$cmux_ssh_auth_current_identity" != "$cmux_ssh_auth_expected_identity" ]; then
+              continue
+            fi
             kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
-            if ! printf '%s\n' "$cmux_ssh_auth_pid" >> "$cmux_ssh_auth_signaled_processes"; then
+            cmux_ssh_auth_current_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")
+            if [ "$cmux_ssh_auth_current_identity" != "$cmux_ssh_auth_expected_identity" ]; then
               kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
-              return 1
+              continue
             fi
             if ! printf '%s %s %s %s %s\n' "$cmux_ssh_auth_pid" \
               "$cmux_ssh_auth_parent" "$cmux_ssh_auth_group" "$cmux_ssh_auth_started" \
@@ -359,8 +370,33 @@ extension SSHForegroundAuthenticationRetryPolicy {
             done < "$cmux_ssh_auth_signaled_groups"
           fi
           if [ -s "$cmux_ssh_auth_signaled_processes" ]; then
-            while IFS= read -r cmux_ssh_auth_pid; do
+            while read -r cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
+              cmux_ssh_auth_started cmux_ssh_auth_extra; do
               case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
+              if [ -z "$cmux_ssh_auth_parent" ] && \
+                [ -n "${cmux_ssh_auth_frozen_processes:-}" ] && \
+                [ -s "$cmux_ssh_auth_frozen_processes" ]; then
+                # Older journals stored only a PID here. Recover their exact
+                # identity from the durable frozen record when one exists.
+                cmux_ssh_auth_legacy_identity=$(/usr/bin/awk \
+                  -v cmux_pid="$cmux_ssh_auth_pid" \
+                  '$1 == cmux_pid && NF >= 5 { print $2 "|" $3 "|" $4; exit }' \
+                  "$cmux_ssh_auth_frozen_processes" 2>/dev/null || true)
+                cmux_ssh_auth_parent=${cmux_ssh_auth_legacy_identity%%|*}
+                cmux_ssh_auth_legacy_remainder=${cmux_ssh_auth_legacy_identity#*|}
+                if [ "$cmux_ssh_auth_legacy_remainder" = \
+                  "$cmux_ssh_auth_legacy_identity" ]; then continue; fi
+                cmux_ssh_auth_group=${cmux_ssh_auth_legacy_remainder%%|*}
+                cmux_ssh_auth_started=${cmux_ssh_auth_legacy_remainder#*|}
+              fi
+              case "$cmux_ssh_auth_parent" in ''|*[!0-9]*) continue ;; esac
+              case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
+              case "$cmux_ssh_auth_started" in ''|*[!A-Za-z0-9_:]*) continue ;; esac
+              if [ -n "$cmux_ssh_auth_extra" ]; then continue; fi
+              cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+              cmux_ssh_auth_current_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")
+              if [ "$cmux_ssh_auth_current_identity" != \
+                "$cmux_ssh_auth_expected_identity" ]; then continue; fi
               kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
             done < "$cmux_ssh_auth_signaled_processes"
           fi

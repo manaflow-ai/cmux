@@ -340,8 +340,10 @@ extension CMUXCLI {
         }
         if let trimmedOneTimeCommand, !trimmedOneTimeCommand.isEmpty {
             scriptLines += ["cmux_ssh_foreground_auth() {", trimmedOneTimeCommand, "}"]
-            scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         }
+        // A prior foreground-auth cleanup can outlive the session that created
+        // it, so every SSH startup owns one bounded recovery pass.
+        scriptLines.append(authRetryPolicy.processTreeTerminationShellFunction())
         let reconnectConfiguration = retryPTYAttachStatus ? [
             "cmux_ssh_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
             "case \"$cmux_ssh_reconnect_limit\" in '') cmux_ssh_reconnect_limit='∞'; cmux_ssh_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_reconnect_limit=20; cmux_ssh_reconnect_unbounded=0 ;; *) cmux_ssh_reconnect_unbounded=0 ;; esac",
@@ -382,7 +384,7 @@ extension CMUXCLI {
             "trap 'cmux_ssh_signal_exit 129 HUP' HUP",
             "trap 'cmux_ssh_signal_exit 130 INT' INT",
             "trap 'cmux_ssh_signal_exit 143 TERM' TERM",
-            hasOneTimeCommand ? "cmux_ssh_resume_failed_auth_group_reapers" : ":",
+            "cmux_ssh_resume_failed_auth_group_reapers",
             "while :; do",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_retire_for_signal \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
         ]
