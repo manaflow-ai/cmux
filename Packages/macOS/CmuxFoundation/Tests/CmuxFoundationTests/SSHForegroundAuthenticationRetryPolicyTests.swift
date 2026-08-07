@@ -2272,6 +2272,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         : > "$CMUX_TEST_RELEASE"
         wait || exit 98
         test "$cmux_test_launched_count" -eq 8 || exit 97
+        cmux_test_active_slots=$(/usr/bin/find \
+          "$TMPDIR/cmux-ssh-auth-recovery" -type d -name 'active.*' -print 2>/dev/null)
+        test -z "$cmux_test_active_slots" || exit 96
         """
 
         let result = try runShellCommand(
