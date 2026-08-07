@@ -316,6 +316,28 @@ def _is_assertion_line(line: str) -> bool:
     return bool(_ASSERT_TOKEN.search(line) or _RAISE_IF.search(line))
 
 
+def _mask_quoted_literals(line: str) -> str:
+    """Blank quoted contents while retaining executable tokens and positions."""
+    masked = list(line)
+    quote: Optional[str] = None
+    escaped = False
+    for index, character in enumerate(line):
+        if quote is None:
+            if character in ("'", '"', "`"):
+                quote = character
+                masked[index] = " "
+            continue
+
+        masked[index] = " "
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == quote:
+            quote = None
+    return "".join(masked)
+
+
 def detect_assert_on_duration(line: str) -> bool:
     if not _is_assertion_line(line):
         return False
@@ -342,12 +364,12 @@ def detect_assert_on_duration(line: str) -> bool:
 
 def detect_live_network_host(line: str) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
-    # is ALSO handed to a network-driving verb on the same line (fetch/axios/
-    # requests/urlopen/...). A URL used as a string fixture (markdown builder,
-    # canonical-URL assertion, toContain) opens no socket and is not flagged.
+    # is ALSO handed to an executable network-driving verb on the same line
+    # (fetch/axios/requests/urlopen/...). Verbs inside quoted string fixtures are
+    # masked, so rendered commands and canonical-URL assertions are not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    if not _NETWORK_VERB.search(line):
+    if not _NETWORK_VERB.search(_mask_quoted_literals(line)):
         return False
     for match in _URL.finditer(line):
         host = match.group(1)
