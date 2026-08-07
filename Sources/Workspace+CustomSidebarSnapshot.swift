@@ -61,7 +61,7 @@ extension Workspace {
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: sidebarVisiblePorts(for: panelId)
                     )
                 )
             }

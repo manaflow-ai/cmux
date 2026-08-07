@@ -65,7 +65,9 @@ struct SSHStartupManualReconnectTests {
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
 
-        let startupCommand = try Self.generatedVMSSHInitialStartupCommand()
+        let startupCommand = try Self.generatedVMSSHInitialStartupCommand(
+            sshExecutable: fakeSSH.path
+        )
         #expect(!startupCommand.contains("workspace.remote.terminal_session_connected"))
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
@@ -127,7 +129,9 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+            sshExecutable: fakeSSH.path
+        )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -180,7 +184,9 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+            sshExecutable: fakeSSH.path
+        )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -260,7 +266,9 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+            sshExecutable: fakeSSH.path
+        )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -342,7 +350,9 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+            sshExecutable: fakeSSH.path
+        )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -394,7 +404,9 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+            sshExecutable: fakeSSH.path
+        )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -440,7 +452,9 @@ struct SSHStartupManualReconnectTests {
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand()
+        let startupCommand = try Self.generatedPersistentSSHForegroundAuthenticationStartupCommand(
+            sshExecutable: fakeSSH.path
+        )
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(root.path):\(environment["PATH"] ?? "/usr/bin:/bin")"
         environment["CMUX_BUNDLED_CLI_PATH"] = fakeCLI.path
@@ -623,7 +637,9 @@ struct SSHStartupManualReconnectTests {
         )
     }
 
-    private static func generatedPersistentSSHForegroundAuthenticationStartupCommand() throws -> String {
+    private static func generatedPersistentSSHForegroundAuthenticationStartupCommand(
+        sshExecutable: String
+    ) throws -> String {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let socketPath = makeSocketPath("ssh-foreground-auth")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -710,10 +726,15 @@ struct SSHStartupManualReconnectTests {
             startupCommand.contains("cmux_ssh_foreground_auth"),
             "Expected the persistent SSH foreground-auth startup path: \(startupCommand)"
         )
-        return startupCommand
+        return try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: startupCommand,
+            with: sshExecutable
+        )
     }
 
-    private static func generatedVMSSHInitialStartupCommand() throws -> String {
+    private static func generatedVMSSHInitialStartupCommand(
+        sshExecutable: String
+    ) throws -> String {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let socketPath = makeSocketPath("vm-ssh-startup")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -801,7 +822,11 @@ struct SSHStartupManualReconnectTests {
             requests.first { ($0["method"] as? String) == "workspace.create" }
         )
         let createParams = try #require(createRequest["params"] as? [String: Any])
-        return try #require(createParams["initial_command"] as? String)
+        let startupCommand = try #require(createParams["initial_command"] as? String)
+        return try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: startupCommand,
+            with: sshExecutable
+        )
     }
 
     private static func startMockServer(

@@ -356,11 +356,16 @@ extension Workspace {
     }
 
     func recomputeListeningPorts() {
+        let policy = currentSidebarPortVisibilityPolicy()
+        refreshSidebarVisibleSurfacePorts(using: policy)
         let unique = Set(surfaceListeningPorts.values.flatMap { $0 })
             .union(agentListeningPorts)
             .union(remoteDetectedPorts)
             .union(remoteForwardedPorts)
-        let next = unique.sorted()
+        // Keep source observations intact so retention and rescanning remain
+        // independent from the sidebar projection, and settings changes can
+        // reveal an existing observation without waiting for another scan.
+        let next = policy.visiblePorts(from: unique.sorted())
         if listeningPorts != next {
             listeningPorts = next
         }

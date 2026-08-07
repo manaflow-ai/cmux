@@ -10498,7 +10498,7 @@ struct CMUXCLI {
             options.sshOptions,
             remoteRelayPort: options.remoteRelayPort
         )
-        var parts: [String] = ["/usr/bin/ssh"]
+        var parts: [String] = [sshToolPath()]
         if !hasSSHOptionKey(effectiveSSHOptions, key: "ConnectTimeout") {
             parts += ["-o", "ConnectTimeout=6"]
         }
@@ -10528,6 +10528,17 @@ struct CMUXCLI {
             parts += ["-o", "LocalCommand=\(escapedLocalCommand)"]
         }
         return parts
+    }
+
+    private func sshToolPath() -> String {
+#if DEBUG
+        if let override = ProcessInfo.processInfo.environment["CMUX_TEST_SSH_TOOL_PATH"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return NSString(string: override).expandingTildeInPath
+        }
+#endif
+        return "/usr/bin/ssh"
     }
 
     private func localXtermGhosttyTerminfoSource() -> String? {

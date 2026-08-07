@@ -2202,6 +2202,8 @@ final class Workspace: Identifiable, ObservableObject {
     private(set) var preferredBrowserProfileID: UUID?
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
     private let settings: any SettingsReading
+    private var sidebarPortVisibilityPolicy: SidebarPortVisibilityPolicy
+    private var sidebarVisibleSurfacePorts: [UUID: [Int]] = [:]
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2525,7 +2527,11 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.panelPullRequests }
         set { sidebarMetadata.panelPullRequests = newValue }
     }
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    @Published var surfaceListeningPorts: [UUID: [Int]] = [:] {
+        didSet {
+            refreshSidebarVisibleSurfacePorts(using: sidebarPortVisibilityPolicy)
+        }
+    }
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
@@ -3226,6 +3232,9 @@ final class Workspace: Identifiable, ObservableObject {
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
+        self.sidebarPortVisibilityPolicy = SidebarPortVisibilityPolicy(
+            ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
+        )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
@@ -5334,6 +5343,7 @@ final class Workspace: Identifiable, ObservableObject {
         pullRequest = nil
         panelPullRequests.removeAll()
         surfaceListeningPorts.removeAll()
+        sidebarVisibleSurfacePorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
         resetBrowserPanelsForContextChange(reason: reason)
@@ -5676,6 +5686,33 @@ final class Workspace: Identifiable, ObservableObject {
         guard isRemoteWorkspace else { return }
         syncRemotePortScanTTYs()
         remoteSessionController?.kickRemotePortScan(panelId: panelId, reason: reason)
+    }
+
+    /// Returns the indexed sidebar projection policy shared by every port-badge surface.
+    func currentSidebarPortVisibilityPolicy() -> SidebarPortVisibilityPolicy {
+        sidebarPortVisibilityPolicy
+    }
+
+    /// Rebuilds the per-surface sidebar projection outside SwiftUI render paths.
+    func refreshSidebarVisibleSurfacePorts(using policy: SidebarPortVisibilityPolicy) {
+        let next = surfaceListeningPorts.mapValues { policy.visiblePorts(from: $0) }
+        guard next != sidebarVisibleSurfacePorts else { return }
+        sidebarVisibleSurfacePorts = next
+    }
+
+    /// Returns the cached sidebar projection for one surface.
+    func sidebarVisiblePorts(for panelId: UUID) -> [Int] {
+        sidebarVisibleSurfacePorts[panelId] ?? []
+    }
+
+    /// Rebuilds and applies the policy only when ignored-port behavior changes.
+    func refreshSidebarPortVisibilityPolicy() {
+        let nextPolicy = SidebarPortVisibilityPolicy(
+            ignoredRules: settings.value(for: SettingCatalog().sidebar.ignoredPorts)
+        )
+        guard nextPolicy != sidebarPortVisibilityPolicy else { return }
+        sidebarPortVisibilityPolicy = nextPolicy
+        recomputeListeningPorts()
     }
 
     /// Whether remote listening-port discovery may run, derived from the global

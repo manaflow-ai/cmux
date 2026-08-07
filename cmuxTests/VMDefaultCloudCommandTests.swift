@@ -656,6 +656,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_FAKE_SSH_ARGS"] = capturedArgsPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TEST_SSH_TOOL_PATH"] = fakeSSHPath
         environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
 
         let result = runProcess(
@@ -770,6 +771,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TEST_SSH_TOOL_PATH"] = fakeSSHPath
         environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
 
         let result = runProcess(
@@ -856,6 +858,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["CMUX_TEST_SSH_TOOL_PATH"] = fakeSSHPath
         environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
 
         let result = runProcess(

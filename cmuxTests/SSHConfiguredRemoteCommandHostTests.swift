@@ -515,67 +515,11 @@ struct SSHConfiguredRemoteCommandHostTests {
         }
 
         func startupCommandUsingFakeSSH(_ startupCommand: String) throws -> String {
-            let systemSSHPath = "/usr/bin/ssh"
             let fakeSSHPath = binDirectory.appendingPathComponent("ssh").path
-            let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-            let commandURL = URL(fileURLWithPath: trimmedCommand)
-                .standardizedFileURL
-                .resolvingSymlinksInPath()
-            var isDirectory: ObjCBool = false
-
-            if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
-               !isDirectory.boolValue {
-                let contents = try String(contentsOf: commandURL, encoding: .utf8)
-                guard contents.contains(systemSSHPath) else {
-                    throw NSError(
-                        domain: "SSHConfiguredRemoteCommandHostTests",
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Generated startup script did not pin \(systemSSHPath)"]
-                    )
-                }
-                let rewrittenURL = root.appendingPathComponent("startup-with-fake-ssh.sh")
-                try contents
-                    .replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
-                    .write(to: rewrittenURL, atomically: true, encoding: .utf8)
-                try FileManager.default.setAttributes(
-                    [.posixPermissions: 0o700],
-                    ofItemAtPath: rewrittenURL.path
-                )
-                return rewrittenURL.path
-            }
-
-            guard startupCommand.contains(systemSSHPath) else {
-                let encodedPrefix = "(printf %s "
-                let encodedSuffix = " | base64"
-                if let prefixRange = startupCommand.range(of: encodedPrefix),
-                   let suffixRange = startupCommand.range(
-                       of: encodedSuffix,
-                       range: prefixRange.upperBound..<startupCommand.endIndex
-                   ) {
-                    let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-                    let encodedScript = String(startupCommand[encodedRange])
-                    if let scriptData = Data(base64Encoded: encodedScript),
-                       let script = String(data: scriptData, encoding: .utf8),
-                       script.contains(systemSSHPath) {
-                        let rewrittenScript = script.replacingOccurrences(
-                            of: systemSSHPath,
-                            with: fakeSSHPath
-                        )
-                        var rewrittenCommand = startupCommand
-                        rewrittenCommand.replaceSubrange(
-                            encodedRange,
-                            with: Data(rewrittenScript.utf8).base64EncodedString()
-                        )
-                        return rewrittenCommand
-                    }
-                }
-                throw NSError(
-                    domain: "SSHConfiguredRemoteCommandHostTests",
-                    code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "Generated startup command did not pin \(systemSSHPath)"]
-                )
-            }
-            return startupCommand.replacingOccurrences(of: systemSSHPath, with: fakeSSHPath)
+            return try SSHStartupCommandTestSupport.replacingSystemSSH(
+                in: startupCommand,
+                with: fakeSSHPath
+            )
         }
 
         func recordedSSHEvents() -> [String] {
