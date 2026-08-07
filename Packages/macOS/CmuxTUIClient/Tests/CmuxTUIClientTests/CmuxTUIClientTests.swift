@@ -129,6 +129,23 @@ struct CmuxTUIClientTests {
         #expect(source.remainingEventCount == 0)
     }
 
+    @Test("Render drains preserve a valid prefix before reporting incompatibility")
+    func renderDrainPreservesValidPrefixBeforeFailure() {
+        let source = RenderEventSource([
+            .init(kind: CmuxTUIRenderEvent.Kind.ready.rawValue, payload: Data()),
+            .init(kind: 999, payload: Data([1, 2, 3])),
+        ])
+        var receivedKinds: [CmuxTUIRenderEvent.Kind] = []
+
+        do {
+            receivedKinds = try drainCmuxTUIRenderEventBatch(
+                copyNext: source.copyNext
+            ).events.map(\.kind)
+        } catch {}
+
+        #expect(receivedKinds == [.ready])
+    }
+
     @Test("A reset ends its render batch before later output is consumed")
     func resetEndsRenderBatch() throws {
         let source = RenderEventSource([
