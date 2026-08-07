@@ -33,7 +33,10 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxSwiftRenderUITests",
-            dependencies: ["CmuxSwiftRenderUI"]
+            dependencies: [
+                "CmuxSwiftRenderUI",
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+            ]
         ),
     ]
 )
