@@ -339,6 +339,30 @@ struct HermesFirstClassSupportTests {
         #expect(config.contains("CMUX_SOCKET_PATH"))
     }
 
+    @Test("Hermes hook install reports directory creation failures accurately")
+    func hookInstallReportsDirectoryCreationFailure() throws {
+        let root = try temporaryDirectory(prefix: "cmux-hermes-hooks-create-failure")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: HermesFirstClassBundleToken.self)
+        let blockedHermesHome = "/dev/null/cmux-hermes-hooks-\(UUID().uuidString)"
+
+        let result = try runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "hermes-agent", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "HERMES_HOME": blockedHermesHome,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+        )
+
+        #expect(result.status != 0)
+        #expect(result.output.contains("could not create the hooks directory at \(blockedHermesHome)"))
+        #expect(result.output.contains("Check the parent directory permissions and try again."))
+        #expect(!result.output.contains("conflicting file"))
+    }
+
     @Test("Hook setup skips an unroutable pinned agent and continues with ambient agents")
     func hookSetupContinuesAfterPinnedTargetFailure() throws {
         let root = try temporaryDirectory(prefix: "cmux-hermes-hooks-setup")
@@ -368,7 +392,9 @@ struct HermesFirstClassSupportTests {
 
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(result.output.contains("grok"))
-        #expect(result.output.contains("target socket"))
+        #expect(result.output.contains("Open a cmux workspace and run this command again."))
+        #expect(!result.output.contains("CMUX_SOCKET_PATH"))
+        #expect(!result.output.contains("CMUX_TAG"))
         #expect(result.output.contains("hermes-agent:"))
         #expect(FileManager.default.fileExists(
             atPath: hermesHome.appendingPathComponent("config.yaml", isDirectory: false).path

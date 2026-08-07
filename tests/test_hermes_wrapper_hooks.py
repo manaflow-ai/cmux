@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import os
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -29,7 +30,8 @@ class WrapperResult:
     real_path: str
     working_directory: str
     socket_path: str
-    elapsed_seconds: float
+    installer_started: bool
+    launch_observed: bool
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -64,7 +66,7 @@ def run_wrapper(
     in_cmux: bool = True,
     hooks_disabled: bool = False,
     installer_exit_code: int = 0,
-    installer_delay_seconds: float = 0,
+    installer_blocks: bool = False,
     installer_timeout_seconds: float = 1,
     cli_available: bool = True,
 ) -> WrapperResult:
@@ -92,6 +94,10 @@ def run_wrapper(
         real_env_log = tmp / "real-env.log"
         cmux_calls_log = tmp / "cmux-calls.log"
         cmux_env_log = tmp / "cmux-env.log"
+        installer_started_log = tmp / "installer-started.log"
+        installer_gate = tmp / "installer-gate"
+        if installer_blocks:
+            os.mkfifo(installer_gate)
 
         real_hermes = real_dir / "hermes"
         make_executable(
@@ -131,7 +137,10 @@ printf '%s\\0' "$@" >> "$FAKE_CMUX_CALLS_LOG"
   printf 'CMUX_SOCKET_PATH=%s\\n' "${CMUX_SOCKET_PATH-__UNSET__}"
   printf 'HERMES_HOME=%s\\n' "${HERMES_HOME-__UNSET__}"
 } > "$FAKE_CMUX_ENV_LOG"
-sleep "${FAKE_INSTALLER_DELAY_SECONDS:-0}"
+if [[ -n "${FAKE_INSTALLER_GATE:-}" ]]; then
+  : > "$FAKE_INSTALLER_STARTED_LOG"
+  IFS= read -r _ < "$FAKE_INSTALLER_GATE"
+fi
 exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
 """,
             )
@@ -149,7 +158,11 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         env["FAKE_CMUX_CALLS_LOG"] = str(cmux_calls_log)
         env["FAKE_CMUX_ENV_LOG"] = str(cmux_env_log)
         env["FAKE_INSTALLER_EXIT_CODE"] = str(installer_exit_code)
-        env["FAKE_INSTALLER_DELAY_SECONDS"] = str(installer_delay_seconds)
+        env["FAKE_INSTALLER_STARTED_LOG"] = str(installer_started_log)
+        if installer_blocks:
+            env["FAKE_INSTALLER_GATE"] = str(installer_gate)
+        else:
+            env.pop("FAKE_INSTALLER_GATE", None)
         env["CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS"] = str(installer_timeout_seconds)
         if in_cmux:
             env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
@@ -163,16 +176,35 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         else:
             env.pop("CMUX_HERMES_AGENT_HOOKS_DISABLED", None)
 
-        started_at = time.monotonic()
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [str(wrapper), *argv],
             cwd=tmp,
             env=env,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            check=False,
+            start_new_session=True,
         )
-        elapsed_seconds = time.monotonic() - started_at
+        deadline = time.monotonic() + 5
+        launch_observed = not installer_blocks
+        if installer_blocks:
+            while time.monotonic() < deadline:
+                if real_args_log.exists():
+                    launch_observed = True
+                    break
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.01)
+
+        deadline_exceeded = False
+        try:
+            _, stderr = proc.communicate(timeout=max(0.01, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            deadline_exceeded = True
+            os.killpg(proc.pid, signal.SIGKILL)
+            _, stderr = proc.communicate()
+        if deadline_exceeded:
+            stderr = f"{stderr.strip()}\nwrapper execution deadline exceeded".strip()
 
         return WrapperResult(
             returncode=proc.returncode,
@@ -180,11 +212,12 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             real_environment=read_environment(real_env_log) if real_env_log.exists() else {},
             cmux_calls=read_calls(cmux_calls_log),
             cmux_environment=read_environment(cmux_env_log) if cmux_env_log.exists() else {},
-            stderr=proc.stderr.strip(),
+            stderr=stderr.strip(),
             real_path=str(real_hermes),
             working_directory=os.path.realpath(tmp),
             socket_path=socket_path,
-            elapsed_seconds=elapsed_seconds,
+            installer_started=installer_started_log.exists(),
+            launch_observed=launch_observed,
         )
 
 
@@ -290,16 +323,27 @@ def test_installer_failures_never_block_hermes(failures: list[str]) -> None:
 def test_stalled_installer_is_bounded(failures: list[str]) -> None:
     result = run_wrapper(
         ["--continue"],
-        installer_delay_seconds=4,
-        installer_timeout_seconds=0.1,
+        installer_blocks=True,
+        installer_timeout_seconds=1,
     )
     expect(result.returncode == 0, f"stalled installer: wrapper exited {result.returncode}: {result.stderr}", failures)
+    expect(result.installer_started, "stalled installer: fake installer did not start", failures)
+    expect(result.launch_observed, "stalled installer: Hermes launch signal was not observed", failures)
     expect(result.real_argv == ["--continue"], f"stalled installer: argv changed: {result.real_argv}", failures)
-    expect(
-        result.elapsed_seconds < 2,
-        f"stalled installer delayed Hermes startup for {result.elapsed_seconds:.2f}s",
-        failures,
-    )
+
+
+def test_non_positive_installer_timeout_skips_setup(failures: list[str]) -> None:
+    for timeout in (0, 0.0):
+        result = run_wrapper(
+            ["--continue"],
+            installer_blocks=True,
+            installer_timeout_seconds=timeout,
+        )
+        label = f"installer timeout {timeout!r}"
+        expect(result.returncode == 0, f"{label}: wrapper exited {result.returncode}: {result.stderr}", failures)
+        expect(result.launch_observed, f"{label}: Hermes launch signal was not observed", failures)
+        expect(result.real_argv == ["--continue"], f"{label}: argv changed: {result.real_argv}", failures)
+        expect(result.cmux_calls == [], f"{label}: installer should have been skipped: {result.cmux_calls}", failures)
 
 
 def main() -> int:
@@ -312,6 +356,7 @@ def main() -> int:
         test_opt_out_and_non_cmux_launches_bypass_install(failures)
         test_installer_failures_never_block_hermes(failures)
         test_stalled_installer_is_bounded(failures)
+        test_non_positive_installer_timeout_skips_setup(failures)
 
     if failures:
         print("FAIL: Hermes session launches do not reliably activate cmux hooks")
