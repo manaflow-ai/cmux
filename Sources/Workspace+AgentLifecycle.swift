@@ -294,10 +294,10 @@ extension Workspace {
             key: key,
             panelId: targetPanelId,
             lifecycle: lifecycle,
-            isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(key),
+            isBuiltIn: AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed,
             processGeneration: processGeneration
         )
-        if accepted, !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+        if accepted, !AgentHibernationLifecycleStatusKeys(rawValue: key).isManual {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
     }
@@ -311,7 +311,7 @@ extension Workspace {
         let token = sidebarAgentRuntimeObservation.beginAgentFeedAttention(
             key: key,
             panelId: panelId,
-            isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(key),
+            isBuiltIn: AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed,
             processGeneration: processGeneration
         )
         if token != nil {
@@ -350,7 +350,7 @@ extension Workspace {
             .recordUnidentifiedAgentProcessExit(
                 key: key,
                 panelId: targetPanelId,
-                isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(key)
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed
             )
         if recorded {
             recordAgentLifecycleChange(panelId: targetPanelId)
@@ -361,7 +361,7 @@ extension Workspace {
     @discardableResult
     func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
         var didClear = false
-        let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys.isManualKey(key)
+        let recordsHibernationActivity = !AgentHibernationLifecycleStatusKeys(rawValue: key).isManual
         let panelIds = panelId.map { [$0] } ?? Array(
             Set(agentLifecycleStatesByPanelId.keys)
                 .union(
@@ -394,7 +394,9 @@ extension Workspace {
         guard sidebarAgentRuntimeObservation.removeAgentLifecyclePanel(panelId) else {
             return
         }
-        let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+        let manualStates = removed.filter {
+            AgentHibernationLifecycleStatusKeys(rawValue: $0.key).isManual
+        }
         if !manualStates.isEmpty {
             let host: UUID? = if panels[panelId] != nil {
                 panelId
@@ -437,7 +439,9 @@ extension Workspace {
         fallback: AgentHibernationLifecycleState?
     ) -> AgentHibernationLifecycleState {
         let states = (agentLifecycleStatesByPanelId[panelId] ?? [:])
-            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .filter {
+                !AgentHibernationLifecycleStatusKeys(rawValue: $0.key).isManual
+            }
             .map(\.value)
         guard !states.isEmpty else {
             return fallback ?? .unknown

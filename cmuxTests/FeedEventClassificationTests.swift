@@ -120,15 +120,17 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "AskUserQuestion").actionable == true)
     }
 
-    /// Codex pre-tool telemetry stays non-blocking, but a dedicated
-    /// `PermissionRequest` must never be swallowed. Once Codex says it is
-    /// waiting for permission, Feed owns surfacing that wait consistently.
-    @Test func codexDedicatedPermissionRequestIsActionable() {
+    /// Codex's native reviewer owns approval, including PermissionRequest
+    /// spellings that arrive on the Feed telemetry path.
+    @Test func codexPermissionRequestsRemainTelemetry() {
         #expect(classify("codex", "PreToolUse", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").actionable == false)
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PermissionRequest")
-        #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == true)
+        for event in ["PermissionRequest", "permissionRequest", "permission_request"] {
+            let classification = classify("codex", event, tool: "shell")
+            #expect(classification.name == "PreToolUse")
+            #expect(classification.actionable == false)
+        }
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {
@@ -180,7 +182,7 @@ struct FeedEventClassificationTests {
     }
 
     @Test func cursorNativeApprovalLogDistinguishesPromptFromAutoApproval() {
-        let requested = CursorNativeApprovalLogClassifier.classify(
+        let requested = AgentNativeApprovalLogDecision.classify(
             line: """
             {"msg":"Shell permissions: requesting shell approval","toolCallId":"call-1"}
             """,
@@ -188,7 +190,7 @@ struct FeedEventClassificationTests {
         )
         #expect(requested == .approvalRequested(toolCallId: "call-1"))
 
-        let autoApproved = CursorNativeApprovalLogClassifier.classify(
+        let autoApproved = AgentNativeApprovalLogDecision.classify(
             line: """
             {"msg":"Shell permissions: auto-approved shell command","toolCallId":"call-2"}
             """,
@@ -196,7 +198,7 @@ struct FeedEventClassificationTests {
         )
         #expect(autoApproved == .autoApproved(toolCallId: "call-2"))
         #expect(
-            CursorNativeApprovalLogClassifier.classify(
+            AgentNativeApprovalLogDecision.classify(
                 line: """
                 {"msg":"Shell permissions: requesting shell approval","toolCallId":"other-call"}
                 """,
@@ -204,14 +206,14 @@ struct FeedEventClassificationTests {
             ) == nil
         )
         #expect(
-            CursorNativeApprovalLogClassifier.classify(
+            AgentNativeApprovalLogDecision.classify(
                 line: """
                 {"msg":"running command","command":"printf 'Shell permissions: requesting shell approval'","toolCallId":"call-3"}
                 """
             ) == nil
         )
         #expect(
-            CursorNativeApprovalLogClassifier.classify(
+            AgentNativeApprovalLogDecision.classify(
                 line: """
                 {"msg":"Shell permissions: requesting shell approval","command":"printf '\\\"toolCallId\\\":\\\"forged-call\\\"'","toolCallId":"real-call"}
                 """,
@@ -225,7 +227,7 @@ struct FeedEventClassificationTests {
     /// therefore actionable; only genuinely unknown third-party sources use
     /// the neutral telemetry fallback.
     @Test func everyBuiltInAgentHasMandatoryPermissionSemantics() {
-        for integration in BuiltInAgentIntegration.allCases {
+        for integration in BuiltInAgentIntegration.allCases where integration != .codex {
             let source = integration.feedSourceName
             let permission = classify(
                 source,
@@ -284,6 +286,13 @@ struct FeedEventClassificationTests {
         #expect(
             classify("cursor", "PreToolUse", tool: "Bash").actionable
                 == false
+        )
+    }
+
+    @Test func codexUsesItsNativeApprovalReviewer() {
+        #expect(
+            BuiltInAgentIntegration.codex.approvalDetectionMechanism
+                == .nativeApprovalReviewer
         )
     }
 
@@ -351,7 +360,7 @@ struct FeedEventClassificationTests {
 @Suite("Shared agent turn settlement")
 struct AgentTurnSettlementTests {
     @Test func prematureAmpEndWithBackgroundWorkStaysRunning() {
-        let decision = AgentTurnSettlementReconciler.resolve(
+        let decision = AgentTurnSettlementReconciler().resolve(
             integration: .amp,
             evidence: AgentTurnSettlementEvidence(
                 boundary: .turnEnd,
@@ -364,7 +373,7 @@ struct AgentTurnSettlementTests {
     }
 
     @Test func settledAmpTurnWithNoBackgroundWorkCompletes() {
-        let decision = AgentTurnSettlementReconciler.resolve(
+        let decision = AgentTurnSettlementReconciler().resolve(
             integration: .amp,
             evidence: AgentTurnSettlementEvidence(
                 boundary: .settled,
@@ -377,7 +386,7 @@ struct AgentTurnSettlementTests {
     }
 
     @Test func ampTurnEndStillRequiresExplicitSettlementAfterWorkDrains() {
-        let decision = AgentTurnSettlementReconciler.resolve(
+        let decision = AgentTurnSettlementReconciler().resolve(
             integration: .amp,
             evidence: AgentTurnSettlementEvidence(
                 boundary: .turnEnd,
@@ -390,7 +399,7 @@ struct AgentTurnSettlementTests {
     }
 
     @Test func codexStopWithStructuredActiveSubagentStaysRunning() {
-        let decision = AgentTurnSettlementReconciler.resolve(
+        let decision = AgentTurnSettlementReconciler().resolve(
             integration: .codex,
             evidence: AgentTurnSettlementEvidence(
                 boundary: .turnEnd,
@@ -403,7 +412,7 @@ struct AgentTurnSettlementTests {
     }
 
     @Test func exitedProcessTerminatesWithoutFalseCompletion() {
-        let decision = AgentTurnSettlementReconciler.resolve(
+        let decision = AgentTurnSettlementReconciler().resolve(
             integration: .cursor,
             evidence: AgentTurnSettlementEvidence(
                 boundary: .turnEnd,
@@ -426,13 +435,13 @@ struct AgentTurnSettlementTests {
     }
 
     @Test func supersededEndCannotClearOrTerminateNewerTurn() {
-        let freshness = AgentTurnSettlementReconciler.classifyTurnFreshness(
+        let freshness = AgentTurnSettlementReconciler().classifyTurnFreshness(
             incomingTurnId: "turn-old",
             activeTurnIds: ["turn-new"],
             latestTurnId: "turn-new",
             terminalTurnIds: []
         )
-        let decision = AgentTurnSettlementReconciler.resolve(
+        let decision = AgentTurnSettlementReconciler().resolve(
             integration: .amp,
             evidence: AgentTurnSettlementEvidence(
                 boundary: .settled,
@@ -447,7 +456,7 @@ struct AgentTurnSettlementTests {
     }
 
     @Test func anonymousActiveDepthDoesNotMakeParentStopStale() {
-        let freshness = AgentTurnSettlementReconciler.classifyTurnFreshness(
+        let freshness = AgentTurnSettlementReconciler().classifyTurnFreshness(
             incomingTurnId: "parent-turn",
             activeTurnIds: [],
             activeTurnDepth: 1,

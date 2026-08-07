@@ -24,8 +24,10 @@ extension CMUXCLI {
         guard source.approvalDetectionMechanism
             == .nativePostPolicyObserver else {
             throw CLIError(
-                message:
-                    "\(source.feedSourceName) has no native approval observer"
+                message: String(
+                    localized: "agent_attention.observer_unavailable",
+                    defaultValue: "Native approval observer unavailable."
+                )
             )
         }
         guard let rawAction = commandArgs.first?.lowercased(),
@@ -36,7 +38,12 @@ extension CMUXCLI {
                   agentTurnPID: pid
               ),
               processIdentity.liveness == .live else {
-            throw CLIError(message: "Invalid native agent attention process")
+            throw CLIError(
+                message: String(
+                    localized: "agent_attention.invalid_process",
+                    defaultValue: "Invalid native approval observer process."
+                )
+            )
         }
 
         if action == .identify {
@@ -56,7 +63,10 @@ extension CMUXCLI {
                   let output = String(data: data, encoding: .utf8)
             else {
                 throw CLIError(
-                    message: "Invalid native attention identity request"
+                    message: String(
+                        localized: "agent_attention.invalid_identity_request",
+                        defaultValue: "Invalid native approval identity request."
+                    )
                 )
             }
             print(output)
@@ -78,7 +88,10 @@ extension CMUXCLI {
                 == expectedStartMicroseconds
         else {
             throw CLIError(
-                message: "Native agent attention process was replaced"
+                message: String(
+                    localized: "agent_attention.process_replaced",
+                    defaultValue: "Native approval observer process was replaced."
+                )
             )
         }
 
@@ -92,14 +105,35 @@ extension CMUXCLI {
         )
         let scopeId = Self.nativeAttentionOpaqueIdentifier(rawScopeId)
         if rawObservationId != nil, observationId == nil {
-            throw CLIError(message: "Invalid native attention observation id")
+            throw CLIError(
+                message: String(
+                    localized: "agent_attention.invalid_observation_id",
+                    defaultValue: "Invalid native approval observation identifier."
+                )
+            )
         }
         if rawScopeId != nil, scopeId == nil {
-            throw CLIError(message: "Invalid native attention scope id")
+            throw CLIError(
+                message: String(
+                    localized: "agent_attention.invalid_scope_id",
+                    defaultValue: "Invalid native approval scope identifier."
+                )
+            )
+        }
+        guard let sessionId = Self.nativeAttentionOpaqueIdentifier(
+            optionValue(commandArgs, name: "--session-id")
+        ) else {
+            throw CLIError(
+                message: String(
+                    localized: "agent_attention.invalid_session_id",
+                    defaultValue: "Invalid native approval session identifier."
+                )
+            )
         }
 
         var params: [String: Any] = [
             "source": source.feedSourceName,
+            "session_id": sessionId,
             "pid": processIdentity.pid,
             "pid_start_seconds": processIdentity.startSeconds,
             "pid_start_microseconds": processIdentity.startMicroseconds,
@@ -118,7 +152,10 @@ extension CMUXCLI {
                   let workspaceId = UUID(uuidString: workspaceIdValue)
             else {
                 throw CLIError(
-                    message: "Invalid native attention begin target"
+                    message: String(
+                        localized: "agent_attention.invalid_begin_target",
+                        defaultValue: "Invalid native approval begin target."
+                    )
                 )
             }
             params["observation_id"] = observationId
@@ -130,7 +167,10 @@ extension CMUXCLI {
             ) {
                 guard let surfaceId = UUID(uuidString: surfaceIdValue) else {
                     throw CLIError(
-                        message: "Invalid native attention surface id"
+                        message: String(
+                            localized: "agent_attention.invalid_surface_id",
+                            defaultValue: "Invalid native approval surface identifier."
+                        )
                     )
                 }
                 params["surface_id"] = surfaceId.uuidString
@@ -138,8 +178,10 @@ extension CMUXCLI {
         case .end:
             guard observationId != nil || scopeId != nil else {
                 throw CLIError(
-                    message:
-                        "Native attention end requires an observation or scope"
+                    message: String(
+                        localized: "agent_attention.missing_end_identifier",
+                        defaultValue: "Native approval end requires an observation or scope identifier."
+                    )
                 )
             }
             if let observationId {
@@ -210,6 +252,7 @@ extension CMUXCLI {
     static func nativeAttentionOpaqueIdentifier(
         _ value: String?
     ) -> String? {
-        AgentAttentionWireValidation.opaqueIdentifier(value)
+        guard let value else { return nil }
+        return AgentAttentionOpaqueIdentifier(rawValue: value)?.rawValue
     }
 }

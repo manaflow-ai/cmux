@@ -58,20 +58,6 @@ struct ClaudeHookParsedInput {
     let transcriptPath: String?
 }
 
-struct AgentDeferredTurnSettlement: Codable, Equatable, Sendable {
-    let id: UUID
-    let turnId: String?
-    let workspaceId: String?
-    let surfaceId: String?
-    let transcriptPath: String?
-    let lastAssistantMessage: String?
-}
-
-struct AgentStructuredBackgroundWorkUpdate: Equatable, Sendable {
-    let activeWorkCount: Int
-    let deferredSettlement: AgentDeferredTurnSettlement?
-}
-
 enum AgentHookRuntimeStatus: String, Codable {
     case running
     case idle
@@ -178,6 +164,12 @@ struct ClaudeHookSessionRecord: Codable {
     /// completing or blocking a newer turn in the same session.
     var deferredTurnSettlementsByTurn:
         [String: AgentDeferredTurnSettlement]? = nil
+    /// Turns whose active work exceeded the exact-id retention bound.
+    var backgroundWorkOverflowTurnKeys: [String]? = nil
+    /// Conservative marker for work on more turns than can be retained.
+    var hasBackgroundWorkTurnOverflow: Bool? = nil
+    /// Exact process generation that owns all structured-work state.
+    var backgroundWorkProcessGeneration: AgentPIDProcessIdentity? = nil
     var lastPromptTurnId: String?
     var terminalPromptTurnIds: [String]?
     var startedAt: TimeInterval
@@ -228,6 +220,9 @@ final class ClaudeHookSessionStore {
     private static let maxStateAgeSeconds: TimeInterval = 60 * 60 * 24 * 7
     private static let maxRememberedTerminalPromptTurnIds = 32
     private static let maxRememberedTerminalBackgroundWorkIdsPerTurn = 64
+    private static let maxStructuredBackgroundWorkIdBytes = 512
+    private static let maxActiveBackgroundWorkIdsPerTurn = 64
+    private static let maxStructuredBackgroundWorkTurns = 32
     private static let maxAutoNameRecentMessages = 24
     private static let maxAutoNameMessageCharacters = 1_000
 
@@ -271,18 +266,22 @@ final class ClaudeHookSessionStore {
         eventName: String,
         workId: String,
         turnId: String?,
+        processGeneration: AgentPIDProcessIdentity?,
         workspaceId: String,
         surfaceId: String,
         cwd: String?
     ) throws -> AgentStructuredBackgroundWorkUpdate {
         let normalizedSessionId = normalizeSessionId(sessionId)
-        guard !normalizedSessionId.isEmpty,
-              let normalizedWorkId = normalizeOptional(workId) else {
+        guard !normalizedSessionId.isEmpty else {
             return AgentStructuredBackgroundWorkUpdate(
                 activeWorkCount: 0,
                 deferredSettlement: nil
             )
         }
+        let normalizedWorkId = normalizeOptional(workId)
+        let workIdFitsBound = normalizedWorkId.map {
+            $0.utf8.count <= Self.maxStructuredBackgroundWorkIdBytes
+        } ?? false
         return try withLockedState { state in
             let now = Date.now.timeIntervalSince1970
             var record = makeSessionRecord(
@@ -296,8 +295,69 @@ final class ClaudeHookSessionStore {
                 record.cwd = cwd
             }
             let turnKey = structuredBackgroundWorkTurnKey(turnId)
+            let hasStructuredState = hasStructuredBackgroundWorkState(record)
+            if let owner = record.backgroundWorkProcessGeneration {
+                guard let processGeneration else {
+                    return AgentStructuredBackgroundWorkUpdate(
+                        activeWorkCount: max(
+                            1,
+                            structuredBackgroundWorkCount(
+                                record,
+                                turnKey: turnKey
+                            )
+                        ),
+                        deferredSettlement: nil
+                    )
+                }
+                if processGeneration != owner {
+                    guard processGeneration > owner else {
+                        return AgentStructuredBackgroundWorkUpdate(
+                            activeWorkCount: max(
+                                1,
+                                structuredBackgroundWorkCount(
+                                    record,
+                                    turnKey: turnKey
+                                )
+                            ),
+                            deferredSettlement: nil
+                        )
+                    }
+                    clearStructuredBackgroundWorkState(on: &record)
+                    record.backgroundWorkProcessGeneration = processGeneration
+                }
+            } else if hasStructuredState {
+                guard let processGeneration else {
+                    record.hasBackgroundWorkTurnOverflow = true
+                    record.updatedAt = now
+                    state.sessions[normalizedSessionId] = record
+                    return AgentStructuredBackgroundWorkUpdate(
+                        activeWorkCount: 1,
+                        deferredSettlement: nil
+                    )
+                }
+                record.backgroundWorkProcessGeneration = processGeneration
+            } else {
+                record.backgroundWorkProcessGeneration = processGeneration
+            }
+
             var activeWorkIdsByTurn =
                 record.activeBackgroundWorkIdsByTurn ?? [:]
+            var deferredSettlementsByTurn =
+                record.deferredTurnSettlementsByTurn ?? [:]
+            let knownTurnKeys = Set(activeWorkIdsByTurn.keys)
+                .union(deferredSettlementsByTurn.keys)
+                .union(record.backgroundWorkOverflowTurnKeys ?? [])
+            if !knownTurnKeys.contains(turnKey),
+               knownTurnKeys.count
+                >= Self.maxStructuredBackgroundWorkTurns {
+                record.hasBackgroundWorkTurnOverflow = true
+                record.updatedAt = now
+                state.sessions[normalizedSessionId] = record
+                return AgentStructuredBackgroundWorkUpdate(
+                    activeWorkCount: 1,
+                    deferredSettlement: nil
+                )
+            }
             var activeWorkIds = Set(
                 (activeWorkIdsByTurn[turnKey] ?? []).compactMap {
                     normalizeOptional($0)
@@ -307,21 +367,39 @@ final class ClaudeHookSessionStore {
                 record.terminalBackgroundWorkIdsByTurn ?? [:]
             var terminalWorkIds = terminalWorkIdsByTurn[turnKey]?
                 .compactMap { normalizeOptional($0) } ?? []
+            var overflowTurnKeys = Set(
+                record.backgroundWorkOverflowTurnKeys ?? []
+            )
             let normalizedTurnId = normalizeOptional(turnId)
             let turnIsTerminal = normalizedTurnId.map { terminalTurnId in
                 terminalPromptTurnSet(from: record).contains(terminalTurnId)
             } ?? false
             switch eventName {
             case "SubagentStart":
-                if terminalWorkIds.contains(normalizedWorkId)
+                if let normalizedWorkId,
+                   terminalWorkIds.contains(normalizedWorkId)
                     || turnIsTerminal {
                     return AgentStructuredBackgroundWorkUpdate(
-                        activeWorkCount: activeWorkIds.count,
+                        activeWorkCount: structuredBackgroundWorkCount(
+                            record,
+                            turnKey: turnKey
+                        ),
                         deferredSettlement: nil
                     )
                 }
-                activeWorkIds.insert(normalizedWorkId)
+                if !workIdFitsBound
+                    || (!activeWorkIds.contains(normalizedWorkId ?? "")
+                        && activeWorkIds.count
+                            >= Self.maxActiveBackgroundWorkIdsPerTurn) {
+                    overflowTurnKeys.insert(turnKey)
+                } else if let normalizedWorkId {
+                    activeWorkIds.insert(normalizedWorkId)
+                }
             case "SubagentStop":
+                guard workIdFitsBound, let normalizedWorkId else {
+                    overflowTurnKeys.insert(turnKey)
+                    break
+                }
                 activeWorkIds.remove(normalizedWorkId)
                 terminalWorkIds.removeAll { $0 == normalizedWorkId }
                 terminalWorkIds.append(normalizedWorkId)
@@ -340,10 +418,15 @@ final class ClaudeHookSessionStore {
                     deferredSettlement: nil
                 )
             }
-            var deferredSettlementsByTurn =
-                record.deferredTurnSettlementsByTurn ?? [:]
             let deferredSettlement: AgentDeferredTurnSettlement?
-            if eventName == "SubagentStop", activeWorkIds.isEmpty {
+            let activeWorkCount = activeWorkIds.count
+                + (overflowTurnKeys.contains(turnKey) ? 1 : 0)
+            let conservativeActiveWorkCount = max(
+                activeWorkCount,
+                record.hasBackgroundWorkTurnOverflow == true ? 1 : 0
+            )
+            if eventName == "SubagentStop",
+               conservativeActiveWorkCount == 0 {
                 deferredSettlement =
                     deferredSettlementsByTurn.removeValue(forKey: turnKey)
             } else {
@@ -356,6 +439,8 @@ final class ClaudeHookSessionStore {
             }
             record.activeBackgroundWorkIdsByTurn =
                 activeWorkIdsByTurn.isEmpty ? nil : activeWorkIdsByTurn
+            record.backgroundWorkOverflowTurnKeys =
+                overflowTurnKeys.isEmpty ? nil : overflowTurnKeys.sorted()
             let retainedTerminalWorkTurnKeys = Set(
                 activeWorkIdsByTurn.keys
             )
@@ -378,7 +463,7 @@ final class ClaudeHookSessionStore {
             record.updatedAt = now
             state.sessions[normalizedSessionId] = record
             return AgentStructuredBackgroundWorkUpdate(
-                activeWorkCount: activeWorkIds.count,
+                activeWorkCount: conservativeActiveWorkCount,
                 deferredSettlement: deferredSettlement
             )
         }
@@ -392,29 +477,30 @@ final class ClaudeHookSessionStore {
         guard !normalizedSessionId.isEmpty else { return 0 }
         return try withLockedState { state in
             let turnKey = structuredBackgroundWorkTurnKey(turnId)
-            return Set(
-                (
-                    state.sessions[normalizedSessionId]?
-                        .activeBackgroundWorkIdsByTurn?[turnKey] ?? []
-                )
-                    .compactMap { normalizeOptional($0) }
-            ).count
+            guard let record = state.sessions[normalizedSessionId] else {
+                return 0
+            }
+            return structuredBackgroundWorkCount(record, turnKey: turnKey)
         }
     }
 
-    func clearStructuredBackgroundWork(sessionId: String) throws {
+    func clearStructuredBackgroundWork(
+        sessionId: String,
+        processGeneration: AgentPIDProcessIdentity
+    ) throws {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty else { return }
         try withLockedState { state in
             guard var record = state.sessions[normalizedSessionId],
+                  record.backgroundWorkProcessGeneration == processGeneration,
                   record.activeBackgroundWorkIdsByTurn != nil
                     || record.terminalBackgroundWorkIdsByTurn != nil
-                    || record.deferredTurnSettlementsByTurn != nil else {
+                    || record.deferredTurnSettlementsByTurn != nil
+                    || record.backgroundWorkOverflowTurnKeys != nil
+                    || record.hasBackgroundWorkTurnOverflow == true else {
                 return
             }
-            record.activeBackgroundWorkIdsByTurn = nil
-            record.terminalBackgroundWorkIdsByTurn = nil
-            record.deferredTurnSettlementsByTurn = nil
+            clearStructuredBackgroundWorkState(on: &record)
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
@@ -430,6 +516,7 @@ final class ClaudeHookSessionStore {
         surfaceId: String,
         cwd: String?,
         turnId: String?,
+        processGeneration: AgentPIDProcessIdentity?,
         transcriptPath: String?,
         lastAssistantMessage: String?
     ) throws -> Int {
@@ -445,16 +532,29 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             let turnKey = structuredBackgroundWorkTurnKey(turnId)
-            let activeWorkCount = Set(
-                (
-                    record.activeBackgroundWorkIdsByTurn?[turnKey]
-                        ?? []
-                ).compactMap { normalizeOptional($0) }
-            ).count
+            if let owner = record.backgroundWorkProcessGeneration,
+               processGeneration != owner {
+                return max(
+                    1,
+                    structuredBackgroundWorkCount(record, turnKey: turnKey)
+                )
+            }
+            let activeWorkCount = structuredBackgroundWorkCount(
+                record,
+                turnKey: turnKey
+            )
             guard activeWorkCount > 0 else { return 0 }
             let normalizedTurnId = normalizeOptional(turnId)
             var deferredSettlementsByTurn =
                 record.deferredTurnSettlementsByTurn ?? [:]
+            if deferredSettlementsByTurn[turnKey] == nil,
+               deferredSettlementsByTurn.count
+                >= Self.maxStructuredBackgroundWorkTurns {
+                record.hasBackgroundWorkTurnOverflow = true
+                record.updatedAt = now
+                state.sessions[normalizedSessionId] = record
+                return max(1, activeWorkCount)
+            }
             let existingId = deferredSettlementsByTurn[turnKey]?.id
             deferredSettlementsByTurn[turnKey] = AgentDeferredTurnSettlement(
                 id: existingId ?? UUID(),
@@ -466,6 +566,9 @@ final class ClaudeHookSessionStore {
                     normalizeOptional(lastAssistantMessage)
             )
             record.deferredTurnSettlementsByTurn = deferredSettlementsByTurn
+            if record.backgroundWorkProcessGeneration == nil {
+                record.backgroundWorkProcessGeneration = processGeneration
+            }
             if let cwd = normalizeOptional(cwd) {
                 record.cwd = cwd
             }
@@ -489,6 +592,12 @@ final class ClaudeHookSessionStore {
             var deferredSettlementsByTurn =
                 record.deferredTurnSettlementsByTurn ?? [:]
             guard deferredSettlementsByTurn[turnKey] == nil else { return }
+            guard deferredSettlementsByTurn.count
+                < Self.maxStructuredBackgroundWorkTurns else {
+                record.hasBackgroundWorkTurnOverflow = true
+                state.sessions[normalizedSessionId] = record
+                return
+            }
             deferredSettlementsByTurn[turnKey] = settlement
             record.deferredTurnSettlementsByTurn = deferredSettlementsByTurn
             record.updatedAt = Date.now.timeIntervalSince1970
@@ -659,9 +768,6 @@ final class ClaudeHookSessionStore {
             record.activePromptDepth = nil
             record.activePromptTurnId = nil
             record.activePromptTurnIds = nil
-            record.activeBackgroundWorkIdsByTurn = nil
-            record.terminalBackgroundWorkIdsByTurn = nil
-            record.deferredTurnSettlementsByTurn = nil
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
@@ -1052,7 +1158,24 @@ final class ClaudeHookSessionStore {
             let incomingPIDIdentity = pid.flatMap {
                 processStartIdentity(pid: $0)
             }
+            let incomingProcessGeneration = pid.flatMap { pid in
+                incomingPIDIdentity.map {
+                    AgentPIDProcessIdentity(
+                        pid: pid_t(pid),
+                        startSeconds: $0.seconds,
+                        startMicroseconds: $0.microseconds
+                    )
+                }
+            }
+            if let owner = record.backgroundWorkProcessGeneration,
+               let incomingProcessGeneration,
+               incomingProcessGeneration < owner {
+                return false
+            }
             let structuredWorkGenerationMatches: Bool = {
+                if let owner = record.backgroundWorkProcessGeneration {
+                    return incomingProcessGeneration == owner
+                }
                 // Feed can win the race with SessionStart and create the
                 // structured-work record before a PID is known.
                 guard let existingPID = record.pid else { return true }
@@ -1076,6 +1199,8 @@ final class ClaudeHookSessionStore {
                             ?? true
                     )
                     || !(record.deferredTurnSettlementsByTurn?.isEmpty ?? true)
+                    || !(record.backgroundWorkOverflowTurnKeys?.isEmpty ?? true)
+                    || record.hasBackgroundWorkTurnOverflow == true
             let preservesNewerStructuredWork =
                 hasNewerStructuredWork && structuredWorkGenerationMatches
             let activeBackgroundWorkIdsByTurn =
@@ -1084,6 +1209,12 @@ final class ClaudeHookSessionStore {
                 record.terminalBackgroundWorkIdsByTurn
             let deferredTurnSettlementsByTurn =
                 record.deferredTurnSettlementsByTurn
+            let backgroundWorkOverflowTurnKeys =
+                record.backgroundWorkOverflowTurnKeys
+            let hasBackgroundWorkTurnOverflow =
+                record.hasBackgroundWorkTurnOverflow
+            let backgroundWorkProcessGeneration =
+                record.backgroundWorkProcessGeneration
             clearCodexSessionStartTurnState(on: &record)
             if preservesNewerStructuredWork {
                 record.activeBackgroundWorkIdsByTurn =
@@ -1092,6 +1223,12 @@ final class ClaudeHookSessionStore {
                     terminalBackgroundWorkIdsByTurn
                 record.deferredTurnSettlementsByTurn =
                     deferredTurnSettlementsByTurn
+                record.backgroundWorkOverflowTurnKeys =
+                    backgroundWorkOverflowTurnKeys
+                record.hasBackgroundWorkTurnOverflow =
+                    hasBackgroundWorkTurnOverflow
+                record.backgroundWorkProcessGeneration =
+                    backgroundWorkProcessGeneration
             }
             update(
                 &record,
@@ -1328,9 +1465,7 @@ final class ClaudeHookSessionStore {
         record.activePromptDepth = nil
         record.activePromptTurnId = nil
         record.activePromptTurnIds = nil
-        record.activeBackgroundWorkIdsByTurn = nil
-        record.terminalBackgroundWorkIdsByTurn = nil
-        record.deferredTurnSettlementsByTurn = nil
+        clearStructuredBackgroundWorkState(on: &record)
         record.lastPromptTurnId = nil
     }
 
@@ -1948,6 +2083,45 @@ final class ClaudeHookSessionStore {
 
     private func structuredBackgroundWorkTurnKey(_ turnId: String?) -> String {
         normalizeOptional(turnId) ?? ""
+    }
+
+    private func hasStructuredBackgroundWorkState(
+        _ record: ClaudeHookSessionRecord
+    ) -> Bool {
+        !(record.activeBackgroundWorkIdsByTurn?.isEmpty ?? true)
+            || !(record.terminalBackgroundWorkIdsByTurn?.isEmpty ?? true)
+            || !(record.deferredTurnSettlementsByTurn?.isEmpty ?? true)
+            || !(record.backgroundWorkOverflowTurnKeys?.isEmpty ?? true)
+            || record.hasBackgroundWorkTurnOverflow == true
+    }
+
+    private func structuredBackgroundWorkCount(
+        _ record: ClaudeHookSessionRecord,
+        turnKey: String
+    ) -> Int {
+        let exactCount = Set(
+            (record.activeBackgroundWorkIdsByTurn?[turnKey] ?? [])
+                .compactMap { normalizeOptional($0) }
+        ).count
+        let turnOverflow = record.backgroundWorkOverflowTurnKeys?
+            .contains(turnKey) == true
+        let retainedTurnOverflow =
+            record.hasBackgroundWorkTurnOverflow == true
+        return max(
+            exactCount + (turnOverflow ? 1 : 0),
+            retainedTurnOverflow ? 1 : 0
+        )
+    }
+
+    private func clearStructuredBackgroundWorkState(
+        on record: inout ClaudeHookSessionRecord
+    ) {
+        record.activeBackgroundWorkIdsByTurn = nil
+        record.terminalBackgroundWorkIdsByTurn = nil
+        record.deferredTurnSettlementsByTurn = nil
+        record.backgroundWorkOverflowTurnKeys = nil
+        record.hasBackgroundWorkTurnOverflow = nil
+        record.backgroundWorkProcessGeneration = nil
     }
 }
 
@@ -27764,14 +27938,30 @@ struct CMUXCLI {
         if let socketPath = normalizedHookValue(socketPath) {
             processArguments += ["--socket", socketPath]
         }
+        var replayEnvironment = ProcessInfo.processInfo.environment
+        for key in [
+            "CMUX_SOCKET",
+            "CMUX_SOCKET_CAPABILITY",
+            "CMUX_SOCKET_PATH",
+            "CMUX_SOCKET_PASSWORD",
+            "CMUX_WORKSPACE_ID",
+            "CMUX_SURFACE_ID",
+            "CMUX_TAB_ID",
+            "CMUX_PANEL_ID",
+            "CMUXD_UNIX_PATH",
+            "CMUX_DEBUG_LOG",
+        ] {
+            replayEnvironment.removeValue(forKey: key)
+        }
         if let socketPassword = normalizedHookValue(socketPassword) {
-            processArguments += ["--password", socketPassword]
+            replayEnvironment["CMUX_SOCKET_PASSWORD"] = socketPassword
         }
         processArguments += ["hooks", "codex"] + replay.commandArguments
         let result = CLIProcessRunner.runProcess(
             executablePath: executablePath,
             arguments: processArguments,
             stdinText: replay.payload,
+            environment: replayEnvironment,
             // Codex gives Feed hooks five seconds. Leave time for a failed
             // replay to restore its claimed boundary before Codex kills the
             // parent hook process.
@@ -31427,6 +31617,7 @@ export default CMUXSessionRestore;
             concludeCursorNativeApprovalObservationIfNeeded(
                 subcommand: subcommand,
                 agentPID: inferredPID,
+                sessionId: sessionId,
                 client: client,
                 socketPassword: socketPassword
             )
@@ -31795,9 +31986,14 @@ export default CMUXSessionRestore;
                         updateRuntimeStatus: !suppressVisibleMutations,
                         supersedesSameProcessSession: def.name == "omp"
                     )) ?? []
-                    try? store.clearStructuredBackgroundWork(
-                        sessionId: sessionId
-                    )
+                    if let processGeneration = AgentPIDProcessIdentity(
+                        agentTurnPID: pid
+                    ) {
+                        try? store.clearStructuredBackgroundWork(
+                            sessionId: sessionId,
+                            processGeneration: processGeneration
+                        )
+                    }
                     acceptedSessionStart = true
                 }
                 if !acceptedSessionStart {
@@ -32299,7 +32495,7 @@ export default CMUXSessionRestore;
                         : nil
             )
             let turnFreshness =
-                AgentTurnSettlementReconciler.classifyTurnFreshness(
+                AgentTurnSettlementReconciler().classifyTurnFreshness(
                     incomingTurnId: input.turnId,
                     activeTurnIds:
                         mapped?.activePromptTurnIds
@@ -32324,6 +32520,25 @@ export default CMUXSessionRestore;
                                 surfaceId: surfaceId,
                                 cwd: hookCwd ?? mapped?.cwd,
                                 turnId: input.turnId,
+                                processGeneration:
+                                    mapped?.pid == pid
+                                        ? mapped.flatMap { record in
+                                            guard let pid = record.pid,
+                                                  let seconds = record.pidStartSeconds,
+                                                  let microseconds = record.pidStartMicroseconds,
+                                                  pid > 0,
+                                                  pid <= Int(Int32.max) else {
+                                                return nil
+                                            }
+                                            return AgentPIDProcessIdentity(
+                                                pid: pid_t(pid),
+                                                startSeconds: seconds,
+                                                startMicroseconds: microseconds
+                                            )
+                                        }
+                                        : AgentPIDProcessIdentity(
+                                            agentTurnPID: pid
+                                        ),
                                 transcriptPath:
                                     input.transcriptPath
                                         ?? mapped?.transcriptPath,
@@ -32358,7 +32573,7 @@ export default CMUXSessionRestore;
                 payloadBackgroundWorkCount,
                 structuredBackgroundWorkCount
             )
-            let turnSettlementDecision = AgentTurnSettlementReconciler.resolve(
+            let turnSettlementDecision = AgentTurnSettlementReconciler().resolve(
                 integration: def.integration,
                 evidence: AgentTurnSettlementEvidence(
                     boundary: turnBoundary,
@@ -35434,6 +35649,9 @@ export default CMUXSessionRestore;
                                 "generation_id",
                                 "generationId",
                             ]
+                        ),
+                        processGeneration: AgentPIDProcessIdentity(
+                            agentTurnPID: agentPid
                         ),
                         workspaceId:
                             (eventDict["workspace_id"] as? String)

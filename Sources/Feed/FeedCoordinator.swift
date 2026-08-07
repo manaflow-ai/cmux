@@ -64,46 +64,13 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Main-actor isolated: read/written only from the `@MainActor` attention
     /// methods.
     @MainActor private var pendingAttentionStates:
-        [AttentionTarget: PendingAttentionState] = [:]
-
-    /// Identifies one attention overlay's sidebar evidence. The opaque token
-    /// prevents a late conclusion from a dead process generation from clearing
-    /// a newer decision after PID replacement or a panel move.
-    struct AttentionTarget: Hashable, Sendable {
-        let workspaceId: UUID
-        let panelId: UUID
-        let statusKey: String
-        let token: AgentFeedAttentionToken
-    }
-
-    private struct PendingAttentionState {
-        let fallbackWorkspace: Workspace
-        var processExitMonitorKey: String?
-    }
-
-    private struct ObservedAttentionKey: Hashable {
-        let source: String
-        let observationId: String
-        let processGeneration: AgentPIDProcessIdentity
-    }
-
-    private struct ObservedAttentionState {
-        let scopeId: String
-        let processGeneration: AgentPIDProcessIdentity
-        let target: AttentionTarget
-    }
-
-    private struct SurfacedAttention {
-        let target: AttentionTarget
-        let usesRemoteProcessNamespace: Bool
-        let processGeneration: AgentPIDProcessIdentity?
-    }
+        [FeedAttentionTarget: FeedPendingAttentionState] = [:]
 
     /// Native approvals observed after an agent's own policy evaluation. These
     /// are status-only: unlike blocking Feed requests, they expose no cmux
     /// approve/deny controls that cannot resolve the agent's native prompt.
     @MainActor private var observedAttentionStates:
-        [ObservedAttentionKey: ObservedAttentionState] = [:]
+        [FeedObservedAttentionKey: FeedObservedAttentionState] = [:]
     @MainActor private var observedAttentionConclusions =
         AgentObservedAttentionConclusionLedger()
     @MainActor private let attentionExitMonitor =
@@ -492,7 +459,7 @@ final class FeedCoordinator: @unchecked Sendable {
 
     /// Concludes an attention overlay (if any) on the main actor, hopping if
     /// called from the socket worker thread.
-    private func concludeAttentionOnMain(_ target: AttentionTarget?) {
+    private func concludeAttentionOnMain(_ target: FeedAttentionTarget?) {
         guard let target else { return }
         let conclude: @Sendable () -> Void = { [target] in
             MainActor.assumeIsolated {
@@ -651,7 +618,7 @@ extension FeedCoordinator {
     func surfaceBlockingDecisionAttention(
         event: WorkstreamEvent,
         resolved: (workspaceId: UUID, surfaceId: UUID?)?
-    ) -> AttentionTarget? {
+    ) -> FeedAttentionTarget? {
         guard Self.isBlockingDecisionEvent(event.hookEventName) else { return nil }
 
         #if DEBUG
@@ -706,6 +673,7 @@ extension FeedCoordinator {
     @MainActor
     func beginObservedAgentAttention(
         source: String,
+        sessionId: String,
         observationId: String,
         scopeId: String,
         workspaceId: UUID,
@@ -719,13 +687,15 @@ extension FeedCoordinator {
         else {
             return false
         }
-        let key = ObservedAttentionKey(
+        let key = FeedObservedAttentionKey(
             source: source,
+            sessionId: sessionId,
             observationId: observationId,
             processGeneration: processGeneration
         )
         guard !observedAttentionConclusions.contains(
             source: source,
+            sessionId: sessionId,
             observationId: observationId,
             scopeId: scopeId,
             processGeneration: processGeneration
@@ -742,7 +712,7 @@ extension FeedCoordinator {
         ) else {
             return false
         }
-        observedAttentionStates[key] = ObservedAttentionState(
+        observedAttentionStates[key] = FeedObservedAttentionState(
             scopeId: scopeId,
             processGeneration: processGeneration,
             target: surfaced.target
@@ -759,6 +729,7 @@ extension FeedCoordinator {
             ) { [weak self] _, generation in
                 _ = self?.endObservedAgentAttention(
                     source: source,
+                    sessionId: nil,
                     observationId: nil,
                     scopeId: nil,
                     processGeneration: generation,
@@ -776,12 +747,14 @@ extension FeedCoordinator {
     @discardableResult
     func endObservedAgentAttention(
         source: String,
+        sessionId: String,
         observationId: String?,
         scopeId: String?,
         processGeneration: AgentPIDProcessIdentity
     ) -> Int {
         endObservedAgentAttention(
             source: source,
+            sessionId: sessionId,
             observationId: observationId,
             scopeId: scopeId,
             processGeneration: processGeneration,
@@ -793,6 +766,7 @@ extension FeedCoordinator {
     @discardableResult
     private func endObservedAgentAttention(
         source: String,
+        sessionId: String?,
         observationId: String?,
         scopeId: String?,
         processGeneration: AgentPIDProcessIdentity,
@@ -807,6 +781,7 @@ extension FeedCoordinator {
             // native-state adapters.
             observedAttentionConclusions.record(
                 source: source,
+                sessionId: sessionId,
                 observationId: observationId,
                 scopeId: scopeId,
                 processGeneration: processGeneration
@@ -814,9 +789,10 @@ extension FeedCoordinator {
         }
         let matchingKeys = observedAttentionStates.compactMap {
             key,
-            state -> ObservedAttentionKey? in
+            state -> FeedObservedAttentionKey? in
             guard key.source == source,
                   state.processGeneration == processGeneration,
+                  processDidExit || key.sessionId == sessionId,
                   observationId == nil
                     || key.observationId == observationId,
                   scopeId == nil || state.scopeId == scopeId else {
@@ -862,7 +838,7 @@ extension FeedCoordinator {
         source: String,
         resolved: (workspaceId: UUID, surfaceId: UUID?),
         processGeneration: AgentPIDProcessIdentity? = nil
-    ) -> SurfacedAttention? {
+    ) -> FeedSurfacedAttention? {
         guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: resolved.workspaceId),
               let tab = tabManager.tabs.first(where: { $0.id == resolved.workspaceId })
         else {
@@ -907,26 +883,43 @@ extension FeedCoordinator {
         ) else {
             return nil
         }
-        let target = AttentionTarget(
+        let target = FeedAttentionTarget(
             workspaceId: resolved.workspaceId,
             panelId: panelId,
             statusKey: statusKey,
             token: token
         )
-        pendingAttentionStates[target] = PendingAttentionState(
+        let statusIsPanelScoped: Bool
+        switch owner {
+        case .dock:
+            statusIsPanelScoped = true
+        case .workspace:
+            statusIsPanelScoped = false
+        }
+        let statusEntry = pendingAttentionStates.first { pendingTarget, state in
+            guard pendingTarget.statusKey == statusKey,
+                  state.statusOwnerId == owner.id else {
+                return false
+            }
+            return !statusIsPanelScoped || pendingTarget.panelId == panelId
+        }?.value.statusEntry ?? SidebarStatusEntry(
+            key: statusKey,
+            value: Self.needsInputStatusValue,
+            icon: "bell.fill",
+            color: "#4C8DFF",
+            timestamp: Date()
+        )
+        pendingAttentionStates[target] = FeedPendingAttentionState(
             fallbackWorkspace: tab,
+            statusEntry: statusEntry,
+            statusOwnerId: owner.id,
+            statusIsPanelScoped: statusIsPanelScoped,
             processExitMonitorKey: nil
         )
 
         // Needs-input lifecycle drives the sidebar badge + hibernation state.
         owner.setStatusEntry(
-            SidebarStatusEntry(
-                key: statusKey,
-                value: Self.needsInputStatusValue,
-                icon: "bell.fill",
-                color: "#4C8DFF",
-                timestamp: Date()
-            ),
+            statusEntry,
             key: statusKey,
             panelId: panelId
         )
@@ -940,7 +933,7 @@ extension FeedCoordinator {
         // Ring the bell (dock bounce while the app is in the background).
         NSApp.requestUserAttention(.informationalRequest)
 
-        return SurfacedAttention(
+        return FeedSurfacedAttention(
             target: target,
             usesRemoteProcessNamespace: usesRemoteProcessNamespace,
             processGeneration: localProcessGeneration
@@ -955,7 +948,7 @@ extension FeedCoordinator {
     }
 
     private static func blockingAttentionProcessMonitorKey(
-        target: AttentionTarget
+        target: FeedAttentionTarget
     ) -> String {
         "blocking:\(target.token.id.uuidString.lowercased())"
     }
@@ -977,7 +970,7 @@ extension FeedCoordinator {
     /// Reconciliation reveals the latest hook/process lifecycle underneath;
     /// it never assumes that resolving an approval means work resumed.
     @MainActor
-    func concludeBlockingDecisionAttention(_ target: AttentionTarget) {
+    func concludeBlockingDecisionAttention(_ target: FeedAttentionTarget) {
         concludeBlockingDecisionAttention(
             target,
             processExitGeneration: nil
@@ -986,7 +979,7 @@ extension FeedCoordinator {
 
     @MainActor
     private func concludeBlockingDecisionAttention(
-        _ target: AttentionTarget,
+        _ target: FeedAttentionTarget,
         processExitGeneration: AgentPIDProcessIdentity?
     ) {
         guard let pendingState =
@@ -1023,27 +1016,22 @@ extension FeedCoordinator {
         // token may already be absent because a replacement generation
         // invalidated it; status cleanup must still run, while the reconciled
         // lifecycle and pending-target checks below protect newer evidence.
-        let ownerId = owner?.id ?? fallbackWorkspace.id
-        let statusIsPanelScoped: Bool
-        switch owner {
-        case .some(.dock(_)):
-            statusIsPanelScoped = true
-        case .some(.workspace(_)), .none:
-            statusIsPanelScoped = false
-        }
         let anotherPanelStillPending = pendingAttentionStates.keys.contains {
             guard $0.statusKey == target.statusKey else { return false }
-            let pendingOwner = TerminalController.shared
-                .controlSidebarResolvePanelOwner(
-                    target: .workspace($0.workspaceId),
-                    panelID: $0.panelId
-                )
-            guard (pendingOwner?.id ?? $0.workspaceId) == ownerId else {
+            guard pendingAttentionStates[$0]?.statusOwnerId
+                == pendingState.statusOwnerId else {
                 return false
             }
-            return !statusIsPanelScoped || $0.panelId == target.panelId
+            return !pendingState.statusIsPanelScoped
+                || $0.panelId == target.panelId
         }
         guard !anotherPanelStillPending else { return }
+        guard resolvedOwner.statusEntry(
+            key: target.statusKey,
+            panelId: target.panelId
+        ) == pendingState.statusEntry else {
+            return
+        }
         if let owner {
             guard owner.agentLifecycleState(
                 key: target.statusKey,
@@ -1107,93 +1095,6 @@ extension FeedCoordinator {
     }
 }
 
-/// Bounded tombstones make native attention begin/end delivery idempotent and
-/// order-independent. Observation and scope identifiers are opaque adapter
-/// correlations; the exact process generation prevents a reused numeric PID
-/// from inheriting an earlier conclusion.
-struct AgentObservedAttentionConclusionLedger {
-    private enum Key: Hashable {
-        case observation(
-            source: String,
-            id: String,
-            generation: AgentPIDProcessIdentity
-        )
-        case scope(
-            source: String,
-            id: String,
-            generation: AgentPIDProcessIdentity
-        )
-    }
-
-    private static let maximumCount = 4_096
-    private var keys: Set<Key> = []
-    private var insertionOrder: [Key] = []
-    private var insertionOrderHead = 0
-
-    mutating func record(
-        source: String,
-        observationId: String?,
-        scopeId: String?,
-        processGeneration: AgentPIDProcessIdentity
-    ) {
-        if let observationId {
-            insert(
-                .observation(
-                    source: source,
-                    id: observationId,
-                    generation: processGeneration
-                )
-            )
-        }
-        if let scopeId {
-            insert(
-                .scope(
-                    source: source,
-                    id: scopeId,
-                    generation: processGeneration
-                )
-            )
-        }
-    }
-
-    func contains(
-        source: String,
-        observationId: String,
-        scopeId: String,
-        processGeneration: AgentPIDProcessIdentity
-    ) -> Bool {
-        keys.contains(
-            .observation(
-                source: source,
-                id: observationId,
-                generation: processGeneration
-            )
-        ) || keys.contains(
-            .scope(
-                source: source,
-                id: scopeId,
-                generation: processGeneration
-            )
-        )
-    }
-
-    private mutating func insert(_ key: Key) {
-        guard keys.insert(key).inserted else { return }
-        insertionOrder.append(key)
-        while keys.count > Self.maximumCount,
-              insertionOrderHead < insertionOrder.count {
-            let expired = insertionOrder[insertionOrderHead]
-            insertionOrderHead += 1
-            keys.remove(expired)
-        }
-        if insertionOrderHead >= Self.maximumCount,
-           insertionOrderHead * 2 >= insertionOrder.count {
-            insertionOrder.removeFirst(insertionOrderHead)
-            insertionOrderHead = 0
-        }
-    }
-}
-
 private final class PendingWaiter: @unchecked Sendable {
     let semaphore: DispatchSemaphore
     var decision: WorkstreamDecision?
@@ -1202,7 +1103,7 @@ private final class PendingWaiter: @unchecked Sendable {
     /// reply can fire) and read when the decision concludes, so the
     /// needs-input overlay is cleared exactly once. Guarded by
     /// `FeedCoordinator.waiterLock`.
-    var attentionTarget: FeedCoordinator.AttentionTarget?
+    var attentionTarget: FeedAttentionTarget?
 
     init(semaphore: DispatchSemaphore) {
         self.semaphore = semaphore

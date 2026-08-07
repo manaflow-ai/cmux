@@ -10,7 +10,7 @@ import Testing
 @Suite("OMP support")
 struct OmpSupportTests {
     @Test func ompIsAllowedForAgentHibernationLifecycle() {
-        #expect(AgentHibernationLifecycleStatusKeys.isAllowed("omp"))
+        #expect(AgentHibernationLifecycleStatusKeys(rawValue: "omp").isAllowed)
     }
 
     @Test func textBoxDetectsOmpAsPiAlias() {

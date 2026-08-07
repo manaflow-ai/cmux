@@ -4283,6 +4283,210 @@
         }
       }
     },
+    "agent_attention.invalid_begin_target": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval begin target."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認開始の対象が無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_identity_request": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval identity request."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認の識別要求が無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_observation_id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval observation identifier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認の観測識別子が無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_observer_arguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval observer arguments."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認オブザーバーの引数が無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_parameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid agent attention parameters."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント注意要求のパラメータが無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_process": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval observer process."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認オブザーバーのプロセスが無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_scope_id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval scope identifier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認のスコープ識別子が無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_session_id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval session identifier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認のセッション識別子が無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.invalid_surface_id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid native approval surface identifier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認のサーフェス識別子が無効です。"
+          }
+        }
+      }
+    },
+    "agent_attention.missing_end_identifier": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native approval end requires an observation or scope identifier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認の終了には観測識別子またはスコープ識別子が必要です。"
+          }
+        }
+      }
+    },
+    "agent_attention.observer_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native approval observer unavailable."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認オブザーバーを利用できません。"
+          }
+        }
+      }
+    },
+    "agent_attention.process_replaced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native approval observer process was replaced."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ承認オブザーバーのプロセスが置き換えられました。"
+          }
+        }
+      }
+    },
     "agentSession.bridge.error.invalidProvider": {
       "extractionState": "manual",
       "localizations": {
@@ -232138,6 +232342,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "需要提供儲存庫路徑。"
+          }
+        }
+      }
+    },
+    "socket.help.agentLifecycle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--pid=N --pid-start-seconds=N --pid-start-microseconds=N] - Report generation-bound coding-agent lifecycle for hibernation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--pid=N --pid-start-seconds=N --pid-start-microseconds=N] - ハイバネーション向けにプロセス世代に紐づいたコーディングエージェントのライフサイクルを報告"
           }
         }
       }

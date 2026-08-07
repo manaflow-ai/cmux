@@ -5,23 +5,6 @@ import Foundation
 /// The current owner of panel-scoped sidebar and agent runtime mutations.
 @MainActor
 enum ControlSidebarPanelOwner {
-    struct AgentPIDRecordResult {
-        let accepted: Bool
-        let replacedOtherRuntime: Bool
-
-        static let rejected = Self(
-            accepted: false,
-            replacedOtherRuntime: false
-        )
-
-        static func accepted(replacedOtherRuntime: Bool) -> Self {
-            Self(
-                accepted: true,
-                replacedOtherRuntime: replacedOtherRuntime
-            )
-        }
-    }
-
     case workspace(Workspace)
     case dock(DockSplitStore)
 
@@ -106,7 +89,7 @@ enum ControlSidebarPanelOwner {
         key: String,
         pid: pid_t,
         panelId: UUID?
-    ) -> AgentPIDRecordResult {
+    ) -> ControlSidebarAgentPIDRecordResult {
         recordAgentPID(
             key: key,
             pid: pid,
@@ -123,7 +106,7 @@ enum ControlSidebarPanelOwner {
         pid: pid_t,
         panelId: UUID?,
         acceptedProcessIdentity: AgentPIDProcessIdentity?
-    ) -> AgentPIDRecordResult {
+    ) -> ControlSidebarAgentPIDRecordResult {
         if usesRemoteAgentProcessNamespace(panelId: panelId) {
             // Surface/workspace identity remains authoritative across a relay,
             // but the PID belongs to another kernel namespace. Accept the
@@ -134,8 +117,9 @@ enum ControlSidebarPanelOwner {
             forAgentPIDKey: key,
             panelId: panelId
         )
-        let isBuiltIn =
-            AgentHibernationLifecycleStatusKeys.isAllowed(statusKey)
+        let isBuiltIn = AgentHibernationLifecycleStatusKeys(
+            rawValue: statusKey
+        ).isAllowed
         guard let acceptedProcessIdentity,
               AgentPIDProcessIdentity(pid: pid)
                 == acceptedProcessIdentity else {

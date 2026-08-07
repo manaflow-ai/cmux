@@ -183,7 +183,12 @@ struct FeedEventClassifier {
         switch integration {
         case .codex:
             semantics.merge([
-                "permission_request": .approvalRequest,
+                // Codex's native reviewer owns permission decisions. Feed
+                // retains every spelling as telemetry so it cannot create a
+                // second, competing approval path.
+                "PermissionRequest": .toolStart,
+                "permissionRequest": .toolStart,
+                "permission_request": .toolStart,
                 "pre_tool_use": .toolStart,
                 "beforeShellExecution": .toolStart,
                 "post_tool_use": .toolEnd,
@@ -244,6 +249,8 @@ struct FeedEventClassifier {
         case .sideEffectingToolStartInference:
             (.toolStartMaybeApproval, .toolStartMaybeApproval)
         case .nativePostPolicyObserver:
+            (.toolStart, .toolStart)
+        case .nativeApprovalReviewer:
             (.toolStart, .toolStart)
         }
         return [
@@ -357,132 +364,5 @@ struct FeedEventClassifier {
             return kiroSideEffectingToolAliases.contains(toolName.lowercased())
         }
         return false
-    }
-}
-
-enum AgentNativeApprovalLogDecision: Equatable, Sendable {
-    case approvalRequested(toolCallId: String?)
-    case autoApproved(toolCallId: String?)
-}
-
-/// Pure classifier for Cursor's post-hook native shell-policy records.
-///
-/// Cursor's pre-policy hooks cannot truthfully say whether a prompt will be
-/// shown. Its own structured debug stream records exactly one of these
-/// decisions after `preToolUse` returns and includes the same tool-call id.
-/// Only the matching native "requesting" record may surface Needs Input.
-struct CursorNativeApprovalLogClassifier {
-    private static let requestingMarker =
-        "Shell permissions: requesting shell approval"
-    private static let autoApprovedMarker =
-        "Shell permissions: auto-approved shell command"
-
-    static func classify(
-        line: String,
-        expectedToolCallId: String? = nil
-    ) -> AgentNativeApprovalLogDecision? {
-        let isApprovalRequest: Bool
-        let toolCallId: String?
-        if let dictionary = decodedObject(in: line) {
-            let message = ["msg", "message"].compactMap {
-                dictionary[$0] as? String
-            }.first
-            if message == requestingMarker {
-                isApprovalRequest = true
-            } else if message == autoApprovedMarker {
-                isApprovalRequest = false
-            } else {
-                return nil
-            }
-            toolCallId = dictionary["toolCallId"] as? String
-        } else {
-            if containsPrefixedDecisionMessage(
-                requestingMarker,
-                in: line
-            ) {
-                isApprovalRequest = true
-            } else if containsPrefixedDecisionMessage(
-                autoApprovedMarker,
-                in: line
-            ) {
-                isApprovalRequest = false
-            } else {
-                return nil
-            }
-            toolCallId = jsonStringField("toolCallId", in: line)
-        }
-
-        guard let toolCallId, !toolCallId.isEmpty else {
-            return nil
-        }
-        if let expectedToolCallId,
-           toolCallId != expectedToolCallId {
-            return nil
-        }
-        return isApprovalRequest
-            ? .approvalRequested(toolCallId: toolCallId)
-            : .autoApproved(toolCallId: toolCallId)
-    }
-
-    private static func decodedObject(
-        in line: String
-    ) -> [String: Any]? {
-        guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data)
-        else {
-            return nil
-        }
-        return object as? [String: Any]
-    }
-
-    private static func containsPrefixedDecisionMessage(
-        _ expected: String,
-        in line: String
-    ) -> Bool {
-        // Older Cursor logger configurations prefix a human-readable timestamp
-        // and append the structured fields as JSON. Require the decision text
-        // to be the message immediately before that object, rather than merely
-        // appearing somewhere in a user-controlled command string.
-        guard let range = line.range(of: expected) else { return false }
-        return line[range.upperBound...]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .hasPrefix("{")
-    }
-
-    private static func jsonStringField(
-        _ key: String,
-        in line: String
-    ) -> String? {
-        let marker = "\"\(key)\""
-        guard let keyRange = line.range(of: marker) else { return nil }
-        var cursor = keyRange.upperBound
-        while cursor < line.endIndex, line[cursor].isWhitespace {
-            cursor = line.index(after: cursor)
-        }
-        guard cursor < line.endIndex, line[cursor] == ":" else { return nil }
-        cursor = line.index(after: cursor)
-        while cursor < line.endIndex, line[cursor].isWhitespace {
-            cursor = line.index(after: cursor)
-        }
-        guard cursor < line.endIndex, line[cursor] == "\"" else { return nil }
-        cursor = line.index(after: cursor)
-
-        var value = ""
-        var escaped = false
-        while cursor < line.endIndex {
-            let character = line[cursor]
-            cursor = line.index(after: cursor)
-            if escaped {
-                value.append(character)
-                escaped = false
-            } else if character == "\\" {
-                escaped = true
-            } else if character == "\"" {
-                return value.isEmpty ? nil : value
-            } else {
-                value.append(character)
-            }
-        }
-        return nil
     }
 }

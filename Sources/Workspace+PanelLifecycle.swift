@@ -73,7 +73,7 @@ extension Workspace {
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
         let lifecycleStates = (agentLifecycleStatesByPanelId[panelId] ?? [:]).filter {
-            !AgentHibernationLifecycleStatusKeys.isManualKey($0.key)
+            !AgentHibernationLifecycleStatusKeys(rawValue: $0.key).isManual
         }
         let reconciliationState =
             sidebarAgentRuntimeObservation
@@ -267,7 +267,9 @@ extension Workspace {
                 key: statusKey,
                 panelId: panelId,
                 generation: processIdentity,
-                isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(statusKey)
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: statusKey
+                ).isAllowed
             )
             sidebarAgentRuntimeObservation.observeAgentProcessExit(
                 key: key,
@@ -465,9 +467,9 @@ extension Workspace {
                     panelId: lifecyclePanelId,
                     generation: recordedProcessIdentity
                 )
-            } else if AgentHibernationLifecycleStatusKeys.isAllowed(
-                lifecycleStatusKey
-            ) {
+            } else if AgentHibernationLifecycleStatusKeys(
+                rawValue: lifecycleStatusKey
+            ).isAllowed {
                 didClearLifecycle = sidebarAgentRuntimeObservation
                     .recordUnidentifiedAgentProcessExit(
                         key: lifecycleStatusKey,
@@ -482,7 +484,9 @@ extension Workspace {
             }
             if didClearLifecycle {
                 didChange = true
-                if !AgentHibernationLifecycleStatusKeys.isManualKey(lifecycleStatusKey) {
+                if !AgentHibernationLifecycleStatusKeys(
+                    rawValue: lifecycleStatusKey
+                ).isManual {
                     AgentHibernationController.shared.recordAgentLifecycleChange(
                         workspaceId: id,
                         panelId: lifecyclePanelId

@@ -6,15 +6,9 @@ import Foundation
 /// actor. Callers still compare the generation before mutating owner state.
 @MainActor
 final class AgentProcessExitMonitor {
-    private struct Observation {
-        let generation: AgentPIDProcessIdentity
-        let source: DispatchSourceProcess
-        let onExit: @MainActor (String, AgentPIDProcessIdentity) -> Void
-    }
+    private var observationsByKey: [String: AgentProcessExitObservation] = [:]
 
-    private var observationsByKey: [String: Observation] = [:]
-
-    deinit {
+    isolated deinit {
         // Workspace and dock teardown cancel eagerly; this closes the final
         // ownership edge if an owner is released before its normal teardown.
         for observation in observationsByKey.values {
@@ -36,7 +30,7 @@ final class AgentProcessExitMonitor {
             eventMask: .exit,
             queue: .global(qos: .utility)
         )
-        observationsByKey[key] = Observation(
+        observationsByKey[key] = AgentProcessExitObservation(
             generation: generation,
             source: source,
             onExit: onExit

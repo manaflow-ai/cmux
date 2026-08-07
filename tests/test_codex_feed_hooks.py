@@ -922,6 +922,314 @@ def test_codex_subagent_stop_replays_deferred_turn_settlement(
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
+def test_structured_background_work_bounds_and_generation_owned_clear(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-structured-background-work-bounds.sock"
+    bounds_state_dir = root / "structured-background-work-bounds-state"
+    generation_state_dir = root / "structured-background-work-generation-state"
+    bounds_state_dir.mkdir()
+    generation_state_dir.mkdir()
+
+    bounds_session_id = f"structured-background-work-bounds-{os.getpid()}"
+    bounds_env = os.environ.copy()
+    bounds_env["CMUX_SOCKET_PATH"] = str(socket_path)
+    bounds_env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    bounds_env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    bounds_env["CMUX_AGENT_HOOK_STATE_DIR"] = str(bounds_state_dir)
+    bounds_env["CMUX_CODEX_PID"] = str(os.getpid())
+
+    def run_hook(
+        arguments: list[str],
+        payload: dict,
+        env: dict[str, str],
+    ) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    def record_work(
+        *,
+        source: str,
+        session_id: str,
+        turn_id: str,
+        work_id: str,
+        env: dict[str, str],
+    ) -> None:
+        run_hook(
+            [
+                "hooks",
+                "feed",
+                "--source",
+                source,
+                "--event",
+                "SubagentStart",
+            ],
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "cwd": str(root),
+                "hook_event_name": "SubagentStart",
+                "agent_id": work_id,
+            },
+            env,
+        )
+
+    def session_state(state_dir: Path, source: str, session_id: str) -> dict:
+        state = json.loads(
+            (state_dir / f"{source}-hook-sessions.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        return state["sessions"][session_id]
+
+    def wait_for_stop_delivery(fake: FakeCmuxSocket, index: int) -> None:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            for frame in fake.frames[index:]:
+                if frame.get("method") != "feed.push":
+                    continue
+                params = frame.get("params", {})
+                events = params.get("events")
+                candidates = (
+                    events
+                    if isinstance(events, list)
+                    else [params.get("event")]
+                )
+                if any(
+                    isinstance(event, dict)
+                    and event.get("hook_event_name") == "Stop"
+                    for event in candidates
+                ):
+                    return
+            time.sleep(0.05)
+        raise AssertionError(
+            "bounded structured-work Stop never reached Feed: "
+            f"{fake.frames[index:]!r}"
+        )
+
+    with FakeCmuxSocket(socket_path, None) as fake:
+        oversized_turn_id = "structured-work-oversized-id"
+        record_work(
+            source="codex",
+            session_id=bounds_session_id,
+            turn_id=oversized_turn_id,
+            work_id="x" * 513,
+            env=bounds_env,
+        )
+
+        active_id_turn = "structured-work-active-id-bound"
+        for index in range(65):
+            record_work(
+                source="codex",
+                session_id=bounds_session_id,
+                turn_id=active_id_turn,
+                work_id=f"bounded-work-{index:02d}",
+                env=bounds_env,
+            )
+
+        # The oversized-id and active-id turns already retain two of the 32
+        # bounded turn slots. Fill the other 30, then cross the turn bound.
+        for index in range(30):
+            record_work(
+                source="codex",
+                session_id=bounds_session_id,
+                turn_id=f"bounded-turn-{index:02d}",
+                work_id=f"bounded-turn-work-{index:02d}",
+                env=bounds_env,
+            )
+        unretained_turn_id = "structured-work-turn-overflow"
+        record_work(
+            source="codex",
+            session_id=bounds_session_id,
+            turn_id=unretained_turn_id,
+            work_id="unretained-turn-work",
+            env=bounds_env,
+        )
+
+        bounded_state = session_state(
+            bounds_state_dir,
+            "codex",
+            bounds_session_id,
+        )
+        active_by_turn = bounded_state.get(
+            "activeBackgroundWorkIdsByTurn",
+            {},
+        )
+        overflow_turn_keys = set(
+            bounded_state.get("backgroundWorkOverflowTurnKeys", [])
+        )
+        if len(active_by_turn.get(active_id_turn, [])) != 64:
+            raise AssertionError(
+                "Structured work retained more than 64 exact ids: "
+                f"{bounded_state!r}"
+            )
+        if oversized_turn_id not in overflow_turn_keys:
+            raise AssertionError(
+                "An oversized structured-work id did not fail closed: "
+                f"{bounded_state!r}"
+            )
+        if active_id_turn not in overflow_turn_keys:
+            raise AssertionError(
+                "The 65th structured-work id did not record overflow: "
+                f"{bounded_state!r}"
+            )
+        if bounded_state.get("hasBackgroundWorkTurnOverflow") is not True:
+            raise AssertionError(
+                "The 33rd structured-work turn did not fail closed: "
+                f"{bounded_state!r}"
+            )
+        if unretained_turn_id in active_by_turn:
+            raise AssertionError(
+                "Structured work retained a 33rd exact turn: "
+                f"{bounded_state!r}"
+            )
+
+        before_stop = len(fake.frames)
+        run_hook(
+            ["hooks", "codex", "stop"],
+            {
+                "session_id": bounds_session_id,
+                "turn_id": oversized_turn_id,
+                "cwd": str(root),
+            },
+            bounds_env,
+        )
+        wait_for_stop_delivery(fake, before_stop)
+        stop_commands = [
+            frame.get("raw", "")
+            for frame in fake.frames[before_stop:]
+            if "raw" in frame
+        ]
+        if any(
+            "set_agent_lifecycle codex idle" in command
+            or command.startswith("notify_target_async ")
+            for command in stop_commands
+        ):
+            raise AssertionError(
+                "Overflowing structured work allowed Stop to settle: "
+                f"{stop_commands!r}"
+            )
+        stopped_state = session_state(
+            bounds_state_dir,
+            "codex",
+            bounds_session_id,
+        )
+        if oversized_turn_id not in stopped_state.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "Overflowing structured work did not keep Stop provisional: "
+                f"{stopped_state!r}"
+            )
+
+        older_process = subprocess.Popen(["/bin/sleep", "30"])
+        time.sleep(0.02)
+        newer_process = subprocess.Popen(["/bin/sleep", "30"])
+        try:
+            generation_session_id = (
+                f"structured-background-work-generation-{os.getpid()}"
+            )
+            newer_env = os.environ.copy()
+            newer_env["CMUX_SOCKET_PATH"] = str(socket_path)
+            newer_env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+            newer_env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+            newer_env["CMUX_AGENT_HOOK_STATE_DIR"] = str(
+                generation_state_dir
+            )
+            newer_env["CMUX_GEMINI_PID"] = str(newer_process.pid)
+            record_work(
+                source="gemini",
+                session_id=generation_session_id,
+                turn_id="generation-owned-overflow",
+                work_id="y" * 513,
+                env=newer_env,
+            )
+            generation_state = session_state(
+                generation_state_dir,
+                "gemini",
+                generation_session_id,
+            )
+            owner = generation_state.get("backgroundWorkProcessGeneration")
+            if not isinstance(owner, dict) or owner.get("pid") != newer_process.pid:
+                raise AssertionError(
+                    "Structured-work overflow did not retain its process owner: "
+                    f"{generation_state!r}"
+                )
+
+            older_env = newer_env.copy()
+            older_env["CMUX_GEMINI_PID"] = str(older_process.pid)
+            session_start_payload = {
+                "session_id": generation_session_id,
+                "cwd": str(root),
+            }
+            run_hook(
+                ["hooks", "gemini", "session-start"],
+                session_start_payload,
+                older_env,
+            )
+            stale_clear_state = session_state(
+                generation_state_dir,
+                "gemini",
+                generation_session_id,
+            )
+            if "generation-owned-overflow" not in stale_clear_state.get(
+                "backgroundWorkOverflowTurnKeys",
+                [],
+            ):
+                raise AssertionError(
+                    "An older process generation cleared newer overflow: "
+                    f"{stale_clear_state!r}"
+                )
+
+            run_hook(
+                ["hooks", "gemini", "session-start"],
+                session_start_payload,
+                newer_env,
+            )
+            exact_clear_state = session_state(
+                generation_state_dir,
+                "gemini",
+                generation_session_id,
+            )
+            uncleared_fields = {
+                "activeBackgroundWorkIdsByTurn",
+                "terminalBackgroundWorkIdsByTurn",
+                "deferredTurnSettlementsByTurn",
+                "backgroundWorkOverflowTurnKeys",
+                "hasBackgroundWorkTurnOverflow",
+                "backgroundWorkProcessGeneration",
+            }.intersection(exact_clear_state)
+            if uncleared_fields:
+                raise AssertionError(
+                    "The owning process generation did not clear structured "
+                    f"work fields {sorted(uncleared_fields)!r}: "
+                    f"{exact_clear_state!r}"
+                )
+        finally:
+            for process in (older_process, newer_process):
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=3)
+
+
 def run_feed_hook_optional_frame(
     cli_path: str,
     socket_path: Path,
@@ -2644,6 +2952,15 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 "tool_input": {"command": "rm -rf build-output"},
                 "tool_use_id": "cursor-call-requested",
             }
+            # The detached observer starts from a bounded historical tail so a
+            # native decision written before the child is scheduled cannot be
+            # lost. Exact tool-call correlation prevents this record from
+            # satisfying any later observation.
+            append_native_decision(
+                "Shell permissions: requesting shell approval",
+                "cursor-call-requested",
+                command_padding=20 * 1024,
+            )
             requested_stdout = run_cursor_feed(
                 "preToolUse",
                 requested_payload,
@@ -2667,11 +2984,6 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                     f"Cursor shell telemetry was misclassified: {feed_frame!r}"
                 )
 
-            append_native_decision(
-                "Shell permissions: requesting shell approval",
-                "cursor-call-requested",
-                command_padding=20 * 1024,
-            )
             attention_begin = wait_for_method(
                 fake,
                 "agent.attention.begin",
@@ -2681,6 +2993,7 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
                 begin_params.get("source") != "cursor"
                 or begin_params.get("workspace_id") != FAKE_WORKSPACE_ID
                 or begin_params.get("surface_id") != FAKE_SURFACE_ID
+                or begin_params.get("session_id") != "cursor-session"
             ):
                 raise AssertionError(
                     "Cursor native prompt targeted the wrong owner: "
@@ -2704,6 +3017,8 @@ def test_cursor_native_approval_observer_surfaces_only_real_prompt(
             if (
                 attention_end.get("params", {}).get("observation_id")
                 != begin_params.get("observation_id")
+                or attention_end.get("params", {}).get("session_id")
+                != begin_params.get("session_id")
             ):
                 raise AssertionError(
                     "Cursor shell completion cleared a different observation: "
@@ -2844,10 +3159,6 @@ def test_cursor_native_approval_observer_rejects_oversized_pid(
             "hooks",
             "cursor",
             "__observe-native-approval",
-            "--log-path",
-            str(root / "cursor-agent-logs-oversized.log"),
-            "--offset",
-            "0",
             "--pid",
             str(2**31),
             "--pid-start-seconds",
@@ -2860,6 +3171,8 @@ def test_cursor_native_approval_observer_rejects_oversized_pid(
             "cursor-oversized-pid",
             "--workspace-id",
             FAKE_WORKSPACE_ID,
+            "--session-id",
+            "cursor-oversized-pid-session",
             "--expected-tool-call-id",
             "cursor-oversized-pid",
         ],
@@ -2874,7 +3187,7 @@ def test_cursor_native_approval_observer_rejects_oversized_pid(
             "Cursor native approval observer crashed or accepted an "
             f"oversized PID: returncode={result.returncode}"
         )
-    if "Invalid Cursor native approval observer arguments" not in result.stderr:
+    if "Invalid native approval observer arguments" not in result.stderr:
         raise AssertionError(
             "Cursor oversized PID did not follow normal CLI validation: "
             f"stderr={result.stderr!r}"
@@ -4892,6 +5205,10 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_subagent_stop_replays_deferred_turn_settlement(
+                cli_path,
+                root,
+            )
+            test_structured_background_work_bounds_and_generation_owned_clear(
                 cli_path,
                 root,
             )

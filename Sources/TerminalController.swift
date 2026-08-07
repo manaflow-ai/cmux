@@ -11106,6 +11106,15 @@ class TerminalController {
     }
 
     private func helpText() -> String {
+        let agentLifecycleHelp = String(
+            localized: "socket.help.agentLifecycle",
+            defaultValue:
+                "set_agent_lifecycle <key> "
+                + "<unknown|running|idle|needsInput> [--tab=X] "
+                + "[--panel=ID] [--pid=N --pid-start-seconds=N "
+                + "--pid-start-microseconds=N] - Report generation-bound "
+                + "coding-agent lifecycle for hibernation"
+        )
         var text = """
         Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
 
@@ -11150,7 +11159,7 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
-          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--pid=N --pid-start-seconds=N --pid-start-microseconds=N] - Report generation-bound coding-agent lifecycle for hibernation
+          \(agentLifecycleHelp)
           agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
@@ -13901,10 +13910,11 @@ class TerminalController {
         target: SidebarMutationTabTarget,
         panelId: UUID?
     ) -> Bool {
-        if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
+        if AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed {
             return true
         }
-        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key), let tab = resolveSidebarMutationTab(target),
+        guard !AgentHibernationLifecycleStatusKeys(rawValue: key).isManual,
+              let tab = resolveSidebarMutationTab(target),
               CmuxVaultAgentRegistration.isValidID(key) else {
             return false
         }
