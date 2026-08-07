@@ -83,17 +83,18 @@ final class SystemCommandRunner: SleepyCommandRunning, @unchecked Sendable {
     @discardableResult
     func lockScreen() async -> Bool {
         // The SAC call IPCs to loginwindow; keep it off the caller's actor
-        // like every other system effect here. The call's return code is not a
-        // documented contract, so a resolved symbol that was invoked counts as
-        // engaged; false means the mechanism itself is unavailable.
+        // like every other system effect here. It returns a status int
+        // (0 on success). Honor it: loginwindow can reject the request even
+        // when the symbol resolves, and for a security-labeled action a
+        // spurious failure warning is acceptable while a silent false
+        // "locked" is not.
         await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
             DispatchQueue.global(qos: .userInitiated).async {
                 guard let lockScreenImmediate = Self.lockScreenImmediate else {
                     continuation.resume(returning: false)
                     return
                 }
-                _ = lockScreenImmediate()
-                continuation.resume(returning: true)
+                continuation.resume(returning: lockScreenImmediate() == 0)
             }
         }
     }
