@@ -399,6 +399,7 @@ enum AgentResumeCommandBuilder {
             sessionId: sessionId,
             launchCommand: launchCommand,
             resolvedWorkingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            discardRecordedCwdOptions: false,
             registrationOverride: registrationOverride,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
             observedPermissionMode: observedPermissionMode
@@ -411,6 +412,7 @@ enum AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         resolvedWorkingDirectory: String?,
+        discardRecordedCwdOptions: Bool,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
         includeWorkingDirectoryPrefix: Bool = true,
         observedPermissionMode: String? = nil
@@ -444,6 +446,7 @@ enum AgentResumeCommandBuilder {
             workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            discardRecordedCwdOptions: discardRecordedCwdOptions,
             externalLauncher: externalLauncher,
             // A wrapper that re-execs the agent by name never receives the shim token below, so
             // keep the shim reachable on PATH or the wrapped agent resumes without cmux hooks.
@@ -488,7 +491,8 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            discardRecordedCwdOptions: false
         )
     }
 
@@ -499,6 +503,7 @@ enum AgentResumeCommandBuilder {
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
         includeWorkingDirectoryPrefix: Bool,
+        discardRecordedCwdOptions: Bool,
         externalLauncher: AgentExternalLauncher? = nil,
         wrappedAgentShimEnvironmentKey: String? = nil
     ) -> String {
@@ -517,14 +522,25 @@ enum AgentResumeCommandBuilder {
         // non-Vault kinds; only user-authored templates own their cwd flags.
         let usesStructuredResumeArguments = customRegistration == nil ||
             customRegistration?.registeredResumeKind != nil
-        let sanitizedAgentParts = usesStructuredResumeArguments
-            ? workingDirectoriesToRemove.reduce(argv) { parts, directory in
+        let sanitizedAgentParts: [String]
+        if !usesStructuredResumeArguments {
+            sanitizedAgentParts = argv
+        } else if discardRecordedCwdOptions {
+            // Exact remote selections trust no captured cwd value, including one
+            // that differs from the process working directory saved at launch.
+            sanitizedAgentParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: argv,
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            )
+        } else {
+            sanitizedAgentParts = workingDirectoriesToRemove.reduce(argv) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
                     workingDirectory: directory
                 )
             }
-            : argv
+        }
         let wrappedAgentParts = externalLauncher?.applyingResumePrefix(to: sanitizedAgentParts)
             ?? sanitizedAgentParts
 

@@ -237,14 +237,28 @@ public enum AgentLaunchSanitizer {
         }
         return false
     }
+
+    /// Removes captured cwd options before an argument boundary.
+    ///
+    /// - Parameters:
+    ///   - args: The captured command arguments to sanitize.
+    ///   - workingDirectory: The saved cwd whose matching options should be removed.
+    ///   - removeAllWorkingDirectoryOptions: Whether to remove every cwd option regardless of value.
+    /// - Returns: Sanitized arguments while preserving content after `--`.
     public static func removingSavedWorkingDirectoryOptions(
         from args: [String],
-        workingDirectory: String?
+        workingDirectory: String?,
+        removeAllWorkingDirectoryOptions: Bool = false
     ) -> [String] {
-        guard let workingDirectory = normalizedWorkingDirectory(workingDirectory) else {
+        let savedWorkingDirectory = normalizedWorkingDirectory(workingDirectory)
+        guard removeAllWorkingDirectoryOptions || savedWorkingDirectory != nil else {
             return args
         }
-
+        let shouldRemoveValue: (String) -> Bool = { value in
+            removeAllWorkingDirectoryOptions || savedWorkingDirectory.map {
+                workingDirectoryValue(value, matches: $0)
+            } == true
+        }
         let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var result: [String] = []
@@ -257,13 +271,13 @@ public enum AgentLaunchSanitizer {
             }
             if valueOptions.contains(arg),
                index + 1 < args.count,
-               workingDirectoryValue(args[index + 1], matches: workingDirectory) {
+               shouldRemoveValue(args[index + 1]) {
                 index += 2
                 continue
             }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
                 let value = String(arg.dropFirst(prefix.count))
-                if workingDirectoryValue(value, matches: workingDirectory) {
+                if shouldRemoveValue(value) {
                     index += 1
                     continue
                 }
