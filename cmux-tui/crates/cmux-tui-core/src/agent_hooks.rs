@@ -1093,6 +1093,55 @@ mod tests {
     }
 
     #[test]
+    fn native_agent_payload_redacts_secrets_and_live_capabilities() {
+        let ingress = agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            None,
+            json!({
+                "session_id":"pi-session-1",
+                "cwd":"/tmp/project",
+                "api_key":"sk-secret",
+                "authorization":"Bearer secret",
+                "ssh_private_key":"private",
+                "cmux_socket":"/tmp/cmux-debug.sock",
+                "nested":{
+                    "token":"token-value",
+                    "capability":"live-handle",
+                    "safe_value":"kept"
+                },
+                "items":[{"password":"pw","name":"tool"}]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(ingress.payload["normalized"]["agent_session_id"], "pi-session-1");
+        assert_eq!(ingress.payload["normalized"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["native"]["session_id"], "pi-session-1");
+        assert_eq!(ingress.payload["native"]["cwd"], "/tmp/project");
+        assert_eq!(ingress.payload["native"]["nested"]["safe_value"], "kept");
+        for path in [
+            &["api_key"][..],
+            &["authorization"][..],
+            &["ssh_private_key"][..],
+            &["cmux_socket"][..],
+            &["nested", "token"][..],
+            &["nested", "capability"][..],
+            &["items", "0", "password"][..],
+        ] {
+            let mut value = &ingress.payload["native"];
+            for segment in path {
+                value = if let Ok(index) = segment.parse::<usize>() {
+                    &value[index]
+                } else {
+                    &value[*segment]
+                };
+            }
+            assert_eq!(value, "[redacted]", "unredacted path {path:?}");
+        }
+    }
+
+    #[test]
     fn built_in_agent_ingress_is_immediately_appendable_and_idempotent() {
         let root = std::env::temp_dir().join(format!(
             "cmux-agent-hook-journal-{}-{}",

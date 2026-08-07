@@ -3513,6 +3513,59 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
 }
 
 #[test]
+fn agent_projection_is_derived_from_pi_journal_and_rebuildable() {
+    let root = temp_root("agent-pi-journal-projection");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
+        commit_terminal_topology(&mut registry, "agent-pi-journal-projection-seed");
+        let ingress = crate::agent_hook_journal_ingress(
+            "pi",
+            "agent_start",
+            Some(terminal_id.as_str()),
+            json!({
+                "context":{"session_id":"pi-real-session-1","cwd":"/tmp/project"},
+                "event":{"agent":{"id":"pi-worker-1"}}
+            }),
+        )
+        .unwrap();
+        let validated = crate::journal_kernel::ValidatedJournalIngress {
+            class: JournalClass::Observation,
+            replay: JournalReplayPolicy::Advisory,
+            sensitivity: JournalSensitivity::Sensitive,
+        };
+        let commit = registry
+            .append_journal_ingress(&ingress, &validated, "client_test", "pi_agent_start")
+            .unwrap();
+        assert!(!commit.replayed);
+
+        let agents = registry.public_projections().unwrap().agents;
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert_eq!(agents[0].state, "working");
+        assert_eq!(agents[0].source, "hook");
+        assert_eq!(agents[0].source_session.as_deref(), Some("pi-real-session-1"));
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+
+        registry.connection.execute("DELETE FROM resource_agent_projections", []).unwrap();
+        assert!(
+            registry.public_projections().unwrap().agents.is_empty(),
+            "test must prove the projection can be rebuilt from the journal"
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
+    let rebuilt = reopened.public_projections().unwrap().agents;
+    assert_eq!(rebuilt.len(), 1);
+    assert_eq!(rebuilt[0].terminal_id, terminal_id);
+    assert_eq!(rebuilt[0].state, "working");
+    assert_eq!(rebuilt[0].source, "hook");
+    assert_eq!(rebuilt[0].source_session.as_deref(), Some("pi-real-session-1"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 #[ignore = "manual release-mode journal writer throughput probe"]
 fn terminal_journal_writer_throughput_probe() {
     const BATCH_SIZE: usize = 1_024;
