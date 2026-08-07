@@ -22,8 +22,25 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     /// output event.
     var topologyGeneration: UInt64 { get }
 
-    /// Registers a live surface and records its focus placement.
-    func register(_ surface: any TerminalSurfacing)
+    /// Registers a live surface, its process generation, and its focus placement.
+    /// - Parameters:
+    ///   - surface: The surface model being registered.
+    ///   - terminalLifecycleID: The generation exported to its current child.
+    func register(
+        _ surface: any TerminalSurfacing,
+        terminalLifecycleID: UUID
+    )
+
+    /// Ends the surface's current process generation and returns the identity
+    /// to export to its next child runtime.
+    ///
+    /// Implementations update their validation state synchronously so delayed
+    /// telemetry from the retired child is rejected before this method returns.
+    /// - Parameter surface: The retained surface whose child is being replaced.
+    /// - Returns: The generation identity for the surface's next child runtime.
+    func advanceTerminalLifecycle(
+        for surface: any TerminalSurfacing
+    ) -> UUID
 
     /// Removes a surface; drops its focus placement when no other surface
     /// shares the same id.

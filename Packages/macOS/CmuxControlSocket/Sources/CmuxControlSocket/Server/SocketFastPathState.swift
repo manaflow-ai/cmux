@@ -20,13 +20,19 @@ public final class SocketFastPathState: Sendable {
     private struct SocketSurfaceKey: Hashable {
         let workspaceId: UUID
         let panelId: UUID
+    }
+
+    /// Last admitted process generation and state for one logical surface.
+    private struct ReportedShellActivity: Equatable {
         let terminalLifecycleID: UUID?
+        let state: String
     }
 
     // Lock carve-out: synchronous compare-and-set on the socket telemetry hot
     // path, called from non-async socket worker threads where an actor hop
     // would reorder racing reports.
-    private let lastReportedShellStates: OSAllocatedUnfairLock<[SocketSurfaceKey: String]>
+    private let lastReportedShellStates:
+        OSAllocatedUnfairLock<[SocketSurfaceKey: ReportedShellActivity]>
     private let maxTrackedShellStates: Int
 
     /// Creates an empty dedupe cache.
@@ -56,17 +62,24 @@ public final class SocketFastPathState: Sendable {
     ) -> Bool {
         let key = SocketSurfaceKey(
             workspaceId: workspaceId,
-            panelId: panelId,
-            terminalLifecycleID: terminalLifecycleID
+            panelId: panelId
+        )
+        let report = ReportedShellActivity(
+            terminalLifecycleID: terminalLifecycleID,
+            state: state
         )
         return lastReportedShellStates.withLock { lastReportedShellStates in
-            if lastReportedShellStates[key] == state {
+            if lastReportedShellStates[key] == report {
                 return false
             }
-            if lastReportedShellStates.count >= maxTrackedShellStates {
+            if lastReportedShellStates[key] == nil,
+               lastReportedShellStates.count >= maxTrackedShellStates {
                 lastReportedShellStates.removeAll(keepingCapacity: true)
             }
-            lastReportedShellStates[key] = state
+            // Keep one slot per logical surface. A replacement process has a
+            // different lifecycle identity, so its first report publishes and
+            // atomically overwrites the retired generation's dedupe state.
+            lastReportedShellStates[key] = report
             return true
         }
     }

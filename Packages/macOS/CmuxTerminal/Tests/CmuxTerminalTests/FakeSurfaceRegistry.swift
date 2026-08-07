@@ -7,7 +7,13 @@ final class FakeSurfaceRegistry: @unchecked Sendable, TerminalSurfaceRegistering
     private var runtimeSurfaceOwners: [UInt: UUID] = [:]
 
     var topologyGeneration: UInt64 { 0 }
-    func register(_ surface: any TerminalSurfacing) {}
+    func register(
+        _ surface: any TerminalSurfacing,
+        terminalLifecycleID: UUID
+    ) {}
+    func advanceTerminalLifecycle(
+        for surface: any TerminalSurfacing
+    ) -> UUID { UUID() }
     func unregister(_ surface: any TerminalSurfacing) {}
     func registerRuntimeSurface(_ surface: ghostty_surface_t, ownerId: UUID) {
         runtimeSurfaceOwners[UInt(bitPattern: surface)] = ownerId

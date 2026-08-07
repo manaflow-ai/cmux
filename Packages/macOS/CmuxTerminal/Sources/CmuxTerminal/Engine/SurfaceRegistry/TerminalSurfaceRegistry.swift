@@ -60,8 +60,14 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         lock.unlock()
     }
 
-    /// Registers a live surface and records its focus placement.
-    public func register(_ surface: any TerminalSurfacing) {
+    /// Registers a live surface, its process generation, and its focus placement.
+    /// - Parameters:
+    ///   - surface: The surface model being registered.
+    ///   - terminalLifecycleID: The generation exported to its current child.
+    public func register(
+        _ surface: any TerminalSurfacing,
+        terminalLifecycleID: UUID
+    ) {
         lock.lock()
         defer { lock.unlock() }
         surfaces.add(surface)
@@ -70,6 +76,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
                 incrementalTraversalNodes[identity],
            existingNode.isRegistered,
            existingNode.surface === surface {
+            existingNode.terminalLifecycleID = terminalLifecycleID
             currentSurfaceNodesByID[surface.id] = existingNode
             surfaceFocusPlacements[surface.id] =
                 surface.focusPlacement
@@ -84,6 +91,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         }
         let node = TerminalSurfaceRegistryWeakNode(
             surface: surface,
+            terminalLifecycleID: terminalLifecycleID,
             next: incrementalTraversalHead
         )
         incrementalTraversalHead?.previous = node
@@ -92,6 +100,26 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
         currentSurfaceNodesByID[surface.id] = node
         surfaceFocusPlacements[surface.id] = surface.focusPlacement
         generation &+= 1
+    }
+
+    /// Atomically retires the registered surface's current process generation.
+    /// - Parameter surface: The retained surface whose child is being replaced.
+    /// - Returns: The generation identity for the surface's next child runtime.
+    public func advanceTerminalLifecycle(
+        for surface: any TerminalSurfacing
+    ) -> UUID {
+        let terminalLifecycleID = UUID()
+        lock.lock()
+        defer { lock.unlock() }
+        guard let node = incrementalTraversalNodes[
+                  ObjectIdentifier(surface)
+              ],
+              node.isRegistered,
+              node.surface === surface else {
+            return terminalLifecycleID
+        }
+        node.terminalLifecycleID = terminalLifecycleID
+        return terminalLifecycleID
     }
 
     /// Removes a surface; drops its focus placement when no other surface
@@ -177,9 +205,9 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     ) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        guard let surface = currentSurface(id: id) else { return false }
+        guard let node = currentSurfaceNode(id: id) else { return false }
         guard let terminalLifecycleID else { return true }
-        return surface.terminalLifecycleID == terminalLifecycleID
+        return node.terminalLifecycleID == terminalLifecycleID
     }
 
     /// Whether the surface with the given id is placed in the right-sidebar
@@ -308,10 +336,18 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
     /// Returns the most recently registered live surface with `id`.
     /// Callers must hold `lock`.
     private func currentSurface(id: UUID) -> (any TerminalSurfacing)? {
+        currentSurfaceNode(id: id)?.surface
+    }
+
+    /// Returns the most recently registered live node with `id`.
+    /// Callers must hold `lock`.
+    private func currentSurfaceNode(
+        id: UUID
+    ) -> TerminalSurfaceRegistryWeakNode? {
         if let node = currentSurfaceNodesByID[id],
            node.isRegistered,
-           let surface = node.surface {
-            return surface
+           node.surface != nil {
+            return node
         }
         var node = incrementalTraversalHead
         while let current = node {
@@ -319,7 +355,7 @@ public final class TerminalSurfaceRegistry: TerminalSurfaceRegistering, Sendable
                let surface = current.surface,
                surface.id == id {
                 currentSurfaceNodesByID[id] = current
-                return surface
+                return current
             }
             node = current.next
         }

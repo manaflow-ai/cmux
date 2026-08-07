@@ -23,6 +23,15 @@ private final class FakeSurface: TerminalSurfacing {
     }
 }
 
+private extension TerminalSurfaceRegistry {
+    func register(_ surface: FakeSurface) {
+        register(
+            surface as any TerminalSurfacing,
+            terminalLifecycleID: surface.terminalLifecycleID
+        )
+    }
+}
+
 @MainActor
 private final class RouteRetireRecorder: MainWindowRouteRetiring {
     private(set) var reasons: [String] = []
@@ -127,6 +136,26 @@ struct TerminalSurfaceRegistryTests {
 
         registry.unregister(first)
         #expect(registry.surface(id: sharedId) === replacement)
+    }
+
+    @Test func advancingLifecycleInvalidatesTheRetiredProcessGeneration() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = FakeSurface()
+        registry.register(surface)
+
+        let replacementLifecycleID = registry.advanceTerminalLifecycle(
+            for: surface
+        )
+
+        #expect(replacementLifecycleID != surface.terminalLifecycleID)
+        #expect(!registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: surface.terminalLifecycleID
+        ))
+        #expect(registry.isCurrentSurface(
+            id: surface.id,
+            terminalLifecycleID: replacementLifecycleID
+        ))
     }
 
     @Test func unregisteringNewestSharedIdRegistrationRestoresPreviousOwner() {
