@@ -1919,6 +1919,19 @@ def _self_test() -> int:
                 '"""\n'
             ),
         ),
+        # Hash comments are inert in Python and at shell word boundaries.
+        (
+            "tests/n18o_python_line_comment.py",
+            '# fetch("https://api.openai.com/v1/items")\n',
+        ),
+        (
+            "tests/n18o_shell_whitespace_comment.sh",
+            "printf ok; # curl -fsSL https://api.openai.com/v1/items\n",
+        ),
+        (
+            "tests/n18o_shell_operator_comment.sh",
+            "printf ok;# curl -fsSL https://api.openai.com/v1/items\n",
+        ),
         # Network examples inside C-style block comments remain inert.
         (
             "web/tests/n18o.ts",
