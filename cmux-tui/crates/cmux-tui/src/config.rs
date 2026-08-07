@@ -2797,7 +2797,14 @@ fn read_ghostty_helper_output_async(
 
 fn terminate_ghostty_helper_child(mut child: Child) {
     #[cfg(unix)]
+    let descendant_groups = ghostty_helper_descendant_process_groups(child.id() as libc::pid_t);
+    #[cfg(unix)]
     unsafe {
+        for group in descendant_groups {
+            // SAFETY: group IDs are read from the process table for descendants
+            // of the helper being terminated.
+            libc::killpg(group, libc::SIGKILL);
+        }
         // SAFETY: killpg only sends SIGKILL to the helper-owned process group.
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
@@ -2810,6 +2817,46 @@ fn terminate_ghostty_helper_child(mut child: Child) {
             let _ = child.wait();
         },
     );
+}
+
+#[cfg(unix)]
+fn ghostty_helper_descendant_process_groups(root_pid: libc::pid_t) -> Vec<libc::pid_t> {
+    let Ok(output) = Command::new("/bin/ps").args(["-axo", "pid=,ppid=,pgid="]).output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut children = HashMap::<libc::pid_t, Vec<(libc::pid_t, libc::pid_t)>>::new();
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let Some(pid) = parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
+        let Some(ppid) = parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
+        let Some(pgid) = parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
+        children.entry(ppid).or_default().push((pid, pgid));
+    }
+
+    let mut groups = HashSet::<libc::pid_t>::new();
+    let mut stack = vec![root_pid];
+    while let Some(parent) = stack.pop() {
+        let Some(descendants) = children.get(&parent) else {
+            continue;
+        };
+        for &(pid, pgid) in descendants {
+            stack.push(pid);
+            if pgid > 0 && pgid != root_pid {
+                groups.insert(pgid);
+            }
+        }
+    }
+    groups.into_iter().collect()
 }
 
 #[cfg(any(not(test), all(test, unix)))]
@@ -4996,6 +5043,73 @@ mod tests {
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
         assert!(!unix_process_exists(child_pid), "helper child {child_pid} was not killed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_cleanup_kills_descendant_process_groups() {
+        const CHILD_MARKER: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_GROUP";
+        const CHILD_PID_PATH: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_PID";
+        if std::env::var_os(CHILD_MARKER).is_some() {
+            let pid_path =
+                PathBuf::from(std::env::var_os(CHILD_PID_PATH).expect("child pid path set"));
+            let mut command = Command::new("/bin/sleep");
+            command.arg("5").process_group(0);
+            let mut child = command.spawn().unwrap();
+            std::fs::write(pid_path, child.id().to_string()).unwrap();
+            let _ = child.wait();
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-descendant-group-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let child_pid_path = dir.join("child.pid");
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "config::tests::ghostty_config_helper_cleanup_kills_descendant_process_groups",
+                "--nocapture",
+            ])
+            .env(CHILD_MARKER, "1")
+            .env(CHILD_PID_PATH, &child_pid_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let child = command.spawn().unwrap();
+        let parent_pid = child.id() as libc::pid_t;
+        let child_pid = {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
+                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
+                {
+                    break pid;
+                }
+                assert!(Instant::now() < deadline, "descendant pid was not written");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+
+        terminate_ghostty_helper_child(child);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while (unix_process_exists(parent_pid) || unix_process_exists(child_pid))
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
+        assert!(
+            !unix_process_exists(child_pid),
+            "descendant process-group child {child_pid} was not killed"
+        );
     }
 
     #[cfg(unix)]
