@@ -4410,6 +4410,10 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
         willDecelerate decelerate: Bool
     ) {
         guard scrollView === scrollMechanicsView, !decelerate else { return }
+        // The per-frame flush rides the render tick, which can idle exactly at
+        // gesture end; flushing here guarantees the tail deltas reach the
+        // terminal so the drained-pump settle can complete the resync.
+        flushPendingScrollIfNeeded()
         settleBoundedScrollMechanicsIfPossible()
         if artifactChipScrollRevealed {
             armArtifactChipRevealLinger()
@@ -4418,6 +4422,7 @@ extension GhosttySurfaceView: UIScrollViewDelegate {
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         guard scrollView === scrollMechanicsView else { return }
+        flushPendingScrollIfNeeded()
         settleBoundedScrollMechanicsIfPossible()
         if artifactChipScrollRevealed {
             armArtifactChipRevealLinger()
