@@ -283,12 +283,19 @@ public final class ControlCommandCoordinator {
         }
     }
 
-    /// A UUID param, accepting either a UUID string or a `kind:N` ref resolved
-    /// through the handle registry (matches legacy `v2UUID`).
+    /// A UUID param, accepting a runtime UUID, a restart-stable UUID copied
+    /// from a `cmux://` link, or a `kind:N` ref resolved through the handle
+    /// registry (extends legacy `v2UUID`, which accepted only the latter two).
+    ///
+    /// Stable-to-runtime mapping happens here, at the one place every command's
+    /// identifier params are parsed, so `send`, `read-screen`, `list-*`, and
+    /// every other verb accept a pasted deep-link id without each resolver
+    /// growing its own fallback.
     func uuid(_ params: [String: JSONValue], _ key: String) -> UUID? {
         guard let raw = string(params, key) else { return nil }
         if let parsed = UUID(uuidString: raw) {
-            return parsed
+            guard let kind = Self.handleKind(forParamKey: key) else { return parsed }
+            return stableIdentities.runtimeUUID(for: parsed, kind: kind)
         }
         return handles.uuid(forRef: raw)
     }
