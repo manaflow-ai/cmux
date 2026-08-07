@@ -136,17 +136,16 @@ struct CLIRemoteShellStartupPerformanceTests {
             )
         )
         let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-        let scriptData = try #require(Data(base64Encoded: String(command[encodedRange])))
+        let encodedScript = String(command[encodedRange])
+        let scriptData = try #require(Data(base64Encoded: encodedScript))
         let script = try #require(String(data: scriptData, encoding: .utf8))
         _ = try #require(script.range(of: "/usr/bin/ssh"))
 
         let rewrittenScript = script.replacingOccurrences(of: "/usr/bin/ssh", with: sshPath)
-        var rewrittenCommand = command
-        rewrittenCommand.replaceSubrange(
-            encodedRange,
+        return command.replacingOccurrences(
+            of: encodedScript,
             with: Data(rewrittenScript.utf8).base64EncodedString()
         )
-        return rewrittenCommand
     }
 
     private func startMockServer(listenerFD: Int32, state: MockSocketServerState) -> DispatchSemaphore {
