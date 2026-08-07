@@ -503,7 +503,18 @@ const nestedCtx = {
     getSessionFile() { return process.env.CMUX_TEST_OMP_NESTED_SESSION_FILE; }
   }
 };
+const workerCtx = {
+  cwd: "/tmp/omp-project",
+  sessionManager: {
+    getSessionId() { return "omp-worker-task-session"; },
+    getSessionFile() { return process.env.CMUX_TEST_OMP_PARENT_SESSION_FILE; }
+  }
+};
 let currentSessionId = "omp-session-test";
+async function switchSession(sessionId, reason) {
+  currentSessionId = sessionId;
+  await handlers.get("session_switch")({ reason, previousSessionFile: undefined }, parentCtx);
+}
 async function expectHandlerCompletion(promise, label) {
   let completed = false;
   promise.then(() => { completed = true; });
@@ -572,24 +583,28 @@ const firstPhasePids = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 if (firstPhasePids.length !== 3) {
   throw new Error(`nested OMP task session spawned a hook child: ${firstPhasePids}`);
 }
-currentSessionId = "priority-stop-session";
-await handlers.get("session_start")({}, parentCtx);
+// Top-level session transitions go through session_switch; the queued Stop
+// must survive session-start/prompt pressure that overflows the hook queue.
+await switchSession("priority-stop-session", "new");
+const switchHookPid = await stoppedHookPID(4);
 await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, parentCtx);
-for (let index = 0; index < 40; index += 1) {
-  currentSessionId = `priority-prompt-${index}`;
+for (let index = 0; index < 10; index += 1) {
+  await switchSession(`priority-prompt-${index}`, "new");
   await handlers.get("before_agent_start")({ prompt: `priority prompt ${index}` }, parentCtx);
 }
-await releaseHook(4);
+// A finished task-tool subagent's session teardown must not drain or evict
+// the owner session's queued hooks.
+await handlers.get("session_shutdown")({}, workerCtx);
+process.kill(switchHookPid, "SIGCONT");
 await waitForCompletedHooks(4);
-await releaseHook(5);
-await waitForCompletedHooks(5);
-const priorityPromptPid = await stoppedHookPID(6);
-const priorityDrain = handlers.get("session_shutdown")({}, parentCtx);
-process.kill(priorityPromptPid, "SIGCONT");
-await waitForCompletedHooks(6);
-await priorityDrain;
-currentSessionId = "omp-session-test";
-await handlers.get("session_start")({}, parentCtx);
+// active switch hook + 16-entry queue: the stop, 10 session-starts, and the
+// 5 prompts that survive eviction (2 evicted by session-starts, 3 dropped at
+// the full queue).
+for (let hook = 5; hook <= 20; hook += 1) {
+  await releaseHook(hook);
+  await waitForCompletedHooks(hook);
+}
+await switchSession("omp-session-test", "resume");
 for (let index = 0; index < 40; index += 1) {
   await handlers.get("before_agent_start")({ prompt: `hung omp ${index}` }, parentCtx);
 }
@@ -597,7 +612,7 @@ await handlers.get("agent_end")({ messages: [], stopReason: "completed" }, paren
 await handlers.get("session_shutdown")({}, parentCtx);
 const hungPidLines = nonEmptyLines(process.env.FAKE_CMUX_PID_LOG);
 const startedArgs = nonEmptyLines(process.env.FAKE_CMUX_STARTED_ARGS_LOG);
-if (hungPidLines.length !== 8) {
+if (hungPidLines.length !== 22) {
   throw new Error(`shutdown did not start the queued Stop after cancelling the active hook: ${hungPidLines}`);
 }
 if (
@@ -660,7 +675,7 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"stderr={check.stderr.strip()}")
             return 1
 
-        expected_invocations = 6
+        expected_invocations = 20
         args_log = wait_for_stable_text(fake_args_log, expected_invocations, timeout=20.0)
         stdin_log = wait_for_stable_text(fake_stdin_log, expected_invocations * 2, timeout=20.0)
         env_log = wait_for_stable_text(fake_env_log, expected_invocations * 4, timeout=20.0)
@@ -689,7 +704,19 @@ for (const rawPid of hungPidLines.slice(-2)) {
             print(f"FAIL: stop hook payload was missing: {stdin_log!r}")
             return 1
         if '"session_id":"priority-stop-session","cwd":"/tmp/omp-project","hook_event_name":"Stop"' not in stdin_log:
-            print(f"FAIL: queued stop hook was evicted under prompt pressure: {stdin_log!r}")
+            print(f"FAIL: queued stop hook was evicted under session-start/prompt pressure: {stdin_log!r}")
+            return 1
+        if '"session_id":"omp-worker-task-session"' in stdin_log:
+            print(f"FAIL: a non-owner session id reached cmux hooks: {stdin_log!r}")
+            return 1
+        if '"session_id":"priority-prompt-9","cwd":"/tmp/omp-project","hook_event_name":"SessionStart"' not in stdin_log:
+            print(f"FAIL: session_switch did not rebind the switched session: {stdin_log!r}")
+            return 1
+        if '"prompt":"priority prompt 2"' not in stdin_log:
+            print(f"FAIL: surviving queued prompt was not delivered: {stdin_log!r}")
+            return 1
+        if '"prompt":"priority prompt 0"' in stdin_log or '"prompt":"priority prompt 7"' in stdin_log:
+            print(f"FAIL: evicted/dropped prompt hooks were still delivered: {stdin_log!r}")
             return 1
         if '"prompt":"hello omp 39"' not in stdin_log or '"last_assistant_message":"done"' not in stdin_log:
             print(f"FAIL: extension did not pass prompt/assistant payload, got {stdin_log!r}")
