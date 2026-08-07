@@ -1,4 +1,3 @@
-import Darwin
 import Dispatch
 import Foundation
 
@@ -78,13 +77,10 @@ final class AgentProcessExitMonitor {
     private static func generationIsStillLive(
         _ generation: AgentPIDProcessIdentity
     ) -> Bool {
-        if let current = AgentPIDProcessIdentity(pid: generation.pid) {
-            return current == generation
-        }
-        // A process can be live while proc_pidinfo is unreadable. Treat that
-        // ambiguous case as live so the exit monitor never invents an exit;
-        // AgentTurnProcessLiveness.observe likewise reports it as `.unknown`
-        // rather than `.exited`.
-        return Darwin.kill(generation.pid, 0) == 0 || errno == EPERM
+        AgentTurnProcessLiveness.observe(
+            pid: Int(generation.pid),
+            expectedStartSeconds: generation.startSeconds,
+            expectedStartMicroseconds: generation.startMicroseconds
+        ) != .exited
     }
 }

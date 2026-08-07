@@ -353,6 +353,14 @@ extension ControlCommandCoordinator {
            generation.pid != pid {
             return strings.processGenerationPIDMismatch
         }
+        if generationResolution.generation == nil,
+           context?.controlSidebarRequiresAgentProcessGeneration(
+               key,
+               target: target,
+               panelID: panelResolution.panelId
+           ) == true {
+            return strings.processGenerationRequired(key: key)
+        }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,

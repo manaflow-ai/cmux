@@ -11,7 +11,7 @@ extension CMUXCLI {
     private static func agentHookDefinition(
         for integration: BuiltInAgentIntegration
     ) -> AgentHookDef {
-        switch integration {
+        return switch integration {
         case .codex:
             AgentHookDef(
             integration: .codex,

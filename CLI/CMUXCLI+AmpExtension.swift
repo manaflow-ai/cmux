@@ -12,7 +12,7 @@ extension CMUXCLI {
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
 // @i-know-the-amp-plugin-api-is-wip-and-very-experimental-right-now
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
@@ -284,6 +284,10 @@ function runCmux(args: string[]): void {
   } catch (_) {}
 }
 
+const cmuxAcknowledgementDeadlineMilliseconds = 2_000;
+const nativeAttentionIdentityDeadlineMilliseconds = 2_000;
+const maximumNativeAttentionIdentityBytes = 4_096;
+
 function runCmuxAcknowledged(
   args: string[],
   completion: (succeeded: boolean) => void,
@@ -297,9 +301,14 @@ function runCmuxAcknowledged(
   }
   const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
   let completed = false;
+  let deadline: ReturnType<typeof setTimeout> | null = null;
   const finish = (succeeded: boolean): void => {
     if (completed) return;
     completed = true;
+    if (deadline) {
+      clearTimeout(deadline);
+      deadline = null;
+    }
     completion(succeeded);
   };
   try {
@@ -307,6 +316,13 @@ function runCmuxAcknowledged(
       env: statusEnvironment(),
       stdio: ["ignore", "ignore", "ignore"],
     });
+    deadline = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch (_) {}
+      finish(false);
+    }, cmuxAcknowledgementDeadlineMilliseconds);
+    deadline.unref?.();
     child.on("error", () => finish(false));
     child.on("close", (status) => finish(status === 0));
   } catch (_) {
@@ -319,30 +335,11 @@ type NativeAttentionProcessGeneration = {
   startMicroseconds: string;
 };
 
-function captureNativeAttentionProcessGeneration(): NativeAttentionProcessGeneration | null {
-  if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return null;
-  if (!process.env.CMUX_SURFACE_ID) return null;
-  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+function parseNativeAttentionProcessGeneration(
+  output: string,
+): NativeAttentionProcessGeneration | null {
   try {
-    const child = spawnSync(
-      cmux,
-      [
-        "hooks",
-        "amp",
-        "__native-attention",
-        "identify",
-        "--pid",
-        String(process.pid),
-      ],
-      {
-        env: statusEnvironment(),
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 2000,
-      },
-    );
-    if (child.status !== 0 || typeof child.stdout !== "string") return null;
-    const identity = JSON.parse(child.stdout) as {
+    const identity = JSON.parse(output) as {
       pid?: unknown;
       pid_start_seconds?: unknown;
       pid_start_microseconds?: unknown;
@@ -368,8 +365,84 @@ function captureNativeAttentionProcessGeneration(): NativeAttentionProcessGenera
   }
 }
 
-const nativeAttentionProcessGeneration =
-  captureNativeAttentionProcessGeneration();
+function captureNativeAttentionProcessGeneration(): Promise<
+  NativeAttentionProcessGeneration | null
+> {
+  if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") {
+    return Promise.resolve(null);
+  }
+  if (!process.env.CMUX_SURFACE_ID) return Promise.resolve(null);
+  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  return new Promise((resolve) => {
+    let completed = false;
+    let output = "";
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    const finish = (
+      generation: NativeAttentionProcessGeneration | null,
+    ): void => {
+      if (completed) return;
+      completed = true;
+      if (deadline) {
+        clearTimeout(deadline);
+        deadline = null;
+      }
+      resolve(generation);
+    };
+    try {
+      const child = spawn(cmux, [
+        "hooks",
+        "amp",
+        "__native-attention",
+        "identify",
+        "--pid",
+        String(process.pid),
+      ], {
+        env: statusEnvironment(),
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      deadline = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch (_) {}
+        finish(null);
+      }, nativeAttentionIdentityDeadlineMilliseconds);
+      deadline.unref?.();
+      child.stdout?.on("data", (chunk) => {
+        if (completed) return;
+        output += String(chunk);
+        if (Buffer.byteLength(output, "utf8")
+            > maximumNativeAttentionIdentityBytes) {
+          try {
+            child.kill("SIGKILL");
+          } catch (_) {}
+          finish(null);
+        }
+      });
+      child.on("error", () => finish(null));
+      child.on("close", (status) => {
+        finish(
+          status === 0
+            ? parseNativeAttentionProcessGeneration(output)
+            : null,
+        );
+      });
+    } catch (_) {
+      finish(null);
+    }
+  });
+}
+
+let nativeAttentionProcessGenerationCapture: Promise<
+  NativeAttentionProcessGeneration | null
+> | null = null;
+
+function loadNativeAttentionProcessGeneration(): Promise<
+  NativeAttentionProcessGeneration | null
+> {
+  nativeAttentionProcessGenerationCapture ??=
+    captureNativeAttentionProcessGeneration();
+  return nativeAttentionProcessGenerationCapture;
+}
 
 function setStatus(label: string, icon: string, color: string): void {
   runCmux([
@@ -477,6 +550,8 @@ export default function (amp: PluginAPI) {
     pendingEnd: PendingTurnEnd | null;
     nativeStateObservable: AmpThreadStateObservable | null;
     nativeStateSubscription: AmpThreadStateSubscription | null;
+    nativeStateObservationLease: ReturnType<typeof setTimeout> | null;
+    nativeStateObservationEpoch: number;
     nativeThreadState: AmpNativeThreadState | null;
     attentionScopeId: string;
     attentionObservationId: string;
@@ -508,6 +583,8 @@ export default function (amp: PluginAPI) {
       pendingEnd: null,
       nativeStateObservable: null,
       nativeStateSubscription: null,
+      nativeStateObservationLease: null,
+      nativeStateObservationEpoch: 0,
       nativeThreadState: null,
       attentionScopeId: `amp-scope-${process.pid}-${sequence}`,
       attentionObservationId:
@@ -520,59 +597,74 @@ export default function (amp: PluginAPI) {
   };
 
   const maximumImmediateNativeAttentionRetries = 1;
+  const nativeStateSnapshotDeadlineMilliseconds = 1_000;
+  const activeNativeStateObservationLeaseMilliseconds = 30 * 60 * 1_000;
+  const pendingNativeStateObservationLeaseMilliseconds = 30 * 1_000;
 
   const synchronizeNativeAttention = (state: AmpTurnState): void => {
     if (state.nativeAttentionInFlight) return;
     if (state.nativeAttentionDesired === state.nativeAttentionConfirmed) return;
-    if (!nativeAttentionProcessGeneration) return;
     const workspaceId = firstString(process.env.CMUX_WORKSPACE_ID);
     const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
     if (!workspaceId || !surfaceId) return;
     const attemptedVisibility = state.nativeAttentionDesired;
-    const action = attemptedVisibility ? "begin" : "end";
-    const args = [
-      "hooks",
-      "amp",
-      "__native-attention",
-      action,
-      "--pid",
-      String(process.pid),
-      "--pid-start-seconds",
-      nativeAttentionProcessGeneration.startSeconds,
-      "--pid-start-microseconds",
-      nativeAttentionProcessGeneration.startMicroseconds,
-      "--scope-id",
-      state.attentionScopeId,
-      "--observation-id",
-      state.attentionObservationId,
-      "--session-id",
-      state.sessionId,
-    ];
-    if (attemptedVisibility) {
-      args.push(
-        "--workspace-id",
-        workspaceId,
-        "--surface-id",
-        surfaceId,
-      );
-    }
     state.nativeAttentionInFlight = true;
-    runCmuxAcknowledged(args, (succeeded) => {
-      state.nativeAttentionInFlight = false;
-      if (succeeded) {
-        state.nativeAttentionConfirmed = attemptedVisibility;
-        state.nativeAttentionRetryCount = 0;
-      } else if (
-        state.nativeAttentionDesired === attemptedVisibility
-        && state.nativeAttentionRetryCount
-          < maximumImmediateNativeAttentionRetries
-      ) {
-        state.nativeAttentionRetryCount += 1;
-      } else {
-        state.nativeAttentionRetryCount = 0;
+    void loadNativeAttentionProcessGeneration().then((processGeneration) => {
+      if (!processGeneration) {
+        state.nativeAttentionInFlight = false;
         return;
       }
-      synchronizeNativeAttention(state);
+      if (state.nativeAttentionDesired !== attemptedVisibility) {
+        state.nativeAttentionInFlight = false;
+        if (state.nativeAttentionDesired !== state.nativeAttentionConfirmed) {
+          synchronizeNativeAttention(state);
+        }
+        return;
+      }
+      const action = attemptedVisibility ? "begin" : "end";
+      const args = [
+        "hooks",
+        "amp",
+        "__native-attention",
+        action,
+        "--pid",
+        String(process.pid),
+        "--pid-start-seconds",
+        processGeneration.startSeconds,
+        "--pid-start-microseconds",
+        processGeneration.startMicroseconds,
+        "--scope-id",
+        state.attentionScopeId,
+        "--observation-id",
+        state.attentionObservationId,
+        "--session-id",
+        state.sessionId,
+      ];
+      if (attemptedVisibility) {
+        args.push(
+          "--workspace-id",
+          workspaceId,
+          "--surface-id",
+          surfaceId,
+        );
+      }
+      runCmuxAcknowledged(args, (succeeded) => {
+        state.nativeAttentionInFlight = false;
+        if (succeeded) {
+          state.nativeAttentionConfirmed = attemptedVisibility;
+          state.nativeAttentionRetryCount = 0;
+        } else if (
+          state.nativeAttentionDesired === attemptedVisibility
+          && state.nativeAttentionRetryCount
+            < maximumImmediateNativeAttentionRetries
+        ) {
+          state.nativeAttentionRetryCount += 1;
+        } else {
+          state.nativeAttentionRetryCount = 0;
+          return;
+        }
+        synchronizeNativeAttention(state);
+      });
     });
   };
 
@@ -586,17 +678,61 @@ export default function (amp: PluginAPI) {
     synchronizeNativeAttention(state);
   };
 
+  const clearNativeStateObservation = (state: AmpTurnState): void => {
+    state.nativeStateObservationEpoch += 1;
+    if (state.nativeStateObservationLease) {
+      clearTimeout(state.nativeStateObservationLease);
+      state.nativeStateObservationLease = null;
+    }
+    state.nativeStateSubscription?.unsubscribe();
+    state.nativeStateSubscription = null;
+    state.nativeStateObservable = null;
+    state.nativeThreadState = null;
+  };
+
   const discardTurnState = (
     threadId: string,
     state: AmpTurnState | undefined,
   ): void => {
     if (!state) return;
-    state.nativeStateSubscription?.unsubscribe();
-    state.nativeStateSubscription = null;
+    clearNativeStateObservation(state);
     endNativeAttention(state);
     if (turnStates.get(threadId) === state) {
       turnStates.delete(threadId);
     }
+  };
+
+  const renewNativeStateObservationLease = (
+    threadId: string,
+    state: AmpTurnState,
+    observationEpoch: number,
+  ): void => {
+    if (
+      turnStates.get(threadId) !== state
+      || state.nativeStateObservationEpoch !== observationEpoch
+    ) {
+      return;
+    }
+    if (state.nativeStateObservationLease) {
+      clearTimeout(state.nativeStateObservationLease);
+    }
+    const retentionMilliseconds = state.pendingEnd
+      ? pendingNativeStateObservationLeaseMilliseconds
+      : activeNativeStateObservationLeaseMilliseconds;
+    state.nativeStateObservationLease = setTimeout(() => {
+      if (
+        turnStates.get(threadId) !== state
+        || state.nativeStateObservationEpoch !== observationEpoch
+      ) {
+        return;
+      }
+      state.nativeStateObservationLease = null;
+      // A rejected/hung snapshot plus a silent subscription cannot prove a
+      // settled boundary. Retire our observer and turn ownership without
+      // publishing a false completion; a later agent event starts fresh.
+      discardTurnState(threadId, state);
+    }, retentionMilliseconds);
+    state.nativeStateObservationLease.unref?.();
   };
 
   const hasOtherActiveTurn = (): boolean => turnStates.size > 0;
@@ -675,8 +811,15 @@ export default function (amp: PluginAPI) {
       return;
     }
 
+    clearNativeStateObservation(state);
+    const observationEpoch = state.nativeStateObservationEpoch;
     const applyNativeState = (nativeState: AmpNativeThreadState): void => {
-      if (turnStates.get(threadId) !== state) return;
+      if (
+        turnStates.get(threadId) !== state
+        || state.nativeStateObservationEpoch !== observationEpoch
+      ) {
+        return;
+      }
       state.nativeThreadState = nativeState;
       if (nativeState === "awaiting-approval") {
         beginNativeAttention(state);
@@ -692,26 +835,76 @@ export default function (amp: PluginAPI) {
     };
 
     state.nativeStateObservable = observable;
-    state.nativeStateSubscription?.unsubscribe();
     let didReceiveSubscriptionState = false;
-    state.nativeStateSubscription = observable.subscribe((nativeState) => {
-      didReceiveSubscriptionState = true;
-      applyNativeState(nativeState);
+    let resolveSubscriptionState: (() => void) | null = null;
+    const subscriptionState = new Promise<void>((resolve) => {
+      resolveSubscriptionState = () => resolve();
     });
     try {
-      const initialState = await observable.get();
+      const subscription = observable.subscribe((nativeState) => {
+        if (
+          turnStates.get(threadId) !== state
+          || state.nativeStateObservationEpoch !== observationEpoch
+        ) {
+          return;
+        }
+        didReceiveSubscriptionState = true;
+        resolveSubscriptionState?.();
+        resolveSubscriptionState = null;
+        applyNativeState(nativeState);
+        renewNativeStateObservationLease(
+          threadId,
+          state,
+          observationEpoch,
+        );
+      });
       if (
-        !didReceiveSubscriptionState
-        && state.nativeThreadState === null
+        turnStates.get(threadId) === state
+        && state.nativeStateObservationEpoch === observationEpoch
       ) {
-        applyNativeState(initialState);
-      } else if (turnStates.get(threadId) === state) {
-        tryPublishSettledTurn(threadId, state);
+        state.nativeStateSubscription = subscription;
+      } else {
+        subscription.unsubscribe();
       }
     } catch (_) {
-      // A present-but-failing native state API is not evidence of settlement.
-      // Keep the provisional turn running until a subscription value arrives
-      // or process-liveness reconciliation terminates the dead generation.
+      state.nativeStateSubscription = null;
+    }
+    renewNativeStateObservationLease(threadId, state, observationEpoch);
+
+    let acceptsInitialSnapshot = true;
+    const snapshotState = Promise.resolve()
+      .then(() => observable.get())
+      .then((initialState) => {
+        if (
+          acceptsInitialSnapshot
+          && !didReceiveSubscriptionState
+          && state.nativeThreadState === null
+        ) {
+          applyNativeState(initialState);
+        }
+      })
+      .catch(() => {
+        // A present-but-failing native state API is not evidence of settlement.
+      });
+    let snapshotDeadline: ReturnType<typeof setTimeout> | null = null;
+    const snapshotTimedOut = new Promise<void>((resolve) => {
+      snapshotDeadline = setTimeout(
+        resolve,
+        nativeStateSnapshotDeadlineMilliseconds,
+      );
+    });
+    try {
+      await Promise.race([
+        snapshotState,
+        subscriptionState,
+        snapshotTimedOut,
+      ]);
+      if (turnStates.get(threadId) === state) {
+        tryPublishSettledTurn(threadId, state);
+      }
+    } finally {
+      acceptsInitialSnapshot = false;
+      if (snapshotDeadline) clearTimeout(snapshotDeadline);
     }
   };
 
@@ -761,7 +954,14 @@ export default function (amp: PluginAPI) {
   amp.on("tool.call", async (event: ToolCallEvent, ctx) => {
     const sessionId = threadIdFrom(event, ctx);
     const state = sessionId ? turnStates.get(sessionId) : undefined;
-    if (state) state.activeToolUseIds.add(event.toolUseID);
+    if (state) {
+      state.activeToolUseIds.add(event.toolUseID);
+      renewNativeStateObservationLease(
+        state.sessionId,
+        state,
+        state.nativeStateObservationEpoch,
+      );
+    }
     const { label, icon } = detailedToolStatus(event, helpers);
     if (state) {
       setStatus(label, icon, COLOR.active);
@@ -772,7 +972,14 @@ export default function (amp: PluginAPI) {
   amp.on("tool.result", async (event: ToolResultEvent, ctx) => {
     const sessionId = threadIdFrom(event, ctx);
     const state = sessionId ? turnStates.get(sessionId) : undefined;
-    if (state) state.activeToolUseIds.delete(event.toolUseID);
+    if (state) {
+      state.activeToolUseIds.delete(event.toolUseID);
+      renewNativeStateObservationLease(
+        state.sessionId,
+        state,
+        state.nativeStateObservationEpoch,
+      );
+    }
     if (event.status === "error") {
       wsLog(`${event.tool} failed`, "error");
     }

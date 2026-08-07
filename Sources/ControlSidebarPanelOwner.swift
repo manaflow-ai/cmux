@@ -290,49 +290,51 @@ enum ControlSidebarPanelOwner {
         panelId: UUID,
         generation: AgentPIDProcessIdentity
     ) -> Bool {
+        let recorded: Bool
+        let workspaceId: UUID
         switch self {
         case .workspace(let workspace):
-            let recorded = workspace.sidebarAgentRuntimeObservation
+            workspaceId = workspace.id
+            recorded = workspace.sidebarAgentRuntimeObservation
                 .recordAgentProcessExit(
                     key: key,
                     panelId: panelId,
                     generation: generation
                 )
-            if recorded {
-                AgentHibernationController.shared.recordAgentLifecycleChange(
-                    workspaceId: workspace.id,
-                    panelId: panelId
-                )
-                FeedCoordinator.shared
-                    .retireObservedAgentAttentionForProcessExit(
-                        workspaceId: workspace.id,
-                        panelId: panelId,
-                        statusKey: key,
-                        processGeneration: generation
-                    )
-            }
-            return recorded
         case .dock(let dock):
-            let recorded = dock.recordAgentProcessExit(
+            workspaceId = dock.workspaceId
+            recorded = dock.recordAgentProcessExit(
                 key: key,
                 panelId: panelId,
                 generation: generation
             )
-            if recorded {
-                AgentHibernationController.shared.recordAgentLifecycleChange(
-                    workspaceId: dock.workspaceId,
-                    panelId: panelId
-                )
-                FeedCoordinator.shared
-                    .retireObservedAgentAttentionForProcessExit(
-                        workspaceId: dock.workspaceId,
-                        panelId: panelId,
-                        statusKey: key,
-                        processGeneration: generation
-                    )
-            }
-            return recorded
         }
+        guard recorded else { return false }
+        recordAgentProcessExitEffects(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            statusKey: key,
+            processGeneration: generation
+        )
+        return true
+    }
+
+    private func recordAgentProcessExitEffects(
+        workspaceId: UUID,
+        panelId: UUID,
+        statusKey: String,
+        processGeneration: AgentPIDProcessIdentity
+    ) {
+        AgentHibernationController.shared.recordAgentLifecycleChange(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        FeedCoordinator.shared.retireObservedAgentAttentionForProcessExit(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            statusKey: statusKey,
+            processGeneration: processGeneration
+        )
     }
 
     @discardableResult

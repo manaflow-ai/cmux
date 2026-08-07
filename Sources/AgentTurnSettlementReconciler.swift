@@ -49,11 +49,19 @@ extension AgentTurnProcessLiveness {
     static func reconcile(
         currentGeneration: AgentPIDProcessIdentity?,
         expectedGeneration: AgentPIDProcessIdentity?,
-        processPresence _: PIDPresence
+        processPresence: PIDPresence
     ) -> Self {
-        if let expectedGeneration {
-            return currentGeneration == expectedGeneration ? .live : .exited
+        if processPresence == .absent {
+            return .exited
         }
-        return currentGeneration == nil ? .exited : .live
+        if let expectedGeneration, let currentGeneration {
+            return currentGeneration == expectedGeneration
+                ? .live
+                : .exited
+        }
+        if currentGeneration != nil {
+            return .live
+        }
+        return .unknown
     }
 }
