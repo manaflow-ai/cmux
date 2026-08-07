@@ -3513,7 +3513,7 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
 }
 
 #[test]
-fn agent_projection_is_derived_from_pi_journal_and_rebuildable() {
+fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity() {
     let root = temp_root("agent-pi-journal-projection");
     let terminal_id = terminal_resource(TERMINAL_ONE);
     {
@@ -3558,7 +3558,7 @@ fn agent_projection_is_derived_from_pi_journal_and_rebuildable() {
     let rebuilt = reopened.public_projections().unwrap().agents;
     assert_eq!(rebuilt.len(), 1);
     assert_eq!(rebuilt[0].terminal_id, terminal_id);
-    assert_eq!(rebuilt[0].state, "interrupted");
+    assert_eq!(rebuilt[0].state, "working");
     assert_eq!(rebuilt[0].source, "hook");
     assert_eq!(rebuilt[0].source_session.as_deref(), Some("pi-real-session-1"));
     let interrupted = reopened
@@ -3568,11 +3568,10 @@ fn agent_projection_is_derived_from_pi_journal_and_rebuildable() {
         .into_iter()
         .filter(|record| record.kind == "agent.session.interrupted")
         .collect::<Vec<_>>();
-    assert_eq!(interrupted.len(), 1);
-    assert_eq!(interrupted[0].payload["provider"], "pi");
-    assert_eq!(interrupted[0].payload["source_session"], "pi-real-session-1");
-    assert_eq!(interrupted[0].payload["policy"], "classify_only");
-    assert_eq!(interrupted[0].payload["outcome"], "classified_interrupted");
+    assert!(
+        interrupted.is_empty(),
+        "registry reopen must not classify interruption without durable host-death evidence"
+    );
     drop(reopened);
 
     let reopened_again = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
@@ -3583,7 +3582,10 @@ fn agent_projection_is_derived_from_pi_journal_and_rebuildable() {
         .into_iter()
         .filter(|record| record.kind == "agent.session.interrupted")
         .count();
-    assert_eq!(interrupted_again, 1);
+    assert_eq!(
+        interrupted_again, 0,
+        "duplicate reopen must not invent or duplicate interruption records"
+    );
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
