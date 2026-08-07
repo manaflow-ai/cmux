@@ -15,11 +15,11 @@ import CmuxTerminal
 struct AgentHibernationTests {
     @Test
     func testLifecycleStateParsingAcceptsShellFriendlyAliases() throws {
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("IDLE"), .idle)
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
-        expectEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
-        expectNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
+        expectEqual(AgentHibernationLifecycleState(cliValue: "IDLE"), .idle)
+        expectEqual(AgentHibernationLifecycleState(cliValue: "needsInput"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState(cliValue: "needs-input"), .needsInput)
+        expectEqual(AgentHibernationLifecycleState(cliValue: "needs_input"), .needsInput)
+        expectNil(AgentHibernationLifecycleState(cliValue: "paused"))
 
         let decoded = try JSONDecoder().decode(
             AgentHibernationLifecycleState.self,
@@ -817,6 +817,7 @@ struct AgentHibernationTests {
 
         ledger.record(
             source: "cursor",
+            sessionId: "cursor-session-1",
             observationId: "cursor-observation-1",
             scopeId: "cursor-scope-1",
             processGeneration: firstGeneration
@@ -825,6 +826,7 @@ struct AgentHibernationTests {
         expectTrue(
             ledger.contains(
                 source: "cursor",
+                sessionId: "cursor-session-1",
                 observationId: "cursor-observation-1",
                 scopeId: "cursor-scope-1",
                 processGeneration: firstGeneration
@@ -833,6 +835,7 @@ struct AgentHibernationTests {
         expectFalse(
             ledger.contains(
                 source: "cursor",
+                sessionId: "cursor-session-1",
                 observationId: "cursor-observation-1",
                 scopeId: "cursor-scope-1",
                 processGeneration: replacementGeneration
@@ -841,6 +844,16 @@ struct AgentHibernationTests {
         expectFalse(
             ledger.contains(
                 source: "cursor",
+                sessionId: "cursor-session-2",
+                observationId: "cursor-observation-1",
+                scopeId: "cursor-scope-1",
+                processGeneration: firstGeneration
+            )
+        )
+        expectFalse(
+            ledger.contains(
+                source: "cursor",
+                sessionId: "cursor-session-1",
                 observationId: "cursor-observation-2",
                 scopeId: "cursor-scope-2",
                 processGeneration: firstGeneration
@@ -860,6 +873,7 @@ struct AgentHibernationTests {
         for index in 0 ..< 2_050 {
             ledger.record(
                 source: "cursor",
+                sessionId: "cursor-session-1",
                 observationId: "cursor-observation-\(index)",
                 scopeId: "cursor-scope-\(index)",
                 processGeneration: generation
@@ -869,6 +883,7 @@ struct AgentHibernationTests {
         expectFalse(
             ledger.contains(
                 source: "cursor",
+                sessionId: "cursor-session-1",
                 observationId: "cursor-observation-0",
                 scopeId: "cursor-scope-0",
                 processGeneration: generation
@@ -877,6 +892,7 @@ struct AgentHibernationTests {
         expectTrue(
             ledger.contains(
                 source: "cursor",
+                sessionId: "cursor-session-1",
                 observationId: "cursor-observation-2049",
                 scopeId: "cursor-scope-2049",
                 processGeneration: generation

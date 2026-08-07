@@ -42,7 +42,9 @@ extension TerminalController: ControlSidebarContext {
                 ).accepted else {
                     return
                 }
-            } else if AgentHibernationLifecycleStatusKeys.isAllowed(key),
+            } else if AgentHibernationLifecycleStatusKeys(
+                rawValue: key
+            ).isAllowed,
                       !owner.usesRemoteAgentProcessNamespace(
                           panelId: panelID
                       ),
@@ -126,7 +128,7 @@ extension TerminalController: ControlSidebarContext {
     }
 
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
-        AgentHibernationLifecycleState.parseCLIValue(raw)?.rawValue
+        AgentHibernationLifecycleState(cliValue: raw)?.rawValue
     }
 
     nonisolated func controlSidebarAgentStrings() -> ControlSidebarAgentStrings {
@@ -184,12 +186,12 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> Bool {
-        if AgentHibernationLifecycleStatusKeys.isAllowed(key) {
+        if AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed {
             return true
         }
         // The manual namespace is reserved for workspace_loading; a custom
         // vault agent must not claim it (hibernation ignores manual keys).
-        guard !AgentHibernationLifecycleStatusKeys.isManualKey(key) else {
+        guard !AgentHibernationLifecycleStatusKeys(rawValue: key).isManual else {
             return false
         }
         guard CmuxVaultAgentRegistration.isValidID(key) else {
@@ -214,7 +216,7 @@ extension TerminalController: ControlSidebarContext {
         target: ControlSidebarTabTarget,
         panelID: UUID?
     ) -> Bool {
-        guard AgentHibernationLifecycleStatusKeys.isAllowed(key) else {
+        guard AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed else {
             return false
         }
         return v2MainSync {
@@ -249,7 +251,7 @@ extension TerminalController: ControlSidebarContext {
             )
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
-            if AgentHibernationLifecycleStatusKeys.isAllowed(key),
+            if AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed,
                !owner.usesRemoteAgentProcessNamespace(panelId: panelID) {
                 // The parser rejects missing generations for local built-ins;
                 // keep this mutation-boundary guard for replacement races.
@@ -285,7 +287,11 @@ extension TerminalController: ControlSidebarContext {
             // Bound distinct manual loaders per workspace so socket clients
             // can't grow lifecycle-key state without limit.
             let manualLoaderCount = tab.agentLifecycleStatesByPanelId.values.reduce(0) { partial, states in
-                partial + states.keys.reduce(0) { AgentHibernationLifecycleStatusKeys.isManualKey($1) ? $0 + 1 : $0 }
+                partial + states.keys.reduce(0) {
+                    AgentHibernationLifecycleStatusKeys(rawValue: $1).isManual
+                        ? $0 + 1
+                        : $0
+                }
             }
             guard manualLoaderCount < 32 else {
                 return ControlSidebarWorkspaceLoadingState(

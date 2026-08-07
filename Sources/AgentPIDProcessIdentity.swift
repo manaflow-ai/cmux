@@ -1,29 +1,53 @@
+import CmuxAgentLifecycle
 import Darwin
 
-struct AgentPIDProcessIdentity: Codable, Equatable, Hashable, Sendable {
-    let pid: pid_t
-    let startSeconds: Int64
-    let startMicroseconds: Int64
+typealias AgentPIDProcessIdentity =
+    CmuxAgentLifecycle.AgentProcessGeneration
 
-    init(pid: pid_t, startSeconds: Int64, startMicroseconds: Int64) {
-        self.pid = pid
-        self.startSeconds = startSeconds
-        self.startMicroseconds = startMicroseconds
-    }
-
+extension AgentPIDProcessIdentity {
+    /// Reads a live process's birth timestamp, distinguishing PID reuse.
+    ///
+    /// `sysctl` can read privileged process rows that `proc_pidinfo` rejects.
+    /// Zombies are rejected explicitly so a readable identity always means the
+    /// process can still perform work.
     init?(pid: pid_t) {
-        guard pid > 0 else { return nil }
-        var info = proc_bsdinfo()
-        // proc_pidinfo uses C sizeof(proc_bsdinfo). Swift's imported Darwin
-        // layout has equal size and stride; stride is the allocated buffer
-        // extent passed to C and matches the established app-side readers.
-        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
-        let size = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
-        guard size == expectedSize else { return nil }
+        guard let entry = Self.processTableEntry(pid: pid),
+              !entry.hasExited else {
+            return nil
+        }
         self.init(
             pid: pid,
-            startSeconds: Int64(info.pbi_start_tvsec),
-            startMicroseconds: Int64(info.pbi_start_tvusec)
+            startSeconds: entry.startSeconds,
+            startMicroseconds: entry.startMicroseconds
+        )
+    }
+
+    /// Whether the process exited without yet being reaped.
+    static func hasExitedWithoutReaping(pid: pid_t) -> Bool {
+        processTableEntry(pid: pid)?.hasExited ?? false
+    }
+
+    private static func processTableEntry(
+        pid: pid_t
+    ) -> (
+        startSeconds: Int64,
+        startMicroseconds: Int64,
+        hasExited: Bool
+    )? {
+        guard pid > 0 else { return nil }
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        guard sysctl(&mib, UInt32(mib.count), &info, &size, nil, 0) == 0,
+              size > 0,
+              info.kp_proc.p_pid == pid else {
+            return nil
+        }
+        let started = info.kp_proc.p_un.__p_starttime
+        return (
+            Int64(started.tv_sec),
+            Int64(started.tv_usec),
+            info.kp_proc.p_stat == Int8(SZOMB)
         )
     }
 }

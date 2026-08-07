@@ -4,15 +4,12 @@ import Foundation
 extension AgentPIDProcessIdentity {
     init?(agentTurnPID pid: Int?) {
         guard let pid,
-              let generation =
-                AgentTurnProcessGenerationReader.read(pid: pid) else {
+              pid > 0,
+              pid <= Int(Int32.max),
+              let generation = AgentPIDProcessIdentity(pid: pid_t(pid)) else {
             return nil
         }
-        self.init(
-            pid: pid_t(pid),
-            startSeconds: generation.startSeconds,
-            startMicroseconds: generation.startMicroseconds
-        )
+        self = generation
     }
 
     var liveness: AgentTurnProcessLiveness {

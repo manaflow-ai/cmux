@@ -333,7 +333,9 @@ extension DockSplitStore {
                     key: statusKey,
                     panelId: panelId,
                     generation: generation,
-                    isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(statusKey)
+                    isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                        rawValue: statusKey
+                    ).isAllowed
                 )
             }
         }
@@ -365,7 +367,9 @@ extension DockSplitStore {
                 key: key,
                 panelId: panelId,
                 lifecycle: lifecycle,
-                isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(key),
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: key
+                ).isAllowed,
                 processGeneration: processGeneration
             )
         }
@@ -384,7 +388,7 @@ extension DockSplitStore {
             )
         }
         if removed,
-           !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
+           !AgentHibernationLifecycleStatusKeys(rawValue: key).isManual {
             AgentHibernationController.shared.recordAgentLifecycleChange(
                 workspaceId: workspaceId,
                 panelId: panelId
@@ -405,7 +409,9 @@ extension DockSplitStore {
                     key: key,
                     panelId: panelId,
                     isBuiltIn:
-                        AgentHibernationLifecycleStatusKeys.isAllowed(key),
+                        AgentHibernationLifecycleStatusKeys(
+                            rawValue: key
+                        ).isAllowed,
                     processGeneration: processGeneration
                 )
         }
@@ -440,7 +446,9 @@ extension DockSplitStore {
                     key: key,
                     panelId: panelId,
                     isBuiltIn:
-                        AgentHibernationLifecycleStatusKeys.isAllowed(key)
+                        AgentHibernationLifecycleStatusKeys(
+                            rawValue: key
+                        ).isAllowed
                 )
         }
     }
@@ -550,7 +558,9 @@ extension DockSplitStore {
                 panelId: runtime.panelId,
                 generation: generation
             )
-        } else if AgentHibernationLifecycleStatusKeys.isAllowed(statusKey) {
+        } else if AgentHibernationLifecycleStatusKeys(
+            rawValue: statusKey
+        ).isAllowed {
             didClearLifecycle = runtime.agentLifecycleReconciliationState
                 .recordUnidentifiedProcessExit(
                     key: statusKey,
@@ -605,7 +615,9 @@ extension DockSplitStore {
                 key: statusKey,
                 panelId: panelId,
                 generation: generation,
-                isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(statusKey)
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: statusKey
+                ).isAllowed
             )
         }
         for (key, lifecycle) in runtime.agentLifecycleStates {
@@ -613,7 +625,9 @@ extension DockSplitStore {
                 key: key,
                 panelId: panelId,
                 lifecycle: lifecycle,
-                isBuiltIn: AgentHibernationLifecycleStatusKeys.isAllowed(key)
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: key
+                ).isAllowed
             )
         }
     }

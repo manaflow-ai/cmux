@@ -284,6 +284,36 @@ function runCmux(args: string[]): void {
   } catch (_) {}
 }
 
+function runCmuxAcknowledged(
+  args: string[],
+  completion: (succeeded: boolean) => void,
+): void {
+  if (
+    process.env.CMUX_AMP_HOOKS_DISABLED === "1"
+    || !process.env.CMUX_SURFACE_ID
+  ) {
+    completion(false);
+    return;
+  }
+  const cmux = process.env.CMUX_AMP_CMUX_BIN || "cmux";
+  let completed = false;
+  const finish = (succeeded: boolean): void => {
+    if (completed) return;
+    completed = true;
+    completion(succeeded);
+  };
+  try {
+    const child = spawn(cmux, args, {
+      env: statusEnvironment(),
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    child.on("error", () => finish(false));
+    child.on("close", (status) => finish(status === 0));
+  } catch (_) {
+    finish(false);
+  }
+}
+
 type NativeAttentionProcessGeneration = {
   startSeconds: string;
   startMicroseconds: string;
@@ -441,6 +471,7 @@ export default function (amp: PluginAPI) {
     cwd: string;
   };
   type AmpTurnState = {
+    sessionId: string;
     turnId: string;
     activeToolUseIds: Set<string>;
     pendingEnd: PendingTurnEnd | null;
@@ -449,7 +480,10 @@ export default function (amp: PluginAPI) {
     nativeThreadState: AmpNativeThreadState | null;
     attentionScopeId: string;
     attentionObservationId: string;
-    isAttentionVisible: boolean;
+    nativeAttentionDesired: boolean;
+    nativeAttentionConfirmed: boolean;
+    nativeAttentionInFlight: boolean;
+    nativeAttentionRetryCount: number;
   };
 
   // Amp plugin processes are long-lived and may serve multiple threads
@@ -465,6 +499,7 @@ export default function (amp: PluginAPI) {
   ): AmpTurnState => {
     const sequence = ++turnSequence;
     return {
+      sessionId: threadId,
       turnId:
         forcedTurnId
         || firstString(event.id)
@@ -477,22 +512,29 @@ export default function (amp: PluginAPI) {
       attentionScopeId: `amp-scope-${process.pid}-${sequence}`,
       attentionObservationId:
         `amp-approval-${process.pid}-${sequence}`,
-      isAttentionVisible: false,
+      nativeAttentionDesired: false,
+      nativeAttentionConfirmed: false,
+      nativeAttentionInFlight: false,
+      nativeAttentionRetryCount: 0,
     };
   };
 
-  const beginNativeAttention = (state: AmpTurnState): void => {
-    if (state.isAttentionVisible) return;
+  const maximumImmediateNativeAttentionRetries = 1;
+
+  const synchronizeNativeAttention = (state: AmpTurnState): void => {
+    if (state.nativeAttentionInFlight) return;
+    if (state.nativeAttentionDesired === state.nativeAttentionConfirmed) return;
     if (!nativeAttentionProcessGeneration) return;
     const workspaceId = firstString(process.env.CMUX_WORKSPACE_ID);
     const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
     if (!workspaceId || !surfaceId) return;
-    state.isAttentionVisible = true;
-    runCmux([
+    const attemptedVisibility = state.nativeAttentionDesired;
+    const action = attemptedVisibility ? "begin" : "end";
+    const args = [
       "hooks",
       "amp",
       "__native-attention",
-      "begin",
+      action,
       "--pid",
       String(process.pid),
       "--pid-start-seconds",
@@ -503,33 +545,45 @@ export default function (amp: PluginAPI) {
       state.attentionScopeId,
       "--observation-id",
       state.attentionObservationId,
-      "--workspace-id",
-      workspaceId,
-      "--surface-id",
-      surfaceId,
-    ]);
+      "--session-id",
+      state.sessionId,
+    ];
+    if (attemptedVisibility) {
+      args.push(
+        "--workspace-id",
+        workspaceId,
+        "--surface-id",
+        surfaceId,
+      );
+    }
+    state.nativeAttentionInFlight = true;
+    runCmuxAcknowledged(args, (succeeded) => {
+      state.nativeAttentionInFlight = false;
+      if (succeeded) {
+        state.nativeAttentionConfirmed = attemptedVisibility;
+        state.nativeAttentionRetryCount = 0;
+      } else if (
+        state.nativeAttentionDesired === attemptedVisibility
+        && state.nativeAttentionRetryCount
+          < maximumImmediateNativeAttentionRetries
+      ) {
+        state.nativeAttentionRetryCount += 1;
+      } else {
+        state.nativeAttentionRetryCount = 0;
+        return;
+      }
+      synchronizeNativeAttention(state);
+    });
+  };
+
+  const beginNativeAttention = (state: AmpTurnState): void => {
+    state.nativeAttentionDesired = true;
+    synchronizeNativeAttention(state);
   };
 
   const endNativeAttention = (state: AmpTurnState): void => {
-    if (!state.isAttentionVisible) return;
-    if (!nativeAttentionProcessGeneration) return;
-    state.isAttentionVisible = false;
-    runCmux([
-      "hooks",
-      "amp",
-      "__native-attention",
-      "end",
-      "--pid",
-      String(process.pid),
-      "--pid-start-seconds",
-      nativeAttentionProcessGeneration.startSeconds,
-      "--pid-start-microseconds",
-      nativeAttentionProcessGeneration.startMicroseconds,
-      "--scope-id",
-      state.attentionScopeId,
-      "--observation-id",
-      state.attentionObservationId,
-    ]);
+    state.nativeAttentionDesired = false;
+    synchronizeNativeAttention(state);
   };
 
   const discardTurnState = (

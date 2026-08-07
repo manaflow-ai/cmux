@@ -178,12 +178,25 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
         fake_spawn_path = extension_path.parent / "cmux-test-spawn.mjs"
         fake_spawn_path.write_text(
             """
+const nativeAttentionEndAttempts = new Map();
+
 export function spawn(command, args, options) {
   const call = { command, args: Array.from(args || []), options, stdin: "" };
   globalThis.__cmuxAmpSpawnCalls.push(call);
+  let closeStatus = 0;
+  if (
+    call.args.slice(0, 4).join(" ")
+      === "hooks amp __native-attention end"
+  ) {
+    const observationIndex = call.args.indexOf("--observation-id");
+    const observationId = call.args[observationIndex + 1] || "missing";
+    const attempt = nativeAttentionEndAttempts.get(observationId) || 0;
+    nativeAttentionEndAttempts.set(observationId, attempt + 1);
+    if (attempt === 0) closeStatus = 1;
+  }
   return {
     on(name, callback) {
-      if (name === "close") queueMicrotask(() => callback(0));
+      if (name === "close") queueMicrotask(() => callback(closeStatus));
     },
     unref() {},
     stdin: {
@@ -296,6 +309,7 @@ const otherCtx = { thread: otherThread };
 await handlers.get("agent.start")({ thread, message: "delegate", id: "msg-1" }, ctx);
 thread.setState("awaiting-approval");
 thread.setState("awaiting-approval");
+await Promise.resolve();
 if (attentionCalls("begin").length !== 1) {
   throw new Error(
     `Amp awaiting-approval emitted duplicate attention: ${
@@ -305,15 +319,17 @@ if (attentionCalls("begin").length !== 1) {
 }
 thread.setState("running");
 thread.setState("running");
-if (attentionCalls("end").length !== 1) {
+await Promise.resolve();
+if (attentionCalls("end").length !== 2) {
   throw new Error(
-    `Amp leaving approval did not emit exactly one conclusion: ${
+    `Amp did not retry one failed approval conclusion exactly once: ${
       JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
     }`
   );
 }
 const beginAttention = attentionCalls("begin")[0].args;
-const endAttention = attentionCalls("end")[0].args;
+const endAttentionAttempts = attentionCalls("end").map((call) => call.args);
+const endAttention = endAttentionAttempts.at(-1);
 const identifyAttention = attentionCalls("identify")[0].args;
 const option = (args, name) => args[args.indexOf(name) + 1];
 if (
@@ -326,12 +342,35 @@ if (
     !== option(endAttention, "--pid-start-seconds")
   || option(beginAttention, "--pid-start-microseconds")
     !== option(endAttention, "--pid-start-microseconds")
+  || option(beginAttention, "--session-id")
+    !== option(endAttention, "--session-id")
 ) {
   throw new Error(
     `Amp approval conclusion did not match its begin: begin=${
       JSON.stringify(beginAttention)
     } end=${JSON.stringify(endAttention)}`
   );
+}
+for (const attemptedEnd of endAttentionAttempts) {
+  if (
+    option(attemptedEnd, "--pid") !== option(beginAttention, "--pid")
+    || option(attemptedEnd, "--pid-start-seconds")
+      !== option(beginAttention, "--pid-start-seconds")
+    || option(attemptedEnd, "--pid-start-microseconds")
+      !== option(beginAttention, "--pid-start-microseconds")
+    || option(attemptedEnd, "--scope-id")
+      !== option(beginAttention, "--scope-id")
+    || option(attemptedEnd, "--observation-id")
+      !== option(beginAttention, "--observation-id")
+    || option(attemptedEnd, "--session-id")
+      !== option(beginAttention, "--session-id")
+  ) {
+    throw new Error(
+      `Amp retry changed native-attention identity: begin=${
+        JSON.stringify(beginAttention)
+      } end=${JSON.stringify(attemptedEnd)}`
+    );
+  }
 }
 await handlers.get("tool.call")({
   toolUseID: "tool-main",

@@ -1,26 +1,5 @@
 public import Foundation
 
-/// Exact kernel-process generation attached to an agent lifecycle mutation.
-///
-/// A numeric PID alone is not an identity because the kernel may recycle it.
-/// The start timestamp lets the app reject a delayed hook from an older agent
-/// after a replacement process has claimed the same panel.
-public struct ControlSidebarAgentProcessGeneration: Equatable, Sendable {
-    public let pid: Int32
-    public let startSeconds: Int64
-    public let startMicroseconds: Int64
-
-    public init(
-        pid: Int32,
-        startSeconds: Int64,
-        startMicroseconds: Int64
-    ) {
-        self.pid = pid
-        self.startSeconds = startSeconds
-        self.startMicroseconds = startMicroseconds
-    }
-}
-
 /// The sidebar-domain slice of the control-command seam (a constituent of the
 /// ``ControlCommandContext`` umbrella): live app reach for the v1 sidebar
 /// metadata commands (`set_status` … `sidebar_state`), the v1 bonsplit pane

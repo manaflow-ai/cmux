@@ -30,6 +30,7 @@ extension TerminalController: ControlFeedContext {
         params: [String: Any]
     ) -> V2CallResult {
         guard let source = agentAttentionSource(params["source"]),
+              let sessionId = agentAttentionOpaqueID(params["session_id"]),
               let observationId = agentAttentionOpaqueID(
                   params["observation_id"]
               ),
@@ -38,12 +39,16 @@ extension TerminalController: ControlFeedContext {
               let generation = agentAttentionProcessGeneration(params) else {
             return .err(
                 code: "invalid_params",
-                message: "Invalid agent attention parameters",
+                message: String(
+                    localized: "agent_attention.invalid_parameters",
+                    defaultValue: "Invalid agent attention parameters."
+                ),
                 data: nil
             )
         }
         let began = FeedCoordinator.shared.beginObservedAgentAttention(
             source: source,
+            sessionId: sessionId,
             observationId: observationId,
             scopeId: scopeId,
             workspaceId: workspaceId,
@@ -57,16 +62,21 @@ extension TerminalController: ControlFeedContext {
         params: [String: Any]
     ) -> V2CallResult {
         guard let source = agentAttentionSource(params["source"]),
+              let sessionId = agentAttentionOpaqueID(params["session_id"]),
               let generation = agentAttentionProcessGeneration(params)
         else {
             return .err(
                 code: "invalid_params",
-                message: "Invalid agent attention parameters",
+                message: String(
+                    localized: "agent_attention.invalid_parameters",
+                    defaultValue: "Invalid agent attention parameters."
+                ),
                 data: nil
             )
         }
         let ended = FeedCoordinator.shared.endObservedAgentAttention(
             source: source,
+            sessionId: sessionId,
             observationId: agentAttentionOpaqueID(
                 params["observation_id"]
             ),
@@ -94,7 +104,8 @@ extension TerminalController: ControlFeedContext {
     }
 
     private func agentAttentionOpaqueID(_ raw: Any?) -> String? {
-        AgentAttentionWireValidation.opaqueIdentifier(raw as? String)
+        guard let value = raw as? String else { return nil }
+        return AgentAttentionOpaqueIdentifier(rawValue: value)?.rawValue
     }
 
     private func agentAttentionUUID(_ raw: Any?) -> UUID? {
