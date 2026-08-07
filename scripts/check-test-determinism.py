@@ -944,6 +944,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/subprocess_shell_argv.py",
+            'subprocess.run(["bash", "-c", "curl https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/spawn_shell_argv.ts",
+            'spawn("sh", ["-c", "curl https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -1119,6 +1129,12 @@ def _self_test() -> int:
         (
             "tests/n18j.py",
             'subprocess.run("curl https://api.openai.com/v1/items")\n',
+        ),
+        # Shell-looking later arguments remain inert when the actual executable
+        # is not a shell.
+        (
+            "tests/n18k.py",
+            'subprocess.run(["printf", "bash", "-c", "curl https://api.openai.com/v1/items"])\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
