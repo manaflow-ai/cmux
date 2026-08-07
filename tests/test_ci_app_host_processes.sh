@@ -56,22 +56,22 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
       continue
     fi
     if [ -n "$path_filter" ]; then
-      case "$fd_filter" in
-        9)
+      case "$path_filter" in
+        *.receipt)
           [ "${CMUX_FAKE_LSOF_MISSING_RECEIPT_PID:-}" != "$state_pid" ] \
             || continue
           printf 'p%s\n%s\n%s\nn%s\n' \
             "$state_pid" \
-            "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f9}" \
+            "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f$fd_filter}" \
             "${CMUX_FAKE_LSOF_RECEIPT_ACCESS_FIELD:-aw}" \
             "$path_filter"
           ;;
-        10)
+        *.lease)
           [ "${CMUX_FAKE_LSOF_MISSING_LEASE_PID:-}" != "$state_pid" ] \
             || continue
           printf 'p%s\n%s\n%s\nn%s\n' \
             "$state_pid" \
-            "${CMUX_FAKE_LSOF_LEASE_FD_FIELD:-f10}" \
+            "${CMUX_FAKE_LSOF_LEASE_FD_FIELD:-f$fd_filter}" \
             "${CMUX_FAKE_LSOF_LEASE_ACCESS_FIELD:-au}" \
             "$path_filter"
           ;;
@@ -95,7 +95,10 @@ fi
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
 TMP_DIR="$(cd "$TMP_DIR" && pwd -P)"
+LEASE_FIXTURE_ROOT="$(mktemp -d "${HOME%/}/.cmux-app-host-lease-test.XXXXXX")"
+LEASE_FIXTURE_ROOT="$(cd "$LEASE_FIXTURE_ROOT" && pwd -P)"
 PIDS=""
+LEASE_HOLDER_PIDS=""
 SCOPE_CLEANUP_PATHS=""
 cleanup() {
   local pid
@@ -111,10 +114,15 @@ cleanup() {
   for pid in $PIDS; do
     wait "$pid" 2>/dev/null || true
   done
+  for pid in $LEASE_HOLDER_PIDS; do
+    /bin/kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  done
   local scope_path
   for scope_path in $SCOPE_CLEANUP_PATHS; do
     rm -rf -- "$scope_path"
   done
+  rm -rf "$LEASE_FIXTURE_ROOT"
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
@@ -125,8 +133,11 @@ export CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1
 export CMUX_APP_HOST_LSOF="$FAKE_LSOF"
 export CMUX_FAKE_LSOF_STATE="$TMP_DIR/lsof-state"
 export CMUX_FAKE_LSOF_EXIT_COUNTER_DIR="$TMP_DIR/lsof-exit-counters"
+export CMUX_FAKE_LSOF_LEASE_RELEASE_DIR="$TMP_DIR/lease-release"
 export GITHUB_REPOSITORY_ID=1234567
-mkdir -p "$CMUX_FAKE_LSOF_EXIT_COUNTER_DIR"
+mkdir -p \
+  "$CMUX_FAKE_LSOF_EXIT_COUNTER_DIR" \
+  "$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR"
 : > "$CMUX_FAKE_LSOF_STATE"
 
 # shellcheck source=scripts/ci/app-host-processes.sh
@@ -258,6 +269,85 @@ write_receipt() {
   printf 'version=3\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\nlease=%s\nlease_fd=10\n' \
     "$key" "$pid" "$executable" "$lease" \
     > "$receipt_dir/app-host-$pid.receipt"
+}
+
+untrack_lease_holder() {
+  local target_pid="$1"
+  local tracked_pid updated_pids
+  updated_pids=""
+  for tracked_pid in $LEASE_HOLDER_PIDS; do
+    if [ "$tracked_pid" != "$target_pid" ]; then
+      updated_pids="${updated_pids:+$updated_pids }$tracked_pid"
+    fi
+  done
+  LEASE_HOLDER_PIDS="$updated_pids"
+}
+
+APP_HOST_FIXTURE_BINARY="$TMP_DIR/app-host-lease-watcher"
+build_app_host_fixture() {
+  [ -x "$APP_HOST_FIXTURE_BINARY" ] && return 0
+  xcrun swiftc \
+    "$ROOT_DIR/Sources/AppHostProcessReceipt.swift" \
+    "$ROOT_DIR/tests/fixtures/AppHostLeaseWatcherMain.swift" \
+    -o "$APP_HOST_FIXTURE_BINARY"
+}
+
+spawn_lease_watched_app_host() {
+  local receipt_dir="$1"
+  local key="$2"
+  local executable="$3"
+  local fixture_id lease ready release_fifo holder_pid receipt_file attempts
+  build_app_host_fixture
+  cp "$APP_HOST_FIXTURE_BINARY" "$executable"
+  chmod 700 "$executable"
+  fixture_id="$(basename "$receipt_dir")-${RANDOM}-$$"
+  lease="$receipt_dir/app-host-attempt-$fixture_id.lease"
+  ready="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$fixture_id.ready"
+  release_fifo="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$fixture_id.fifo"
+  : > "$lease"
+  chmod 600 "$lease"
+  mkfifo "$release_fifo"
+  python3 "$ROOT_DIR/tests/fixtures/app_host_attempt_lease_holder.py" \
+    "$lease" "$ready" "$release_fifo" &
+  holder_pid=$!
+  LEASE_HOLDER_PIDS="${LEASE_HOLDER_PIDS:+$LEASE_HOLDER_PIDS }$holder_pid"
+  attempts=0
+  while [ ! -f "$ready" ]; do
+    /bin/kill -0 "$holder_pid" 2>/dev/null \
+      || fail "attempt lease holder exited before becoming ready"
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 100 ] \
+      || fail "attempt lease holder did not become ready"
+    /bin/sleep 0.01
+  done
+  CMUX_APP_HOST_ISOLATION_REQUIRED=1 \
+  CMUX_APP_HOST_RECEIPT_DIR="$receipt_dir" \
+  CMUX_APP_HOST_ATTEMPT_LEASE="$lease" \
+  CMUX_APP_HOST_KEY="$key" \
+    "$executable" &
+  CMUX_TEST_SPAWNED_PID=$!
+  PIDS="${PIDS:+$PIDS }$CMUX_TEST_SPAWNED_PID"
+  receipt_file="$receipt_dir/app-host-$CMUX_TEST_SPAWNED_PID.receipt"
+  attempts=0
+  while [ ! -f "$receipt_file" ]; do
+    /bin/kill -0 "$CMUX_TEST_SPAWNED_PID" 2>/dev/null \
+      || fail "lease-watched app host exited before publishing its receipt"
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 100 ] \
+      || fail "lease-watched app host did not publish its receipt"
+    /bin/sleep 0.01
+  done
+  printf '%s\n%s\n' "$release_fifo" "$holder_pid" \
+    > "$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$CMUX_TEST_SPAWNED_PID"
+}
+
+reap_lease_holder_for_app_host() {
+  local app_host_pid="$1"
+  local release_record holder_pid
+  release_record="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$app_host_pid"
+  holder_pid="$(sed -n '2p' "$release_record")"
+  wait "$holder_pid"
+  untrack_lease_holder "$holder_pid"
 }
 
 arm_attempt_lease_release() {
@@ -490,20 +580,22 @@ grep -Fq "foreign app-host" "$TMP_DIR/stale-unreceipted.err" || {
 /bin/kill -0 "$preflight_unreceipted_pid" 2>/dev/null \
   || fail "stale cleanup signaled an unreceipted target"
 
-deleted_runner_root="$TMP_DIR/deleted-runner-work"
+deleted_runner_root="$LEASE_FIXTURE_ROOT/deleted-runner-work"
 deleted_receipt_root="$TMP_DIR/deleted-receipts"
 deleted_key=2468ace01357
 deleted_receipt_dir="$deleted_receipt_root/cmux-ah-$deleted_key-receipts"
 deleted_derived_data="$deleted_runner_root/old-job/deleted-derived-data"
 deleted_executable="$deleted_derived_data/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
-mkdir -p "$deleted_runner_root" "$deleted_receipt_dir"
-spawn_process
+mkdir -p \
+  "$deleted_runner_root" \
+  "$deleted_receipt_dir" \
+  "$(dirname "$deleted_executable")"
+spawn_lease_watched_app_host \
+  "$deleted_receipt_dir" "$deleted_key" "$deleted_executable"
 deleted_stale_pid="$CMUX_TEST_SPAWNED_PID"
 printf '%s|%s (deleted)\n' \
   "$deleted_stale_pid" "$deleted_executable" > "$CMUX_FAKE_LSOF_STATE"
-write_receipt \
-  "$deleted_receipt_dir" "$deleted_key" \
-  "$deleted_stale_pid" "$deleted_executable"
+rm -rf -- "$deleted_derived_data"
 # One stale-receipt verification precedes the exit wait observation.
 arm_attempt_lease_release 2 "$deleted_stale_pid"
 cmux_wait_for_one_verified_app_host_exit \
@@ -513,6 +605,7 @@ cmux_wait_for_one_verified_app_host_exit \
 disarm_attempt_lease_release
 wait "$deleted_stale_pid" 2>/dev/null || true
 untrack_pid "$deleted_stale_pid"
+reap_lease_holder_for_app_host "$deleted_stale_pid"
 [ ! -e "$deleted_derived_data" ] \
   || fail "deleted stale verification recreated the missing DerivedData root"
 
@@ -549,7 +642,7 @@ make_durable_scope() {
   SCOPE_CLEANUP_PATHS="${SCOPE_CLEANUP_PATHS:+$SCOPE_CLEANUP_PATHS }$DURABLE_SCOPE_HOME $DURABLE_SCOPE_RECEIPT_DIR $DURABLE_SCOPE_CONFIRMATION_FILE"
 }
 
-stale_runner_root="$TMP_DIR/stale-runner-work"
+stale_runner_root="$LEASE_FIXTURE_ROOT/stale-runner-work"
 system_temp_root="$(cd /tmp && pwd -P)"
 mkdir -p "$stale_runner_root"
 
@@ -579,14 +672,12 @@ current_home="$DURABLE_SCOPE_HOME"
 current_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
 current_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
 current_executable="$DURABLE_SCOPE_EXECUTABLE"
-spawn_process
+spawn_lease_watched_app_host \
+  "$current_receipt_dir" "$current_key" "$current_executable"
 current_pid="$CMUX_TEST_SPAWNED_PID"
-spawn_process
+spawn_lease_watched_app_host \
+  "$current_receipt_dir" "$current_key" "$current_executable"
 current_pid_two="$CMUX_TEST_SPAWNED_PID"
-write_receipt \
-  "$current_receipt_dir" "$current_key" "$current_pid" "$current_executable"
-write_receipt \
-  "$current_receipt_dir" "$current_key" "$current_pid_two" "$current_executable"
 
 make_durable_scope waiting "930002$$" 2 1 \
   "$stale_runner_root/waiting-job/derived-data"
@@ -636,6 +727,7 @@ disarm_attempt_lease_release
 for exited_pid in "$current_pid" "$current_pid_two"; do
   wait "$exited_pid" 2>/dev/null || true
   untrack_pid "$exited_pid"
+  reap_lease_holder_for_app_host "$exited_pid"
 done
 for preserved_path in \
   "$old_home" "$old_receipt_dir" "$old_confirmation_file" \
@@ -648,14 +740,13 @@ done
 
 # The canonical machine-lock holder may wait for an authenticated prior owner,
 # but it never deletes that prior scope.
-spawn_process
+mkdir -p "$(dirname "$old_executable")"
+spawn_lease_watched_app_host \
+  "$old_receipt_dir" "$old_key" "$old_executable"
 old_orphan_pid_one="$CMUX_TEST_SPAWNED_PID"
-spawn_process
+spawn_lease_watched_app_host \
+  "$old_receipt_dir" "$old_key" "$old_executable"
 old_orphan_pid_two="$CMUX_TEST_SPAWNED_PID"
-write_receipt \
-  "$old_receipt_dir" "$old_key" "$old_orphan_pid_one" "$old_executable"
-write_receipt \
-  "$old_receipt_dir" "$old_key" "$old_orphan_pid_two" "$old_executable"
 touch "$old_confirmation_file"
 cmux_app_host_scope_mtime "$old_confirmation_file"
 old_orphan_confirmation_mtime="$CMUX_APP_HOST_SCOPE_MTIME"
@@ -680,6 +771,7 @@ disarm_attempt_lease_release
 for old_orphan_pid in "$old_orphan_pid_one" "$old_orphan_pid_two"; do
   wait "$old_orphan_pid" 2>/dev/null || true
   untrack_pid "$old_orphan_pid"
+  reap_lease_holder_for_app_host "$old_orphan_pid"
 done
 [ ! -e "$old_derived_data" ] \
   || fail "prior-run recovery recreated deleted DerivedData"
