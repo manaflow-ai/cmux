@@ -394,7 +394,7 @@ extension ControlCommandCoordinator {
                 code: "invalid_params",
                 message: context?
                     .controlSurfaceInvalidTerminalLifecycleIDError()
-                    ?? "Control context unavailable",
+                    ?? "Terminal session is out of date; restart the shell and try again",
                 data: nil
             )
         }

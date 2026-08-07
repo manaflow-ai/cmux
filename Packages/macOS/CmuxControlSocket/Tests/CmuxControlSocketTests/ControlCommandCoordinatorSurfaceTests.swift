@@ -685,7 +685,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "Control context unavailable",
+            message: "Terminal session is out of date; restart the shell and try again",
             data: nil
         ))
     }
