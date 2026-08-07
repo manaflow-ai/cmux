@@ -1,6 +1,6 @@
 import Foundation
 
-/// Loads Claude Code's authoritative task snapshot for one session.
+/// Loads Claude Code's authoritative task snapshot for one task list.
 ///
 /// Claude task tools mutate individual JSON files. Consumers should load the
 /// complete directory after each task-tool event instead of accumulating
@@ -26,6 +26,26 @@ public struct ClaudeTaskSnapshotLoader {
     public init(tasksRootURL: URL, fileManager: FileManager = .default) {
         self.tasksRootURL = tasksRootURL
         self.fileManager = fileManager
+    }
+
+    /// Reads the authoritative tasks persisted for a configured task-list identifier.
+    ///
+    /// Claude maps `CLAUDE_CODE_TASK_LIST_ID` to one direct child directory by
+    /// replacing every character outside `[a-zA-Z0-9_-]` with `-`. A missing
+    /// configured directory returns `nil` without considering session or
+    /// neighboring task directories.
+    ///
+    /// - Parameter taskListID: Claude's non-empty `CLAUDE_CODE_TASK_LIST_ID` value.
+    /// - Returns: The configured task-list snapshot, or `nil` when the identifier
+    ///   is empty or its direct child directory does not exist.
+    /// - Throws: A filesystem or resource-bound error while reading the directory.
+    public func loadConfiguredTaskList(taskListID: String) throws -> ClaudeTaskSnapshot? {
+        guard !taskListID.isEmpty,
+              let directoryName = taskDirectoryName(taskListID: taskListID),
+              let taskListDirectory = directoryURL(named: directoryName) else {
+            return nil
+        }
+        return try snapshot(in: taskListDirectory)
     }
 
     /// Resolves and reads the authoritative tasks currently persisted for a session.
@@ -122,10 +142,13 @@ public struct ClaudeTaskSnapshotLoader {
                 maximumByteCount: Self.maximumTaskFileByteCount
             )
             guard let record = try? decoder.decode(ClaudeTaskRecord.self, from: data),
+                  let taskID = validPathComponent(record.id),
+                  taskID == record.id,
+                  fileURL.deletingPathExtension().lastPathComponent == taskID,
                   let state = record.canonicalState,
                   let content = nonEmptyTaskText(record.subject) else { continue }
             todos.append(WorkstreamTaskTodo(
-                id: record.id,
+                id: taskID,
                 content: content,
                 activeForm: nonEmptyTaskText(record.activeForm),
                 state: state
@@ -227,6 +250,20 @@ public struct ClaudeTaskSnapshotLoader {
             return nil
         }
         return candidate
+    }
+
+    /// Mirrors Claude's `[^a-zA-Z0-9_-]` replacement on UTF-16 code units.
+    private func taskDirectoryName(taskListID: String) -> String? {
+        let hyphen: UInt16 = 0x2D
+        let codeUnits = taskListID.utf16.map { codeUnit in
+            switch codeUnit {
+            case 0x61...0x7A, 0x41...0x5A, 0x30...0x39, 0x5F, hyphen:
+                return codeUnit
+            default:
+                return hyphen
+            }
+        }
+        return validPathComponent(String(decoding: codeUnits, as: UTF16.self))
     }
 
     private func validPathComponent(_ value: String) -> String? {

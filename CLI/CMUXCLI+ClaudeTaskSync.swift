@@ -53,19 +53,13 @@ extension CMUXCLI {
                 return
             }
 
-            let claudePID = mappedSession?.pid
-                ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
-            guard !shouldSuppressNestedAgentVisibleMutations(
-                currentAgentPID: claudePID,
-                env: ProcessInfo.processInfo.environment
-            ) else {
-                telemetry.breadcrumb("claude-hook.task-sync.nested-suppressed")
-                printClaudeHookAck()
-                return
-            }
-
+            // Nested teammates mutate the same authoritative task list. Their
+            // task hooks must publish it even though other visible mutations
+            // stay suppressed; live routing and session staleness were already
+            // validated above.
+            let environment = ProcessInfo.processInfo.environment
             let tasksRootURL = ClaudeTaskRootResolver(
-                environment: ProcessInfo.processInfo.environment,
+                environment: environment,
                 homeDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
             ).resolve()
             let loader = ClaudeTaskSnapshotLoader(tasksRootURL: tasksRootURL)
@@ -75,12 +69,25 @@ extension CMUXCLI {
             // the latest files only after the earlier snapshot finishes delivery.
             try withClaudeTaskSnapshotLock(loader: loader) {
                 let currentRecord = try sessionStore.lookup(sessionId: sessionID)
-                guard let snapshot = try loader.load(
-                    sessionID: sessionID,
-                    boundDirectoryName: currentRecord?.claudeTaskDirectoryName,
-                    taskIdentity: claudeTaskIdentity(from: parsedInput.rawObject)
-                ) else {
+                let snapshot: ClaudeTaskSnapshot?
+                if let taskListID = environment["CLAUDE_CODE_TASK_LIST_ID"],
+                   !taskListID.isEmpty {
+                    snapshot = try loader.loadConfiguredTaskList(taskListID: taskListID)
+                } else {
+                    snapshot = try loader.load(
+                        sessionID: sessionID,
+                        boundDirectoryName: currentRecord?.claudeTaskDirectoryName,
+                        taskIdentity: claudeTaskIdentity(from: parsedInput.rawObject)
+                    )
+                }
+                guard let snapshot else {
                     telemetry.breadcrumb("claude-hook.task-sync.task-directory-unresolved")
+                    return
+                }
+                guard let checklistOwnerID = claudeTaskChecklistOwnerID(
+                    taskDirectoryName: snapshot.directoryName
+                ) else {
+                    telemetry.breadcrumb("claude-hook.task-sync.invalid-checklist-owner")
                     return
                 }
                 try sessionStore.bindClaudeTaskDirectory(
@@ -106,14 +113,17 @@ extension CMUXCLI {
                 )
 
                 let checklistItems = todos.map {
-                    claudeTaskChecklistDictionary($0, sessionID: sessionID)
+                    claudeTaskChecklistDictionary(
+                        $0,
+                        taskDirectoryName: snapshot.directoryName
+                    )
                 }
                 do {
                     _ = try client.sendV2(
                         method: "workspace.todo.reconcile",
                         params: [
                             "workspace_id": resolvedTarget.workspaceId,
-                            "owner_id": claudeTaskChecklistOwnerID(sessionID: sessionID),
+                            "owner_id": checklistOwnerID,
                             "items": checklistItems,
                         ]
                     )
@@ -189,18 +199,22 @@ extension CMUXCLI {
 
     private func claudeTaskChecklistDictionary(
         _ todo: WorkstreamTaskTodo,
-        sessionID: String
+        taskDirectoryName: String
     ) -> [String: Any] {
         [
-            "id": claudeTaskChecklistID(sessionID: sessionID, taskID: todo.id).uuidString,
+            "id": claudeTaskChecklistID(
+                taskDirectoryName: taskDirectoryName,
+                taskID: todo.id
+            ).uuidString,
             "text": todo.displayContent,
             "state": claudeTaskState(todo.state, workspaceWireFormat: true),
             "origin": "agent",
         ]
     }
 
-    private func claudeTaskChecklistOwnerID(sessionID: String) -> String {
-        "claude:\(sessionID)"
+    private func claudeTaskChecklistOwnerID(taskDirectoryName: String) -> String? {
+        let ownerID = "claude:\(taskDirectoryName)"
+        return ownerID.count <= 500 ? ownerID : nil
     }
 
     private func claudeTaskState(
@@ -214,8 +228,8 @@ extension CMUXCLI {
         }
     }
 
-    private func claudeTaskChecklistID(sessionID: String, taskID: String) -> UUID {
-        let name = "cmux.claude-task\0\(sessionID)\0\(taskID)"
+    private func claudeTaskChecklistID(taskDirectoryName: String, taskID: String) -> UUID {
+        let name = "cmux.claude-task\0\(taskDirectoryName)\0\(taskID)"
         var bytes = Array(SHA256.hash(data: Data(name.utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x80
         bytes[8] = (bytes[8] & 0x3F) | 0x80

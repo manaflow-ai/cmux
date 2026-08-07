@@ -34,7 +34,8 @@ public struct WorkspaceChecklistReplacementItem: Sendable, Equatable {
 public enum WorkspaceChecklistReplaceError: Error, Equatable, Sendable {
     /// An incoming item's text was empty after trimming (0-based index).
     case emptyText(index: Int)
-    /// An incoming item repeated a non-nil identity (0-based index).
+    /// An existing or incoming item repeated an identity (0-based index in
+    /// the collection being validated).
     case duplicateId(index: Int)
     /// The incoming list exceeds ``WorkspaceChecklistItem/maxChecklistItems``.
     case tooManyItems(count: Int)
@@ -47,8 +48,8 @@ extension Array where Element == WorkspaceChecklistItem {
     ///
     /// Rules:
     /// - Rejects the whole replace (no mutation) when any item's text is
-    ///   empty after trimming, when any non-nil id is repeated, or when
-    ///   `items` exceeds the checklist cap.
+    ///   empty after trimming, when an existing or incoming id is repeated,
+    ///   or when `items` exceeds the checklist cap.
     /// - Text is normalized exactly like `addChecklistItem` (trimmed, capped
     ///   at ``WorkspaceChecklistItem/maxTextLength``).
     /// - An item whose `id` matches an existing item keeps that identity,
@@ -72,7 +73,14 @@ extension Array where Element == WorkspaceChecklistItem {
         var result: [WorkspaceChecklistItem] = []
         result.reserveCapacity(items.count)
         var seenIds = Set<UUID>()
-        let existingById = Dictionary(uniqueKeysWithValues: self.map { ($0.id, $0) })
+        var existingById: [UUID: WorkspaceChecklistItem] = [:]
+        existingById.reserveCapacity(count)
+        for (index, existing) in enumerated() {
+            guard existingById[existing.id] == nil else {
+                return .failure(.duplicateId(index: index))
+            }
+            existingById[existing.id] = existing
+        }
         for (index, item) in items.enumerated() {
             if let id = item.id, !seenIds.insert(id).inserted {
                 return .failure(.duplicateId(index: index))

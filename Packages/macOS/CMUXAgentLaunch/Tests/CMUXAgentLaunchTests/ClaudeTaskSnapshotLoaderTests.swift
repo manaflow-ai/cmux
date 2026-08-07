@@ -136,6 +136,48 @@ struct ClaudeTaskSnapshotLoaderTests {
         #expect(snapshot.todos.map(\.content) == ["Team task"])
     }
 
+    @Test("Configured task-list identifiers resolve one canonical direct child")
+    func resolvesConfiguredTaskListDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-configured-tasks-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configuredDirectory = root.appendingPathComponent("shared-task-list", isDirectory: true)
+        let unicodeDirectory = root.appendingPathComponent("shared----list", isDirectory: true)
+        let neighboringDirectory = root.appendingPathComponent("shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: configuredDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unicodeDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: neighboringDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Configured task","status":"pending"}"#,
+            named: "1.json",
+            in: configuredDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"UTF-16 task","status":"pending"}"#,
+            named: "1.json",
+            in: unicodeDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Neighbor task","status":"pending"}"#,
+            named: "1.json",
+            in: neighboringDirectory
+        )
+        let loader = ClaudeTaskSnapshotLoader(tasksRootURL: root)
+
+        let snapshot = try #require(
+            try loader.loadConfiguredTaskList(taskListID: "shared/task list")
+        )
+
+        #expect(snapshot.directoryName == "shared-task-list")
+        #expect(snapshot.todos.map(\.content) == ["Configured task"])
+        let unicodeSnapshot = try #require(
+            try loader.loadConfiguredTaskList(taskListID: "shared/🌈 list")
+        )
+        #expect(unicodeSnapshot.directoryName == "shared----list")
+        #expect(unicodeSnapshot.todos.map(\.content) == ["UTF-16 task"])
+        #expect(try loader.loadConfiguredTaskList(taskListID: "missing/list") == nil)
+    }
+
     @Test("Rejects an ambiguous team-directory identity")
     func rejectsAmbiguousTeamDirectory() throws {
         let root = FileManager.default.temporaryDirectory
