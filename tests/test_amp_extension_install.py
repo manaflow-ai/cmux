@@ -178,6 +178,7 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
         fake_spawn_path = extension_path.parent / "cmux-test-spawn.mjs"
         fake_spawn_path.write_text(
             """
+let nativeAttentionIdentifyAttempts = 0;
 const nativeAttentionEndAttempts = new Map();
 
 export function spawn(command, args, options) {
@@ -190,13 +191,19 @@ export function spawn(command, args, options) {
     call.args.slice(0, 5).join(" ")
       === "hooks amp __native-attention identify --pid"
   ) {
+    const attempt = nativeAttentionIdentifyAttempts;
+    nativeAttentionIdentifyAttempts += 1;
     const pidIndex = call.args.indexOf("--pid");
     const requestedPid = Number(call.args[pidIndex + 1]);
-    stdout = JSON.stringify({
-      pid: requestedPid,
-      pid_start_seconds: 1234,
-      pid_start_microseconds: 5678,
-    });
+    if (attempt === 0) {
+      closeStatus = 1;
+    } else {
+      stdout = JSON.stringify({
+        pid: requestedPid,
+        pid_start_seconds: 1234,
+        pid_start_microseconds: 5678,
+      });
+    }
   }
   if (
     call.args.slice(0, 4).join(" ")
@@ -234,6 +241,7 @@ export function spawn(command, args, options) {
   queueMicrotask(() => {
     if (hangs) return;
     if (stdout) stdoutHandlers.get("data")?.(stdout);
+    call.closedWith = closeStatus;
     handlers.get("close")?.(closeStatus);
   });
   return child;
@@ -357,19 +365,27 @@ thread.setState("awaiting-approval");
 thread.setState("awaiting-approval");
 await waitFor(
   () => attentionCalls("identify").length === 1
-    && attentionCalls("begin").length === 1,
-  "Amp awaiting-approval emitted duplicate attention"
+    && attentionCalls("identify")[0].closedWith === 1,
+  "Amp did not observe the transient process-identity failure"
+);
+thread.setState("awaiting-approval");
+await waitFor(
+  () => attentionCalls("identify").length === 2
+    && attentionCalls("begin").length === 1
+    && attentionCalls("begin")[0].closedWith === 0,
+  "Amp did not recover native attention after identity capture failed"
 );
 thread.setState("running");
 thread.setState("running");
 await waitFor(
-  () => attentionCalls("end").length === 2,
+  () => attentionCalls("end").length === 2
+    && attentionCalls("end")[1].closedWith === 0,
   "Amp did not retry one timed-out approval conclusion exactly once"
 );
 const beginAttention = attentionCalls("begin")[0].args;
 const endAttentionAttempts = attentionCalls("end").map((call) => call.args);
 const endAttention = endAttentionAttempts.at(-1);
-const identifyAttention = attentionCalls("identify")[0].args;
+const identifyAttention = attentionCalls("identify").at(-1).args;
 if (attentionCalls("end")[0].killedWith !== "SIGKILL") {
   throw new Error("Amp did not kill a timed-out native-attention subprocess");
 }
@@ -411,6 +427,45 @@ for (const attemptedEnd of endAttentionAttempts) {
       `Amp retry changed native-attention identity: begin=${
         JSON.stringify(beginAttention)
       } end=${JSON.stringify(attemptedEnd)}`
+    );
+  }
+}
+thread.setState("awaiting-approval");
+await waitFor(
+  () => attentionCalls("begin").length === 2
+    && attentionCalls("begin")[1].closedWith === 0,
+  "Amp did not publish a second approval episode in the same turn"
+);
+const secondBeginAttention = attentionCalls("begin")[1].args;
+if (
+  option(secondBeginAttention, "--scope-id")
+    === option(beginAttention, "--scope-id")
+  || option(secondBeginAttention, "--observation-id")
+    === option(beginAttention, "--observation-id")
+) {
+  throw new Error(
+    `Amp reused a concluded approval identity: first=${
+      JSON.stringify(beginAttention)
+    } second=${JSON.stringify(secondBeginAttention)}`
+  );
+}
+thread.setState("running");
+await waitFor(
+  () => attentionCalls("end").length === 4
+    && attentionCalls("end")[3].closedWith === 0,
+  "Amp did not conclude the second approval episode"
+);
+for (const attemptedEnd of attentionCalls("end").slice(2)) {
+  if (
+    option(attemptedEnd.args, "--scope-id")
+      !== option(secondBeginAttention, "--scope-id")
+    || option(attemptedEnd.args, "--observation-id")
+      !== option(secondBeginAttention, "--observation-id")
+  ) {
+    throw new Error(
+      `Amp changed the second approval identity during conclusion: begin=${
+        JSON.stringify(secondBeginAttention)
+      } end=${JSON.stringify(attemptedEnd.args)}`
     );
   }
 }

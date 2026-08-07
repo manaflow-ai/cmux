@@ -128,6 +128,92 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test
+    func relayAttentionRejectsGenerationOlderThanAuthoritativeHook() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "test-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_001,
+            relayID: "relay-generation-test",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/cmux-relay-generation-test.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh test-remote"
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let older = AgentPIDProcessIdentity(
+            pid: 4_242,
+            startSeconds: 100,
+            startMicroseconds: 10
+        )
+        let newer = AgentPIDProcessIdentity(
+            pid: 4_242,
+            startSeconds: 200,
+            startMicroseconds: 20
+        )
+        #expect(
+            workspace.setAgentLifecycle(
+                key: "amp",
+                panelId: panelId,
+                lifecycle: .running,
+                processGeneration: newer
+            )
+        )
+
+        let sessionId = "relay-generation-\(UUID().uuidString)"
+        let observationId = "observation-\(UUID().uuidString)"
+        let scopeId = "scope-\(UUID().uuidString)"
+        let began = FeedCoordinator.shared.beginObservedAgentAttention(
+            source: "amp",
+            sessionId: sessionId,
+            observationId: observationId,
+            scopeId: scopeId,
+            workspaceId: workspace.id,
+            surfaceId: panelId,
+            processGeneration: older
+        )
+        defer {
+            if began {
+                _ = FeedCoordinator.shared.endObservedAgentAttention(
+                    source: "amp",
+                    sessionId: sessionId,
+                    observationId: observationId,
+                    scopeId: scopeId,
+                    processGeneration: older
+                )
+            }
+        }
+
+        #expect(
+            !began,
+            "A delayed relay approval from an older process generation must not override newer hook state."
+        )
+        #expect(
+            !workspace.sidebarAgentRuntimeObservation.hasAgentFeedAttention(
+                key: "amp",
+                panelId: panelId
+            )
+        )
+        #expect(workspace.agentLifecycleStatesByPanelId[panelId]?["amp"] == .running)
+    }
+
     @Test func terminalAgentContextDoesNotObserveAgentRuntimeMaps() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)
