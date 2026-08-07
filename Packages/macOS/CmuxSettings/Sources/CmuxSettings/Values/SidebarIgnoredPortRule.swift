@@ -95,12 +95,11 @@ extension SidebarIgnoredPortRule: SettingCodable {
     /// Decodes a persisted exact port or inclusive range.
     public static func decodeFromUserDefaults(_ raw: Any?) -> Self? {
         if let number = raw as? NSNumber {
-            let numericValue = number.doubleValue
             guard CFGetTypeID(number) != CFBooleanGetTypeID(),
-                  numericValue.rounded() == numericValue else {
+                  let port = Int(exactly: number) else {
                 return nil
             }
-            return Self(port: number.intValue)
+            return Self(port: port)
         }
         guard let value = String.decodeFromUserDefaults(raw) else { return nil }
         return parsedPersistedText(value)
