@@ -97,7 +97,7 @@ import Testing
         #expect(WindowScreenshotTarget(windowNumber: Int(UInt32.max) + 1) == nil)
     }
 
-    @Test func coordinatorSerializesCaptureAndDisablesTimedOutCompositor() throws {
+    @Test func coordinatorRecoversTimedOutCompositorAfterRetirement() throws {
         let coordinator = WindowScreenshotCaptureCoordinator()
 
         let firstClaim = coordinator.claim()
@@ -106,32 +106,33 @@ import Testing
         let contendedClaim = coordinator.claim()
         #expect(contendedClaim == nil)
 
-        coordinator.finish(first, screenCaptureKitDidTimeOut: true)
+        coordinator.disableScreenCaptureKitUntilAttemptRetires()
+        coordinator.finish(first)
 
         let secondClaim = coordinator.claim()
         let second = try #require(secondClaim)
         #expect(!second.allowsScreenCaptureKit)
-        coordinator.finish(second, screenCaptureKitDidTimeOut: false)
+        coordinator.finish(second)
+        coordinator.screenCaptureKitAttemptDidRetire()
         let third = coordinator.claim()
-        #expect(third != nil)
-        if let third {
-            coordinator.finish(third, screenCaptureKitDidTimeOut: false)
-        }
+        let recovered = try #require(third)
+        #expect(recovered.allowsScreenCaptureKit)
+        coordinator.finish(recovered)
     }
 
     @Test func coordinatorReleasesAdmissionBeforeFinishReturns() throws {
         let coordinator = WindowScreenshotCaptureCoordinator()
         let first = try #require(coordinator.claim())
 
-        coordinator.finish(first, screenCaptureKitDidTimeOut: false)
+        coordinator.finish(first)
 
         let replacement = try #require(coordinator.claim())
         #expect(replacement.id != first.id)
-        coordinator.finish(first, screenCaptureKitDidTimeOut: false)
+        coordinator.finish(first)
         #expect(coordinator.claim() == nil)
-        coordinator.finish(replacement, screenCaptureKitDidTimeOut: false)
+        coordinator.finish(replacement)
         let final = try #require(coordinator.claim())
-        coordinator.finish(final, screenCaptureKitDidTimeOut: false)
+        coordinator.finish(final)
     }
 
     @MainActor
@@ -174,6 +175,24 @@ import Testing
         #expect(captureRoot !== contentView)
         #expect(contentView.isDescendant(of: captureRoot))
         #expect(captureRoot.bounds.height > contentView.bounds.height)
+    }
+
+    @MainActor
+    @Test func overlayVisibleRectHonorsClippingAncestors() throws {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let clippingAncestor = NSView(
+            frame: NSRect(x: 10, y: 20, width: 40, height: 30)
+        )
+        clippingAncestor.clipsToBounds = true
+        let externalView = NSView(frame: NSRect(x: 0, y: 0, width: 80, height: 70))
+        root.addSubview(clippingAncestor)
+        clippingAncestor.addSubview(externalView)
+
+        let visibleRect = try #require(
+            WindowAppKitCapture.visibleRect(of: externalView, through: root)
+        )
+
+        #expect(visibleRect == NSRect(x: 10, y: 20, width: 40, height: 30))
     }
 
     @Test func screenshotLabelsCannotCreatePathComponents() {

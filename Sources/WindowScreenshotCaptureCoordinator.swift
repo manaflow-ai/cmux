@@ -2,7 +2,7 @@
 import CmuxFoundation
 import Foundation
 
-/// Serializes window captures and disables a compositor that has timed out.
+/// Serializes captures and pauses the compositor while a timed-out attempt retires.
 nonisolated final class WindowScreenshotCaptureCoordinator: Sendable {
     private let id = UUID()
     private let captureIsAvailable = AtomicBooleanGate(true)
@@ -20,16 +20,20 @@ nonisolated final class WindowScreenshotCaptureCoordinator: Sendable {
     }
 
     func finish(
-        _ admission: WindowScreenshotCaptureAdmission,
-        screenCaptureKitDidTimeOut: Bool
+        _ admission: WindowScreenshotCaptureAdmission
     ) {
         guard admission.coordinatorID == id, admission.claimRetirement() else {
             return
         }
-        if screenCaptureKitDidTimeOut {
-            screenCaptureKitIsAvailable.storeRelease(false)
-        }
         captureIsAvailable.storeRelease(true)
+    }
+
+    func disableScreenCaptureKitUntilAttemptRetires() {
+        screenCaptureKitIsAvailable.storeRelease(false)
+    }
+
+    func screenCaptureKitAttemptDidRetire() {
+        screenCaptureKitIsAvailable.storeRelease(true)
     }
 }
 #endif

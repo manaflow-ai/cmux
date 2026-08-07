@@ -34,12 +34,8 @@ extension TerminalController {
             return "ERROR: screenshot capture already in progress"
         }
 
-        var screenCaptureKitDidTimeOut = false
         defer {
-            captureCoordinator.finish(
-                admission,
-                screenCaptureKitDidTimeOut: screenCaptureKitDidTimeOut
-            )
+            captureCoordinator.finish(admission)
         }
 
         let captureTarget: CGWindowID? = v2MainSync {
@@ -92,11 +88,7 @@ extension TerminalController {
                 }
                 pngData = appKitCapture.pngData
             case .timedOut:
-                screenCaptureKitDidTimeOut = true
-                guard let appKitCapture else {
-                    return "ERROR: screenshot capture timed out"
-                }
-                pngData = appKitCapture.pngData
+                return "ERROR: screenshot capture timed out"
             }
         }
 
@@ -127,7 +119,14 @@ extension TerminalController {
             }
         }
         guard let captured else {
+            windowScreenshotCaptureCoordinator
+                .disableScreenCaptureKitUntilAttemptRetires()
             captureTask.cancel()
+            let captureCoordinator = windowScreenshotCaptureCoordinator
+            Task {
+                _ = await captureTask.value
+                captureCoordinator.screenCaptureKitAttemptDidRetire()
+            }
             return .timedOut
         }
         guard let captured else {
@@ -242,6 +241,7 @@ extension TerminalController {
         var overlays: [(
             image: CGImage,
             rect: NSRect,
+            clipRect: NSRect,
             alpha: CGFloat,
             zOrder: [Int]
         )] = []
@@ -250,6 +250,12 @@ extension TerminalController {
 
         for terminalView in visibleDescendants(of: captureRoot, as: GhosttySurfaceScrollView.self) {
             guard !Task.isCancelled else { return nil }
+            guard let clipRect = WindowAppKitCapture.visibleRect(
+                of: terminalView.surfaceView,
+                through: captureRoot
+            ) else {
+                continue
+            }
             guard let image = terminalView.debugCopyIOSurfaceCGImage() else {
                 capturedAllExternalContent = false
                 continue
@@ -268,7 +274,7 @@ extension TerminalController {
                 capturedAllExternalContent = false
                 continue
             }
-            overlays.append((image, rect, alpha, zOrder))
+            overlays.append((image, rect, clipRect, alpha, zOrder))
             if !appendNativeOccluderOverlays(
                 above: terminalView.surfaceView,
                 through: captureRoot,
@@ -282,6 +288,12 @@ extension TerminalController {
 
         for webView in visibleDescendants(of: captureRoot, as: WKWebView.self) {
             guard !Task.isCancelled else { return nil }
+            guard let clipRect = WindowAppKitCapture.visibleRect(
+                of: webView,
+                through: captureRoot
+            ) else {
+                continue
+            }
             let remainingBudget =
                 captureDeadline - ProcessInfo.processInfo.systemUptime
             guard remainingBudget > 0 else {
@@ -314,7 +326,7 @@ extension TerminalController {
                     capturedAllExternalContent = false
                     continue
                 }
-                overlays.append((cgImage, rect, alpha, zOrder))
+                overlays.append((cgImage, rect, clipRect, alpha, zOrder))
                 if !appendNativeOccluderOverlays(
                     above: webView,
                     through: captureRoot,
@@ -347,25 +359,20 @@ extension TerminalController {
             )
         )
         for overlay in overlays.sorted(by: { hierarchyZOrderPrecedes($0.zOrder, $1.zOrder) }) {
-            guard overlay.rect.intersects(bounds) else { continue }
+            guard overlay.clipRect.intersects(bounds) else { continue }
             context.saveGState()
             context.setAlpha(overlay.alpha)
-            let destinationRect: NSRect
-            if captureRoot.isFlipped {
-                destinationRect = NSRect(
-                    x: overlay.rect.minX - bounds.minX,
-                    y: bounds.maxY - overlay.rect.maxY,
-                    width: overlay.rect.width,
-                    height: overlay.rect.height
-                )
-            } else {
-                destinationRect = NSRect(
-                    x: overlay.rect.minX - bounds.minX,
-                    y: overlay.rect.minY - bounds.minY,
-                    width: overlay.rect.width,
-                    height: overlay.rect.height
-                )
-            }
+            let destinationRect = windowScreenshotBitmapRect(
+                for: overlay.rect,
+                within: bounds,
+                sourceIsFlipped: captureRoot.isFlipped
+            )
+            let destinationClipRect = windowScreenshotBitmapRect(
+                for: overlay.clipRect,
+                within: bounds,
+                sourceIsFlipped: captureRoot.isFlipped
+            )
+            context.clip(to: destinationClipRect)
             context.draw(overlay.image, in: destinationRect)
             context.restoreGState()
         }
@@ -408,6 +415,7 @@ extension TerminalController {
         to overlays: inout [(
             image: CGImage,
             rect: NSRect,
+            clipRect: NSRect,
             alpha: CGFloat,
             zOrder: [Int]
         )]
@@ -429,6 +437,12 @@ extension TerminalController {
                 }
                 let rect = sibling.convert(sibling.bounds, to: root)
                 guard !rect.isEmpty, rect.intersects(externalRect) else { continue }
+                guard let clipRect = WindowAppKitCapture.visibleRect(
+                    of: sibling,
+                    through: root
+                ) else {
+                    continue
+                }
 
                 let identifier = ObjectIdentifier(sibling)
                 guard capturedViews.insert(identifier).inserted else { continue }
@@ -449,12 +463,33 @@ extension TerminalController {
                     capturedEveryOccluder = false
                     continue
                 }
-                overlays.append((image, rect, alpha, zOrder))
+                overlays.append((image, rect, clipRect, alpha, zOrder))
             }
             current = parent
         }
 
         return capturedEveryOccluder
+    }
+
+    private func windowScreenshotBitmapRect(
+        for rect: NSRect,
+        within bounds: NSRect,
+        sourceIsFlipped: Bool
+    ) -> NSRect {
+        if sourceIsFlipped {
+            return NSRect(
+                x: rect.minX - bounds.minX,
+                y: bounds.maxY - rect.maxY,
+                width: rect.width,
+                height: rect.height
+            )
+        }
+        return NSRect(
+            x: rect.minX - bounds.minX,
+            y: rect.minY - bounds.minY,
+            width: rect.width,
+            height: rect.height
+        )
     }
 
     private func viewHierarchyContainsExternalContent(_ view: NSView) -> Bool {
