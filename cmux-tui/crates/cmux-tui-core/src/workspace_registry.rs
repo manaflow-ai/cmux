@@ -1444,6 +1444,13 @@ fn reset_dir_child_names(
         return Err(error).with_context(|| format!("read {label} {}", display_path.display()));
     }
     let stream = ResetDirStream(raw_stream);
+    // fdopendir takes a duplicated descriptor, but dup shares the directory
+    // cursor with the original file description. Rewind every scan so repeated
+    // safety passes cannot inherit an end-of-directory cursor.
+    // SAFETY: stream owns a valid DIR pointer.
+    unsafe {
+        libc::rewinddir(stream.0);
+    }
     let mut names = Vec::new();
     loop {
         // SAFETY: stream owns a valid DIR pointer for the duration of this loop.

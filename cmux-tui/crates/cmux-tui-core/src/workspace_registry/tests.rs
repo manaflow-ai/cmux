@@ -281,6 +281,28 @@ fn reset_delete_rejects_child_replaced_after_verification() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[cfg(unix)]
+#[test]
+fn reset_dir_child_names_rewinds_between_scans() {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let root = temp_root("reset-child-name-rewind");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("child"), b"confirmed").unwrap();
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(&root)
+        .unwrap();
+
+    let first = reset_dir_child_names(&directory, &root, "workspace session state").unwrap();
+    let second = reset_dir_child_names(&directory, &root, "workspace session state").unwrap();
+
+    assert_eq!(first, vec![std::ffi::OsString::from("child")]);
+    assert_eq!(second, vec![std::ffi::OsString::from("child")]);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn reset_device_boundary_rejects_nested_device_change() {
     let error = ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(2)).unwrap_err();
