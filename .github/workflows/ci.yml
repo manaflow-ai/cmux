@@ -1341,6 +1341,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxNestedTopology
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
