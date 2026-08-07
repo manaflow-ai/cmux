@@ -245,7 +245,7 @@ extension DockSplitStore {
                     forPanelID: panelId
                 )
             }
-            installSubscription(for: panel, tracksTerminalTitle: true)
+            installSubscription(for: panel)
             return nil
         }
         if let terminalPanel = panel as? TerminalPanel {
@@ -491,7 +491,7 @@ extension DockSplitStore {
         focus: Bool,
         reconcileReason: String
     ) {
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        installSubscription(for: panel)
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)
             if let terminal = panel as? TerminalPanel {

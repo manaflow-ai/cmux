@@ -49,6 +49,7 @@ final class DockSplitStore: BonsplitDelegate {
     weak var terminalFontSizeOwningWorkspace: Workspace?
     @ObservationIgnored private var activeTerminalFontSizeChangeInheritanceContext:
         TerminalFontSizeChangeInheritanceContext?
+    @ObservationIgnored private var terminalTitleChangeSubscription: GhosttyTitleChangeSubscription?
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
@@ -450,7 +451,7 @@ final class DockSplitStore: BonsplitDelegate {
             websiteDataStore: websiteDataStore
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
-        guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
+        guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId) else {
             return nil
         }
         recordExplicitPanelCreation()
@@ -509,7 +510,7 @@ final class DockSplitStore: BonsplitDelegate {
             // Empty tree: place into the root pane rather than splitting.
             let previousFocus = focus ? nil : focusedDockPaneSelection()
             guard let rootPane = bonsplitController.allPaneIds.first,
-                  let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane, tracksTerminalTitle: true) else {
+                  let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane) else {
                 return nil
             }
             recordExplicitPanelCreation()
@@ -546,7 +547,7 @@ final class DockSplitStore: BonsplitDelegate {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         recordExplicitPanelCreation()
         if focus {
@@ -845,8 +846,7 @@ final class DockSplitStore: BonsplitDelegate {
         _ panel: any Panel,
         kind: DockSurfaceKind,
         title: String,
-        inPane paneId: PaneID?,
-        tracksTerminalTitle: Bool
+        inPane paneId: PaneID?
     ) -> TabID? {
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
@@ -861,15 +861,16 @@ final class DockSplitStore: BonsplitDelegate {
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
-        installSubscription(for: panel, tracksTerminalTitle: tracksTerminalTitle)
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
     }
 
     // MARK: - Tab metadata subscriptions
 
-    func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
+    func installSubscription(for panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
+            ensureTerminalTitleChangeSubscription()
             configureAgentHibernationResume(for: terminal)
         }
         installAttentionFlashRouting(for: panel)
@@ -906,13 +907,15 @@ final class DockSplitStore: BonsplitDelegate {
                 )
             }
             panelCancellables[panel.id] = cancellable
-        } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
+        } else if let terminal = panel as? TerminalPanel {
             let cancellable = terminal.$title
                 .removeDuplicates()
+                .dropFirst()
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self, weak terminal] _ in
                     guard let self, let terminal, let tabId = self.surfaceId(forPanelId: terminal.id),
                           let existing = self.bonsplitController.tab(tabId) else { return }
+                    guard !existing.hasCustomTitle else { return }
                     // Skip the @Observable mutation when the resolved title is
                     // unchanged, so a terminal re-emitting the same title does not
                     // re-render the Dock tree.
@@ -922,6 +925,20 @@ final class DockSplitStore: BonsplitDelegate {
                 }
             panelCancellables[panel.id] = cancellable
         }
+    }
+
+    private func ensureTerminalTitleChangeSubscription() {
+        guard terminalTitleChangeSubscription == nil else { return }
+        terminalTitleChangeSubscription = GhosttyTitleChangeSubscription { [weak self] change in
+            self?.applyTerminalTitleChange(change)
+        }
+    }
+
+    private func applyTerminalTitleChange(_ change: GhosttyTitleChange) {
+        guard change.tabId == workspaceId,
+              let terminal = panels[change.surfaceId] as? TerminalPanel,
+              change.matches(sourceSurface: terminal.surface) else { return }
+        terminal.updateTitle(change.title)
     }
 
     // MARK: - BonsplitDelegate
@@ -1093,9 +1110,6 @@ final class DockSplitStore: BonsplitDelegate {
         for (index, entry) in created.enumerated() {
             let definition = entry.definition
             let panel = entry.panel
-            // Config terminals carry a user-supplied title; keep it static
-            // (don't track the live process title) to match Dock's prior look.
-            let tracksTitle = definition.kind == .browser
 
             if let previousPanelId, let sourcePaneId = paneId(forPanelId: previousPanelId) {
                 // Divider = the height share of everything already placed above
@@ -1125,10 +1139,10 @@ final class DockSplitStore: BonsplitDelegate {
                     discardPanelOwnershipAndClose(panelId: panel.id)
                     continue
                 }
-                installSubscription(for: panel, tracksTerminalTitle: tracksTitle)
+                installSubscription(for: panel)
                 applyVisibility(to: panel)
             } else {
-                guard attachPanelAsTab(panel, kind: definition.kind, title: definition.title, inPane: rootPaneId, tracksTerminalTitle: tracksTitle) != nil else {
+                guard attachPanelAsTab(panel, kind: definition.kind, title: definition.title, inPane: rootPaneId) != nil else {
                     continue
                 }
             }

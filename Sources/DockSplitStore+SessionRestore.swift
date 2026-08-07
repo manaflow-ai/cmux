@@ -372,7 +372,7 @@ extension DockSplitStore {
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
     }

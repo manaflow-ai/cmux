@@ -165,7 +165,7 @@ struct DockControlDefinitionDecodingTests {
 
     @Test("Configured Dock terminal follows live titles without replacing a custom name")
     @MainActor
-    func configuredTerminalFollowsLiveTitlesWithoutReplacingCustomName() throws {
+    func configuredTerminalFollowsLiveTitlesWithoutReplacingCustomName() async throws {
         let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
         defer { store.closeAllPanels() }
 
@@ -189,6 +189,10 @@ struct DockControlDefinitionDecodingTests {
 
         let tabID = try #require(store.bonsplitController.allTabIds.first)
         let terminal = try #require(store.panel(for: tabID) as? TerminalPanel)
+        for _ in 0..<10 {
+            await Task.yield()
+            if store.bonsplitController.tab(tabID)?.title == "Agent" { break }
+        }
         #expect(store.bonsplitController.tab(tabID)?.title == "Agent")
 
         NotificationCenter.default.post(
@@ -202,6 +206,10 @@ struct DockControlDefinitionDecodingTests {
             ).userInfo
         )
 
+        for _ in 0..<10 {
+            await Task.yield()
+            if store.bonsplitController.tab(tabID)?.title == "codex · issue 9337" { break }
+        }
         #expect(terminal.displayTitle == "codex · issue 9337")
         #expect(store.bonsplitController.tab(tabID)?.title == "codex · issue 9337")
 
@@ -221,6 +229,13 @@ struct DockControlDefinitionDecodingTests {
             ).userInfo
         )
 
+        for _ in 0..<10 {
+            await Task.yield()
+            if terminal.displayTitle == "zsh",
+               store.bonsplitController.tab(tabID)?.title == "Pinned agent" {
+                break
+            }
+        }
         #expect(terminal.displayTitle == "zsh")
         #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
     }
