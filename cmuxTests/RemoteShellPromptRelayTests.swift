@@ -112,6 +112,68 @@ struct RemoteShellPromptRelayTests {
         ), Comment(rawValue: output))
     }
 
+    @Test("workspace shell-state relay authenticates its source without pinning the focused target")
+    @MainActor
+    func workspaceShellStateRelayAuthenticatesSourceWithoutPinningFocusedTarget() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let previousManager = TerminalController.shared
+            .activeTabManagerForCallerNotification()
+        let appDelegate = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = manager
+        TerminalController.shared.setActiveTabManager(manager)
+        let windowID = appDelegate.registerMainWindowContextForTesting(
+            tabManager: manager
+        )
+        defer {
+            appDelegate.unregisterMainWindowContextForTesting(
+                windowId: windowID
+            )
+            manager.tabs.forEach { $0.teardownAllPanels() }
+            TerminalController.shared.setActiveTabManager(previousManager)
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let reportingTerminal = try #require(workspace.focusedTerminalPanel)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let focusedTarget = try #require(workspace.newTerminalSurface(
+            inPane: paneID,
+            focus: true
+        ))
+        let reportingLifecycleID = reportingTerminal.surface.terminalLifecycleId
+        #expect(workspace.focusedPanelId == focusedTarget.id)
+        #expect(reportingTerminal.id != focusedTarget.id)
+        #expect(GhosttyApp.terminalSurfaceRegistry.isCurrentSurface(
+            id: reportingTerminal.id,
+            terminalLifecycleID: reportingLifecycleID
+        ))
+
+        try reportWorkspaceShellState(
+            workspaceID: workspace.id,
+            terminalLifecycleID: reportingLifecycleID,
+            state: "running"
+        )
+        #expect(focusedTarget.shellActivity.state == .commandRunning)
+
+        _ = GhosttyApp.terminalSurfaceRegistry.advanceTerminalLifecycle(
+            for: reportingTerminal.surface
+        )
+        #expect(!GhosttyApp.terminalSurfaceRegistry.isCurrentSurface(
+            id: reportingTerminal.id,
+            terminalLifecycleID: reportingLifecycleID
+        ))
+
+        try reportWorkspaceShellState(
+            workspaceID: workspace.id,
+            terminalLifecycleID: reportingLifecycleID,
+            state: "prompt"
+        )
+        #expect(focusedTarget.shellActivity.state == .commandRunning)
+    }
+
     @Test(
         "remote fish retries TTY registration until the relay acknowledges it",
         .enabled(if: remoteShellPromptFishExecutablePath != nil)
@@ -270,5 +332,33 @@ struct RemoteShellPromptRelayTests {
 
         #expect(process.terminationStatus == 0, "\(error)\n\(output)")
         return output
+    }
+
+    @MainActor
+    private func reportWorkspaceShellState(
+        workspaceID: UUID,
+        terminalLifecycleID: UUID,
+        state: String
+    ) throws {
+        let request: [String: Any] = [
+            "id": state,
+            "method": "surface.report_shell_state",
+            "params": [
+                "workspace_id": workspaceID.uuidString,
+                "terminal_lifecycle_id": terminalLifecycleID.uuidString,
+                "state": state,
+            ],
+        ]
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        let requestLine = try #require(
+            String(data: requestData, encoding: .utf8)
+        )
+        let rawResponse = TerminalController.shared.handleSocketLine(requestLine)
+        let responseData = try #require(rawResponse.data(using: .utf8))
+        let response = try #require(
+            JSONSerialization.jsonObject(with: responseData)
+                as? [String: Any]
+        )
+        #expect(response["ok"] as? Bool == true, Comment(rawValue: rawResponse))
     }
 }
