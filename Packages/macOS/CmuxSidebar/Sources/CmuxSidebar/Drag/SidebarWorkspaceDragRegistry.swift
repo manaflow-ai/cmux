@@ -1,17 +1,6 @@
 public import Foundation
 import AppKit
 
-/// Immutable identity for one process-wide workspace drag.
-struct SidebarWorkspaceDragSession: Equatable, Sendable {
-    let id: UUID
-    let workspaceId: UUID
-
-    init(id: UUID = UUID(), workspaceId: UUID) {
-        self.id = id
-        self.workspaceId = workspaceId
-    }
-}
-
 /// Process-wide coordinator for the workspace currently being dragged in any
 /// window's sidebar.
 ///
@@ -21,13 +10,9 @@ struct SidebarWorkspaceDragSession: Equatable, Sendable {
 /// no view callback is the sole owner of process-wide cleanup.
 @MainActor
 public final class SidebarWorkspaceDragRegistry {
-    private struct WeakParticipant {
-        weak var state: SidebarDragState?
-    }
-
     private(set) var currentSession: SidebarWorkspaceDragSession?
     private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
-    private var participants: [WeakParticipant] = []
+    private var participants: [SidebarWorkspaceDragParticipantReference] = []
 
     /// Creates an empty registry with no drag in flight.
     public init() {}
@@ -81,7 +66,7 @@ public final class SidebarWorkspaceDragRegistry {
 
     func register(_ state: SidebarDragState) {
         participants.removeAll { $0.state == nil || $0.state === state }
-        participants.append(WeakParticipant(state: state))
+        participants.append(SidebarWorkspaceDragParticipantReference(state: state))
     }
 
     private func endCurrentSession() {

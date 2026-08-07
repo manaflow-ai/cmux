@@ -236,13 +236,13 @@ final class SidebarPointerInteractionMonitor {
 
     func workspaceDragCandidate(
         at point: CGPoint
-    ) -> SidebarWorkspaceDragSourceMonitor.Candidate? {
+    ) -> SidebarWorkspaceDragCandidate? {
         guard let row = rowFrames.first(where: { $0.value.contains(point) }),
               workspaceDragEnabledByRowId[row.key] != false,
               let workspaceId = workspaceIdsByRowId[row.key] else {
             return nil
         }
-        return SidebarWorkspaceDragSourceMonitor.Candidate(
+        return SidebarWorkspaceDragCandidate(
             workspaceId: workspaceId,
             swiftUIFrame: row.value
         )

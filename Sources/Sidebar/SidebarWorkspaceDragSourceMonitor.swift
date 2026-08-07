@@ -3,11 +3,6 @@ import AppKit
 /// Starts workspace drags without intercepting the sidebar row's click gestures.
 @MainActor
 final class SidebarWorkspaceDragSourceMonitor {
-    struct Candidate {
-        let workspaceId: UUID
-        let swiftUIFrame: CGRect
-    }
-
     typealias BeginDrag = @MainActor (
         _ workspaceId: UUID,
         _ sourceView: NSView,
@@ -16,21 +11,15 @@ final class SidebarWorkspaceDragSourceMonitor {
         _ dragImage: NSImage
     ) -> Bool
 
-    private struct PendingDrag {
-        let mouseDownEvent: NSEvent
-        let startPoint: NSPoint
-        let candidate: Candidate
-    }
-
     private weak var hostView: NSView?
     private var eventMonitor: Any?
-    private var pendingDrag: PendingDrag?
-    private var resolveCandidate: (@MainActor (CGPoint) -> Candidate?)?
+    private var pendingDrag: SidebarWorkspacePendingDrag?
+    private var resolveCandidate: (@MainActor (CGPoint) -> SidebarWorkspaceDragCandidate?)?
     private var onBeginDrag: BeginDrag?
     private let dragThresholdSquared: CGFloat = 16
 
     func start(
-        resolveCandidate: @escaping @MainActor (CGPoint) -> Candidate?,
+        resolveCandidate: @escaping @MainActor (CGPoint) -> SidebarWorkspaceDragCandidate?,
         onBeginDrag: @escaping BeginDrag
     ) {
         self.resolveCandidate = resolveCandidate
@@ -98,7 +87,7 @@ final class SidebarWorkspaceDragSourceMonitor {
             viewportBounds: hostView.bounds
         )
         guard let candidate = resolveCandidate?(swiftUIPoint) else { return }
-        pendingDrag = PendingDrag(
+        pendingDrag = SidebarWorkspacePendingDrag(
             mouseDownEvent: event,
             startPoint: appKitPoint,
             candidate: candidate

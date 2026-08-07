@@ -16,17 +16,6 @@ public import CmuxFoundation
 @MainActor
 @Observable
 public final class SidebarDragState {
-    private enum SessionRole {
-        case source(UUID)
-        case mirror(UUID)
-
-        var sessionId: UUID {
-            switch self {
-            case .source(let id), .mirror(let id): id
-            }
-        }
-    }
-
     /// The workspace currently dragged in this window, or `nil` when no local
     /// drag is in flight. A destination window mirrors a foreign id here to drive
     /// the cross-window drop machinery.
@@ -46,7 +35,7 @@ public final class SidebarDragState {
     /// Explicit source/mirror role for the coordinator session represented by
     /// this window. The session token prevents an old clear from ending a newer
     /// drag of the same workspace.
-    private var sessionRole: SessionRole?
+    private var sessionRole: SidebarWorkspaceDragSessionRole?
 
     /// Pin state of a foreign (cross-window) dragged workspace, resolved once
     /// when the drag is mirrored into this window and reused for every hover
@@ -197,7 +186,10 @@ public final class SidebarDragState {
         clearPresentation()
     }
 
-    private func activate(session: SidebarWorkspaceDragSession, role: SessionRole) {
+    private func activate(
+        session: SidebarWorkspaceDragSession,
+        role: SidebarWorkspaceDragSessionRole
+    ) {
         sessionRole = role
         draggedTabId = session.workspaceId
         clearDropIndicator()
