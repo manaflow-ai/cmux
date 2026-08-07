@@ -992,6 +992,76 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func rollbackResumesExclusiveGroupAfterAnchorExit(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-anchor-exit-rollback-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_deadline_allows_work() { return 0; }
+        cmux_ssh_auth_deadline_allows_signal() { return 0; }
+        cmux_ssh_auth_now_millis() { printf '1000\\n'; }
+        cmux_ssh_auth_select_exclusive_groups() {
+          printf '777\\n' > "$cmux_ssh_auth_owned_groups"
+        }
+        cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
+        cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '101 1 777 T Thu Jan 1 00:00:00 1970\\n102 1 777 T Thu Jan 1 00:00:00 1970\\n' \\
+            > "$1"
+        }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          # The recorded anchor was killed after STOP. The other member remains
+          # stopped and must be sufficient to resume the process group.
+          printf '102 1 777 T Thu Jan 1 00:00:00 1970\\n' > "$1"
+        }
+        cmux_ssh_auth_expand_owned_processes() { return 0; }
+        cmux_ssh_auth_stable_identity() {
+          printf '777|Thu_Jan_1_00:00:00_1970\\n'
+        }
+        kill() { printf '%s\\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\\n102 1 777 Thu_Jan_1_00:00:00_1970 S\\n' \\
+          > "$CMUX_TEST_OWNED"
+        cmux_ssh_auth_owned_group=777
+        cmux_ssh_auth_group_anchor=101
+        : > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
+        cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
+        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
+        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
+        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
+        cmux_ssh_auth_next_owned_groups="$CMUX_TEST_GROUPS.next"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_freeze_owned_processes || exit 99
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_resume_signaled_processes || exit 98
+        /usr/bin/grep -Fqx -- '-CONT -- -777' "$CMUX_TEST_SIGNALS" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: freezeIdentityTestEnvironment(root: root).merging([
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
+            ]) { _, new in new },
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func freezeAvoidsGroupStopWhenMemberWasAlreadyStopped(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -1242,6 +1312,41 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func stableIdentityUsesKernelStartTimestamp(shellPath: String) throws {
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let pid = getpid()
+        let actualSize = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(expectedSize))
+        #expect(actualSize == expectedSize)
+
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-kernel-identity-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_stable_identity "$CMUX_TEST_PID" > "$CMUX_TEST_IDENTITY"
+        """
+        let identityURL = root.appendingPathComponent("identity")
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_IDENTITY": identityURL.path,
+                "CMUX_TEST_PID": String(pid),
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+        let actual = try String(contentsOf: identityURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let expected = "\(info.pbi_pgid)|K_\(info.pbi_start_tvsec)_\(info.pbi_start_tvusec)_0_0"
+        #expect(actual == expected)
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
