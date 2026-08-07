@@ -1699,8 +1699,32 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/subprocess_keyword_args_curl.py",
+            (
+                "subprocess.run(\n"
+                "    check=True,\n"
+                '    args=["curl", "https://api.openai.com/v1/items"],\n'
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/exec_curl.ts",
             'execSync("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_exec_curl.ts",
+            'child_process.exec("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_curl.ts",
+            (
+                'child_process.spawn("curl", [\n'
+                '  "https://api.openai.com/v1/items",\n'
+                "]);\n"
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2021,6 +2045,23 @@ def _self_test() -> int:
         (
             "web/tests/n18d.ts",
             "expect(help).toContain('execSync(\\\"curl https://cmux.com/status\\\")')\n",
+        ),
+        # Unrelated object methods named exec/eval/spawn do not launch processes.
+        (
+            "web/tests/n18d_regex_exec.ts",
+            'pattern.exec("curl https://api.openai.com/v1/items")\n',
+        ),
+        (
+            "web/tests/n18d_schema_eval.ts",
+            'schema.eval("fetch(\\\"https://api.openai.com/v1/items\\\")")\n',
+        ),
+        (
+            "web/tests/n18d_pool_spawn.ts",
+            (
+                'pool.spawn("curl", [\n'
+                '  "https://api.openai.com/v1/items",\n'
+                "]);\n"
+            ),
         ),
         # Plain template text is still fixture data; only `${...}` regions are
         # executable JavaScript.
