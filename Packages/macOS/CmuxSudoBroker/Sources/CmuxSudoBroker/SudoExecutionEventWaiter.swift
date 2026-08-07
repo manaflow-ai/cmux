@@ -4,44 +4,44 @@ import Foundation
 /// Waits for execution exit, password fallback, or the independent deadline.
 struct SudoExecutionEventWaiter: Sendable {
     private let inspector: any SudoProcessInspecting
-    private let outputDetector: SudoAuthenticationOutputDetector
-    private let exitWaiter: SudoProcessExitWaiter
 
-    init(
-        inspector: any SudoProcessInspecting,
-        outputDetector: SudoAuthenticationOutputDetector
-    ) {
+    init(inspector: any SudoProcessInspecting) {
         self.inspector = inspector
-        self.outputDetector = outputDetector
-        exitWaiter = SudoProcessExitWaiter(inspector: inspector)
     }
 
-    /// Uses kernel process, vnode, and timer events without polling or sleeps.
+    /// Drains pipes from kernel events so output stays bounded without blocking the child.
     func wait(
         for process: SudoSpawnedProcess,
         after timeout: TimeInterval
     ) -> SudoExecutionWaitDisposition {
-        guard inspector.isRunning(process.identity) else { return .exited }
-        // `sudo -p` emits this broker-owned sentinel when it requests a
-        // password. Generic password-like sudo or script output is ignored.
-        guard !outputDetector.indicatesPasswordPrompt(at: process.outputURL) else {
-            return .authenticationFailed
+        var descriptors = process.io.takeDescriptors()
+        guard descriptors.output >= 0, descriptors.outputFile >= 0 else {
+            Self.close(&descriptors)
+            return .failed
         }
+        var collector = SudoExecutionOutputCollector(
+            outputDescriptor: descriptors.outputFile,
+            readinessMarker: process.standardInputReadyMarker
+        )
+        var inputOffset = 0
+        var inputWriteRegistered = false
+        defer {
+            try? collector.finish()
+            Self.close(&descriptors)
+        }
+
+        do {
+            try collector.drain(from: descriptors.output)
+        } catch {
+            return .failed
+        }
+        if process.standardInput != nil, descriptors.input < 0 { return .failed }
+        if collector.authenticationFailed { return .authenticationFailed }
+        guard inspector.isRunning(process.identity) else { return .exited }
         guard timeout > 0 else { return .timedOut }
 
-        let outputDescriptor = Darwin.open(
-            process.outputURL.path,
-            O_EVTONLY | O_NOFOLLOW | O_CLOEXEC
-        )
-        guard outputDescriptor >= 0 else {
-            return fallback(for: process, after: timeout)
-        }
-        defer { Darwin.close(outputDescriptor) }
-
         let queue = kqueue()
-        guard queue >= 0 else {
-            return fallback(for: process, after: timeout)
-        }
+        guard queue >= 0 else { return .failed }
         defer { Darwin.close(queue) }
 
         var processEvent = kevent(
@@ -53,74 +53,149 @@ struct SudoExecutionEventWaiter: Sendable {
             udata: nil
         )
         guard Self.register(&processEvent, on: queue) else {
-            return fallback(for: process, after: timeout)
+            return inspector.isRunning(process.identity) ? .failed : .exited
         }
 
         var outputEvent = kevent(
-            ident: UInt(outputDescriptor),
-            filter: Int16(EVFILT_VNODE),
+            ident: UInt(descriptors.output),
+            filter: Int16(EVFILT_READ),
             flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
-            fflags: UInt32(NOTE_WRITE | NOTE_EXTEND),
+            fflags: 0,
             data: 0,
             udata: nil
         )
-        guard Self.register(&outputEvent, on: queue) else {
-            return fallback(for: process, after: timeout)
-        }
-
-        guard inspector.isRunning(process.identity) else { return .exited }
-        guard !outputDetector.indicatesPasswordPrompt(at: process.outputURL) else {
-            return .authenticationFailed
-        }
+        guard Self.register(&outputEvent, on: queue) else { return .failed }
 
         let timerIdentifier = UInt.max
-        let milliseconds = SudoKeventTimeout(seconds: timeout).milliseconds
         var timerEvent = kevent(
             ident: timerIdentifier,
             filter: Int16(EVFILT_TIMER),
             flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
             fflags: 0,
-            data: milliseconds,
+            data: SudoKeventTimeout(seconds: timeout).milliseconds,
             udata: nil
         )
-        guard Self.register(&timerEvent, on: queue) else {
-            return fallback(for: process, after: timeout)
-        }
+        guard Self.register(&timerEvent, on: queue) else { return .failed }
 
-        while inspector.isRunning(process.identity) {
-            var triggeredEvent = kevent()
-            let result = Self.receive(&triggeredEvent, from: queue)
-            guard result > 0 else {
-                return fallback(for: process, after: timeout)
+        while true {
+            do {
+                if collector.inputReady,
+                   process.standardInput != nil,
+                   !(try Self.writeInput(
+                       process.standardInput,
+                       descriptor: &descriptors.input,
+                       offset: &inputOffset
+                   )),
+                   !inputWriteRegistered {
+                    var inputEvent = kevent(
+                        ident: UInt(descriptors.input),
+                        filter: Int16(EVFILT_WRITE),
+                        flags: UInt16(EV_ADD | EV_ENABLE | EV_CLEAR),
+                        fflags: 0,
+                        data: 0,
+                        udata: nil
+                    )
+                    guard Self.register(&inputEvent, on: queue) else { return .failed }
+                    inputWriteRegistered = true
+                }
+            } catch {
+                return .failed
             }
-            if triggeredEvent.filter == Int16(EVFILT_VNODE),
-               triggeredEvent.ident == UInt(outputDescriptor),
-               outputDetector.indicatesPasswordPrompt(at: process.outputURL) {
-                return .authenticationFailed
+
+            if collector.authenticationFailed { return .authenticationFailed }
+            if !inspector.isRunning(process.identity) {
+                do {
+                    try collector.drain(from: descriptors.output)
+                } catch {
+                    return .failed
+                }
+                return collector.authenticationFailed ? .authenticationFailed : .exited
+            }
+
+            var triggeredEvent = kevent()
+            guard Self.receive(&triggeredEvent, from: queue) > 0 else { return .failed }
+            if triggeredEvent.flags & UInt16(EV_ERROR) != 0,
+               triggeredEvent.data != 0 {
+                return .failed
+            }
+
+            if triggeredEvent.filter == Int16(EVFILT_READ),
+               triggeredEvent.ident == UInt(descriptors.output) {
+                do {
+                    try collector.drain(from: descriptors.output)
+                } catch {
+                    return .failed
+                }
+                continue
+            }
+            if triggeredEvent.filter == Int16(EVFILT_WRITE),
+               descriptors.input >= 0,
+               triggeredEvent.ident == UInt(descriptors.input) {
+                do {
+                    if try Self.writeInput(
+                        process.standardInput,
+                        descriptor: &descriptors.input,
+                        offset: &inputOffset
+                    ) {
+                        inputWriteRegistered = false
+                    }
+                } catch {
+                    return .failed
+                }
+                continue
             }
             if triggeredEvent.filter == Int16(EVFILT_TIMER),
                triggeredEvent.ident == timerIdentifier {
+                do {
+                    try collector.drain(from: descriptors.output)
+                } catch {
+                    return .failed
+                }
+                if collector.authenticationFailed { return .authenticationFailed }
                 return inspector.isRunning(process.identity) ? .timedOut : .exited
             }
         }
-        return .exited
     }
 
-    private func fallback(
-        for process: SudoSpawnedProcess,
-        after timeout: TimeInterval
-    ) -> SudoExecutionWaitDisposition {
-        if outputDetector.indicatesPasswordPrompt(at: process.outputURL) {
-            return .authenticationFailed
+    private static func writeInput(
+        _ data: Data?,
+        descriptor: inout Int32,
+        offset: inout Int
+    ) throws -> Bool {
+        guard let data else { return true }
+        guard descriptor >= 0 else { return offset == data.count }
+        while offset < data.count {
+            let count = data.withUnsafeBytes { buffer in
+                Darwin.write(
+                    descriptor,
+                    buffer.baseAddress?.advanced(by: offset),
+                    data.count - offset
+                )
+            }
+            if count > 0 {
+                offset += count
+            } else if count < 0, errno == EINTR {
+                continue
+            } else if count < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                return false
+            } else {
+                throw Failure.write(count == 0 ? EIO : errno)
+            }
         }
-        let survivors = exitWaiter.survivors(
-            among: [process.identity],
-            after: timeout
-        )
-        if outputDetector.indicatesPasswordPrompt(at: process.outputURL) {
-            return .authenticationFailed
+        Darwin.close(descriptor)
+        descriptor = -1
+        return true
+    }
+
+    private static func close(_ descriptors: inout SudoSpawnedProcessIO.Descriptors) {
+        for descriptor in Set([
+            descriptors.input,
+            descriptors.output,
+            descriptors.outputFile,
+        ]) where descriptor >= 0 {
+            Darwin.close(descriptor)
         }
-        return survivors.isEmpty ? .exited : .timedOut
+        descriptors = .init(input: -1, output: -1, outputFile: -1)
     }
 
     private static func register(_ event: inout kevent, on queue: Int32) -> Bool {
@@ -137,5 +212,9 @@ struct SudoExecutionEventWaiter: Sendable {
             result = kevent(queue, nil, 0, &event, 1, nil)
         } while result < 0 && errno == EINTR
         return result
+    }
+
+    private enum Failure: Error {
+        case write(Int32)
     }
 }

@@ -2,6 +2,12 @@
 import Foundation
 
 struct SudoTestFixture {
+    static let defaultRequesterIdentity = SudoProcessIdentity(
+        processIdentifier: 123,
+        startSeconds: 10,
+        startMicroseconds: 20
+    )
+
     let root: URL
     let paths: SudoBrokerPaths
     let store: SudoSpoolStore
@@ -18,30 +24,35 @@ struct SudoTestFixture {
         id: String,
         createdAt: Date,
         timeoutSeconds: Int = 300,
-        requesterIdentity: SudoProcessIdentity? = nil
+        requesterIdentity: SudoProcessIdentity = Self.defaultRequesterIdentity
     ) throws -> SudoRequest {
-        let request: SudoRequest
-        if let requesterIdentity {
-            request = SudoRequest(
-                id: id,
-                reason: "regression test",
-                requesterIdentity: requesterIdentity,
-                requesterCommand: "test-agent",
-                currentDirectory: "/tmp",
-                createdAt: createdAt,
-                timeoutSeconds: timeoutSeconds
-            )
-        } else {
-            request = SudoRequest(
-                id: id,
-                reason: "regression test",
-                requesterPid: 123,
-                requesterCommand: "test-agent",
-                currentDirectory: "/tmp",
-                createdAt: createdAt,
-                timeoutSeconds: timeoutSeconds
-            )
-        }
+        let request = SudoRequest(
+            id: id,
+            reason: "regression test",
+            requesterIdentity: requesterIdentity,
+            requesterCommand: "test-agent",
+            currentDirectory: "/tmp",
+            createdAt: createdAt,
+            timeoutSeconds: timeoutSeconds
+        )
+        try store.enqueue(SudoPendingRequest(request: request, script: "echo test\n"))
+        return request
+    }
+
+    func enqueueLegacy(
+        id: String,
+        createdAt: Date,
+        timeoutSeconds: Int = 300
+    ) throws -> SudoRequest {
+        let request = SudoRequest(
+            id: id,
+            reason: "regression test",
+            requesterPid: Self.defaultRequesterIdentity.processIdentifier,
+            requesterCommand: "test-agent",
+            currentDirectory: "/tmp",
+            createdAt: createdAt,
+            timeoutSeconds: timeoutSeconds
+        )
         try store.enqueue(SudoPendingRequest(request: request, script: "echo test\n"))
         return request
     }

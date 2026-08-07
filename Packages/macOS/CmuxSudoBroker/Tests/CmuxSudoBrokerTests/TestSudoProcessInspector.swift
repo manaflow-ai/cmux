@@ -4,7 +4,9 @@ import Foundation
 struct TestSudoProcessInspector: SudoProcessInspecting {
     private let runningIdentities: Set<SudoProcessIdentity>
 
-    init(runningIdentities: Set<SudoProcessIdentity> = []) {
+    init(
+        runningIdentities: Set<SudoProcessIdentity> = [SudoTestFixture.defaultRequesterIdentity]
+    ) {
         self.runningIdentities = runningIdentities
     }
 

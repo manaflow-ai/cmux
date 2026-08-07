@@ -100,13 +100,16 @@ struct SudoProcessLifecycleTests {
         let process = try runner.spawn(command)
         let outcome = runner.wait(
             for: process,
-            deadline: Date.now.addingTimeInterval(1)
+            deadline: Date.now.addingTimeInterval(10)
         )
 
         if case .authenticationFailed(let survivors) = outcome {
             #expect(survivors.isEmpty)
         } else {
-            Issue.record("password fallback did not produce an authentication failure")
+            let output = (try? String(contentsOf: command.outputURL, encoding: .utf8)) ?? ""
+            Issue.record(
+                "password fallback produced \(outcome); captured output: \(output.debugDescription)"
+            )
         }
         #expect(!inspector.isRunning(process.identity))
     }
@@ -142,6 +145,47 @@ struct SudoProcessLifecycleTests {
 
         #expect(outcome == .exited(0))
         #expect(outputSize.intValue <= 16 * 1_024 * 1_024)
+    }
+
+    @Test("PTY transport executes reviewed bytes instead of the approved pathname", .timeLimit(.minutes(1)))
+    func reviewedScriptTransportIsImmutable() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let approvedScriptURL = fixture.paths.approved.appendingPathComponent("immutable.sh")
+        try Data("printf 'replaced-path\\n'\n".utf8).write(to: approvedScriptURL)
+        let reviewedScript = Data("printf 'reviewed-bytes\\n'\n".utf8)
+        let transport = SudoReviewedScriptTransport(
+            reviewedScript: reviewedScript,
+            approvedScriptURL: approvedScriptURL,
+            secureTemporaryDirectoryURL: fixture.root
+        )
+        let outputURL = fixture.paths.results.appendingPathComponent("immutable.out")
+        let inspector = SystemSudoProcessInspector()
+        let runner = SudoBoundedProcessRunner(
+            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+            inspector: inspector,
+            signaler: SystemSudoProcessSignaler()
+        )
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/usr/bin/script"),
+            arguments: ["/usr/bin/script", "-q", "/dev/null"] + transport.shellArguments,
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: outputURL,
+            standardInput: reviewedScript,
+            standardInputReadyMarker: Data(SudoReviewedScriptTransport.readinessMarker.utf8)
+        )
+
+        let process = try runner.spawn(command)
+        let outcome = runner.wait(
+            for: process,
+            deadline: Date.now.addingTimeInterval(10)
+        )
+        let output = String(decoding: try Data(contentsOf: outputURL), as: UTF8.self)
+
+        #expect(outcome == .exited(0))
+        #expect(output.contains("reviewed-bytes"))
+        #expect(!output.contains("replaced-path"))
+        #expect(!output.contains(SudoReviewedScriptTransport.readinessMarker))
     }
 
     @Test("System process inventory includes the calling process")

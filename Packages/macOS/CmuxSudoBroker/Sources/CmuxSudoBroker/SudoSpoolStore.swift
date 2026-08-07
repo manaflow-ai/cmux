@@ -10,12 +10,19 @@ struct SudoSpoolStore {
 
     let paths: SudoBrokerPaths
     private let fileManager: FileManager
+    private let now: () -> Date
     private let maximumRequestBytes = 64 * 1_024
     private let maximumScriptBytes = 16 * 1_024 * 1_024
+    private let outputRetentionSeconds: TimeInterval = 24 * 60 * 60
 
-    init(paths: SudoBrokerPaths, fileManager: FileManager = .default) {
+    init(
+        paths: SudoBrokerPaths,
+        fileManager: FileManager = .default,
+        now: @escaping () -> Date = { .now }
+    ) {
         self.paths = paths
         self.fileManager = fileManager
+        self.now = now
     }
 
     func ensureDirectories() throws {
@@ -36,6 +43,9 @@ struct SudoSpoolStore {
             }
             try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
         }
+        pruneStaleTerminalOutputs(
+            before: now().addingTimeInterval(-outputRetentionSeconds)
+        )
     }
 
     func enqueue(_ pending: SudoPendingRequest) throws {
@@ -168,6 +178,9 @@ struct SudoSpoolStore {
             guard pending.request.approvalDeadline > now else {
                 return .expired
             }
+            guard let requesterIdentity = pending.request.requesterIdentity else {
+                return .unavailable
+            }
             let approvedURL = paths.approved.appendingPathComponent("\(id).sh")
             let manifestURL = paths.executions.appendingPathComponent("\(id).json")
             guard try writeAtomically(
@@ -180,6 +193,7 @@ struct SudoSpoolStore {
             }
             let manifest = SudoExecutionManifest(
                 id: id,
+                requesterIdentity: requesterIdentity,
                 currentDirectory: pending.request.currentDirectory,
                 deadline: pending.request.approvalDeadline.addingTimeInterval(executionGraceSeconds)
             )
@@ -336,6 +350,11 @@ struct SudoSpoolStore {
         paths.results.appendingPathComponent("\(id).out")
     }
 
+    func removeOutput(id: String) {
+        guard Self.isValidRequestID(id) else { return }
+        _ = unlink(outputURL(id: id).path)
+    }
+
     func approvedScriptURL(id: String) -> URL {
         paths.approved.appendingPathComponent("\(id).sh")
     }
@@ -410,6 +429,28 @@ struct SudoSpoolStore {
 
     private func stateURL(id: String) -> URL {
         paths.states.appendingPathComponent("\(id).json")
+    }
+
+    private func pruneStaleTerminalOutputs(before cutoff: Date) {
+        let names = (try? fileManager.contentsOfDirectory(atPath: paths.results.path)) ?? []
+        for name in names where name.hasSuffix(".out") {
+            let id = String(name.dropLast(4))
+            guard Self.isValidRequestID(id), result(id: id) != nil else { continue }
+            let url = paths.results.appendingPathComponent(name)
+            var status = stat()
+            guard lstat(url.path, &status) == 0,
+                  status.st_mode & S_IFMT == S_IFREG,
+                  status.st_uid == geteuid() else {
+                continue
+            }
+            let modifiedAt = Date(
+                timeIntervalSince1970: TimeInterval(status.st_mtimespec.tv_sec)
+                    + TimeInterval(status.st_mtimespec.tv_nsec) / 1_000_000_000
+            )
+            if modifiedAt <= cutoff {
+                _ = unlink(url.path)
+            }
+        }
     }
 
     private func readData(at url: URL, maximumBytes: Int) throws -> Data {

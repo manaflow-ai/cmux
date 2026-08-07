@@ -102,8 +102,11 @@ struct SystemSudoProcessInspector: SudoProcessInspecting {
         var lastResult: [Int32] = []
         for _ in 0..<4 {
             var processIdentifiers = [pid_t](repeating: 0, count: capacity)
-            let count = processIdentifiers.withUnsafeMutableBytes { buffer in
-                proc_listallpids(buffer.baseAddress, Int32(buffer.count))
+            let count = processIdentifiers.withUnsafeMutableBufferPointer { buffer in
+                proc_listallpids(
+                    buffer.baseAddress,
+                    Int32(buffer.count * MemoryLayout<pid_t>.stride)
+                )
             }
             guard count > 0 else { return lastResult }
             lastResult = processIdentifiers.prefix(Int(count)).filter { $0 > 1 }

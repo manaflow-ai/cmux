@@ -58,6 +58,7 @@ struct SudoResultWaiter {
             try drainOutput(descriptor: outputDescriptor)
             if let result = store.result(id: requestID) {
                 try drainOutput(descriptor: outputDescriptor)
+                store.removeOutput(id: requestID)
                 return .result(result)
             }
             if remainingSeconds <= 0 {
@@ -78,6 +79,7 @@ struct SudoResultWaiter {
                     )
                     try drainOutput(descriptor: outputDescriptor)
                     if let settled = store.result(id: requestID) {
+                        store.removeOutput(id: requestID)
                         return .result(settled)
                     }
                     return try settleTimeout(
@@ -106,6 +108,7 @@ struct SudoResultWaiter {
             )
         )
         if let result = store.result(id: requestID) {
+            store.removeOutput(id: requestID)
             if disposition == .pendingApproval,
                result.errorCode == .approvalTimedOut {
                 return .timedOut(.pendingApproval)

@@ -260,7 +260,7 @@ struct SudoBrokerRegressionTests {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
         let now = Date(timeIntervalSince1970: 1_786_000_000)
-        let request = try fixture.enqueue(id: "requester-missing", createdAt: now)
+        let request = try fixture.enqueueLegacy(id: "requester-missing", createdAt: now)
         let broker = SudoBroker(
             paths: fixture.paths,
             dependencies: SudoBrokerDependencies(

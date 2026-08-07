@@ -9,6 +9,25 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
     }
 
     func spawn(_ command: SudoExecutionCommand) throws -> SudoSpawnedProcess {
+        var inputPipe: [Int32] = [-1, -1]
+        var outputPipe: [Int32] = [-1, -1]
+        defer {
+            for descriptor in Set(inputPipe + outputPipe) where descriptor >= 0 {
+                Darwin.close(descriptor)
+            }
+        }
+
+        if command.standardInput != nil {
+            guard Darwin.pipe(&inputPipe) == 0 else {
+                throw SudoPOSIXSpawnError.pipeFailed(errno)
+            }
+            try Self.configureParentDescriptor(inputPipe[1])
+        }
+        guard Darwin.pipe(&outputPipe) == 0 else {
+            throw SudoPOSIXSpawnError.pipeFailed(errno)
+        }
+        try Self.configureParentDescriptor(outputPipe[0])
+
         let outputDescriptor = Darwin.open(
             command.outputURL.path,
             O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC,
@@ -17,7 +36,10 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
         guard outputDescriptor >= 0 else {
             throw SudoPOSIXSpawnError.outputOpenFailed(errno)
         }
-        defer { Darwin.close(outputDescriptor) }
+        var shouldCloseOutput = true
+        defer {
+            if shouldCloseOutput { Darwin.close(outputDescriptor) }
+        }
         var shouldRemoveOutput = true
         defer {
             if shouldRemoveOutput { _ = unlink(command.outputURL.path) }
@@ -31,13 +53,21 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
         defer { posix_spawn_file_actions_destroy(&fileActions) }
 
         var actionStatus = "/dev/null".withCString { path in
-            posix_spawn_file_actions_addopen(
-                &fileActions,
-                STDIN_FILENO,
-                path,
-                O_RDONLY,
-                0
-            )
+            if inputPipe[0] >= 0 {
+                posix_spawn_file_actions_adddup2(
+                    &fileActions,
+                    inputPipe[0],
+                    STDIN_FILENO
+                )
+            } else {
+                posix_spawn_file_actions_addopen(
+                    &fileActions,
+                    STDIN_FILENO,
+                    path,
+                    O_RDONLY,
+                    0
+                )
+            }
         }
         if actionStatus == 0 {
             actionStatus = command.currentDirectoryURL.path.withCString { path in
@@ -47,19 +77,20 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
         if actionStatus == 0 {
             actionStatus = posix_spawn_file_actions_adddup2(
                 &fileActions,
-                outputDescriptor,
+                outputPipe[1],
                 STDOUT_FILENO
             )
         }
         if actionStatus == 0 {
             actionStatus = posix_spawn_file_actions_adddup2(
                 &fileActions,
-                outputDescriptor,
+                outputPipe[1],
                 STDERR_FILENO
             )
         }
-        if actionStatus == 0 {
-            actionStatus = posix_spawn_file_actions_addclose(&fileActions, outputDescriptor)
+        let childDescriptors = Set(inputPipe + outputPipe + [outputDescriptor])
+        for descriptor in childDescriptors where actionStatus == 0 && descriptor > STDERR_FILENO {
+            actionStatus = posix_spawn_file_actions_addclose(&fileActions, descriptor)
         }
         try Self.requireSuccess(actionStatus, error: { .fileActionsFailed($0) })
 
@@ -104,6 +135,12 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
                 spawnStatus == 0 ? ECHILD : spawnStatus
             )
         }
+        if inputPipe[0] >= 0 {
+            Darwin.close(inputPipe[0])
+            inputPipe[0] = -1
+        }
+        Darwin.close(outputPipe[1])
+        outputPipe[1] = -1
         guard let identity = inspector.identity(for: processIdentifier) else {
             _ = kill(-processIdentifier, SIGKILL)
             _ = kill(processIdentifier, SIGKILL)
@@ -111,11 +148,35 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
             throw SudoPOSIXSpawnError.identityUnavailable
         }
         shouldRemoveOutput = false
+        let io = SudoSpawnedProcessIO(
+            input: inputPipe[1],
+            output: outputPipe[0],
+            outputFile: outputDescriptor
+        )
+        shouldCloseOutput = false
+        inputPipe[1] = -1
+        outputPipe[0] = -1
         return SudoSpawnedProcess(
             identity: identity,
             processGroupIdentifier: processIdentifier,
-            outputURL: command.outputURL
+            outputURL: command.outputURL,
+            standardInput: command.standardInput,
+            standardInputReadyMarker: command.standardInputReadyMarker,
+            io: io
         )
+    }
+
+    private static func configureParentDescriptor(_ descriptor: Int32) throws {
+        let descriptorFlags = fcntl(descriptor, F_GETFD)
+        guard descriptorFlags >= 0,
+              fcntl(descriptor, F_SETFD, descriptorFlags | FD_CLOEXEC) == 0 else {
+            throw SudoPOSIXSpawnError.descriptorFailed(errno)
+        }
+        let statusFlags = fcntl(descriptor, F_GETFL)
+        guard statusFlags >= 0,
+              fcntl(descriptor, F_SETFL, statusFlags | O_NONBLOCK) == 0 else {
+            throw SudoPOSIXSpawnError.descriptorFailed(errno)
+        }
     }
 
     private static func requireSuccess(
@@ -151,6 +212,8 @@ struct SudoPOSIXProcessSpawner: SudoProcessSpawning {
 }
 
 private enum SudoPOSIXSpawnError: Error {
+    case pipeFailed(Int32)
+    case descriptorFailed(Int32)
     case outputOpenFailed(Int32)
     case fileActionsFailed(Int32)
     case attributesFailed(Int32)

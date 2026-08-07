@@ -1,4 +1,5 @@
 @testable import CmuxSudoBroker
+import Darwin
 import Foundation
 import Testing
 
@@ -86,6 +87,60 @@ struct SudoPolicyRegressionTests {
 
         try Data(SudoAuthenticationOutputDetector.passwordPrompt.utf8).write(to: outputURL)
         #expect(detector.indicatesPasswordPrompt(at: outputURL))
+    }
+
+    @Test("Authentication detection spans output chunks and strips its sentinel")
+    func streamedAuthenticationPromptDetection() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let outputURL = fixture.paths.results.appendingPathComponent("streamed-auth.txt")
+        let outputDescriptor = Darwin.open(
+            outputURL.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC,
+            mode_t(0o600)
+        )
+        try #require(outputDescriptor >= 0)
+        var shouldClose = true
+        defer {
+            if shouldClose { Darwin.close(outputDescriptor) }
+        }
+        var collector = SudoExecutionOutputCollector(
+            outputDescriptor: outputDescriptor,
+            readinessMarker: nil
+        )
+        let marker = Data(SudoAuthenticationOutputDetector.passwordPrompt.utf8)
+        let split = marker.count / 2
+
+        try collector.consume(Data("before".utf8) + Data(marker.prefix(split)))
+        #expect(!collector.authenticationFailed)
+        try collector.consume(Data(marker.dropFirst(split)) + Data("after".utf8))
+        try collector.finish()
+        #expect(collector.authenticationFailed)
+        #expect(Darwin.close(outputDescriptor) == 0)
+        shouldClose = false
+
+        let output = try Data(contentsOf: outputURL)
+        #expect(output == Data("beforeafter".utf8))
+    }
+
+    @Test("Reviewed-script capability is anonymous and byte exact")
+    func reviewedScriptCapability() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let reviewedScript = Data([0, 1, 2, 3, 0xff])
+        let capability = SudoReviewedScriptCapability(
+            bytes: reviewedScript,
+            temporaryDirectoryURL: fixture.root
+        )
+
+        let captured = try capability.withDescriptor { descriptor in
+            var status = stat()
+            #expect(fstat(descriptor, &status) == 0)
+            #expect(status.st_nlink == 0)
+            return try SudoReviewedScriptReader(descriptor: descriptor).read()
+        }
+
+        #expect(captured == reviewedScript)
     }
 
     @Test("Orphan inventory rejects a PID generation that changes during argument capture")
