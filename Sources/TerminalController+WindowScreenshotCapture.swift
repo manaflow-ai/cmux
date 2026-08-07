@@ -28,58 +28,43 @@ extension TerminalController {
         let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
         let outputPath = outputDir.appendingPathComponent(filename)
 
-        let captureCoordinator = windowScreenshotCaptureCoordinator
-        guard let captureLease = captureCoordinator.claim() else {
-            return "ERROR: screenshot capture already in progress"
-        }
-
-        // The operation owns admission. A socket timeout cancels it but cannot
-        // admit another capture until both structured backend tasks retire.
-        let captureTask = Task {
-            defer { captureLease.retire() }
-            return await self.performWindowScreenshotCapture(
-                screenshotID: screenshotId,
-                outputPath: outputPath
-            )
-        }
-        let response: String? = socketAwaitCallback(timeout: 10) { completion in
-            Task {
-                completion(await captureTask.value)
+        let captureTarget: CGWindowID? = v2MainSync {
+            let candidateWindows = NSApp.windows.filter { window in
+                window.isVisible &&
+                    !window.isMiniaturized &&
+                    window.contentView != nil &&
+                    !window.frame.isEmpty
             }
+            let window = WindowScreenshotWindowSelector.select(
+                eligibleWindows: candidateWindows,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow,
+                terminalWindow: self.tabManager?.window
+            )
+            guard let window else { return nil }
+            return WindowScreenshotTarget(
+                windowNumber: window.windowNumber
+            )?.windowID
         }
-        guard let response else {
-            captureTask.cancel()
-            return "ERROR: screenshot capture timed out"
-        }
-        return response
-    }
-
-    private nonisolated func performWindowScreenshotCapture(
-        screenshotID: String,
-        outputPath: URL
-    ) async -> String {
-        guard !Task.isCancelled else {
-            return "ERROR: screenshot capture timed out"
-        }
-        guard let captureTarget = await self.windowScreenshotCaptureTarget() else {
+        guard let captureTarget else {
             return "ERROR: No window available"
         }
 
-        // AppKit is the permission-free fallback. ScreenCaptureKit is always
-        // attempted because arbitrary AppKit view trees can host compositor-
-        // backed content whose cacheDisplay completeness cannot be proven.
-        async let appKitCapture = self.captureAppKitWindowPNGData(captureTarget)
-        async let screenCaptureKitData =
-            Self.captureScreenCaptureKitWindowPNGDataAsync(captureTarget)
-        let (appKitResult, screenCaptureKitResult) = await (
-            appKitCapture,
-            screenCaptureKitData
+        // Each backend owns independent admission until its task actually
+        // retires. A stalled compositor cannot accumulate more compositor
+        // work or block the permission-free AppKit fallback.
+        let appKitAttempt = captureAppKitWindowPNGData(captureTarget)
+        let screenCaptureKitAttempt = captureScreenCaptureKitWindowPNGData(
+            captureTarget
         )
-
-        guard !Task.isCancelled else {
-            return "ERROR: screenshot capture timed out"
-        }
-        guard let pngData = screenCaptureKitResult ?? appKitResult?.pngData else {
+        guard let pngData = screenCaptureKitAttempt.capturedValue ??
+            appKitAttempt.capturedValue?.pngData else {
+            if appKitAttempt.isBusy || screenCaptureKitAttempt.isBusy {
+                return "ERROR: screenshot capture already in progress"
+            }
+            if appKitAttempt.didTimeOut || screenCaptureKitAttempt.didTimeOut {
+                return "ERROR: screenshot capture timed out"
+            }
             return "ERROR: Failed to create PNG data"
         }
 
@@ -90,26 +75,47 @@ extension TerminalController {
         }
 
         // Return OK with screenshot ID and path for easy reference
-        return "OK \(screenshotID) \(outputPath.path)"
+        return "OK \(screenshotId) \(outputPath.path)"
     }
 
-    @MainActor
-    private func windowScreenshotCaptureTarget() -> CGWindowID? {
-        let candidateWindows = NSApp.windows.filter { window in
-            window.isVisible &&
-                !window.isMiniaturized &&
-                window.contentView != nil &&
-                !window.frame.isEmpty
+    private nonisolated func captureScreenCaptureKitWindowPNGData(
+        _ windowID: CGWindowID
+    ) -> WindowScreenshotBackendAttempt<Data> {
+        guard Self.screenCaptureKitMayRunWithoutPrompt else {
+            return .unavailable
         }
-        let window = WindowScreenshotWindowSelector.select(
-            eligibleWindows: candidateWindows,
-            keyWindow: NSApp.keyWindow,
-            mainWindow: NSApp.mainWindow,
-            terminalWindow: tabManager?.window
-        )
+        guard let captureLease = windowScreenshotCaptureCoordinator
+            .claimScreenCaptureKit() else {
+            return .busy
+        }
+        let captureTask = Task {
+            defer { captureLease.retire() }
+            return await Self.captureScreenCaptureKitWindowPNGDataAsync(windowID)
+        }
+        let captured: Data?? = socketAwaitCallback(timeout: 5) { completion in
+            Task {
+                completion(await captureTask.value)
+            }
+        }
+        guard let captured else {
+            captureTask.cancel()
+            return .timedOut
+        }
+        guard let captured else { return .unavailable }
+        return .captured(captured)
+    }
 
-        guard let window else { return nil }
-        return WindowScreenshotTarget(windowNumber: window.windowNumber)?.windowID
+    private nonisolated static var screenCaptureKitMayRunWithoutPrompt: Bool {
+        if #available(macOS 14.4, *) {
+            return WindowScreenshotScreenCapturePolicy(
+                currentProcessAPIAvailable: true,
+                screenCaptureAccessGranted: false
+            ).allowsScreenCaptureKit
+        }
+        return WindowScreenshotScreenCapturePolicy(
+            currentProcessAPIAvailable: false,
+            screenCaptureAccessGranted: CGPreflightScreenCaptureAccess()
+        ).allowsScreenCaptureKit
     }
 
     private nonisolated static func captureScreenCaptureKitWindowPNGDataAsync(
@@ -159,8 +165,34 @@ extension TerminalController {
         }
     }
 
+    private nonisolated func captureAppKitWindowPNGData(
+        _ windowID: CGWindowID
+    ) -> WindowScreenshotBackendAttempt<WindowAppKitCapture> {
+        guard let captureLease = windowScreenshotCaptureCoordinator
+            .claimAppKit() else {
+            return .busy
+        }
+        let captureTask = Task { @MainActor in
+            defer { captureLease.retire() }
+            return await self.captureAppKitWindowPNGDataOnMain(windowID)
+        }
+        let captured: WindowAppKitCapture?? = socketAwaitCallback(
+            timeout: 5
+        ) { completion in
+            Task {
+                completion(await captureTask.value)
+            }
+        }
+        guard let captured else {
+            captureTask.cancel()
+            return .timedOut
+        }
+        guard let captured else { return .unavailable }
+        return .captured(captured)
+    }
+
     @MainActor
-    private func captureAppKitWindowPNGData(
+    private func captureAppKitWindowPNGDataOnMain(
         _ windowID: CGWindowID
     ) async -> WindowAppKitCapture? {
         guard let window = NSApp.windows.first(where: {
@@ -175,7 +207,7 @@ extension TerminalController {
     private func captureAppKitWindowPNGData(_ window: NSWindow) async -> WindowAppKitCapture? {
         guard !Task.isCancelled else { return nil }
         // Every WebKit request consumes from one aggregate fallback budget so
-        // this structured child responds promptly to cancellation.
+        // this independently leased backend responds promptly to cancellation.
         let captureDeadline = ProcessInfo.processInfo.systemUptime + 4
         guard let captureRoot = WindowAppKitCapture.rootView(for: window) else {
             return nil

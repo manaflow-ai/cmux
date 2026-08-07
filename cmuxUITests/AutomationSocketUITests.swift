@@ -440,7 +440,7 @@ final class AutomationSocketUITests: XCTestCase {
                 guard let screenshot = self.socketResult(
                     method: "debug.window.screenshot",
                     params: ["label": label],
-                    // The server gives its concurrent capture backends ten
+                    // Two independently bounded backend waits can total ten
                     // seconds; the outer wait leaves room for another poll.
                     responseTimeout: 11.0,
                     allowsReplayFallback: false

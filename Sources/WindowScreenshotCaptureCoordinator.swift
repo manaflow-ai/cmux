@@ -1,19 +1,30 @@
 #if DEBUG
 import CmuxFoundation
 
-/// Serializes screenshot operations until every asynchronous backend retires.
+/// Bounds each screenshot backend independently until its task retires.
 nonisolated final class WindowScreenshotCaptureCoordinator: Sendable {
-    private let captureIsAvailable = AtomicBooleanGate(true)
+    private let appKitIsAvailable = AtomicBooleanGate(true)
+    private let screenCaptureKitIsAvailable = AtomicBooleanGate(true)
 
-    func claim() -> WindowScreenshotCaptureLease? {
-        guard captureIsAvailable.compareExchange(expected: true, desired: false) else {
+    func claimAppKit() -> WindowScreenshotCaptureLease? {
+        guard appKitIsAvailable.compareExchange(expected: true, desired: false) else {
             return nil
         }
-        return WindowScreenshotCaptureLease(coordinator: self)
+        return WindowScreenshotCaptureLease { [appKitIsAvailable] in
+            appKitIsAvailable.storeRelease(true)
+        }
     }
 
-    func retireCapture() {
-        captureIsAvailable.storeRelease(true)
+    func claimScreenCaptureKit() -> WindowScreenshotCaptureLease? {
+        guard screenCaptureKitIsAvailable.compareExchange(
+            expected: true,
+            desired: false
+        ) else {
+            return nil
+        }
+        return WindowScreenshotCaptureLease { [screenCaptureKitIsAvailable] in
+            screenCaptureKitIsAvailable.storeRelease(true)
+        }
     }
 }
 #endif

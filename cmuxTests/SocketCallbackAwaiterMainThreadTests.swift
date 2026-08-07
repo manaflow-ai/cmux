@@ -98,19 +98,42 @@ import Testing
         #expect(WindowScreenshotTarget(windowNumber: Int(UInt32.max) + 1) == nil)
     }
 
-    @Test func coordinatorRetainsAdmissionUntilLeaseRetires() throws {
+    @Test func coordinatorBoundsBackendLifetimesIndependently() throws {
         let coordinator = WindowScreenshotCaptureCoordinator()
-        let firstLease = try #require(coordinator.claim())
-        #expect(coordinator.claim() == nil)
+        let appKitLease = try #require(coordinator.claimAppKit())
+        let screenCaptureKitLease = try #require(
+            coordinator.claimScreenCaptureKit()
+        )
+        #expect(coordinator.claimAppKit() == nil)
+        #expect(coordinator.claimScreenCaptureKit() == nil)
 
-        firstLease.retire()
-        let replacementLease = try #require(coordinator.claim())
-        firstLease.retire()
-        #expect(coordinator.claim() == nil)
+        appKitLease.retire()
+        let replacementAppKitLease = try #require(coordinator.claimAppKit())
+        appKitLease.retire()
+        #expect(coordinator.claimAppKit() == nil)
+        #expect(coordinator.claimScreenCaptureKit() == nil)
 
-        replacementLease.retire()
-        let finalLease = try #require(coordinator.claim())
-        finalLease.retire()
+        replacementAppKitLease.retire()
+        screenCaptureKitLease.retire()
+    }
+
+    @Test func screenCapturePolicyRequiresExistingAccessWithoutCurrentProcessAPI() {
+        let legacyWithoutAccess = WindowScreenshotScreenCapturePolicy(
+            currentProcessAPIAvailable: false,
+            screenCaptureAccessGranted: false
+        )
+        let legacyWithAccess = WindowScreenshotScreenCapturePolicy(
+            currentProcessAPIAvailable: false,
+            screenCaptureAccessGranted: true
+        )
+        let currentProcessAPI = WindowScreenshotScreenCapturePolicy(
+            currentProcessAPIAvailable: true,
+            screenCaptureAccessGranted: false
+        )
+
+        #expect(!legacyWithoutAccess.allowsScreenCaptureKit)
+        #expect(legacyWithAccess.allowsScreenCaptureKit)
+        #expect(currentProcessAPI.allowsScreenCaptureKit)
     }
 
     @MainActor
