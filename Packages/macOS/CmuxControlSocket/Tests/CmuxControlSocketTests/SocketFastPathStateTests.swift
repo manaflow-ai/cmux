@@ -79,4 +79,40 @@ struct SocketFastPathStateTests {
             state: "promptIdle"
         ))
     }
+
+    @Test func replacementTerminalGenerationOverwritesThePreviousDedupeSlot() {
+        let state = SocketFastPathState(maxTrackedShellStates: 2)
+        let workspace = UUID()
+        let panel = UUID()
+        let otherPanel = UUID()
+        let oldLifecycle = UUID()
+        let replacementLifecycle = UUID()
+
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: oldLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: replacementLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: otherPanel,
+            state: "promptIdle"
+        ))
+
+        // Replacing one process must not consume a second cache slot for the
+        // same logical surface and evict its current-generation state.
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: replacementLifecycle,
+            state: "promptIdle"
+        ))
+    }
 }
