@@ -260329,6 +260329,23 @@
         }
       }
     },
+    "update.error.installerAgent.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS didn’t start cmux’s updater helper in time. Security software can delay it. Retry once; if it still fails, restart your Mac or download and install the latest version below."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux のアップデーターヘルパーを時間内に起動できませんでした。セキュリティソフトウェアによって起動が遅れることがあります。まず再試行し、それでも失敗する場合は Mac を再起動するか、下から最新バージョンをダウンロードして手動でインストールしてください。"
+          }
+        }
+      }
+    },
     "update.error.installerAgent.title": {
       "extractionState": "manual",
       "localizations": {
