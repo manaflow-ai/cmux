@@ -2809,14 +2809,7 @@ fn terminate_ghostty_helper_child(mut child: Child) {
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
     let _ = child.kill();
-    if matches!(child.wait_timeout(Duration::from_millis(10)), Ok(Some(_))) {
-        return;
-    }
-    let _ = std::thread::Builder::new().name("cmux-tui-ghostty-helper-reaper".to_string()).spawn(
-        move || {
-            let _ = child.wait();
-        },
-    );
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-helper-reaper");
 }
 
 #[cfg(unix)]
@@ -2867,7 +2860,16 @@ fn terminate_ghostty_process_scan_child(mut child: Child) {
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
     let _ = child.kill();
-    let _ = child.wait_timeout(Duration::from_millis(10));
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-process-scan-reaper");
+}
+
+fn reap_ghostty_child_after_short_wait(mut child: Child, reaper_name: &'static str) {
+    if matches!(child.wait_timeout(Duration::from_millis(10)), Ok(Some(_))) {
+        return;
+    }
+    let _ = std::thread::Builder::new().name(reaper_name.to_string()).spawn(move || {
+        let _ = child.wait();
+    });
 }
 
 #[cfg(unix)]
@@ -5050,6 +5052,24 @@ mod tests {
         }
 
         assert!(!unix_process_exists(pid), "helper child {pid} was not reaped");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_process_scan_cleanup_reaps_killed_child() {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("5").process_group(0);
+        let child = command.spawn().unwrap();
+        let pid = child.id() as libc::pid_t;
+
+        terminate_ghostty_process_scan_child(child);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while unix_process_exists(pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(!unix_process_exists(pid), "process scan child {pid} was not reaped");
     }
 
     #[cfg(unix)]
