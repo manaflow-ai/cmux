@@ -165,6 +165,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             }'
         }
 
+        cmux_ssh_auth_stable_identity() {
+          cmux_ssh_auth_full_identity=$(cmux_ssh_auth_identity "$1")
+          cmux_ssh_auth_stable_remainder=${cmux_ssh_auth_full_identity#*|}
+          if [ "$cmux_ssh_auth_stable_remainder" = \
+            "$cmux_ssh_auth_full_identity" ]; then return 1; fi
+          printf '%s\n' "$cmux_ssh_auth_stable_remainder"
+        }
+
         cmux_ssh_auth_stopped_identity() {
           /usr/bin/env LC_ALL=C LANG=C /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
             /usr/bin/awk 'NF >= 8 && $3 ~ /T/ && $3 !~ /Z/ {
@@ -175,23 +183,42 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
         \#(ownedProcessGroupTerminationShellFunctions())
 
-        cmux_ssh_auth_recorded_process_is_live() {
+        cmux_ssh_auth_parse_recorded_process() {
           cmux_ssh_auth_record_file="$1"
           if [ ! -s "$cmux_ssh_auth_record_file" ]; then return 1; fi
           cmux_ssh_auth_record=$(/bin/cat -- "$cmux_ssh_auth_record_file" 2>/dev/null || true)
           cmux_ssh_auth_record_pid=${cmux_ssh_auth_record%%|*}
           cmux_ssh_auth_record_identity=${cmux_ssh_auth_record#*|}
           if [ "$cmux_ssh_auth_record_identity" = "$cmux_ssh_auth_record" ]; then return 1; fi
-          cmux_ssh_auth_record_parent=${cmux_ssh_auth_record_identity%%|*}
+          cmux_ssh_auth_record_first=${cmux_ssh_auth_record_identity%%|*}
           cmux_ssh_auth_record_remainder=${cmux_ssh_auth_record_identity#*|}
-          cmux_ssh_auth_record_group=${cmux_ssh_auth_record_remainder%%|*}
-          cmux_ssh_auth_record_started=${cmux_ssh_auth_record_remainder#*|}
+          if [ "$cmux_ssh_auth_record_remainder" = \
+            "$cmux_ssh_auth_record_identity" ]; then return 1; fi
+          case "$cmux_ssh_auth_record_remainder" in
+            *'|'*)
+              # Compatibility with records written before durable ownership
+              # stopped including the reparentable PPID.
+              cmux_ssh_auth_record_parent="$cmux_ssh_auth_record_first"
+              cmux_ssh_auth_record_group=${cmux_ssh_auth_record_remainder%%|*}
+              cmux_ssh_auth_record_started=${cmux_ssh_auth_record_remainder#*|}
+              case "$cmux_ssh_auth_record_parent" in ''|*[!0-9]*) return 1 ;; esac
+              ;;
+            *)
+              cmux_ssh_auth_record_group="$cmux_ssh_auth_record_first"
+              cmux_ssh_auth_record_started="$cmux_ssh_auth_record_remainder"
+              ;;
+          esac
           case "$cmux_ssh_auth_record_pid" in ''|*[!0-9]*) return 1 ;; esac
-          case "$cmux_ssh_auth_record_parent" in ''|*[!0-9]*) return 1 ;; esac
           case "$cmux_ssh_auth_record_group" in ''|*[!0-9]*) return 1 ;; esac
           case "$cmux_ssh_auth_record_started" in ''|*[!A-Za-z0-9_:]*) return 1 ;; esac
-          [ "$(cmux_ssh_auth_identity "$cmux_ssh_auth_record_pid")" = \
-            "$cmux_ssh_auth_record_identity" ]
+          CMUX_SSH_AUTH_RECORDED_PID="$cmux_ssh_auth_record_pid"
+          CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY="$cmux_ssh_auth_record_group|$cmux_ssh_auth_record_started"
+        }
+
+        cmux_ssh_auth_recorded_process_is_live() {
+          cmux_ssh_auth_parse_recorded_process "$1" || return 1
+          [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" = \
+            "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
         }
 
         cmux_ssh_auth_group_cleanup_is_abandoned() {
@@ -199,21 +226,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_cleanup_record_file="$cmux_ssh_auth_cleanup_group_dir/cleanup.owner"
           if [ ! -e "$cmux_ssh_auth_cleanup_group_dir/cancel" ] || \
             [ ! -s "$cmux_ssh_auth_cleanup_record_file" ]; then return 1; fi
-          cmux_ssh_auth_cleanup_record=$(/bin/cat -- \
-            "$cmux_ssh_auth_cleanup_record_file" 2>/dev/null || true)
-          cmux_ssh_auth_cleanup_pid=${cmux_ssh_auth_cleanup_record%%|*}
-          cmux_ssh_auth_cleanup_identity=${cmux_ssh_auth_cleanup_record#*|}
-          if [ "$cmux_ssh_auth_cleanup_identity" = \
-            "$cmux_ssh_auth_cleanup_record" ]; then return 1; fi
-          cmux_ssh_auth_cleanup_parent=${cmux_ssh_auth_cleanup_identity%%|*}
-          cmux_ssh_auth_cleanup_remainder=${cmux_ssh_auth_cleanup_identity#*|}
-          cmux_ssh_auth_cleanup_group=${cmux_ssh_auth_cleanup_remainder%%|*}
-          cmux_ssh_auth_cleanup_started=${cmux_ssh_auth_cleanup_remainder#*|}
-          case "$cmux_ssh_auth_cleanup_pid" in ''|*[!0-9]*) return 1 ;; esac
-          case "$cmux_ssh_auth_cleanup_parent" in ''|*[!0-9]*) return 1 ;; esac
-          case "$cmux_ssh_auth_cleanup_group" in ''|*[!0-9]*) return 1 ;; esac
-          case "$cmux_ssh_auth_cleanup_started" in ''|*[!A-Za-z0-9_:]*) return 1 ;; esac
-          ! cmux_ssh_auth_recorded_process_is_live "$cmux_ssh_auth_cleanup_record_file"
+          cmux_ssh_auth_parse_recorded_process \
+            "$cmux_ssh_auth_cleanup_record_file" || return 1
+          [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" != \
+            "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
         }
 
         cmux_ssh_auth_group_publisher_is_live() {
@@ -369,7 +385,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               return 0
             }
           fi
-          cmux_ssh_auth_reaper_publisher_identity=$(cmux_ssh_auth_identity "$$")
+          cmux_ssh_auth_reaper_publisher_identity=$(cmux_ssh_auth_stable_identity "$$")
           if [ -z "$cmux_ssh_auth_reaper_publisher_identity" ] || ! \
             printf '%s|%s\n' "$$" "$cmux_ssh_auth_reaper_publisher_identity" \
               > "$cmux_ssh_auth_reaper_lock/publisher.new" 2>/dev/null || ! \
@@ -444,7 +460,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
           ) </dev/null >/dev/null 2>&1 &
           cmux_ssh_auth_reaper_pid=$!
-          cmux_ssh_auth_reaper_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_reaper_pid")
+          cmux_ssh_auth_reaper_identity=$(cmux_ssh_auth_stable_identity \
+            "$cmux_ssh_auth_reaper_pid")
           if [ -z "$cmux_ssh_auth_reaper_identity" ] || ! \
             printf '%s|%s\n' "$cmux_ssh_auth_reaper_pid" "$cmux_ssh_auth_reaper_identity" \
               > "$cmux_ssh_auth_reaper_lock/owner.new" 2>/dev/null || ! \
@@ -674,11 +691,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if ! /bin/sh -c '
             cmux_owner_pid=$PPID
             cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
-              /bin/ps -o ppid= -o pgid= -o state= -o lstart= \
+              /bin/ps -o pgid= -o state= -o lstart= \
                 -p "$cmux_owner_pid" 2>/dev/null | \
-              /usr/bin/awk '\''NF >= 8 && $3 !~ /Z/ {
-                cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
-                print $1 "|" $2 "|" cmux_started
+              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
+                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
+                print $1 "|" cmux_started
               }'\'')
             if [ -z "$cmux_owner_identity" ]; then exit 1; fi
             umask 077
@@ -940,11 +957,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if ! /bin/sh -c '
             cmux_owner_pid=$PPID
             cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
-              /bin/ps -o ppid= -o pgid= -o state= -o lstart= \
+              /bin/ps -o pgid= -o state= -o lstart= \
                 -p "$cmux_owner_pid" 2>/dev/null | \
-              /usr/bin/awk '\''NF >= 8 && $3 !~ /Z/ {
-                cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
-                print $1 "|" $2 "|" cmux_started
+              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
+                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
+                print $1 "|" cmux_started
               }'\'')
             if [ -z "$cmux_owner_identity" ]; then exit 1; fi
             umask 077
@@ -1184,7 +1201,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "case \"$cmux_ssh_auth_group_publisher_parent\" in ''|*[!0-9]*) exit 255 ;; esac",
             "case \"$cmux_ssh_auth_group_publisher_group\" in ''|*[!0-9]*) exit 255 ;; esac",
             "case \"$cmux_ssh_auth_group_publisher_started\" in ''|*[!A-Za-z0-9_:]*) exit 255 ;; esac",
-            "printf '%s|%s\\n' \"$$\" \"$cmux_ssh_auth_group_publisher_identity\" > \"$cmux_ssh_auth_group_publisher_publish_file\" || exit 255",
+            "cmux_ssh_auth_group_publisher_stable_identity=\"$cmux_ssh_auth_group_publisher_group|$cmux_ssh_auth_group_publisher_started\"",
+            "printf '%s|%s\\n' \"$$\" \"$cmux_ssh_auth_group_publisher_stable_identity\" > \"$cmux_ssh_auth_group_publisher_publish_file\" || exit 255",
             "printf '%s|%s|%s\\n' \"$cmux_ssh_auth_group_anchor_pid\" \"$cmux_ssh_auth_anchor_group\" \"$cmux_ssh_auth_anchor_started\" > \"$cmux_ssh_auth_group_publish_file\" || exit 255",
             "/bin/mv -f -- \"$cmux_ssh_auth_group_publish_file\" \"$cmux_ssh_auth_group_file\" || exit 255",
             "/bin/mv -f -- \"$cmux_ssh_auth_group_publisher_publish_file\" \"$cmux_ssh_auth_group_publisher_file\" || exit 255",
