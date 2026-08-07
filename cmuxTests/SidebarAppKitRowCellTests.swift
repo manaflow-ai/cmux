@@ -403,6 +403,32 @@ struct SidebarAppKitRowCellTests {
         return textView.convert(localPoint, to: textView.superview)
     }
 
+    @Test
+    func cancelingInlineRenameRestoresWorkspaceTitle() throws {
+        let model = Self.makeModel()
+        let cell = Self.configuredCell(model: model)
+        let window = Self.layoutCell(cell, model: model)
+        let titleView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowTextView }
+                .first { !$0.isHidden && $0.stringValue == model.snapshot.title }
+        )
+
+        cell.beginInlineRename()
+
+        #expect(cell.isEditing)
+        #expect(titleView.isHidden)
+        #expect(cell.renameField.stringValue == model.snapshot.title)
+
+        let cancel = try #require(cell.renameField.onCancel)
+        cancel()
+
+        #expect(!cell.isEditing)
+        #expect(!titleView.isHidden)
+        #expect(titleView.stringValue == model.snapshot.title)
+        _ = window
+    }
+
     @Test(arguments: zip(["codex", "claude_code"], ["Running", "Needs input"]))
     func metadataStatusTextOmitsRawAgentKey(_ key: String, _ status: String) throws {
         let model = Self.makeModel()
