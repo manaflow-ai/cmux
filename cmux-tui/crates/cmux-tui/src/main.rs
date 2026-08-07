@@ -1012,6 +1012,11 @@ fn main() {
         return;
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
+        if let Err(error) = harden_provider_secret_process() {
+            eprintln!("cmux-tui: cannot protect machine-provider credentials: {error}");
+            std::process::exit(1);
+        }
+        discard_provider_secret_environment();
         std::process::exit(config::run_ghostty_config_helper());
     }
     if let Err(error) = harden_provider_secret_process() {

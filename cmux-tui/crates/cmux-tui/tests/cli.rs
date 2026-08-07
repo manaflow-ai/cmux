@@ -717,6 +717,59 @@ fn ghostty_config_helper_outputs_resolved_file_defaults() {
     assert!(stdout.contains("palette = 2=#0a0b0c\n"), "{stdout}");
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
+    let dir = unique_temp_dir("ghostty-config-helper-provider-env");
+    let config_home = dir.join("config");
+    let ghostty_dir = config_home.join("ghostty");
+    let theme_dir = ghostty_dir.join("themes");
+    let bin_dir = dir.join("bin");
+    fs::create_dir_all(&theme_dir).unwrap();
+    fs::create_dir_all(&bin_dir).unwrap();
+    fs::write(
+        ghostty_dir.join("config"),
+        "window-theme = system\n\
+         theme = dark:Dark Direct Probe, light:Light Direct Probe\n",
+    )
+    .unwrap();
+    fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
+    fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
+    let gdbus = bin_dir.join("gdbus");
+    fs::write(
+        &gdbus,
+        "#!/bin/sh\n\
+         if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
+         \tprintf '(<uint32 2>,)\\n'\n\
+         \texit 0\n\
+         fi\n\
+         printf '(<uint32 1>,)\\n'\n",
+    )
+    .unwrap();
+    fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
+
+    let output = Command::new(bin())
+        .arg("__ghostty-config-defaults")
+        .env("HOME", dir.join("home"))
+        .env("CFFIXED_USER_HOME", dir.join("home"))
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("PATH", &bin_dir)
+        .env("CMUX_MACHINE_PROVIDER_TOKEN", "direct-helper-token")
+        .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "direct-helper-authority")
+        .env_remove("AppleInterfaceStyle")
+        .env_remove("GTK_THEME")
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+
+    assert!(stdout.contains("foreground = #010203\n"), "{stdout}");
+    assert!(!stdout.contains("foreground = #a0b0c0\n"), "{stdout}");
+}
+
 #[cfg(unix)]
 #[test]
 fn machine_agent_argument_failures_are_stable_and_localized() {
