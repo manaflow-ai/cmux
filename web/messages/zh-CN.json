@@ -1408,7 +1408,16 @@
     "changelog": {
       "title": "更新日志",
       "metaDescription": "cmux 发布说明和版本历史。原生 macOS 终端的新功能、问题修复和变更记录。",
-      "metaTitle": "更新日志"
+      "metaTitle": "更新日志",
+      "versionTitle": "cmux {version} · 更新日志",
+      "releaseNavLabel": "cmux {version} 附近的版本",
+      "sections": {
+        "added": "新增",
+        "changed": "更改",
+        "fixed": "修复",
+        "removed": "移除",
+        "contributors": "贡献者"
+      }
     },
     "navItems": {
       "gettingStarted": "入门指南",
@@ -3562,7 +3571,6 @@
     "title": "适用于 {platform} 的 cmux",
     "tagline": "将 Chromium 浏览器与智能体工作区融为一体。",
     "logoAlt": "cmux 应用图标",
-    "portableCta": "便携版 ZIP",
     "featuresTitle": "专为智能体工作打造",
     "features": {
       "chromium": {
@@ -3584,7 +3592,7 @@
     },
     "installTitle": "安装",
     "releaseTitle": "版本与更新",
-    "releaseBody": "这些链接始终指向 <github>GitHub Releases</github> 上的最新稳定版本。cmux 会在安装更新前验证已签名的更新清单。",
+    "releaseBody": "这些链接始终指向 <github>GitHub Releases</github> 上的最新 Nightly 版本。cmux 会在安装更新前验证已签名的更新清单。",
     "sourceLink": "在 GitHub 上查看源代码",
     "otherPlatform": "适用于 {platform} 的 cmux",
     "macLink": "Mac 版 cmux 终端",
@@ -3594,6 +3602,7 @@
       "metaDescription": "下载 Windows x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
       "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和熟悉的 Windows 键盘操作。",
       "primaryCta": "下载安装程序（.exe）",
+      "secondaryCta": "便携版 ZIP",
       "requirements": "Windows 10 或更高版本 · x64",
       "installBody": "运行安装程序并按照 Windows 提示操作。如果希望将 cmux 保留在文件夹中而不进行全局安装，请选择便携版 ZIP。"
     },
@@ -3602,9 +3611,10 @@
       "metaTitle": "下载 Linux 版 cmux",
       "metaDescription": "下载 Linux x64 版 cmux：一款免费开源的 Chromium 浏览器与智能体工作区，提供面向任务的标签页和终端界面。",
       "subtitle": "原生 x64 版本，提供 Chromium 标签页、cmux 工作区和集成终端界面。",
-      "primaryCta": "下载 .deb",
-      "requirements": "Debian 或 Ubuntu · x64",
-      "installBody": "下载 Debian 软件包并使用软件包管理器安装。若需按用户安装和应用内更新，请选择便携版 ZIP。"
+      "primaryCta": "下载支持自动更新的安装程序（.run）",
+      "secondaryCta": "Debian 软件包（.deb）",
+      "requirements": "Linux · x64",
+      "installBody": "运行一次用户级安装程序。它会将 cmux 安装到 ~/.local，无需 root 权限，并启用已签名的应用内更新。如果希望由软件包管理器管理更新，请改选 Debian 软件包。"
     }
   },
   "emails": {
