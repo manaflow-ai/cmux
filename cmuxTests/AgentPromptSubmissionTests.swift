@@ -689,11 +689,15 @@ struct AgentPromptSubmissionTests {
         defer { panel.surface.releaseSurfaceForTesting() }
 
         workspace.recordAgentPID(
-            key: "claude.control-return",
+            key: "claude_code",
             pid: getpid(),
             panelId: panelID,
             refreshPorts: false
         )
+        let agentScope = try #require(
+            panel.surface.currentPromptInputAgentScope
+        )
+        #expect(agentScope.hasPrefix("agentPIDKey:claude_code|"))
         panel.surface.releaseSurfaceForTesting()
         #expect(panel.sendText("first line\nsecond line"))
         #expect(panel.sendNamedKey("ctrl+enter"))
