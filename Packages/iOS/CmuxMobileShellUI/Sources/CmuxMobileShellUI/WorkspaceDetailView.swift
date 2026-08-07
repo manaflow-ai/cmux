@@ -369,6 +369,19 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
+        #if os(iOS)
+        .overlay(alignment: .topTrailing) {
+            if let terminalID = selectedTerminal?.id.rawValue,
+               !store.isComposerPresented {
+                TerminalSendStatusPill(
+                    status: store.terminalSendStatus(forTerminalID: terminalID)
+                )
+                .allowsHitTesting(false)
+                .padding(.top, 10)
+                .padding(.trailing, 10)
+            }
+        }
+        #endif
         #if os(iOS) && DEBUG
         // DEBUG/UI-test-only store-side composer probe.
         .overlay {

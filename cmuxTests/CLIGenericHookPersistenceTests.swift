@@ -3059,15 +3059,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
             .write(to: codexHome.appendingPathComponent("hooks.json", isDirectory: false), options: .atomic)
 
+        let inheritedEnvironment = [
+            "HOME": root.path,
+            "CFFIXED_USER_HOME": root
+                .appendingPathComponent("inherited-app-host", isDirectory: true).path,
+            "XDG_CONFIG_HOME": root
+                .appendingPathComponent("inherited-app-host/.config", isDirectory: true).path,
+            "CMUX_APP_HOST_ISOLATION_REQUIRED": "1",
+            "CODEX_HOME": codexHome.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        let environmentResult = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [],
+            environment: inheritedEnvironment,
+            timeout: 5
+        )
+        XCTAssertEqual(environmentResult.status, 0, environmentResult.stderr)
+        let childEnvironment = Set(environmentResult.stdout.split(separator: "\n").map(String.init))
+        XCTAssertTrue(childEnvironment.contains("CFFIXED_USER_HOME=\(root.path)"))
+        XCTAssertTrue(childEnvironment.contains("XDG_CONFIG_HOME=\(root.path)/.config"))
+
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "install", "--yes"],
-            environment: [
-                "HOME": root.path,
-                "CODEX_HOME": codexHome.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-            ],
+            environment: inheritedEnvironment,
             timeout: 5
         )
 
