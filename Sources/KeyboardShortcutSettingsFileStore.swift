@@ -43,6 +43,7 @@ final class CmuxSettingsFileStore {
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let userDefaults: UserDefaults
+    private let languageSettingsStore: LanguageSettingsStore
     private let passwordStore: SocketControlPasswordStore
     private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
     private let stateLock = NSLock()
@@ -70,6 +71,7 @@ final class CmuxSettingsFileStore {
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
         userDefaults: UserDefaults = .standard,
+        languageSettingsStore: LanguageSettingsStore? = nil,
         passwordStore: SocketControlPasswordStore = SocketControlPasswordStore(),
         startWatching: Bool = true,
         onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
@@ -80,6 +82,7 @@ final class CmuxSettingsFileStore {
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
         self.userDefaults = userDefaults
+        self.languageSettingsStore = languageSettingsStore ?? LanguageSettingsStore(defaults: userDefaults)
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
@@ -1542,6 +1545,7 @@ final class CmuxSettingsFileStore {
         guard !sideEffects.isEmpty else { return }
         let notificationCenter = notificationCenter
         let userDefaults = userDefaults
+        let languageSettingsStore = languageSettingsStore
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
@@ -1579,7 +1583,7 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = userDefaults.string(forKey: change.defaultsKey) ?? ""
-                    LanguageSettingsStore(defaults: userDefaults).applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
+                    languageSettingsStore.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
                 } else if change.defaultsKey == AppIconSettings.modeKey {
                     AppIconSettings.applyIcon(AppIconSettings.resolvedMode(defaults: userDefaults))
                 } else if change.defaultsKey == GlobalFontMagnification.percentKey {
