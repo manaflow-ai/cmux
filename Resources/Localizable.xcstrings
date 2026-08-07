@@ -180464,25 +180464,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Briefly flash a blue outline when cmux highlights a pane."
+            "value": "Briefly flash an outline when cmux highlights a pane."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux がペインを強調表示するときに短い青いアウトラインを表示します。"
+            "value": "cmux がペインを強調表示するときにアウトラインを一時的に点滅させます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 패인을 강조할 때 파란색 테두리를 잠시 깜빡입니다."
+            "value": "cmux가 패인을 강조할 때 테두리를 잠시 깜빡입니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Короткочасно підсвічувати синьою рамкою панель, на яку cmux звертає увагу."
+            "value": "Короткочасно підсвічувати рамкою панель, на яку cmux звертає увагу."
           }
         }
       }
@@ -180522,25 +180522,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a blue ring around panes with unread notifications."
+            "value": "Show a ring around panes with unread notifications."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未読の通知があるペインの周囲に青いリングを表示します。"
+            "value": "未読の通知があるペインの周囲にリングを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "읽지 않은 알림이 있는 패인 주위에 파란색 링을 표시합니다."
+            "value": "읽지 않은 알림이 있는 패인 주위에 링을 표시합니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показувати синє кільце навколо панелей з непрочитаними сповіщеннями."
+            "value": "Показувати кільце навколо панелей з непрочитаними сповіщеннями."
           }
         }
       }
@@ -203032,6 +203032,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースタブの未読通知バッジの色。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.paneFlashColor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Flash"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのフラッシュ"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.paneFlashColor.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.paneFlashColor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color of the attention ring and pane flash when a pane needs input."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインが入力を必要とするときに表示される注意リングとフラッシュの色。"
           }
         }
       }
