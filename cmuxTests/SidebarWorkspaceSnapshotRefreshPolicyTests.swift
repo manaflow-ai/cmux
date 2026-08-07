@@ -202,6 +202,7 @@ import Testing
             showsRemoteReconnectAffordance: false,
             copyableSidebarSSHError: nil,
             latestConversationMessage: latestConversationMessage,
+            lastInteractionAt: nil,
             metadataEntries: [],
             metadataBlocks: [],
             latestLog: nil,

@@ -15631,7 +15631,39 @@ struct TabItemView: View, Equatable {
 
             // Branch + directory row
             if detailVisibility.showsBranchDirectory {
-                if sidebarBranchLayout == .vertical {
+                if settings.branchDirectory.showsLastInteractionInsteadOfPath,
+                   let lastInteractionAt = workspaceSnapshot.lastInteractionAt {
+                    // Last-interaction mode replaces the branch/directory
+                    // presentation with one last-interaction line.
+                    switch settings.branchDirectory.lastInteractionTimestampStyle {
+                    case .relative:
+                        // The timeline cadence is anchored to the interaction
+                        // so minute/hour transitions land exactly on a tick.
+                        TimelineView(.periodic(from: lastInteractionAt, by: 30)) { context in
+                            HStack(spacing: 3) {
+                                CmuxSystemSymbolImage(magnified: "clock", pointSize: scaledFontSize(9))
+                                    .foregroundColor(activeSecondaryColor(0.6))
+                                Text(SidebarLastInteractionTimeFormatter.label(from: lastInteractionAt, to: context.date))
+                                    .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
+                                    .foregroundColor(activeSecondaryColor(0.75))
+                                    .lineLimit(1)
+                            }
+                        }
+                        .help(SidebarLastInteractionTimeFormatter.absoluteLabel(for: lastInteractionAt))
+                    case .absolute:
+                        // Static label: the interaction date never changes,
+                        // so (unlike .relative) no TimelineView is needed.
+                        HStack(spacing: 3) {
+                            CmuxSystemSymbolImage(magnified: "clock", pointSize: scaledFontSize(9))
+                                .foregroundColor(activeSecondaryColor(0.6))
+                            Text(SidebarLastInteractionTimeFormatter.absoluteShortLabel(for: lastInteractionAt))
+                                .font(magnifiedFont(scaledFontSize(10), design: .monospaced))
+                                .foregroundColor(activeSecondaryColor(0.75))
+                                .lineLimit(1)
+                        }
+                        .help(SidebarLastInteractionTimeFormatter.absoluteLabel(for: lastInteractionAt))
+                    }
+                } else if sidebarBranchLayout == .vertical {
                     if !workspaceSnapshot.branchDirectoryLines.isEmpty {
                         HStack(alignment: .top, spacing: 3) {
                             if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
