@@ -4644,6 +4644,18 @@ struct CMUXCLI {
             let response = try sendV1Command("close_window \(windowID)", client: client)
             print(response)
 
+        case "resize-window":
+            guard let target = optionValue(commandArgs, name: "--window"), let windowID = try normalizeWindowHandle(target, client: client) else {
+                throw CLIError(message: "resize-window requires --window")
+            }
+            let width = optionValue(commandArgs, name: "--width") ?? "-"
+            let height = optionValue(commandArgs, name: "--height") ?? "-"
+            guard width != "-" || height != "-" else {
+                throw CLIError(message: "resize-window requires --width or --height")
+            }
+            let response = try sendV1Command("resize_window \(windowID) \(width) \(height)", client: client)
+            print(response)
+
         case "move-workspace-to-window":
             guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
                 throw CLIError(message: "move-workspace-to-window requires --workspace")
@@ -16119,6 +16131,24 @@ struct CMUXCLI {
             Example:
               cmux close-window --window 0
               cmux close-window --window window:1
+            """
+        case "resize-window":
+            return """
+            Usage: cmux resize-window --window <id|ref|index> [--width <points>] [--height <points>]
+
+            Resize a window, keeping its top-left corner fixed so the change reads
+            like dragging the bottom edge. Prints the resulting size. A height
+            change is what drives the terminal's resize path, so this is how a
+            test reproduces what a user does by dragging a window.
+
+            Flags:
+              --window <id|ref|index>   Window to resize (required)
+              --width <points>          New width; unchanged if omitted
+              --height <points>         New height; unchanged if omitted
+
+            Example:
+              cmux resize-window --window 0 --height 400
+              cmux resize-window --window window:1 --width 1200 --height 900
             """
         case "move-workspace-to-window":
             return """
@@ -36269,6 +36299,7 @@ export default CMUXSessionRestore;
           new-window
           focus-window --window <id>
           close-window --window <id>
+          resize-window --window <id> [--width <points>] [--height <points>]
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>] [--dry-run]
           reorder-workspaces --order <id|ref|index>,<id|ref|index>,... [--window <id|ref|index>] [--dry-run]

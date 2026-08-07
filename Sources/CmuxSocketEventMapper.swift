@@ -160,7 +160,7 @@ enum CmuxSocketEventMapper {
         let payload: [String: Any] = ["command": name, "args": redactedV1Args(name: name, args: args)]
 
         switch name {
-        case "new_window", "focus_window", "close_window":
+        case "new_window", "focus_window", "close_window", "resize_window":
             break
         case "new_workspace", "select_workspace", "close_workspace", "new_split", "new_pane", "new_surface", "open_browser":
             break
