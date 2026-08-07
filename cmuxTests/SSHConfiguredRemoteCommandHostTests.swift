@@ -520,6 +520,9 @@ struct SSHConfiguredRemoteCommandHostTests {
             environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
             environment["CMUX_SSH_RECONNECT_LIMIT"] = "1"
             environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "0"
+            // The durable cleanup queue is process-external state. Keep this
+            // harness independent from other SSH tests and prior test runs.
+            environment["TMPDIR"] = root.path
             return environment
         }
 
