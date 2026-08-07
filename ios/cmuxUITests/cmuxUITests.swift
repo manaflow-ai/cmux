@@ -6587,6 +6587,40 @@ final class cmuxUITests: XCTestCase {
         return dock
     }
 
+    /// Tap the production composer field and use the surface probe as the durable
+    /// focus oracle. SwiftUI may replace the field's accessibility element with its
+    /// backing text view as focus changes, so querying the original `XCUIElement`
+    /// after the tap can itself create a false test failure.
+    @MainActor
+    private func focusComposerField(in app: XCUIApplication) -> Bool {
+        for _ in 0..<4 {
+            let current = surfaceDock(in: app)
+            if current["fieldFocused"] == "1", current["inputActual"] == "composer" {
+                return true
+            }
+
+            let field = app.descendants(matching: .any)[Composer.field]
+            if let frame = waitForUsableFrame(of: field, timeout: 1) {
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+                    .tap()
+            } else if field.exists {
+                field.tap()
+            }
+
+            let deadline = Date().addingTimeInterval(1.5)
+            while Date() < deadline {
+                let dock = surfaceDock(in: app)
+                if dock["fieldFocused"] == "1", dock["inputActual"] == "composer" {
+                    return true
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            }
+        }
+        let final = surfaceDock(in: app)
+        return final["fieldFocused"] == "1" && final["inputActual"] == "composer"
+    }
+
     /// Assert the structural invariants that hold on the SIMULATOR (which has no
     /// software keyboard, so `keyboardUp`/`proxyFirstResponder` are not reliable
     /// pass/fail signals — see the keyboard-state segregation note). These are the
@@ -6784,7 +6818,7 @@ final class cmuxUITests: XCTestCase {
 
         for cycle in 1...12 {
             XCTAssertTrue(
-                focusTextInput(field, in: app),
+                focusComposerField(in: app),
                 "cycle \(cycle): MobileComposerField must acquire keyboard focus"
             )
             let keyboardUp = waitForDock(

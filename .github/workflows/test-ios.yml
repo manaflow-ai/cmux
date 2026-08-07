@@ -428,6 +428,17 @@ jobs:
               # always draws the software keyboard that the test measures.
               defaults write com.apple.iphonesimulator DevicePreferences \
                 -dict-add "$SIMULATOR_ID" '{ ConnectHardwareKeyboard = 0; }'
+              # `defaults -dict-add` serializes the OpenStep scalar above as the
+              # string "0" on current macOS. Simulator treats that truthy string as
+              # an attached hardware keyboard. Rewrite the leaf as an actual bool
+              # before booting the freshly erased device.
+              SIMULATOR_PREFS="${RUNNER_TEMP}/cmux-simulator-prefs-${SIMULATOR_ID}.plist"
+              defaults export com.apple.iphonesimulator "$SIMULATOR_PREFS"
+              plutil -replace "DevicePreferences.${SIMULATOR_ID}.ConnectHardwareKeyboard" \
+                -bool false "$SIMULATOR_PREFS"
+              defaults import com.apple.iphonesimulator "$SIMULATOR_PREFS"
+              plutil -extract "DevicePreferences.${SIMULATOR_ID}.ConnectHardwareKeyboard" \
+                raw -o - "$SIMULATOR_PREFS"
             fi
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
