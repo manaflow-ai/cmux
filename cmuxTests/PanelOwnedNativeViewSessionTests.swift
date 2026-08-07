@@ -95,54 +95,6 @@ struct PanelOwnedNativeViewSessionTests {
     }
 
     @Test
-    func quickLookContainerHandlesToolbarShareActions() throws {
-        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("cmux-9128-quicklook-share-\(UUID().uuidString).pdf")
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-        try Data("%PDF-1.4".utf8).write(to: fileURL)
-
-        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
-        defer { panel.close() }
-        let session = FilePreviewQuickLookSession()
-        let container = try #require(session.view(
-            panel: panel,
-            revision: panel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .clear,
-            drawsBackground: false
-        ) as? FilePreviewQuickLookContainerView)
-        let previewView = try #require(container.livePreviewView())
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        window.isReleasedWhenClosed = false
-        window.contentView = container
-        window.makeKeyAndOrderFront(nil)
-        defer {
-            session.dismantle(container)
-            window.close()
-        }
-
-        for actionName in ["share:", "shareFromButton:"] {
-            window.makeKeyAndOrderFront(nil)
-            try #require(window.makeFirstResponder(previewView))
-            let action = NSSelectorFromString(actionName)
-            let target = NSApp.target(forAction: action, to: nil, from: previewView)
-            #expect(
-                (target as? FilePreviewQuickLookContainerView) === container,
-                "The embedded Quick Look toolbar's \(actionName) action must resolve in the mounted preview responder chain"
-            )
-            #expect(
-                NSApp.sendAction(action, to: nil, from: previewView),
-                "The mounted Quick Look preview must dispatch its \(actionName) action"
-            )
-        }
-    }
-
-    @Test
     func quickLookUpdateRetiresPreviewDeactivatedByWindowLoss() throws {
         let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-7311-detach-a-\(UUID().uuidString).txt")
@@ -301,6 +253,40 @@ struct PanelOwnedNativeViewSessionTests {
 @MainActor
 @Suite("PDF preview sharing")
 struct FilePreviewPDFSharingTests {
+    private final class SharingPickerProbe: NSSharingServicePicker {
+        let sharedItems: [Any]
+        private let dispatchedEventType: () -> NSEvent.EventType?
+        private(set) weak var presentedView: NSView?
+        private(set) var presentedRect: NSRect?
+        private(set) var preferredEdge: NSRectEdge?
+        private(set) var eventTypeDuringPresentation: NSEvent.EventType?
+        private(set) var closeCount = 0
+
+        init(
+            items: [Any],
+            dispatchedEventType: @escaping () -> NSEvent.EventType? = { nil }
+        ) {
+            sharedItems = items
+            self.dispatchedEventType = dispatchedEventType
+            super.init(items: items)
+        }
+
+        override func show(
+            relativeTo positioningRect: NSRect,
+            of positioningView: NSView,
+            preferredEdge: NSRectEdge
+        ) {
+            presentedRect = positioningRect
+            presentedView = positioningView
+            self.preferredEdge = preferredEdge
+            eventTypeDuringPresentation = dispatchedEventType()
+        }
+
+        override func close() {
+            closeCount += 1
+        }
+    }
+
     @Test
     func mountedPDFChromeRoutesShareOnMouseDown() throws {
         let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -310,17 +296,26 @@ struct FilePreviewPDFSharingTests {
 
         #expect(FilePreviewKindResolver.mode(for: fileURL) == .pdf)
 
+        var dispatchedEventType: NSEvent.EventType?
+        var pickers: [SharingPickerProbe] = []
+        let presenter = FilePreviewPDFSharingPresenter { items in
+            let picker = SharingPickerProbe(
+                items: items,
+                dispatchedEventType: { dispatchedEventType }
+            )
+            pickers.append(picker)
+            return picker
+        }
+        let container = FilePreviewPDFContainerView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 480),
+            sharingPresenter: presenter
+        )
+        defer { container.close() }
         let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
         defer { panel.close() }
         #expect(panel.previewMode == .pdf)
-
-        let container = panel.nativeViewSessions.pdf.view(
-            panel: panel,
-            revision: panel.previewRevision,
-            isVisibleInUI: true,
-            backgroundColor: .clear,
-            drawsBackground: false
-        )
+        container.setPanel(panel)
+        container.setURL(fileURL, revision: panel.previewRevision)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled],
@@ -333,30 +328,140 @@ struct FilePreviewPDFSharingTests {
         defer { window.close() }
 
         let shareButton = try #require(
-            descendants(of: container)
-                .compactMap { $0 as? NSButton }
-                .first { $0.identifier?.rawValue == "FilePreviewPDFShareButton" },
+            shareButton(in: container),
             "The mounted PDF chrome must expose its real Share control"
         )
         #expect(
             shareButton.accessibilityLabel()
                 == String(localized: "filePreview.share", defaultValue: "Share")
         )
-        #expect(
-            shareButton.action == NSSelectorFromString("share:"),
-            "The PDF Share control must synchronously route the standard share action"
-        )
 
-        let previousEventMask = shareButton.sendAction(on: [])
-        let actionEventMask = NSEvent.EventTypeMask(rawValue: UInt64(previousEventMask))
-        _ = shareButton.sendAction(on: actionEventMask)
+        try dispatchPrimaryClick(to: shareButton, in: window) {
+            dispatchedEventType = $0
+        }
+        dispatchedEventType = nil
+
+        let picker = try #require(pickers.first)
+        #expect(pickers.count == 1)
+        #expect((picker.sharedItems as? [URL]) == [fileURL])
+        #expect(picker.presentedView === shareButton)
+        #expect(picker.presentedRect == shareButton.bounds)
+        #expect(picker.preferredEdge == .maxY)
         #expect(
-            actionEventMask.contains(.leftMouseDown),
-            "NSSharingServicePicker presentation must originate during mouse-down"
+            picker.eventTypeDuringPresentation == .leftMouseDown,
+            "NSSharingServicePicker presentation must originate synchronously from mouse-down"
         )
+    }
+
+    @Test
+    func shareActionUsesCurrentPDFAndContainerLifecycle() throws {
+        let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-9128-pdf-share-first-\(UUID().uuidString).pdf")
+        let secondURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-9128-pdf-share-second-\(UUID().uuidString).pdf")
+        defer {
+            try? FileManager.default.removeItem(at: firstURL)
+            try? FileManager.default.removeItem(at: secondURL)
+        }
+        try Data("%PDF-1.4".utf8).write(to: firstURL)
+        try Data("%PDF-1.4".utf8).write(to: secondURL)
+
+        var pickers: [SharingPickerProbe] = []
+        let presenter = FilePreviewPDFSharingPresenter { items in
+            let picker = SharingPickerProbe(items: items)
+            pickers.append(picker)
+            return picker
+        }
+        let container = FilePreviewPDFContainerView(
+            frame: NSRect(x: 0, y: 0, width: 640, height: 480),
+            sharingPresenter: presenter
+        )
+        defer { container.close() }
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: firstURL.path)
+        defer { panel.close() }
+        container.setPanel(panel)
+        container.setURL(firstURL, revision: panel.previewRevision)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = container
+        container.layoutSubtreeIfNeeded()
+        defer { window.close() }
+
+        let firstButton = try #require(shareButton(in: container))
+        #expect(firstButton.sendAction(firstButton.action, to: firstButton.target))
+        let firstPicker = try #require(pickers.first)
+        #expect((firstPicker.sharedItems as? [URL]) == [firstURL])
+        #expect(firstPicker.presentedView === firstButton)
+        #expect(firstPicker.presentedRect == firstButton.bounds)
+        #expect(firstPicker.preferredEdge == .maxY)
+
+        container.setURL(secondURL, revision: panel.previewRevision + 1)
+        #expect(firstPicker.closeCount == 1)
+        container.layoutSubtreeIfNeeded()
+
+        let secondButton = try #require(shareButton(in: container))
+        #expect(secondButton.sendAction(secondButton.action, to: secondButton.target))
+        let secondPicker = try #require(pickers.last)
+        #expect((secondPicker.sharedItems as? [URL]) == [secondURL])
+
+        container.close()
+        #expect(secondPicker.closeCount == 1)
+    }
+
+    private func shareButton(in view: NSView) -> NSButton? {
+        descendants(of: view)
+            .compactMap { $0 as? NSButton }
+            .first { $0.identifier?.rawValue == "FilePreviewPDFShareButton" }
     }
 
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews.flatMap { [$0] + descendants(of: $0) }
+    }
+
+    private func dispatchPrimaryClick(
+        to button: NSButton,
+        in window: NSWindow,
+        willDispatch: (NSEvent.EventType) -> Void
+    ) throws {
+        window.orderFront(nil)
+        let pointInWindow = button.convert(
+            NSPoint(x: button.bounds.midX, y: button.bounds.midY),
+            to: nil
+        )
+        let timestamp = ProcessInfo.processInfo.systemUptime
+        let mouseDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: timestamp,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let mouseUp = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: timestamp + 0.01,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 2,
+            clickCount: 1,
+            pressure: 0
+        ))
+
+        #expect(window.contentView?.hitTest(pointInWindow) === button)
+        willDispatch(.leftMouseDown)
+        window.sendEvent(mouseDown)
+        willDispatch(.leftMouseUp)
+        window.sendEvent(mouseUp)
     }
 }
