@@ -227,7 +227,7 @@ enum TerminalStartupWorkingDirectoryPrefix {
         in words: [ShellWordRange],
         workingDirectory: String
     ) -> [Range<String.Index>] {
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
+        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var ranges: [Range<String.Index>] = []
         var index = 0
@@ -431,7 +431,11 @@ enum AgentResumeCommandBuilder {
             cwd,
             normalized(launchCommand?.workingDirectory),
         ].compactMap { $0 }
-        let sanitizedCommandParts = customRegistration == nil
+        // Exact built-in registrations delegate to AgentResumeArgv just like
+        // non-Vault kinds; only user-authored templates own their cwd flags.
+        let usesStructuredResumeArguments = customRegistration == nil ||
+            customRegistration?.registeredResumeKind != nil
+        let sanitizedCommandParts = usesStructuredResumeArguments
             ? workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
