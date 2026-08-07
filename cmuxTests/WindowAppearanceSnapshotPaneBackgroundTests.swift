@@ -1,5 +1,5 @@
 import AppKit
-import CmuxAppKitSupportUI
+@testable import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import SwiftUI
@@ -12,6 +12,51 @@ import Testing
 #endif
 
 struct WindowAppearanceSnapshotPaneBackgroundTests {
+    /// Verifies translucent hosting keeps a filterless root below pane-local OSC fills.
+    @MainActor
+    @Test func transparentRootBackdropUsesOrdinaryLayerBelowWindowContent() throws {
+        let bounds = NSRect(x: 0, y: 0, width: 320, height: 180)
+        let contentView = NSView(frame: bounds)
+        let window = NSWindow(
+            contentRect: bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = contentView
+
+        let plan = WindowBackdropPlan(
+            hostingPhase: .transparentRootBackdrop,
+            windowBackgroundColor: .clear,
+            windowIsOpaque: false,
+            rootPolicy: .ghosttyTerminalBackdrop(
+                color: .systemPurple,
+                opacity: 0.42,
+                renderingMode: .windowHostBackdrop
+            ),
+            glass: nil,
+            shouldApplyGhosttyCompositorBlur: false
+        )
+
+        _ = AppWindowChromeComposition().backdropController.apply(plan: plan, to: window)
+
+        let themeFrame = try #require(contentView.superview)
+        let rootBackdrop = try #require(
+            themeFrame.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        let rootIndex = try #require(themeFrame.subviews.firstIndex { $0 === rootBackdrop })
+        let contentIndex = try #require(themeFrame.subviews.firstIndex { $0 === contentView })
+        let rootColor = try #require(
+            rootBackdrop.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
+        )
+
+        #expect(rootIndex < contentIndex)
+        #expect(abs(rootColor.alphaComponent - 0.42) < 0.0001)
+        #expect(rootBackdrop.layer?.isOpaque == false)
+        #expect(!rootBackdrop.layerUsesCoreImageFilters)
+        #expect(rootBackdrop.compositingFilter == nil)
+    }
+
     /// Verifies late OSC 11 changes paint through ordinary out-of-process layer compositing.
     @MainActor
     @Test func lateOSCOverrideUsesPaneLayerWithoutCoreImageFilters() throws {
