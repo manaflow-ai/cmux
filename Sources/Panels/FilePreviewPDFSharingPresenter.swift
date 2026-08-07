@@ -63,7 +63,7 @@ final class FilePreviewPDFSharingPresenter: NSObject {
     }
 }
 
-extension FilePreviewPDFSharingPresenter: @MainActor NSSharingServicePickerDelegate {
+extension FilePreviewPDFSharingPresenter: @preconcurrency NSSharingServicePickerDelegate {
     func sharingServicePicker(
         _ sharingServicePicker: NSSharingServicePicker,
         didChoose service: NSSharingService?
