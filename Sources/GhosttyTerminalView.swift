@@ -11264,8 +11264,8 @@ final class GhosttySurfaceScrollView: NSView {
 
     /// Create a CGImage from the terminal's IOSurface-backed layer contents.
     ///
-    /// This avoids Screen Recording permissions (unlike CGWindowListCreateImage) and is therefore
-    /// suitable for debug socket tests running in headless/VM contexts.
+    /// This avoids the Screen Recording permission required by legacy window-list capture, making
+    /// it suitable for debug socket tests running in headless/VM contexts.
     func debugCopyIOSurfaceCGImage() -> CGImage? {
         guard let modelLayer = surfaceView.layer else { return nil }
         let layer = modelLayer.presentation() ?? modelLayer

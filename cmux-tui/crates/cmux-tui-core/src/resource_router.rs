@@ -55,6 +55,11 @@ pub(crate) fn resolve_terminal_wait_exit_id(
                 ..ResourceSelectors::default()
             };
             mux.resolve_resource_path(ResourceTarget::Session, &session_selectors)?;
+            match mux.has_durable_terminal_receipt(&terminal_id) {
+                Ok(true) => {}
+                Ok(false) => return Err(error),
+                Err(registry_error) => return Err(resource_operation_error(registry_error)),
+            }
             Ok(terminal_id)
         }
     }
