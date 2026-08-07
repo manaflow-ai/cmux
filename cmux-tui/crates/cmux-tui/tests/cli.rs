@@ -860,6 +860,52 @@ fn session_reset_state_rejects_stale_preview_when_targets_change() {
 
 #[cfg(unix)]
 #[test]
+fn session_reset_state_rejects_preview_for_recreated_registry() {
+    let dir = unique_temp_dir("session-reset-recreated-registry");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-recreated-registry";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let original_database = find_session_database(&state, session);
+    let session_dir = original_database.parent().unwrap().to_path_buf();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    fs::remove_dir_all(&session_dir).unwrap();
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let recreated_database = find_session_database(&state, session);
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a token from a replaced registry");
+    assert!(recreated_database.exists(), "reset removed the recreated registry");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn session_reset_state_rejects_symlinked_terminal_host_state() {
     let dir = unique_temp_dir("session-reset-symlink-host");
     fs::create_dir_all(&dir).unwrap();

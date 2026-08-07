@@ -375,8 +375,16 @@ pub struct WorkspaceRegistry {
     resource_effect_pepper: ResourceEffectPepper,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
-    _session_guard: Option<SessionLease>,
     _lease: Option<SessionLease>,
+    _session_guard: Option<SessionLease>,
+}
+
+impl Drop for WorkspaceRegistry {
+    fn drop(&mut self) {
+        // Keep the coordination guard held until the writer lease is gone.
+        self._lease.take();
+        self._session_guard.take();
+    }
 }
 
 pub fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -503,13 +511,10 @@ fn reset_confirmation_token(
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(state_root));
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(session_dir));
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(terminal_host_root));
+    update_reset_confirmation_part(&mut hash, &session_reset_target_fingerprint(session_dir));
     update_reset_confirmation_part(
         &mut hash,
-        if session_dir.exists() { "session:1" } else { "session:0" },
-    );
-    update_reset_confirmation_part(
-        &mut hash,
-        if terminal_host_root.exists() { "hosts:1" } else { "hosts:0" },
+        &reset_dir_fingerprint("terminal-hosts", terminal_host_root),
     );
     let digest = hash.finalize();
     digest[..12].iter().map(|byte| format!("{byte:02x}")).collect()
@@ -522,6 +527,154 @@ fn update_reset_confirmation_part(hash: &mut Sha256, value: &str) {
 
 fn canonical_reset_path(path: &Path) -> String {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
+}
+
+fn session_reset_target_fingerprint(session_dir: &Path) -> String {
+    let mut fingerprint =
+        format!("session:{}", reset_path_stable_metadata_fingerprint(session_dir));
+    let database_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+    fingerprint.push_str(";registry_file=");
+    fingerprint.push_str(&reset_path_metadata_fingerprint(&database_path));
+    fingerprint.push_str(";registry_meta=");
+    fingerprint.push_str(&registry_meta_fingerprint(&database_path));
+    fingerprint
+}
+
+fn reset_dir_fingerprint(label: &str, path: &Path) -> String {
+    let mut fingerprint = format!("{label}:{}", reset_path_metadata_fingerprint(path));
+    let entries = match fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            fingerprint.push_str(";entries:missing");
+            return fingerprint;
+        }
+        Err(error) => {
+            fingerprint.push_str(";entries:error:");
+            fingerprint.push_str(&format!("{:?}", error.kind()));
+            return fingerprint;
+        }
+    };
+    let mut entry_fingerprints = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                entry_fingerprints.push(format!(
+                    "{}={}",
+                    name,
+                    reset_path_metadata_fingerprint(&entry.path())
+                ));
+            }
+            Err(error) => entry_fingerprints.push(format!("read-entry-error={:?}", error.kind())),
+        }
+    }
+    entry_fingerprints.sort();
+    fingerprint.push_str(";entries:");
+    fingerprint.push_str(&entry_fingerprints.join(","));
+    fingerprint
+}
+
+fn reset_path_metadata_fingerprint(path: &Path) -> String {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return "missing".into(),
+        Err(error) => return format!("error:{}", error.kind()),
+    };
+    let kind = if metadata.file_type().is_dir() {
+        "dir"
+    } else if metadata.file_type().is_file() {
+        "file"
+    } else if metadata.file_type().is_symlink() {
+        "symlink"
+    } else {
+        "other"
+    };
+    format!("{kind}:{}", metadata_identity(&metadata))
+}
+
+fn reset_path_stable_metadata_fingerprint(path: &Path) -> String {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return "missing".into(),
+        Err(error) => return format!("error:{}", error.kind()),
+    };
+    let kind = if metadata.file_type().is_dir() {
+        "dir"
+    } else if metadata.file_type().is_file() {
+        "file"
+    } else if metadata.file_type().is_symlink() {
+        "symlink"
+    } else {
+        "other"
+    };
+    format!("{kind}:{}", stable_metadata_identity(&metadata))
+}
+
+#[cfg(unix)]
+fn metadata_identity(metadata: &fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+
+    format!(
+        "dev={},ino={},mode={},len={},mtime={}.{}",
+        metadata.dev(),
+        metadata.ino(),
+        metadata.mode(),
+        metadata.len(),
+        metadata.mtime(),
+        metadata.mtime_nsec()
+    )
+}
+
+#[cfg(unix)]
+fn stable_metadata_identity(metadata: &fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+
+    format!("dev={},ino={},mode={}", metadata.dev(), metadata.ino(), metadata.mode())
+}
+
+#[cfg(not(unix))]
+fn metadata_identity(metadata: &fs::Metadata) -> String {
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| format!("{}.{}", duration.as_secs(), duration.subsec_nanos()))
+        .unwrap_or_else(|| "unknown".into());
+    format!(
+        "readonly={},len={},modified={modified}",
+        metadata.permissions().readonly(),
+        metadata.len()
+    )
+}
+
+#[cfg(not(unix))]
+fn stable_metadata_identity(metadata: &fs::Metadata) -> String {
+    metadata_identity(metadata)
+}
+
+fn registry_meta_fingerprint(database_path: &Path) -> String {
+    let connection =
+        match Connection::open_with_flags(database_path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+            Ok(connection) => connection,
+            Err(error) => return format!("open-error:{error}"),
+        };
+    let _ = connection.busy_timeout(std::time::Duration::from_millis(500));
+    let keys = [
+        "registry_id",
+        "schema_version",
+        "revision",
+        "terminal_revision",
+        "resource_revision",
+        "session_public_id",
+    ];
+    let mut values = Vec::with_capacity(keys.len());
+    for key in keys {
+        values.push(format!(
+            "{key}={}",
+            meta_value(&connection, key).ok().flatten().unwrap_or_else(|| "missing".into())
+        ));
+    }
+    values.join(",")
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {
