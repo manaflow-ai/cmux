@@ -471,14 +471,23 @@ rmdir "$FAKE_CMUX_LOCK_DIR" 2>/dev/null || true
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 const extensionPath = process.env.CMUX_TEST_OMP_EXTENSION_PATH;
-const mod = await import(extensionPath);
-if (typeof mod.default !== "function") throw new Error("missing default export");
-const handlers = new Map();
-mod.default({
-  on(name, handler) {
-    handlers.set(name, handler);
-  }
-});
+// OMP loads a fresh copy of the extension module for every session in the
+// process (unique ?mtime= cache-busting import URLs), so module scope is
+// per-session. Give each simulated session its own module instance.
+async function loadExtensionInstance(cacheBust) {
+  const mod = await import(`${extensionPath}?mtime=${cacheBust}`);
+  if (typeof mod.default !== "function") throw new Error("missing default export");
+  const instanceHandlers = new Map();
+  mod.default({
+    on(name, handler) {
+      instanceHandlers.set(name, handler);
+    }
+  });
+  return instanceHandlers;
+}
+const handlers = await loadExtensionInstance("2001");
+const nestedHandlers = await loadExtensionInstance("2002");
+const workerHandlers = await loadExtensionInstance("2003");
 for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
@@ -561,9 +570,9 @@ await handlers.get("agent_end")({
   ],
   stopReason: "completed"
 }, parentCtx);
-await handlers.get("session_start")({}, nestedCtx);
-await handlers.get("before_agent_start")({ prompt: "review the storage race" }, nestedCtx);
-await handlers.get("agent_end")({
+await nestedHandlers.get("session_start")({}, nestedCtx);
+await nestedHandlers.get("before_agent_start")({ prompt: "review the storage race" }, nestedCtx);
+await nestedHandlers.get("agent_end")({
   messages: [
     { role: "user", content: "review the storage race" },
     { role: "assistant", content: [{ type: "text", text: "nested done" }] }
@@ -592,9 +601,9 @@ for (let index = 0; index < 10; index += 1) {
   await switchSession(`priority-prompt-${index}`, "new");
   await handlers.get("before_agent_start")({ prompt: `priority prompt ${index}` }, parentCtx);
 }
-// A finished task-tool subagent's session teardown must not drain or evict
-// the owner session's queued hooks.
-await handlers.get("session_shutdown")({}, workerCtx);
+// A finished task-tool subagent's session teardown (arriving through its own
+// module instance) must not drain or evict the owner session's queued hooks.
+await workerHandlers.get("session_shutdown")({}, workerCtx);
 process.kill(switchHookPid, "SIGCONT");
 await waitForCompletedHooks(4);
 // active switch hook + 16-entry queue: the stop, 10 session-starts, and the

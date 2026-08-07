@@ -126,17 +126,32 @@ printf '\\n---\\n' >> "$FAKE_CMUX_STDIN_LOG"
 
         check_source = """
 import * as fs from "node:fs";
+import * as path from "node:path";
 const extensionPath = process.env.CMUX_TEST_OMP_EXTENSION_PATH;
-const mod = await import(extensionPath);
-if (typeof mod.default !== "function") throw new Error("missing default export");
-const handlers = new Map();
-mod.default({
-  on(name, handler) {
-    handlers.set(name, handler);
+// OMP loads a fresh copy of the extension module for every session in the
+// process: each import goes through a unique ?mtime= cache-busting URL, so
+// module scope is per-session, never shared between the top-level session and
+// task subagents. Model that here - any cross-session state the extension
+// relies on must survive separate module instances.
+async function loadExtensionInstance(cacheBust) {
+  const url = `${path.resolve(extensionPath)}?mtime=${cacheBust}`;
+  const mod = await import(url);
+  if (typeof mod.default !== "function") throw new Error("missing default export");
+  const handlers = new Map();
+  mod.default({
+    on(name, handler) {
+      handlers.set(name, handler);
+    }
+  });
+  for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
+    if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
   }
-});
-for (const name of ["session_start", "before_agent_start", "agent_end", "session_shutdown"]) {
-  if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
+  return handlers;
+}
+const handlers = await loadExtensionInstance("1001");
+const subagentHandlers = await loadExtensionInstance("1002");
+if (subagentHandlers.get("agent_end") === handlers.get("agent_end")) {
+  throw new Error("test harness bug: subagent instance shared the main module instance");
 }
 process.argv.splice(
   0,
@@ -176,10 +191,11 @@ await handlers.get("session_start")({}, mainCtx);
 await handlers.get("before_agent_start")({ prompt: "plan the trip" }, mainCtx);
 
 // A background task-tool subagent boots, runs, and finishes while the main
-// agent is still mid-turn. None of this may reach cmux.
-await handlers.get("session_start")({}, subagentCtx);
-await handlers.get("before_agent_start")({ prompt: "scout the beaches" }, subagentCtx);
-await handlers.get("agent_end")(agentEndEvent("subagent done"), subagentCtx);
+// agent is still mid-turn. Its events arrive through its own freshly loaded
+// module instance, as in real OMP. None of this may reach cmux.
+await subagentHandlers.get("session_start")({}, subagentCtx);
+await subagentHandlers.get("before_agent_start")({ prompt: "scout the beaches" }, subagentCtx);
+await subagentHandlers.get("agent_end")(agentEndEvent("subagent done"), subagentCtx);
 
 // Main agent_end with a scheduled automatic continuation: still running.
 await handlers.get("agent_end")(agentEndEvent("continuing", { willContinue: true }), mainCtx);
