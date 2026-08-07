@@ -15,6 +15,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "publisher",
         "publisher.new",
         "rollback-only",
+        "unpublished.root",
         "anchor",
         "cancel",
         "cleanup.owner",
@@ -941,7 +942,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           if [ ! -d "$cmux_ssh_auth_rollback_group_dir" ] || \
             [ -L "$cmux_ssh_auth_rollback_group_dir" ] || \
             [ ! -f "$cmux_ssh_auth_rollback_group_dir/rollback-only" ] || \
-            [ -L "$cmux_ssh_auth_rollback_group_dir/rollback-only" ]; then exit 1; fi
+            [ -L "$cmux_ssh_auth_rollback_group_dir/rollback-only" ] || \
+            [ ! -f "$cmux_ssh_auth_rollback_group_dir/unpublished.root" ] || \
+            [ -L "$cmux_ssh_auth_rollback_group_dir/unpublished.root" ] || \
+            [ ! -f "$cmux_ssh_auth_rollback_group_dir/owned" ] || \
+            [ -L "$cmux_ssh_auth_rollback_group_dir/owned" ]; then exit 1; fi
           cmux_ssh_auth_rollback_expected_identity="$(/usr/bin/id -u):700"
           cmux_ssh_auth_rollback_observed_identity=$(/usr/bin/stat -f '%u:%Lp' \
             "$cmux_ssh_auth_rollback_group_dir" 2>/dev/null || true)
@@ -951,11 +956,30 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_rollback_group_dir"; then exit 1; fi
 
           cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_rollback_group_dir/processes"
+          cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_rollback_group_dir/processes.stopped"
+          cmux_ssh_auth_owned_processes="$cmux_ssh_auth_rollback_group_dir/owned"
+          cmux_ssh_auth_next_owned_processes="$cmux_ssh_auth_rollback_group_dir/owned.next"
+          cmux_ssh_auth_owned_groups="$cmux_ssh_auth_rollback_group_dir/groups"
+          cmux_ssh_auth_next_owned_groups="$cmux_ssh_auth_rollback_group_dir/groups.next"
           cmux_ssh_auth_resume_groups="$cmux_ssh_auth_rollback_group_dir/groups.resume"
           cmux_ssh_auth_frozen_processes="$cmux_ssh_auth_rollback_group_dir/frozen"
           cmux_ssh_auth_individual_processes="$cmux_ssh_auth_rollback_group_dir/individuals"
+          cmux_ssh_auth_ordered_processes="$cmux_ssh_auth_rollback_group_dir/ordered"
           cmux_ssh_auth_signaled_groups="$cmux_ssh_auth_rollback_group_dir/signaled.groups"
           cmux_ssh_auth_signaled_processes="$cmux_ssh_auth_rollback_group_dir/signaled.pids"
+          IFS=' ' read -r cmux_ssh_auth_rollback_root_pid \
+            cmux_ssh_auth_rollback_root_parent cmux_ssh_auth_rollback_root_group \
+            cmux_ssh_auth_rollback_root_started cmux_ssh_auth_rollback_root_extra \
+            < "$cmux_ssh_auth_rollback_group_dir/unpublished.root" || exit 1
+          case "$cmux_ssh_auth_rollback_root_pid" in ''|0|*[!0-9]*) exit 1 ;; esac
+          case "$cmux_ssh_auth_rollback_root_parent" in ''|*[!0-9]*) exit 1 ;; esac
+          case "$cmux_ssh_auth_rollback_root_group" in ''|0|*[!0-9]*) exit 1 ;; esac
+          case "$cmux_ssh_auth_rollback_root_started" in
+            ''|*[!A-Za-z0-9_:]*) exit 1 ;;
+          esac
+          if [ -n "$cmux_ssh_auth_rollback_root_extra" ]; then exit 1; fi
+          cmux_ssh_auth_owned_group=0
+          cmux_ssh_auth_caller_group="$cmux_ssh_auth_rollback_root_group"
           cmux_ssh_auth_rollback_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
           case "$cmux_ssh_auth_rollback_started_millis" in
             ''|*[!0-9]*) exit 1 ;;
@@ -963,6 +987,18 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # The shared resume helper adds its fixed 500 ms safety margin.
           cmux_ssh_auth_hard_deadline_millis="$cmux_ssh_auth_rollback_started_millis"
           cmux_ssh_auth_resume_signaled_processes || exit 1
+
+          # A rollback-only marker owns the entire unpublished process set, not
+          # just any STOP journals. Continue the bounded cleanup from its last
+          # atomically published ownership closure before removing recovery.
+          cmux_ssh_auth_cleanup_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
+          case "$cmux_ssh_auth_cleanup_started_millis" in
+            ''|*[!0-9]*) exit 1 ;;
+          esac
+          cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 2000))
+          cmux_ssh_auth_hard_deadline_millis="$cmux_ssh_auth_deadline_millis"
+          cmux_ssh_auth_run_cleanup_transactions || exit 1
+          if [ -s "$cmux_ssh_auth_owned_processes" ]; then exit 1; fi
 
           CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_rollback_group_dir"
           export CMUX_SSH_AUTH_GROUP_DIR
@@ -1372,19 +1408,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
           cmux_ssh_auth_tree_cleanup() {
             if [ "$cmux_ssh_auth_tree_complete" != 1 ] && \
-              [ "$cmux_ssh_auth_tree_cleanup_requires_resume" = 1 ] && ! \
-              cmux_ssh_auth_resume_signaled_processes; then
-              # The queued state and stable worker record let a later startup
-              # retry this rollback without signaling a reused PID.
+              [ "$cmux_ssh_auth_tree_cleanup_requires_resume" = 1 ]; then
+              # Resume any write-ahead STOP records, then retain the ownership
+              # closure even when the journals were empty. A later recovery
+              # worker must finish cleanup before deleting durable state.
+              cmux_ssh_auth_resume_signaled_processes || return
               return
             fi
             cmux_ssh_auth_tree_remove_state
           }
           trap 'cmux_ssh_auth_tree_cleanup' EXIT
-          : > "$cmux_ssh_auth_tree_state/rollback-only" || exit 1
-          cmux_ssh_auth_publish_current_worker \
-            "$cmux_ssh_auth_tree_state/publisher" || exit 1
-
           cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_tree_state/processes"
           cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_tree_state/processes.stopped"
           cmux_ssh_auth_owned_processes="$cmux_ssh_auth_tree_state/owned"
@@ -1401,12 +1434,21 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Treat the root's group as shared. The fallback then signals each
           # validated member instead of risking the caller's process group.
           cmux_ssh_auth_caller_group="$cmux_ssh_auth_tree_root_group"
+          printf '%s %s %s %s\n' "$cmux_ssh_auth_tree_root_pid" \
+            "$cmux_ssh_auth_tree_root_parent" "$cmux_ssh_auth_tree_root_group" \
+            "$cmux_ssh_auth_tree_root_started" \
+            > "$cmux_ssh_auth_tree_state/unpublished.root" || exit 1
           printf '%s %s %s %s R\n' "$cmux_ssh_auth_tree_root_pid" \
             "$cmux_ssh_auth_tree_root_parent" "$cmux_ssh_auth_tree_root_group" \
             "$cmux_ssh_auth_tree_root_started" > "$cmux_ssh_auth_owned_processes" || exit 1
           : > "$cmux_ssh_auth_frozen_processes" || exit 1
           : > "$cmux_ssh_auth_signaled_groups" || exit 1
           : > "$cmux_ssh_auth_signaled_processes" || exit 1
+          cmux_ssh_auth_publish_current_worker \
+            "$cmux_ssh_auth_tree_state/publisher" || exit 1
+          # Publish the marker last so recovery never observes a partial
+          # ownership record without a live initialization owner.
+          : > "$cmux_ssh_auth_tree_state/rollback-only" || exit 1
           cmux_ssh_auth_tree_cleanup_requires_resume=1
           cmux_ssh_auth_tree_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
           case "$cmux_ssh_auth_tree_started_millis" in ''|*[!0-9]*) exit 1 ;; esac

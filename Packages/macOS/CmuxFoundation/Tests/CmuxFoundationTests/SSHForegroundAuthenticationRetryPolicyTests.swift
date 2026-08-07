@@ -1811,6 +1811,16 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         try createSecureGroupDirectory(at: groupDirectory)
         try Data().write(to: groupDirectory.appendingPathComponent("rollback-only"))
         try "101 1 777 Thu_Jan_1_00:00:00_1970\n".write(
+            to: groupDirectory.appendingPathComponent("unpublished.root"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "101 1 777 Thu_Jan_1_00:00:00_1970 R\n".write(
+            to: groupDirectory.appendingPathComponent("owned"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "101 1 777 Thu_Jan_1_00:00:00_1970\n".write(
             to: groupDirectory.appendingPathComponent("signaled.pids"),
             atomically: true,
             encoding: .utf8
@@ -1823,6 +1833,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           /usr/bin/grep -Fqx '101 1 777 Thu_Jan_1_00:00:00_1970' \
             "$cmux_ssh_auth_signaled_processes" || return 1
           : > "$CMUX_TEST_RECOVERED"
+        }
+        cmux_ssh_auth_run_cleanup_transactions() {
+          : > "$cmux_ssh_auth_owned_processes"
         }
         CMUX_SSH_AUTH_GROUP_DIR=
         export CMUX_SSH_AUTH_GROUP_DIR
