@@ -9,7 +9,7 @@ struct BrowserDownloadsPopoverAppearanceUITestRecorder: View {
     var body: some View {
         let support = BrowserDownloadsPopoverAppearanceUITestSupport()
         if support.isEnabled {
-            WindowAccessor(dedupeByWindow: false, refreshID: colorScheme) { window in
+            BrowserDownloadsPopoverAppearanceWindowAccessor { window in
                 support.record(window: window, contentColorScheme: colorScheme)
             }
         }

@@ -41,11 +41,6 @@ struct BrowserDownloadsPopoverAppearanceUITestSupport {
 
     func record(window: NSWindow, contentColorScheme: ColorScheme) {
         writeSnapshot(window: window, contentColorScheme: contentColorScheme)
-        Task { @MainActor [weak window] in
-            await Task.yield()
-            guard let window else { return }
-            self.writeSnapshot(window: window, contentColorScheme: contentColorScheme)
-        }
     }
 
     private func writeSnapshot(window: NSWindow, contentColorScheme: ColorScheme) {

@@ -79,7 +79,9 @@ final class BrowserDownloadsPopoverContrastUITests: XCTestCase {
         )
         XCTAssertTrue(
             waitForJSON(atPath: probePath, timeout: 8) {
-                $0["contentColorScheme"] != nil && $0["windowAppearance"] != nil
+                $0["contentColorScheme"] == "light" &&
+                    $0["windowAppearance"] == "light" &&
+                    $0["windowClass"] == "_NSPopoverWindow"
             },
             "Expected the real downloads popover to report its presentation appearance. " +
                 "probe=\(loadJSON(atPath: probePath) ?? [:]) app=\(launchedAppDiagnostics()) " +
@@ -97,6 +99,11 @@ final class BrowserDownloadsPopoverContrastUITests: XCTestCase {
             "light",
             "Expected the AppKit popover presentation and its semantic foregrounds to resolve " +
                 "under the same light appearance. probe=\(probe)"
+        )
+        XCTAssertEqual(
+            probe["windowClass"],
+            "_NSPopoverWindow",
+            "Expected the probe to observe the genuine AppKit popover window. probe=\(probe)"
         )
     }
 
@@ -194,13 +201,22 @@ final class BrowserDownloadsPopoverContrastUITests: XCTestCase {
         guard process.isRunning else { return }
 
         process.terminate()
-        let deadline = Date().addingTimeInterval(5)
-        while process.isRunning && Date() < deadline {
-            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        if waitForProcessExit(process, timeout: 5) {
+            return
         }
-        if process.isRunning {
-            process.interrupt()
-        }
+        process.interrupt()
+        XCTAssertTrue(
+            waitForProcessExit(process, timeout: 2),
+            "Expected UI-test app process \(process.processIdentifier) to exit after interrupt"
+        )
+    }
+
+    private func waitForProcessExit(_ process: Process, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in !process.isRunning },
+            object: nil
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func launchedAppDiagnostics() -> String {
