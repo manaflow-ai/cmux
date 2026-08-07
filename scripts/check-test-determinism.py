@@ -629,10 +629,17 @@ def _network_call_uses_identifier(
     segment_end: int,
     path_suffix: str,
 ) -> bool:
-    """Whether a parenthesized network call directly consumes the identifier."""
+    """Whether a network call directly consumes the identifier."""
     open_parenthesis = line.find("(", verb_match.start(), segment_end)
     if open_parenthesis == -1:
-        return False
+        if path_suffix != ".sh" or verb_match.group(0).lower() != "curl":
+            return False
+        shell_arguments = line[verb_match.end():segment_end]
+        shell_reference = re.compile(
+            rf"\$(?:\{{{re.escape(identifier)}\}}|"
+            rf"{re.escape(identifier)}(?![A-Za-z0-9_]))"
+        )
+        return shell_reference.search(shell_arguments) is not None
 
     quote: Optional[str] = None
     escaped = False
