@@ -804,6 +804,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
         cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
+        cmux_ssh_auth_identity() {
+          printf '1|777|Thu_Jan_1_00:00:00_1970\n'
+        }
         cmux_ssh_auth_identity() { printf '9|99|Thu_Jan_1_00:00:00_1970\n'; }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 2 Thu_Jan_1_00:00:00_1970 S\n' > "$CMUX_TEST_OWNED"
@@ -928,12 +931,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
         kill() {
           if [ "$*" = '-STOP -- -777' ] && \
-            /usr/bin/grep -Fqx '777' "$CMUX_TEST_SIGNALED_GROUPS"; then
+            /usr/bin/grep -Fqx \
+              '777 101 1 Thu_Jan_1_00:00:00_1970' \
+              "$CMUX_TEST_SIGNALED_GROUPS"; then
             : > "$CMUX_TEST_RECORDED_BEFORE_STOP"
           fi
           printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"
         }
-        : > "$CMUX_TEST_OWNED"
+        printf '101 1 777 Thu_Jan_1_00:00:00_1970 S\n' > "$CMUX_TEST_OWNED"
         : > "$CMUX_TEST_GROUPS"
         : > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALED_GROUPS"
@@ -950,7 +955,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_freeze_owned_processes || exit 99
         test -f "$CMUX_TEST_RECORDED_BEFORE_STOP" || exit 98
-        test "$(/usr/bin/grep -Fxc '777' "$CMUX_TEST_SIGNALED_GROUPS")" -eq 1 || exit 97
+        test "$(/usr/bin/grep -Fxc \
+          '777 101 1 Thu_Jan_1_00:00:00_1970' \
+          "$CMUX_TEST_SIGNALED_GROUPS")" -eq 1 || exit 97
         """
 
         var environment = freezeIdentityTestEnvironment(root: root)
@@ -982,7 +989,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         /usr/bin/awk 'BEGIN { for (group = 1000; group <= 2024; group += 1) print group }' \
           > "$CMUX_TEST_GROUPS"
-        : > "$CMUX_TEST_OWNED"
+        /usr/bin/awk 'BEGIN {
+          for (group = 1000; group <= 2024; group += 1) {
+            print group, 1, group, "Thu_Jan_1_00:00:00_1970", "S"
+          }
+        }' > "$CMUX_TEST_OWNED"
         : > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALED_GROUPS"
         : > "$CMUX_TEST_SIGNALED_PIDS"
@@ -998,10 +1009,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
-        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALED_GROUPS" | /usr/bin/tr -d '[:space:]')" \
-          -eq 1024 || exit 98
-        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" \
-          -eq 1024 || exit 97
+        test ! -s "$CMUX_TEST_SIGNALED_GROUPS" || exit 98
+        test ! -s "$CMUX_TEST_SIGNALS" || exit 97
         """
 
         let result = try runShellCommand(
@@ -1061,6 +1070,58 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func resumeSignaledGroupsRequiresDurableMemberIdentity(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-resume-group-identity-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() {
+          case "$1" in
+            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
+            102) printf '9|99|Thu_Jan_1_00:00:00_1970\n' ;;
+            103) printf '1|13|Thu_Jan_1_00:00:00_1970\n' ;;
+            *) return 1 ;;
+          esac
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '11 101 1 Thu_Jan_1_00:00:00_1970\n12 102 1 Thu_Jan_1_00:00:00_1970\n13\n14\n' \
+          > "$CMUX_TEST_SIGNALED_GROUPS"
+        printf '103 1 13 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_resume_signaled_processes
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" \
+          -eq 2 || exit 99
+        /usr/bin/grep -Fqx -- '-CONT -- -11' "$CMUX_TEST_SIGNALS" || exit 98
+        /usr/bin/grep -Fqx -- '-CONT -- -13' "$CMUX_TEST_SIGNALS" || exit 97
+        ! /usr/bin/grep -Fqx -- '-CONT -- -12' "$CMUX_TEST_SIGNALS" || exit 96
+        ! /usr/bin/grep -Fqx -- '-CONT -- -14' "$CMUX_TEST_SIGNALS" || exit 95
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func rollbackResumesEveryJournaledStopAfterTerminationDeadline(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent(
@@ -1081,7 +1142,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           esac
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
-        printf '11\n12\n' > "$CMUX_TEST_SIGNALED_GROUPS"
+        printf '11 101 1 Thu_Jan_1_00:00:00_1970\n12 102 1 Thu_Jan_1_00:00:00_1970\n' \
+          > "$CMUX_TEST_SIGNALED_GROUPS"
         printf '101 1 11 Thu_Jan_1_00:00:00_1970\n102 1 12 Thu_Jan_1_00:00:00_1970\n' \
           > "$CMUX_TEST_SIGNALED_PIDS"
         : > "$CMUX_TEST_SIGNALS"
