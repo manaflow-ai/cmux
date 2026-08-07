@@ -1,27 +1,173 @@
 import Foundation
 import CmuxTerminal
 import CmuxTUIClient
+import os
 
-private enum CmuxTUITerminalTransportEvent: Sendable {
+enum CmuxTUITerminalTransportEvent: Sendable {
     case input(TerminalManualInput)
     case resize(CmuxTUITerminalGeometry)
 }
 
+final class CmuxTUITerminalTransportForwarder: Sendable {
+    enum SendResult: Equatable, Sendable {
+        case enqueued
+        case inactive
+        case overflow
+    }
+
+    private struct QueuedEvent: Sendable {
+        let event: CmuxTUITerminalTransportEvent
+        let byteCount: Int
+        let epoch: UInt64
+    }
+
+    private struct State: Sendable {
+        var pendingBytes = 0
+        var epoch: UInt64 = 0
+        var isActive = true
+    }
+
+    static let defaultMaximumEventBytes = 1_048_576
+    static let defaultMaximumPendingBytes = 4_194_304
+    static let defaultMaximumBufferedEvents = 4_096
+
+    private let state: OSAllocatedUnfairLock<State>
+    private let continuation: AsyncStream<QueuedEvent>.Continuation
+    private let consumer: Task<Void, Never>
+    private let maximumEventBytes: Int
+    private let maximumPendingBytes: Int
+    private let onFailure: @Sendable () -> Void
+
+    init(
+        maximumEventBytes: Int = defaultMaximumEventBytes,
+        maximumPendingBytes: Int = defaultMaximumPendingBytes,
+        maximumBufferedEvents: Int = defaultMaximumBufferedEvents,
+        deliver: @escaping @Sendable (CmuxTUITerminalTransportEvent) async -> Bool,
+        onFailure: @escaping @Sendable () -> Void
+    ) {
+        let maximumPendingBytes = max(1, maximumPendingBytes)
+        let state = OSAllocatedUnfairLock(initialState: State())
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: QueuedEvent.self,
+            bufferingPolicy: .bufferingOldest(max(1, maximumBufferedEvents))
+        )
+        self.state = state
+        self.continuation = continuation
+        self.maximumEventBytes = max(1, min(maximumEventBytes, maximumPendingBytes))
+        self.maximumPendingBytes = maximumPendingBytes
+        self.onFailure = onFailure
+        self.consumer = Task {
+            for await queued in stream {
+                let shouldDeliver = state.withLock { state in
+                    state.isActive && queued.epoch == state.epoch
+                }
+                guard shouldDeliver, !Task.isCancelled else { continue }
+                let accepted = await deliver(queued.event)
+                let shouldNotify = state.withLock { state in
+                    guard queued.epoch == state.epoch else { return false }
+                    state.pendingBytes = max(0, state.pendingBytes - queued.byteCount)
+                    guard state.isActive, !accepted else { return false }
+                    state.isActive = false
+                    state.epoch &+= 1
+                    state.pendingBytes = 0
+                    return true
+                }
+                if shouldNotify { onFailure() }
+            }
+        }
+    }
+
+    deinit {
+        continuation.finish()
+        consumer.cancel()
+    }
+
+    @discardableResult
+    func send(_ event: CmuxTUITerminalTransportEvent) -> SendResult {
+        let byteCount = Self.byteCount(of: event)
+        let reservation = state.withLock { state -> (epoch: UInt64?, didOverflow: Bool) in
+            guard state.isActive else { return (nil, false) }
+            guard byteCount <= maximumEventBytes,
+                  byteCount <= maximumPendingBytes - state.pendingBytes else {
+                state.isActive = false
+                state.epoch &+= 1
+                state.pendingBytes = 0
+                return (nil, true)
+            }
+            state.pendingBytes += byteCount
+            return (state.epoch, false)
+        }
+        if reservation.didOverflow {
+            onFailure()
+            return .overflow
+        }
+        guard let epoch = reservation.epoch else { return .inactive }
+
+        let queued = QueuedEvent(event: event, byteCount: byteCount, epoch: epoch)
+        switch continuation.yield(queued) {
+        case .enqueued:
+            return .enqueued
+        case .dropped, .terminated:
+            let shouldNotify = failClosed()
+            if shouldNotify { onFailure() }
+            return .overflow
+        @unknown default:
+            let shouldNotify = failClosed()
+            if shouldNotify { onFailure() }
+            return .overflow
+        }
+    }
+
+    func shutdown() {
+        _ = failClosed()
+        continuation.finish()
+        consumer.cancel()
+    }
+
+    private func failClosed() -> Bool {
+        state.withLock { state in
+            guard state.isActive else { return false }
+            state.isActive = false
+            state.epoch &+= 1
+            state.pendingBytes = 0
+            return true
+        }
+    }
+
+    private static func byteCount(of event: CmuxTUITerminalTransportEvent) -> Int {
+        switch event {
+        case .input(.bytes(let data)):
+            return max(1, data.count)
+        case .input(.namedKey(let name)):
+            return max(1, name.utf8.count)
+        case .resize:
+            return 1
+        }
+    }
+}
+
 @MainActor
 final class CmuxTUITerminalBinding {
+    private enum ErrorKind: Equatable {
+        case transport
+        case renderer
+    }
+
     let id: UUID
     let publicTerminalID: String
     private let terminal: CmuxTUITerminal
-    private let transportStream: AsyncStream<CmuxTUITerminalTransportEvent>
-    private let transportContinuation: AsyncStream<CmuxTUITerminalTransportEvent>.Continuation
+    private let transportForwarder: CmuxTUITerminalTransportForwarder
+    private let transportFailureStream: AsyncStream<Void>
+    private let transportFailureContinuation: AsyncStream<Void>.Continuation
     let inputHandler: @Sendable (TerminalManualInput) -> Void
     private weak var surface: TerminalSurface?
-    private var transportTask: Task<Void, Never>?
+    private var transportFailureTask: Task<Void, Never>?
     private var updateTask: Task<Void, Never>?
     private var previousRuntimeReadyHandler: (@MainActor () -> Void)?
     private var isWaitingForResetRuntime = false
     private var didStart = false
     private var isShuttingDown = false
+    private var errorKind: ErrorKind?
     private(set) var errorMessage: String?
     private(set) var diagnostics = ""
     private(set) var didExit = false
@@ -31,17 +177,35 @@ final class CmuxTUITerminalBinding {
         self.id = id
         self.publicTerminalID = publicTerminalID
         self.terminal = terminal
-        let transport = AsyncStream<CmuxTUITerminalTransportEvent>.makeStream()
-        transportStream = transport.stream
-        let continuation = transport.continuation
-        transportContinuation = continuation
-        inputHandler = { continuation.yield(.input($0)) }
+        let failures = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        transportFailureStream = failures.stream
+        let failureContinuation = failures.continuation
+        transportFailureContinuation = failureContinuation
+        let forwarder = CmuxTUITerminalTransportForwarder(
+            deliver: { event in
+                switch event {
+                case .input(.bytes(let data)):
+                    return await terminal.send(data)
+                case .input(.namedKey(let name)):
+                    return await terminal.sendKey(name)
+                case .resize(let geometry):
+                    return await terminal.resize(geometry)
+                }
+            },
+            onFailure: {
+                failureContinuation.yield()
+            }
+        )
+        transportForwarder = forwarder
+        inputHandler = { input in
+            _ = forwarder.send(.input(input))
+        }
     }
 
     var resizeHandler: @MainActor @Sendable (Int, Int) -> Void {
         { [weak self] columns, rows in
             guard let self else { return }
-            transportContinuation.yield(
+            transportForwarder.send(
                 .resize(CmuxTUITerminalGeometry(
                     columns: UInt16(clamping: columns),
                     rows: UInt16(clamping: rows)
@@ -62,32 +226,22 @@ final class CmuxTUITerminalBinding {
                 await self?.consumeUpdates()
             }
         }
-        beginTransportDelivery()
+        beginTransportFailureObservation()
         beginUpdates()
     }
 
-    private func beginTransportDelivery() {
-        let stream = transportStream
-        let terminal = terminal
-        transportTask = Task { [weak self] in
-            for await event in stream {
-                guard !Task.isCancelled else { break }
-                let accepted: Bool
-                switch event {
-                case .input(.bytes(let data)):
-                    accepted = await terminal.send(data)
-                case .input(.namedKey(let name)):
-                    accepted = await terminal.sendKey(name)
-                case .resize(let geometry):
-                    accepted = await terminal.resize(geometry)
-                }
-                guard let self, !isShuttingDown else { return }
-                if !accepted {
-                    errorMessage = String(
+    private func beginTransportFailureObservation() {
+        let stream = transportFailureStream
+        transportFailureTask = Task { [weak self] in
+            for await _ in stream {
+                guard let self, !isShuttingDown, !Task.isCancelled else { return }
+                recordError(
+                    kind: .transport,
+                    message: String(
                         localized: "cmuxTUI.terminal.transportRejected",
                         defaultValue: "The cmux-tui terminal rejected an update."
                     )
-                }
+                )
             }
         }
     }
@@ -159,10 +313,22 @@ final class CmuxTUITerminalBinding {
             let snapshot = await terminal.snapshot()
             diagnostics = snapshot.diagnostics
             didExit = didExit || snapshot.didExit
-            errorMessage = nil
+            clearError(kind: .renderer)
         } catch {
-            errorMessage = error.localizedDescription
+            recordError(kind: .renderer, message: error.localizedDescription)
         }
+    }
+
+    private func recordError(kind: ErrorKind, message: String) {
+        if errorKind == .transport, kind == .renderer { return }
+        errorKind = kind
+        errorMessage = message
+    }
+
+    private func clearError(kind: ErrorKind) {
+        guard errorKind == kind else { return }
+        errorKind = nil
+        errorMessage = nil
     }
 
     func shutdown() {
@@ -172,9 +338,10 @@ final class CmuxTUITerminalBinding {
     func shutdownAndWait() async {
         guard !isShuttingDown else { return }
         isShuttingDown = true
-        transportTask?.cancel()
+        transportFailureTask?.cancel()
         updateTask?.cancel()
-        transportContinuation.finish()
+        transportForwarder.shutdown()
+        transportFailureContinuation.finish()
         if let surface {
             surface.onRuntimeReady = previousRuntimeReadyHandler
         }
