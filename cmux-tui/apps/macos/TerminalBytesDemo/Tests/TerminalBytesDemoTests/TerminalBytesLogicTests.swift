@@ -466,6 +466,18 @@ struct TerminalBytesLogicTests {
     }
 
     @Test
+    func cStringCopyRejectsNegativeCopyLength() {
+        var calls = 0
+        let value = copyGrowingCString { _, _ in
+            calls += 1
+            return calls == 1 ? 4 : -1
+        }
+
+        #expect(value == nil)
+        #expect(calls == 2)
+    }
+
+    @Test
     func namedKeysAndModifiersBecomeGhosttyChords() {
         #expect(terminalKeyChord(keyCode: 126, modifiers: []) == "up")
         #expect(

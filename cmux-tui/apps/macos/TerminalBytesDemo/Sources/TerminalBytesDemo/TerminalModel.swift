@@ -643,6 +643,7 @@ func copyGrowingCString(
     for _ in 0..<terminalCStringMaximumAttempts {
         var buffer = [CChar](repeating: 0, count: capacity)
         let actual = copy(&buffer, buffer.count)
+        guard actual >= 0 else { return nil }
         if actual < buffer.count {
             return String(
                 decoding: buffer.prefix(actual).map { UInt8(bitPattern: $0) },
@@ -1010,7 +1011,7 @@ final class TerminalModel {
                 continue
             }
             if accepted {
-                if errorKind?.isInputRelated == true {
+                if case .inputRejected = errorKind {
                     errorKind = nil
                 }
             } else {
@@ -1064,6 +1065,7 @@ final class TerminalModel {
                 return
             }
             errorKind = .resizeRejected
+            resizeRetryBlockedGeometry = geometry
         }
     }
 
