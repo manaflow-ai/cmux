@@ -647,7 +647,8 @@ extension FeedCoordinator {
         ) else {
             return nil
         }
-        if let processGeneration = surfaced.processGeneration {
+        if !surfaced.usesRemoteProcessNamespace,
+           let processGeneration = surfaced.processGeneration {
             let monitorKey = Self.blockingAttentionProcessMonitorKey(
                 target: surfaced.target
             )
@@ -962,20 +963,19 @@ extension FeedCoordinator {
         let statusKey = Self.lifecycleStatusKey(forSource: source)
         let usesRemoteProcessNamespace =
             owner.usesRemoteAgentProcessNamespace(panelId: panelId)
-        let localProcessGeneration = usesRemoteProcessNamespace
-            ? nil
-            : processGeneration
-        if let localProcessGeneration {
+        // Relay generations cannot be probed in the local process table, but
+        // they remain authoritative ordering evidence for reconciliation.
+        if !usesRemoteProcessNamespace, let processGeneration {
             guard AgentPIDProcessIdentity(
-                pid: localProcessGeneration.pid
-            ) == localProcessGeneration else {
+                pid: processGeneration.pid
+            ) == processGeneration else {
                 return nil
             }
         }
         guard let token = owner.beginAgentFeedAttention(
             key: statusKey,
             panelId: panelId,
-            processGeneration: localProcessGeneration
+            processGeneration: processGeneration
         ) else {
             return nil
         }
@@ -1032,7 +1032,7 @@ extension FeedCoordinator {
         return FeedSurfacedAttention(
             target: target,
             usesRemoteProcessNamespace: usesRemoteProcessNamespace,
-            processGeneration: localProcessGeneration
+            processGeneration: processGeneration
         )
     }
 

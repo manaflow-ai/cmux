@@ -435,13 +435,26 @@ function captureNativeAttentionProcessGeneration(): Promise<
 let nativeAttentionProcessGenerationCapture: Promise<
   NativeAttentionProcessGeneration | null
 > | null = null;
+let nativeAttentionProcessGeneration: NativeAttentionProcessGeneration
+  | null = null;
 
 function loadNativeAttentionProcessGeneration(): Promise<
   NativeAttentionProcessGeneration | null
 > {
-  nativeAttentionProcessGenerationCapture ??=
-    captureNativeAttentionProcessGeneration();
-  return nativeAttentionProcessGenerationCapture;
+  if (nativeAttentionProcessGeneration) {
+    return Promise.resolve(nativeAttentionProcessGeneration);
+  }
+  if (nativeAttentionProcessGenerationCapture) {
+    return nativeAttentionProcessGenerationCapture;
+  }
+  const capture = captureNativeAttentionProcessGeneration();
+  nativeAttentionProcessGenerationCapture = capture;
+  void capture.then((generation) => {
+    if (nativeAttentionProcessGenerationCapture !== capture) return;
+    nativeAttentionProcessGenerationCapture = null;
+    if (generation) nativeAttentionProcessGeneration = generation;
+  });
+  return capture;
 }
 
 function setStatus(label: string, icon: string, color: string): void {
@@ -543,6 +556,10 @@ export default function (amp: PluginAPI) {
     sessionId: string | null;
     cwd: string;
   };
+  type NativeAttentionEpisodeIdentity = {
+    scopeId: string;
+    observationId: string;
+  };
   type AmpTurnState = {
     sessionId: string;
     turnId: string;
@@ -553,10 +570,8 @@ export default function (amp: PluginAPI) {
     nativeStateObservationLease: ReturnType<typeof setTimeout> | null;
     nativeStateObservationEpoch: number;
     nativeThreadState: AmpNativeThreadState | null;
-    attentionScopeId: string;
-    attentionObservationId: string;
-    nativeAttentionDesired: boolean;
-    nativeAttentionConfirmed: boolean;
+    nativeAttentionDesiredEpisode: NativeAttentionEpisodeIdentity | null;
+    nativeAttentionConfirmedEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionInFlight: boolean;
     nativeAttentionRetryCount: number;
   };
@@ -566,6 +581,15 @@ export default function (amp: PluginAPI) {
   // to a thread/turn, never to one process-global counter.
   const turnStates = new Map<string, AmpTurnState>();
   let turnSequence = 0;
+  let nativeAttentionEpisodeSequence = 0;
+
+  const makeNativeAttentionEpisode = (): NativeAttentionEpisodeIdentity => {
+    const sequence = ++nativeAttentionEpisodeSequence;
+    return {
+      scopeId: `amp-scope-${process.pid}-${sequence}`,
+      observationId: `amp-approval-${process.pid}-${sequence}`,
+    };
+  };
 
   const makeTurnState = (
     event: { id?: unknown },
@@ -586,11 +610,8 @@ export default function (amp: PluginAPI) {
       nativeStateObservationLease: null,
       nativeStateObservationEpoch: 0,
       nativeThreadState: null,
-      attentionScopeId: `amp-scope-${process.pid}-${sequence}`,
-      attentionObservationId:
-        `amp-approval-${process.pid}-${sequence}`,
-      nativeAttentionDesired: false,
-      nativeAttentionConfirmed: false,
+      nativeAttentionDesiredEpisode: null,
+      nativeAttentionConfirmedEpisode: null,
       nativeAttentionInFlight: false,
       nativeAttentionRetryCount: 0,
     };
@@ -603,22 +624,28 @@ export default function (amp: PluginAPI) {
 
   const synchronizeNativeAttention = (state: AmpTurnState): void => {
     if (state.nativeAttentionInFlight) return;
-    if (state.nativeAttentionDesired === state.nativeAttentionConfirmed) return;
+    const desiredEpisode = state.nativeAttentionDesiredEpisode;
+    const confirmedEpisode = state.nativeAttentionConfirmedEpisode;
+    if (desiredEpisode === confirmedEpisode) return;
     const workspaceId = firstString(process.env.CMUX_WORKSPACE_ID);
     const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
     if (!workspaceId || !surfaceId) return;
-    const attemptedVisibility = state.nativeAttentionDesired;
+    const attemptedVisibility = confirmedEpisode === null;
+    const attemptedEpisode = confirmedEpisode ?? desiredEpisode;
+    if (!attemptedEpisode) return;
     state.nativeAttentionInFlight = true;
     void loadNativeAttentionProcessGeneration().then((processGeneration) => {
       if (!processGeneration) {
         state.nativeAttentionInFlight = false;
         return;
       }
-      if (state.nativeAttentionDesired !== attemptedVisibility) {
+      const transitionIsStillNeeded = attemptedVisibility
+        ? state.nativeAttentionConfirmedEpisode === null
+          && state.nativeAttentionDesiredEpisode === attemptedEpisode
+        : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
+      if (!transitionIsStillNeeded) {
         state.nativeAttentionInFlight = false;
-        if (state.nativeAttentionDesired !== state.nativeAttentionConfirmed) {
-          synchronizeNativeAttention(state);
-        }
+        synchronizeNativeAttention(state);
         return;
       }
       const action = attemptedVisibility ? "begin" : "end";
@@ -634,9 +661,9 @@ export default function (amp: PluginAPI) {
         "--pid-start-microseconds",
         processGeneration.startMicroseconds,
         "--scope-id",
-        state.attentionScopeId,
+        attemptedEpisode.scopeId,
         "--observation-id",
-        state.attentionObservationId,
+        attemptedEpisode.observationId,
         "--session-id",
         state.sessionId,
       ];
@@ -651,17 +678,28 @@ export default function (amp: PluginAPI) {
       runCmuxAcknowledged(args, (succeeded) => {
         state.nativeAttentionInFlight = false;
         if (succeeded) {
-          state.nativeAttentionConfirmed = attemptedVisibility;
+          state.nativeAttentionConfirmedEpisode = attemptedVisibility
+            ? attemptedEpisode
+            : null;
           state.nativeAttentionRetryCount = 0;
-        } else if (
-          state.nativeAttentionDesired === attemptedVisibility
-          && state.nativeAttentionRetryCount
-            < maximumImmediateNativeAttentionRetries
-        ) {
-          state.nativeAttentionRetryCount += 1;
         } else {
-          state.nativeAttentionRetryCount = 0;
-          return;
+          const transitionStillNeeded = attemptedVisibility
+            ? state.nativeAttentionConfirmedEpisode === null
+              && state.nativeAttentionDesiredEpisode === attemptedEpisode
+            : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
+          if (transitionStillNeeded) {
+            if (
+              state.nativeAttentionRetryCount
+                < maximumImmediateNativeAttentionRetries
+            ) {
+              state.nativeAttentionRetryCount += 1;
+            } else {
+              state.nativeAttentionRetryCount = 0;
+              return;
+            }
+          } else {
+            state.nativeAttentionRetryCount = 0;
+          }
         }
         synchronizeNativeAttention(state);
       });
@@ -669,12 +707,14 @@ export default function (amp: PluginAPI) {
   };
 
   const beginNativeAttention = (state: AmpTurnState): void => {
-    state.nativeAttentionDesired = true;
+    if (!state.nativeAttentionDesiredEpisode) {
+      state.nativeAttentionDesiredEpisode = makeNativeAttentionEpisode();
+    }
     synchronizeNativeAttention(state);
   };
 
   const endNativeAttention = (state: AmpTurnState): void => {
-    state.nativeAttentionDesired = false;
+    state.nativeAttentionDesiredEpisode = null;
     synchronizeNativeAttention(state);
   };
 
