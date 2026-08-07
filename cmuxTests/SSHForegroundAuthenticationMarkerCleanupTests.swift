@@ -52,7 +52,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
-            )
+            ),
+            sshExecutable: fakeSSH.path
         )
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
@@ -154,7 +155,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: ["ControlMaster=no"],
                 token: "foreground-auth-token"
-            )
+            ),
+            sshExecutable: fakeSSH.path
         )
         let result = try Self.runProcess(command: command, environment: environment)
 
@@ -250,7 +252,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                 identityFile: nil,
                 sshOptions: sshOptions,
                 token: "foreground-auth-token"
-            )
+            ),
+            sshExecutable: fakeSSH.path
         )
         let result = try Self.runProcess(command: command, environment: environment)
 
@@ -317,7 +320,8 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
                     identityFile: nil,
                     sshOptions: ["ControlMaster=no"],
                     token: "foreground-auth-token"
-                )
+                ),
+                sshExecutable: fakeSSH.path
             ),
             environment: environment
         )

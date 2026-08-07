@@ -213,7 +213,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 identityFile: nil,
                 sshOptions: [],
                 token: "foreground-auth-token"
-            )
+            ),
+            sshExecutable: fakeSSH.path
         )
         let result = runProcess(
             executablePath: "/bin/sh",
@@ -274,8 +275,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
+        let injectedScript = try SSHStartupCommandTestSupport.replacingSystemSSH(
+            in: generatedScript,
+            with: fakeAuth.path
+        )
         let bundledCLI = try bundledCLIPath()
-        let rewrittenScript = generatedScript.replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
+        let rewrittenScript = injectedScript.replacingOccurrences(
+            of: bundledCLI,
+            with: fakeAttach.path
+        )
         XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
         try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
         for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {

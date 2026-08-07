@@ -1,6 +1,96 @@
 import XCTest
 import Darwin
 
+enum SSHStartupCommandTestSupport {
+    static func replacingSystemSSH(
+        in startupCommand: String,
+        with sshExecutable: String
+    ) throws -> String {
+        let systemSSH = "/usr/bin/ssh"
+        let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commandURL = URL(fileURLWithPath: trimmedCommand)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+
+        if FileManager.default.fileExists(atPath: commandURL.path, isDirectory: &isDirectory),
+           !isDirectory.boolValue {
+            let contents = try String(contentsOf: commandURL, encoding: .utf8)
+            guard contents.contains(systemSSH) else {
+                throw missingSystemSSHError(startupCommand)
+            }
+            try contents
+                .replacingOccurrences(of: systemSSH, with: sshExecutable)
+                .write(to: commandURL, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: commandURL.path
+            )
+            return commandURL.path
+        }
+
+        if startupCommand.contains(systemSSH) {
+            return startupCommand.replacingOccurrences(of: systemSSH, with: sshExecutable)
+        }
+
+        func replacingEncodedScript(in encodedRange: Range<String.Index>) -> String? {
+            let encodedScript = String(startupCommand[encodedRange])
+            guard let scriptData = Data(base64Encoded: encodedScript),
+                  let script = String(data: scriptData, encoding: .utf8),
+                  script.contains(systemSSH) else {
+                return nil
+            }
+
+            let rewrittenScript = script.replacingOccurrences(
+                of: systemSSH,
+                with: sshExecutable
+            )
+            var rewrittenCommand = startupCommand
+            rewrittenCommand.replaceSubrange(
+                encodedRange,
+                with: Data(rewrittenScript.utf8).base64EncodedString()
+            )
+            return rewrittenCommand
+        }
+
+        let payloadPrefix = "cmux_payload="
+        if let prefixRange = startupCommand.range(of: payloadPrefix) {
+            let encodedStart = prefixRange.upperBound
+            let encodedEnd = startupCommand[encodedStart...].firstIndex(of: "\n")
+                ?? startupCommand.endIndex
+            if let rewritten = replacingEncodedScript(in: encodedStart..<encodedEnd) {
+                return rewritten
+            }
+        }
+
+        let encodedPrefix = "(printf %s "
+        let encodedSuffix = " | base64"
+        if let prefixRange = startupCommand.range(of: encodedPrefix),
+           let suffixRange = startupCommand.range(
+               of: encodedSuffix,
+               range: prefixRange.upperBound..<startupCommand.endIndex
+           ),
+           let rewritten = replacingEncodedScript(
+               in: prefixRange.upperBound..<suffixRange.lowerBound
+           ) {
+            return rewritten
+        }
+
+        throw missingSystemSSHError(startupCommand)
+    }
+
+    private static func missingSystemSSHError(_ startupCommand: String) -> NSError {
+        NSError(
+            domain: "SSHStartupCommandTestSupport",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey:
+                    "Expected generated SSH startup command to contain /usr/bin/ssh: \(startupCommand)",
+            ]
+        )
+    }
+}
+
 extension CLINotifyProcessIntegrationRegressionTests {
     struct ProcessRunResult {
         let status: Int32
