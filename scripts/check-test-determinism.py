@@ -1111,6 +1111,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_dollar_substitution.sh",
+            'body="$(curl -fsSL https://api.openai.com/v1/items)"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_backtick_substitution.sh",
+            'body="`curl -fsSL https://api.openai.com/v1/items`"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/subprocess_curl.py",
             'subprocess.run(["curl", "https://api.openai.com/v1/items"], check=True)\n',
             {RULE_LIVE_NETWORK_HOST},
