@@ -4,6 +4,7 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod agent_hooks;
 mod command;
 mod raw;
 mod wire;
@@ -95,6 +96,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Protocol(request) => wire::run(global, request),
+            CommandPlan::AgentHooks(hooks) => agent_hooks::run(global, hooks),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
             CommandPlan::ProviderAuthority(authority) => {
                 command::run_provider_authority(global, authority)
@@ -395,6 +397,7 @@ const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
   cmux agent report --terminal <selector> --state <value> --source <value>
+  cmux agent hooks install pi [--force]
 ";
 
 const SIDEBAR_HELP: &str = "\

@@ -1957,7 +1957,7 @@ impl Surface {
 
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
-        opts: SurfaceOptions,
+        mut opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         resource_identity: Option<TabResourceIdentity>,
@@ -1973,6 +1973,13 @@ impl Surface {
                 )
             })
             .transpose()?;
+        if let Some(terminal_public_id) = terminal_public_id.as_ref() {
+            opts.extra_env.retain(|(key, _)| key != "CMUX_TUI_TERMINAL_ID");
+            opts.extra_env.push((
+                "CMUX_TUI_TERMINAL_ID".to_string(),
+                terminal_public_id.as_str().to_string(),
+            ));
+        }
         let kitty_reservation =
             mux.upgrade().map(|mux| mux.reserve_kitty_image_surface(id)).transpose()?;
         let initial_kitty_limits = kitty_reservation

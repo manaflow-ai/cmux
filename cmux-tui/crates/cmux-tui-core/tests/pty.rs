@@ -163,6 +163,29 @@ fn surface_runs_command_and_screen_updates() {
 }
 
 #[test]
+fn terminal_child_receives_its_authoritative_public_id() {
+    let mut options = shell_opts("printf 'terminal-id=%s\\n' \"$CMUX_TUI_TERMINAL_ID\"; sleep 30");
+    options.extra_env.push((
+        "CMUX_TUI_TERMINAL_ID".to_string(),
+        "term_00000000000000000000000000000000".to_string(),
+    ));
+    let mux = Mux::new(unique_session("test-terminal-public-id-env"), options);
+    let surface = mux.new_workspace(None, None).unwrap();
+    let public_id = surface.resource_identity().unwrap().content_id.as_str().to_string();
+
+    let text = wait_for(
+        || {
+            let text = surface.with_terminal(|terminal| terminal.plain_text()).unwrap().unwrap();
+            text.contains(&format!("terminal-id={public_id}")).then_some(text)
+        },
+        Duration::from_secs(10),
+    );
+    assert!(text.is_some(), "authoritative terminal ID never appeared on screen");
+
+    mux.close_surface(surface.id).unwrap();
+}
+
+#[test]
 fn surface_resize_reports_whether_the_size_changed() {
     let mux = Mux::new(unique_session("test-resize-bool"), shell_opts("sleep 30"));
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();

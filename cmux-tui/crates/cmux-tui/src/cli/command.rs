@@ -17,6 +17,7 @@ pub(super) enum ParsedCommand {
 
 pub(super) enum CommandPlan {
     Protocol(RequestPlan),
+    AgentHooks(super::agent_hooks::AgentHooksPlan),
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
@@ -1154,7 +1155,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
                 validate_one_of(
                     "--state",
                     &state,
-                    &["idle", "running", "waiting", "done", "error"],
+                    &["working", "blocked", "idle", "done", "unknown"],
                 )?;
                 params.insert("state".into(), Value::String(state));
             }
@@ -1164,7 +1165,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of("--state", &state, &["idle", "running", "waiting", "done", "error"])?;
+            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
             let mut params = json!({
@@ -1177,6 +1178,11 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             .expect("literal object");
             insert_optional_string(&mut params, flags, "source-session", "source_session");
             request(ResourceOperation::AgentReport, &selectors, flags, params)
+        }
+        ["hooks", "install", "pi"] => {
+            Ok(CommandPlan::AgentHooks(super::agent_hooks::AgentHooksPlan {
+                force: flags.boolean("force"),
+            }))
         }
         _ => usage("agent action"),
     }
@@ -3199,7 +3205,7 @@ mod tests {
                 ],
                 "notification.create",
             ),
-            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "running"], "agent.list"),
+            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
             (
                 vec![
                     "agent",
@@ -3207,7 +3213,7 @@ mod tests {
                     "--terminal",
                     TERMINAL,
                     "--state",
-                    "running",
+                    "working",
                     "--source",
                     "socket",
                     "--source-session",

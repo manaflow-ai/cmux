@@ -13537,7 +13537,16 @@ fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
         .extra_env
         .iter()
         .map(|(key, _)| key.as_str())
-        .filter(|key| matches!(*key, "CMUX_TUI_SOCKET" | "CMUX_MUX_SOCKET" | "CMUX_SIDEBAR"))
+        .filter(|key| {
+            matches!(
+                *key,
+                "CMUX_TUI_SOCKET"
+                    | "CMUX_MUX_SOCKET"
+                    | "CMUX_TUI_BIN"
+                    | "CMUX_TUI_TERMINAL_ID"
+                    | "CMUX_SIDEBAR"
+            )
+        })
         .collect::<Vec<_>>();
     serde_json::json!({
         // This is diagnostic shape, not a respawn recipe. argv and cwd can
