@@ -41,6 +41,11 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     private var confirmedRequestIDs: Set<RequestID> = []
     private var buffersByEpoch: [UInt64: EpochBuffer] = [:]
     private var replayingEpochs: Set<UInt64> = []
+    private var overflowCancellationDepth = 0
+    private var deferredOverflowReplays: [(
+        epoch: UInt64,
+        replay: (Event) -> Void
+    )] = []
 
     nonisolated init(maximumBufferedEvents: Int) {
         self.maximumBufferedEvents = max(0, maximumBufferedEvents)
@@ -110,8 +115,10 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
                     .filter { $0.epoch == epoch }
                     .map(\.onOverflow)
                 let reservedOverflowHandlers = takeReservedOverflowHandlers()
-                activeOverflowHandlers.forEach { $0() }
-                reservedOverflowHandlers.forEach { $0() }
+                withOverflowCancellationBatch {
+                    activeOverflowHandlers.forEach { $0() }
+                    reservedOverflowHandlers.forEach { $0() }
+                }
                 return hasRequestInFlight(for: epoch)
             }
         }
@@ -130,7 +137,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     func cancelRequest(
         id: RequestID,
         currentEpoch: UInt64,
-        replay: (Event) -> Void
+        replay: @escaping (Event) -> Void
     ) {
         guard let request = removeRequest(id: id) else { return }
         buffersByEpoch.removeValue(forKey: request.epoch)
@@ -142,7 +149,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     func cancelReservedRequest(
         id: RequestID,
         currentEpoch: UInt64,
-        replay: (Event) -> Void
+        replay: @escaping (Event) -> Void
     ) {
         _ = reservedAdmissions.withLock { state in
             state.overflowHandlersByID.removeValue(forKey: id)
@@ -156,7 +163,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     func completeRequest(
         id: RequestID,
         confirmed: Bool,
-        replay: (Event) -> Void
+        replay: @escaping (Event) -> Void
     ) {
         guard let request = activeRequests[id] else { return }
         if confirmed {
@@ -190,8 +197,26 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     }
 
     private func hasRequestInFlight(for epoch: UInt64) -> Bool {
-        activeRequests.values.contains(where: { $0.epoch == epoch })
+        overflowCancellationDepth > 0
+            || activeRequests.values.contains(where: { $0.epoch == epoch })
             || hasRequestAwaitingAdmission
+    }
+
+    /// Keeps replay closed until every overflowing request has been cancelled.
+    private func withOverflowCancellationBatch(_ body: () -> Void) {
+        overflowCancellationDepth += 1
+        body()
+        overflowCancellationDepth -= 1
+        guard overflowCancellationDepth == 0 else { return }
+
+        let deferredReplays = deferredOverflowReplays
+        deferredOverflowReplays.removeAll(keepingCapacity: false)
+        for deferredReplay in deferredReplays {
+            replayBufferedEvents(
+                for: deferredReplay.epoch,
+                replay: deferredReplay.replay
+            )
+        }
     }
 
     private func removeRequest(id: RequestID) -> ActiveRequest? {
@@ -206,8 +231,12 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
 
     private func replayBufferedEvents(
         for epoch: UInt64,
-        replay: (Event) -> Void
+        replay: @escaping (Event) -> Void
     ) {
+        if overflowCancellationDepth > 0 {
+            deferredOverflowReplays.append((epoch, replay))
+            return
+        }
         guard !hasRequestInFlight(for: epoch),
               replayingEpochs.insert(epoch).inserted else {
             return

@@ -111,14 +111,13 @@ actor TerminalImageTransferPreparationService {
                     return
                 }
 
-                var job = TerminalPastePreparationJob(
+                let job = TerminalPastePreparationJob(
                     id: id,
                     request: request,
                     continuation: continuation,
                     deadlineTask: nil,
                     operationTask: nil
                 )
-                job.deadlineTask = makeDeadlineTask(for: id)
                 if activeJob == nil {
                     start(job)
                 } else {
@@ -153,6 +152,7 @@ actor TerminalImageTransferPreparationService {
         let request = job.request
         let operation = self.operation
         let cleanup = self.cleanup
+        runningJob.deadlineTask = makeDeadlineTask(for: id)
         runningJob.operationTask = Task { [weak self] in
             do {
                 let result = try await operation(request)

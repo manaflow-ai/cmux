@@ -120,6 +120,54 @@ struct TerminalClipboardInputSequencerTests {
         #expect(Array(delivered.dropFirst(2)) == ["first", "second", "current"])
     }
 
+    @Test("overflow cancels active and reserved requests before replay")
+    func activeAndReservedOverflowDefersReplay() async {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 2
+        )
+        var delivered: [String] = []
+
+        sequencer.beginRequest(
+            id: 1,
+            onOverflow: {
+                delivered.append("active-cancelled")
+                sequencer.completeRequest(id: 1, confirmed: false) {
+                    delivered.append($0)
+                }
+            }
+        )
+        let reservedOverflow: @MainActor @Sendable () -> Void = {
+            delivered.append("reserved-cancelled")
+            sequencer.cancelReservedRequest(
+                id: 2,
+                currentEpoch: 0
+            ) {
+                delivered.append($0)
+            }
+        }
+        await Task.detached {
+            sequencer.reserveRequestAdmission(
+                id: 2,
+                onOverflow: reservedOverflow
+            )
+        }.value
+        #expect(sequencer.shouldDefer("first"))
+        #expect(sequencer.shouldDefer("second"))
+
+        #expect(!sequencer.shouldDefer("current"))
+        delivered.append("current")
+
+        #expect(
+            delivered == [
+                "active-cancelled",
+                "reserved-cancelled",
+                "first",
+                "second",
+                "current",
+            ]
+        )
+    }
+
     @Test("overlapping reservations hold input through every request")
     func overlappingReservationsHoldInputThroughEveryRequest() async {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(

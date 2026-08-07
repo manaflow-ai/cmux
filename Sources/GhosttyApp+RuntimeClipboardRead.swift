@@ -15,6 +15,9 @@ extension GhosttyApp {
         let clipboardRequestID = UInt(bitPattern: state)
         let requestSurfaceView = callbackContext.surfaceView
         let operation = TerminalImageTransferOperation()
+        // Ghostty does not expose the request kind to this read callback; it
+        // arrives only at confirmation. Reserve every read so an actual paste
+        // can never be overtaken by input while crossing to the main actor.
         guard let requestSurfaceAddress = callbackContext.registerRuntimeClipboardRead(
             id: clipboardRequestID,
             stateAddress: clipboardRequestID,
