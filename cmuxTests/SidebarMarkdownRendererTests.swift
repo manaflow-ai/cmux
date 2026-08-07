@@ -78,4 +78,56 @@ struct SidebarMarkdownRendererTests {
         #expect(!rendered.runs.contains { $0.link != nil })
         #expect(String(rendered.characters) == "Open local")
     }
+
+    @Test
+    func descriptionTransformsEveryLinkFromOneImmutableSource() throws {
+        let secureURL = try #require(URL(string: "https://secure.example"))
+        let plainURL = try #require(URL(string: "http://plain.example"))
+        let content = SidebarWorkspaceDescriptionText(
+            markdown: "[secure](\(secureURL.absoluteString)) " +
+                "[local](file:///tmp/private.txt) [plain](\(plainURL.absoluteString))",
+            isActive: true,
+            activeForegroundColor: .white,
+            fontScale: 1
+        ).renderedContent
+        let rendered = try #require(content.renderedMarkdown)
+        let linkRuns = rendered.runs.filter { $0.link != nil }
+
+        #expect(linkRuns.compactMap { $0.link } == [secureURL, plainURL])
+        #expect(linkRuns.allSatisfy { $0.foregroundColor == .white })
+        #expect(String(rendered.characters) == "secure local plain")
+    }
+
+    @Test
+    func legacyMetadataBlockUsesSharedSelectedRowLinkPolicy() throws {
+        let safeURL = try #require(URL(string: "https://cmux.com"))
+        let rendered = try #require(
+            SidebarMetadataMarkdownRenderer.rendered(
+                "[safe](\(safeURL.absoluteString)) [local](file:///tmp/private.txt)"
+            )
+        )
+        let styled = rendered.applyingSidebarRowLinkPolicy(activeForegroundColor: .white)
+        let linkRuns = styled.runs.filter { $0.link != nil }
+
+        #expect(linkRuns.compactMap { $0.link } == [safeURL])
+        #expect(linkRuns.allSatisfy { $0.foregroundColor == .white })
+        #expect(String(styled.characters) == "safe local")
+    }
+
+    @Test
+    func legacyMetadataEntryUsesSharedSelectedRowLinkPolicy() throws {
+        let safeURL = try #require(URL(string: "http://cmux.com"))
+        let rendered = try #require(
+            try? AttributedString(
+                markdown: "[safe](\(safeURL.absoluteString)) [local](file:///tmp/private.txt)",
+                options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+            )
+        )
+        let styled = rendered.applyingSidebarRowLinkPolicy(activeForegroundColor: .white)
+        let linkRuns = styled.runs.filter { $0.link != nil }
+
+        #expect(linkRuns.compactMap { $0.link } == [safeURL])
+        #expect(linkRuns.allSatisfy { $0.foregroundColor == .white })
+        #expect(String(styled.characters) == "safe local")
+    }
 }

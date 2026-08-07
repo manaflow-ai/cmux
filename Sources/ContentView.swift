@@ -16360,10 +16360,13 @@ private struct SidebarMetadataEntryRow: View {
     private func metadataText(underlined: Bool) -> some View {
         let display = entry.sidebarDisplayText
         if entry.format == .markdown,
-           let attributed = try? AttributedString(
+           let parsed = try? AttributedString(
                 markdown: display,
                 options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
            ) {
+            let attributed = parsed.applyingSidebarRowLinkPolicy(
+                activeForegroundColor: isActive ? foregroundColor : nil
+            )
             Text(attributed)
                 .underline(underlined)
                 .foregroundColor(foregroundColor)
@@ -16438,7 +16441,10 @@ private struct SidebarMetadataMarkdownBlockRow: View {
         // attributed swap on every first appearance, changing the row's height
         // mid-scroll and re-feeding the sidebar-wide layout cycle (#5764).
         let displayMarkdown = Self.displayMarkdown(from: block.markdown)
-        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(displayMarkdown)
+        let renderedMarkdown = SidebarMetadataMarkdownRenderer.rendered(displayMarkdown)?
+            .applyingSidebarRowLinkPolicy(
+                activeForegroundColor: isActive ? activeForegroundColor : nil
+            )
         Group {
             if let renderedMarkdown {
                 Text(renderedMarkdown)
