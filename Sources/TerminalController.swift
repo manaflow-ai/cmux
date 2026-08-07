@@ -2116,6 +2116,9 @@ class TerminalController {
         case "close_window":
             return closeWindow(args)
 
+        case "resize_window":
+            return resizeWindow(args)
+
         case "move_workspace_to_window":
             return moveWorkspaceToWindow(args)
 
@@ -12049,6 +12052,28 @@ class TerminalController {
             setActiveTabManager(tm)
         }
         return "OK \(windowId.uuidString)"
+    }
+
+    /// `resize_window <window_id> <width|-> <height|->` — `-` keeps that dimension.
+    private func resizeWindow(_ args: String) -> String {
+        let parts = args.split(separator: " ").map(String.init)
+        guard parts.count >= 3 else { return "ERROR: Usage resize_window <window_id> <width|-> <height|->" }
+        guard let windowId = UUID(uuidString: parts[0]) else { return "ERROR: Invalid window id" }
+        let width = parts[1] == "-" ? nil : Double(parts[1])
+        let height = parts[2] == "-" ? nil : Double(parts[2])
+        if parts[1] != "-" && width == nil { return "ERROR: Invalid width" }
+        if parts[2] != "-" && height == nil { return "ERROR: Invalid height" }
+        if width == nil && height == nil { return "ERROR: resize_window needs a width or a height" }
+
+        let size = v2MainSync {
+            AppDelegate.shared?.resizeMainWindow(
+                windowId: windowId,
+                width: width.map { CGFloat($0) },
+                height: height.map { CGFloat($0) }
+            )
+        }
+        guard let size = size ?? nil else { return "ERROR: Window not found" }
+        return "OK \(Int(size.width)) \(Int(size.height))"
     }
 
     private func closeWindow(_ arg: String) -> String {
