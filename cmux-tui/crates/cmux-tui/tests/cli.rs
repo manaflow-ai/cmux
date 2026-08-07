@@ -445,8 +445,13 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(english.contains(&format!("session socket: {}", socket.display())), "{english}");
     assert!(!english.contains("state database:"), "{english}");
     assert!(!english.contains(&database.display().to_string()), "{english}");
+    assert!(english.contains("no server is listening on this socket"), "{english}");
+    assert!(!english.contains("nothing needs to be stopped"), "{english}");
     assert!(
-        english.contains("no server is listening on this socket; nothing needs to be stopped"),
+        english.contains(&format!(
+            "cmux session '{session}' reset-state --state '{}' --force",
+            state.display()
+        )),
         "{english}"
     );
     assert!(!english.contains("session current shutdown --force"), "{english}");
@@ -580,12 +585,65 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(japanese.contains("セッションソケット:"), "{japanese}");
     assert!(!japanese.contains("状態データベース:"), "{japanese}");
     assert!(!japanese.contains(&database.display().to_string()), "{japanese}");
+    assert!(japanese.contains("このソケットを待ち受けているサーバーはありません"), "{japanese}");
+    assert!(!japanese.contains("停止は不要"), "{japanese}");
     assert!(
-        japanese.contains("このソケットを待ち受けているサーバーはありません。停止は不要です"),
+        japanese.contains(&format!(
+            "cmux session '{session}' reset-state --state '{}' --force",
+            state.display()
+        )),
         "{japanese}"
     );
     assert!(!japanese.contains("session current shutdown --force"), "{japanese}");
     assert!(japanese.contains("保存状態には新しい cmux が必要です"), "{japanese}");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn session_reset_state_removes_only_the_named_saved_state() {
+    let dir = unique_temp_dir("session-reset-state");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let stale_session = "schema-reset-target";
+    let kept_session = "schema-reset-kept";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, stale_session).unwrap());
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, kept_session).unwrap());
+    let session_database = |session: &str| {
+        fs::read_dir(&state)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .filter(|path| path.is_file())
+            .find(|path| {
+                let connection = rusqlite::Connection::open(path).unwrap();
+                let session_id: String = connection
+                    .query_row("SELECT value FROM meta WHERE key = 'session_name'", [], |row| {
+                        row.get(0)
+                    })
+                    .unwrap();
+                session_id == session
+            })
+            .expect("session database")
+    };
+    let stale_database = session_database(stale_session);
+    let kept_database = session_database(kept_session);
+    let connection = rusqlite::Connection::open(&stale_database).unwrap();
+    connection.execute("UPDATE meta SET value = '999' WHERE key = 'schema_version'", []).unwrap();
+    drop(connection);
+
+    let reset = Command::new(bin())
+        .args(["session", stale_session, "reset-state", "--force", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&reset);
+    assert!(!stale_database.exists(), "reset left stale database at {}", stale_database.display());
+    assert!(kept_database.exists(), "reset removed another session's database");
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, stale_session).unwrap());
 
     fs::remove_dir_all(dir).unwrap();
 }
