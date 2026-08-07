@@ -36,7 +36,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 23, result.stdout)
-        XCTAssertEqual(result.stdout, "status --json server\n")
+        XCTAssertEqual(result.stdout, "status server --json\n")
     }
 
     @Test func testHerdrCompatAliasesAndUnknownCommand() throws {
@@ -78,12 +78,12 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: environment,
             timeout: 5
         )
-        XCTAssertFalse(unknown.timedOut, unknown.stdout)
-        XCTAssertEqual(unknown.status, 2, unknown.stdout)
-        XCTAssertTrue(unknown.stdout.contains("delete-everything"), unknown.stdout)
+        XCTAssertFalse(unknown.timedOut, unknown.diagnostics)
+        XCTAssertEqual(unknown.status, 2, unknown.diagnostics)
+        XCTAssertTrue(unknown.stderr.contains("delete-everything"), unknown.diagnostics)
         XCTAssertTrue(
-            unknown.stdout.contains("status, snapshot, list-workspaces, list-tabs, list-panes"),
-            unknown.stdout
+            unknown.stderr.contains("status, snapshot, list-workspaces, list-tabs, list-panes"),
+            unknown.diagnostics
         )
 
         try FileManager.default.removeItem(at: fakeHerdr)
@@ -132,13 +132,25 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(result.stdout, "status\n")
     }
 
-    @Test func testHerdrCompatDiagnosticsAreProviderNeutralAndFrenchLocalized() throws {
+    @Test func testHerdrCompatDiagnosticsUseSuppliedPATHAndRemainProviderNeutral() throws {
         let cliPath = try bundledCLIPath()
         let isolatedHome = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-herdr-missing-\(UUID().uuidString)", isDirectory: true)
         let emptyBin = isolatedHome.appendingPathComponent("bin", isDirectory: true)
+        let fallbackBin = isolatedHome.appendingPathComponent(".local/bin", isDirectory: true)
         try FileManager.default.createDirectory(at: emptyBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fallbackBin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: isolatedHome) }
+
+        // General provider discovery searches this fallback under HOME. Compatibility
+        // lookup promises the supplied PATH, so this decoy must remain undiscoverable.
+        let fallbackHerdr = fallbackBin.appendingPathComponent("herdr")
+        try "#!/bin/sh\nprintf 'fallback provider should not run\\n'\n".write(
+            to: fallbackHerdr,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fallbackHerdr.path)
 
         let environment = herdrCompatEnvironment(
             searchPath: emptyBin.path,
@@ -152,11 +164,14 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: environment,
             timeout: 5
         )
-        XCTAssertFalse(missing.timedOut, missing.stdout)
-        XCTAssertEqual(missing.status, 127, missing.stdout)
-        XCTAssertTrue(missing.stdout.contains("Impossible de lancer la commande requise."), missing.stdout)
-        XCTAssertFalse(missing.stdout.localizedStandardContains("herdr"), missing.stdout)
-        XCTAssertFalse(missing.stdout.contains(isolatedHome.path), missing.stdout)
+        XCTAssertFalse(missing.timedOut, missing.diagnostics)
+        XCTAssertEqual(missing.status, 127, missing.diagnostics)
+        XCTAssertTrue(
+            missing.stderr.contains("Impossible de lancer la commande requise."),
+            missing.diagnostics
+        )
+        XCTAssertFalse(missing.stderr.localizedStandardContains("herdr"), missing.diagnostics)
+        XCTAssertFalse(missing.stderr.contains(isolatedHome.path), missing.diagnostics)
 
         let unknown = runProcess(
             executablePath: cliPath,
@@ -164,10 +179,13 @@ extension CMUXCLIErrorOutputRegressionTests {
             environment: environment,
             timeout: 5
         )
-        XCTAssertFalse(unknown.timedOut, unknown.stdout)
-        XCTAssertEqual(unknown.status, 2, unknown.stdout)
-        XCTAssertTrue(unknown.stdout.contains("Commande de compatibilité inconnue"), unknown.stdout)
-        XCTAssertFalse(unknown.stdout.localizedStandardContains("herdr"), unknown.stdout)
+        XCTAssertFalse(unknown.timedOut, unknown.diagnostics)
+        XCTAssertEqual(unknown.status, 2, unknown.diagnostics)
+        XCTAssertTrue(
+            unknown.stderr.contains("Commande de compatibilité inconnue"),
+            unknown.diagnostics
+        )
+        XCTAssertFalse(unknown.stderr.localizedStandardContains("herdr"), unknown.diagnostics)
 
         let help = runProcess(
             executablePath: cliPath,
@@ -188,7 +206,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         locale: String = "en"
     ) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") || key.hasPrefix("HERDR_") {
             environment.removeValue(forKey: key)
         }
         environment["PATH"] = searchPath
