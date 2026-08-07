@@ -203,6 +203,17 @@ await handlers.get("agent_end")(agentEndEvent("continuing", { willContinue: true
 // Main agent's terminal settle: this is the pane's real idle transition.
 await handlers.get("agent_end")(agentEndEvent("main done"), mainCtx);
 
+// /reload re-emits session_switch for the SAME session file and id. That is
+// not an ownership transition: it must emit nothing, or an idle pane's
+// record would flip back to running with no agent_end ever coming.
+const sameSessionSwitch = handlers.get("session_switch");
+if (typeof sameSessionSwitch === "function") {
+  await sameSessionSwitch(
+    { reason: "resume", previousSessionFile: process.env.CMUX_TEST_OMP_MAIN_SESSION_FILE },
+    mainCtx
+  );
+}
+
 // /new switches the top-level runtime to a fresh session id; ownership must
 // follow it and cmux must be rebound via a session-start hook. A missing
 // session_switch handler means post-switch sessions go dark; drive the

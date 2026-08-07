@@ -642,6 +642,9 @@ for (const rawPid of hungPidLines.slice(-2)) {
 }
 """
         try:
+            # The choreography starts ~22 hook children sequentially (SIGSTOP,
+            # release, await completion each), so give it generous headroom on
+            # loaded machines and CI runners.
             check = subprocess.run(
                 [bun, "--eval", check_source],
                 cwd=root,
@@ -649,7 +652,7 @@ for (const rawPid of hungPidLines.slice(-2)) {
                 text=True,
                 check=False,
                 env=check_env,
-                timeout=20,
+                timeout=120,
             )
         except subprocess.TimeoutExpired:
             pid_lines = [
