@@ -865,10 +865,92 @@ pub unsafe extern "C" fn cmux_frontend_client_disconnect(client: *mut CmuxFronte
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{NativeRenderEventKind, TerminalPublicId};
 
     #[test]
     fn native_frontend_exports_versioned_abi() {
         assert_eq!(cmux_frontend_client_abi_version(), 1);
+    }
+
+    #[test]
+    fn native_render_payload_copy_survives_a_concurrent_resync() {
+        let runtime = Runtime::new().unwrap();
+        let state = Arc::new(Mutex::new(
+            ClientState::new(
+                "test".into(),
+                "memory".into(),
+                1,
+                TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap(),
+            )
+            .unwrap(),
+        ));
+        {
+            let mut state = state.lock().unwrap();
+            state.enable_native_render_events();
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Bytes,
+                80,
+                24,
+                b"old".to_vec(),
+            ));
+        }
+        let terminal = CmuxFrontendTerminal {
+            runtime: runtime.handle().clone(),
+            state: state.clone(),
+            updates: Arc::new(ClientUpdates::default()),
+            active: Mutex::new(None),
+            next_request: AtomicU64::new(1),
+        };
+        let mut descriptor =
+            CmuxFrontendRenderEvent { kind: 0, cols: 0, rows: 0, payload_length: 0 };
+
+        assert!(unsafe {
+            cmux_frontend_terminal_copy_next_render_event(
+                &terminal,
+                &mut descriptor,
+                std::ptr::null_mut(),
+                0,
+            )
+        });
+        assert_eq!(descriptor.payload_length, 3);
+
+        {
+            let mut state = state.lock().unwrap();
+            state
+                .prepare_handshake(
+                    TerminalPublicId::parse("term_0123456789abcdef0123456789abcdef").unwrap(),
+                )
+                .unwrap();
+            assert!(state.push_native_render_event(
+                NativeRenderEventKind::Reset,
+                100,
+                30,
+                b"authoritative".to_vec(),
+            ));
+        }
+
+        let mut payload = [0_u8; 3];
+        assert!(unsafe {
+            cmux_frontend_terminal_copy_next_render_event(
+                &terminal,
+                &mut descriptor,
+                payload.as_mut_ptr(),
+                payload.len(),
+            )
+        });
+        assert_eq!(payload.as_slice(), b"old");
+        assert_eq!(descriptor.kind, NativeRenderEventKind::Bytes as u32);
+
+        assert!(unsafe {
+            cmux_frontend_terminal_copy_next_render_event(
+                &terminal,
+                &mut descriptor,
+                std::ptr::null_mut(),
+                0,
+            )
+        });
+        assert_eq!(descriptor.kind, NativeRenderEventKind::Reset as u32);
+        assert_eq!(descriptor.payload_length, b"authoritative".len());
     }
 
     #[test]
