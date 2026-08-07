@@ -522,7 +522,7 @@ def main() -> int:
         "receipt attempt lease": "CMUX_APP_HOST_ATTEMPT_LEASE",
         "receipt retained lease descriptor": "CmuxAppHostLeaseFD",
         "receipt lease descriptor field": "lease_fd=",
-        "receipt process-bound exit watcher": "flock(",
+        "receipt process-bound exit watcher": "F_SETLKW",
         "receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_CONSTRUCTOR, needle, context)
@@ -541,14 +541,14 @@ def main() -> int:
         "early receipt attempt lease": "CMUX_APP_HOST_ATTEMPT_LEASE",
         "early retained lease descriptor": "retainedLeaseDescriptor",
         "early receipt lease descriptor field": "lease_fd=",
-        "early process-bound exit watcher": "Darwin.flock(",
+        "early process-bound exit watcher": "F_SETLKW",
         "early receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_WRITER, needle, context)
     require_atomic_receipt_publication(
         APP_HOST_RECEIPT_WRITER,
         "early app process receipt",
-        "return descriptor",
+        "return (descriptor, leaseDescriptor)",
     )
     require(
         APP_ENTRYPOINT,

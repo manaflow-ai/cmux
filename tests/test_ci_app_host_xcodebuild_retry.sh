@@ -16,14 +16,21 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   attempt_lease="${TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE:-}"
   attempt_lease_state=missing
   if [ -f "$attempt_lease" ]; then
-    if /usr/bin/python3 -c '
+    for inherited_descriptor in /dev/fd/*; do
+      case "${inherited_descriptor##*/}" in 0|1|2) continue ;; esac
+      if [ "$inherited_descriptor" -ef "$attempt_lease" ]; then
+        attempt_lease_state=inherited
+        break
+      fi
+    done
+    if [ "$attempt_lease_state" != "inherited" ] && /usr/bin/python3 -c '
 import fcntl
 import os
 import sys
 
 descriptor = os.open(sys.argv[1], os.O_RDWR)
 try:
-    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    fcntl.lockf(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
     raise SystemExit(1)
 raise SystemExit(0)
@@ -315,6 +322,13 @@ isolated_runner_count="$(awk -F '|' \
 if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-home-env.log"
   echo "FAIL: every xcodebuild invocation must pass isolated homes through TEST_RUNNER_ variables"
+  exit 1
+fi
+distinct_attempt_lease_count="$(awk -F '|' '{ print $10 }' \
+  "$TMP_DIR/test-runner-home-env.log" | sort -u | wc -l | tr -d ' ')"
+if [ "$distinct_attempt_lease_count" -ne "$invocation_count" ]; then
+  cat "$TMP_DIR/test-runner-home-env.log"
+  echo "FAIL: every xcodebuild retry must use a distinct attempt lease"
   exit 1
 fi
 

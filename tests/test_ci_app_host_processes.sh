@@ -37,15 +37,27 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
       continue
     fi
     if [ -n "$path_filter" ]; then
-      if [ "${CMUX_FAKE_LSOF_MISSING_RECEIPT_PID:-}" = "$state_pid" ] \
-        || [ "$fd_filter" != "9" ]; then
-        continue
-      fi
-      printf 'p%s\n%s\n%s\nn%s\n' \
-        "$state_pid" \
-        "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f9}" \
-        "${CMUX_FAKE_LSOF_RECEIPT_ACCESS_FIELD:-aw}" \
-        "$path_filter"
+      case "$fd_filter" in
+        9)
+          [ "${CMUX_FAKE_LSOF_MISSING_RECEIPT_PID:-}" != "$state_pid" ] \
+            || continue
+          printf 'p%s\n%s\n%s\nn%s\n' \
+            "$state_pid" \
+            "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f9}" \
+            "${CMUX_FAKE_LSOF_RECEIPT_ACCESS_FIELD:-aw}" \
+            "$path_filter"
+          ;;
+        10)
+          [ "${CMUX_FAKE_LSOF_MISSING_LEASE_PID:-}" != "$state_pid" ] \
+            || continue
+          printf 'p%s\n%s\n%s\nn%s\n' \
+            "$state_pid" \
+            "${CMUX_FAKE_LSOF_LEASE_FD_FIELD:-f10}" \
+            "${CMUX_FAKE_LSOF_LEASE_ACCESS_FIELD:-au}" \
+            "$path_filter"
+          ;;
+        *) continue ;;
+      esac
     else
       printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
         "$state_pid" "$state_executable"
@@ -219,22 +231,23 @@ write_receipt() {
   local key="$2"
   local pid="$3"
   local executable="$4"
-  printf 'version=2\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\n' \
-    "$key" "$pid" "$executable" \
+  local lease="$receipt_dir/app-host-attempt-1-$pid.lease"
+  : > "$lease"
+  chmod 600 "$lease"
+  printf 'version=3\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\nlease=%s\nlease_fd=10\n' \
+    "$key" "$pid" "$executable" "$lease" \
     > "$receipt_dir/app-host-$pid.receipt"
 }
 
-write_changed_confirmation_record() {
-  local confirmation_file="$1"
-  local record changed_record
-  record="$(cat "$confirmation_file")"
-  case "$record" in
-    *0) changed_record="${record%?}1" ;;
-    *) changed_record="${record%?}0" ;;
-  esac
-  [ "$changed_record" != "$record" ] \
-    || fail "confirmation mutation did not change the record"
-  printf '%s\n' "$changed_record" > "$confirmation_file"
+simulate_attempt_lease_release() {
+  (
+    /bin/sleep 0.2
+    local pid
+    for pid in "$@"; do
+      /bin/kill -TERM "$pid" 2>/dev/null || true
+    done
+  ) &
+  CMUX_TEST_LEASE_RELEASE_HELPER_PID=$!
 }
 
 make_scope() {
@@ -290,7 +303,7 @@ unset CMUX_FAKE_LSOF_RECEIPT_FD_FIELD
 /bin/kill -0 "$matching_pid" 2>/dev/null \
   || fail "malformed lsof descriptor verification signaled the live PID"
 export CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS=1
-if cmux_terminate_verified_app_hosts \
+if cmux_wait_for_verified_app_hosts_exit \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
   2>> "$TMP_DIR/matching-lsof-warning.err"; then
   fail "cleanup externally signaled a live app-host PID"
@@ -320,6 +333,15 @@ fi
 unset CMUX_FAKE_LSOF_MISSING_RECEIPT_PID
 /bin/kill -0 "$unbound_pid" 2>/dev/null \
   || fail "unbound receipt verification signaled the live PID"
+export CMUX_FAKE_LSOF_MISSING_LEASE_PID="$unbound_pid"
+if cmux_app_host_verified_pids \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  > "$TMP_DIR/unbound-lease.out" 2> "$TMP_DIR/unbound-lease.err"; then
+  fail "a live PID without the attempt lease open was authenticated"
+fi
+unset CMUX_FAKE_LSOF_MISSING_LEASE_PID
+/bin/kill -0 "$unbound_pid" 2>/dev/null \
+  || fail "unbound attempt lease verification signaled the live PID"
 
 make_scope deleted-vnode
 spawn_process
@@ -336,7 +358,7 @@ deleted_verified="$(cmux_app_host_verified_pids \
 /bin/kill -TERM "$deleted_vnode_pid"
 wait "$deleted_vnode_pid" 2>/dev/null || true
 untrack_pid "$deleted_vnode_pid"
-cmux_terminate_verified_app_hosts \
+cmux_wait_for_verified_app_hosts_exit \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
   || fail "deleted-vnode receipt did not become stale after owner exit"
 
@@ -400,21 +422,6 @@ fi
 grep -Fq "has no verified receipt" "$TMP_DIR/unreceipted.err" \
   || fail "missing receipt failure did not identify the live target"
 
-empty_runner_root="$TMP_DIR/empty-runner-work"
-empty_receipt_root="$TMP_DIR/empty-receipts"
-mkdir -p "$empty_runner_root" "$empty_receipt_root"
-: > "$CMUX_FAKE_LSOF_STATE"
-export CMUX_FAKE_LSOF_WARNING=1
-cmux_reclaim_abandoned_app_host_scopes \
-  "$empty_runner_root" "$empty_receipt_root" fedcba987654 \
-  2000000000 86400 fedcba987654 \
-  2> "$TMP_DIR/empty-runner-lsof-warning.err" \
-  || fail "stale receipt cleanup was unsafe when no receipts existed"
-grep -Fq "lsof: simulated advisory diagnostic" \
-  "$TMP_DIR/empty-runner-lsof-warning.err" \
-  || fail "runner lsof diagnostics did not remain on stderr"
-unset CMUX_FAKE_LSOF_WARNING
-
 preflight_runner_root="$TMP_DIR/preflight-runner-work"
 preflight_receipt_root="$TMP_DIR/preflight-receipts"
 preflight_key=13579bdf0246
@@ -469,10 +476,12 @@ printf '%s|%s (deleted)\n' \
 write_receipt \
   "$deleted_receipt_dir" "$deleted_key" \
   "$deleted_stale_pid" "$deleted_executable"
-cmux_terminate_one_verified_app_host \
+simulate_attempt_lease_release "$deleted_stale_pid"
+cmux_wait_for_one_verified_app_host_exit \
   "$deleted_receipt_dir/app-host-$deleted_stale_pid.receipt" \
   "$deleted_key" "$deleted_derived_data" "$deleted_runner_root" \
-  || fail "deleted stale product was not verified and terminated"
+  || fail "deleted stale product was not verified and observed exiting"
+wait "$CMUX_TEST_LEASE_RELEASE_HELPER_PID"
 wait "$deleted_stale_pid" 2>/dev/null || true
 untrack_pid "$deleted_stale_pid"
 [ ! -e "$deleted_derived_data" ] \
@@ -579,21 +588,24 @@ do
     || fail "ownership preflight signaled a process before rejecting recovery"
 done
 
-# The future-dated newest authority above is never eligible for a signal. Once
-# its processes are gone, the current retry may terminate only its own hosts.
+# The future-dated newest authority above is never eligible for recovery. Once
+# its processes are gone, the current attempt observes its own lease-bound hosts
+# exit without sending them a signal.
 for foreign_pid in "$old_pid_one" "$old_pid_two"; do
   /bin/kill -TERM "$foreign_pid"
   wait "$foreign_pid" 2>/dev/null || true
   untrack_pid "$foreign_pid"
 done
+simulate_attempt_lease_release "$current_pid" "$current_pid_two"
 cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
   "${current_executable%%/Build/Products/*}" \
   "$stale_runner_root" "$system_temp_root" \
-  || fail "current retry did not terminate its owned app host"
-for terminated_pid in "$current_pid" "$current_pid_two"; do
-  wait "$terminated_pid" 2>/dev/null || true
-  untrack_pid "$terminated_pid"
+  || fail "current retry did not observe its owned app hosts exit"
+wait "$CMUX_TEST_LEASE_RELEASE_HELPER_PID"
+for exited_pid in "$current_pid" "$current_pid_two"; do
+  wait "$exited_pid" 2>/dev/null || true
+  untrack_pid "$exited_pid"
 done
 for preserved_path in \
   "$old_home" "$old_receipt_dir" "$old_confirmation_file" \
@@ -604,8 +616,8 @@ do
     || fail "owned retry recovery removed another job or waiting scope"
 done
 
-# The canonical machine-lock holder must immediately recover an authenticated
-# prior owner. The process-free scope still observes the deletion grace period.
+# The canonical machine-lock holder may wait for an authenticated prior owner,
+# but it never deletes that prior scope.
 spawn_process
 old_orphan_pid_one="$CMUX_TEST_SPAWNED_PID"
 spawn_process
@@ -626,13 +638,14 @@ printf '%s|%s (deleted)\n%s|%s (deleted)\n' \
   "$old_orphan_pid_one" "$old_executable" \
   "$old_orphan_pid_two" "$old_executable" \
   > "$CMUX_FAKE_LSOF_STATE"
+simulate_attempt_lease_release "$old_orphan_pid_one" "$old_orphan_pid_two"
 cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
   "${current_executable%%/Build/Products/*}" \
   "$stale_runner_root" "$system_temp_root" \
-  "$old_orphan_recovery_now" 86400 \
-  "$old_key" \
+  "$old_orphan_recovery_now" \
   || fail "authenticated old prior-run app hosts were not recovered"
+wait "$CMUX_TEST_LEASE_RELEASE_HELPER_PID"
 for old_orphan_pid in "$old_orphan_pid_one" "$old_orphan_pid_two"; do
   wait "$old_orphan_pid" 2>/dev/null || true
   untrack_pid "$old_orphan_pid"
@@ -641,7 +654,7 @@ done
   || fail "prior-run recovery recreated deleted DerivedData"
 for preserved_path in "$old_home" "$old_receipt_dir" "$old_confirmation_file"; do
   [ -e "$preserved_path" ] \
-    || fail "live recovery bypassed process-free scope deletion grace"
+    || fail "live recovery deleted a prior-run scope"
 done
 for preserved_path in \
   "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
@@ -651,201 +664,37 @@ do
     || fail "prior-run recovery removed a current or waiting scope"
 done
 
-old_scope_reclaim_now=$((old_orphan_confirmation_mtime + 86400))
-cmux_recover_owned_app_host_attempt \
-  "$current_receipt_dir" "$current_key" \
-  "${current_executable%%/Build/Products/*}" \
-  "$stale_runner_root" "$system_temp_root" \
-  "$old_scope_reclaim_now" 86400 "$old_key" \
-  || fail "recovered prior-run scope was not reclaimed at the grace boundary"
-for removed_path in "$old_home" "$old_receipt_dir" "$old_confirmation_file"; do
-  [ ! -e "$removed_path" ] \
-    || fail "process-free prior-run scope survived the grace boundary"
-done
-
-# A later process-free pass reclaims an authenticated old scope, but keeps the
-# current key and every scope newer than the minimum age.
-make_durable_scope abandoned "930006$$" 2 1 \
-  "$stale_runner_root/abandoned/derived-data"
-abandoned_key="$DURABLE_SCOPE_KEY"
-abandoned_home="$DURABLE_SCOPE_HOME"
-abandoned_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
-abandoned_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
-touch -t 200001010000 "$abandoned_confirmation_file"
-: > "$CMUX_FAKE_LSOF_STATE"
-cmux_recover_owned_app_host_attempt \
-  "$current_receipt_dir" "$current_key" \
-  "${current_executable%%/Build/Products/*}" \
-  "$stale_runner_root" "$system_temp_root" 2000000000 86400 \
-  "$abandoned_key" \
-  || fail "process-free abandoned scope reclamation failed"
-for removed_path in \
-  "$abandoned_home" "$abandoned_receipt_dir" "$abandoned_confirmation_file"
-do
-  [ ! -e "$removed_path" ] \
-    || fail "authenticated old process-free scope was not reclaimed"
-done
-for preserved_path in \
-  "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
-  "$waiting_home" "$waiting_receipt_dir" "$waiting_confirmation_file"
-do
-  [ -e "$preserved_path" ] \
-    || fail "age-bounded reclamation removed a current or young scope"
-done
-
-make_durable_scope abandoned-partial "930007$$" 2 1 \
-  "$stale_runner_root/abandoned-partial/derived-data"
-abandoned_partial_key="$DURABLE_SCOPE_KEY"
-abandoned_partial_home="$DURABLE_SCOPE_HOME"
-abandoned_partial_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
-abandoned_partial_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
-rm -rf -- "$abandoned_partial_home" "$abandoned_partial_receipt_dir"
-touch -t 200001010000 "$abandoned_partial_confirmation_file"
-cmux_recover_owned_app_host_attempt \
-  "$current_receipt_dir" "$current_key" \
-  "${current_executable%%/Build/Products/*}" \
-  "$stale_runner_root" "$system_temp_root" 2000000000 86400 \
-  "$abandoned_partial_key" \
-  || fail "confirmation-only abandoned scope reclamation failed"
-[ ! -e "$abandoned_partial_confirmation_file" ] \
-  || fail "confirmation-only abandoned scope was not reclaimed"
-
-# Validate every candidate before deleting the first one.
-make_durable_scope candidate-one "930003$$" 2 1 \
-  "$stale_runner_root/candidate-one/derived-data"
-candidate_one_key="$DURABLE_SCOPE_KEY"
-candidate_one_home="$DURABLE_SCOPE_HOME"
-candidate_one_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
-candidate_one_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
-make_durable_scope candidate-two "930004$$" 2 1 \
-  "$stale_runner_root/candidate-two/derived-data"
-candidate_two_key="$DURABLE_SCOPE_KEY"
-candidate_two_home="$DURABLE_SCOPE_HOME"
-candidate_two_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
-candidate_two_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
-candidate_two_record="$(cat "$candidate_two_confirmation_file")"
-touch -t 200001010000 \
-  "$candidate_one_confirmation_file" "$candidate_two_confirmation_file"
-write_changed_confirmation_record "$candidate_two_confirmation_file"
-touch -t 200001010000 "$candidate_two_confirmation_file"
-if cmux_reclaim_abandoned_app_host_scopes \
-  "$stale_runner_root" "$system_temp_root" "$current_key" \
-  2000000000 86400 \
-  "$current_key" "$candidate_one_key" "$candidate_two_key" \
-  > "$TMP_DIR/invalid-candidate.out" \
-  2> "$TMP_DIR/invalid-candidate.err"; then
-  fail "stale recovery accepted an altered confirmation"
-fi
-for preserved_path in \
-  "$candidate_one_home" "$candidate_one_receipt_dir" \
-  "$candidate_one_confirmation_file" "$candidate_two_home" \
-  "$candidate_two_receipt_dir" "$candidate_two_confirmation_file"
-do
-  [ -e "$preserved_path" ] \
-    || fail "candidate validation partially deleted a stale scope"
-done
-if ! cmux_recover_owned_app_host_attempt \
-  "$current_receipt_dir" "$current_key" \
-  "${current_executable%%/Build/Products/*}" \
-  "$stale_runner_root" "$system_temp_root" 2000000000 86400 \
-  "$candidate_one_key" "$candidate_two_key" \
-  > "$TMP_DIR/advisory-reclaim.out" \
-  2> "$TMP_DIR/advisory-reclaim.err"; then
-  fail "unrelated abandoned-scope debris blocked current-run recovery"
-fi
-grep -Fq "WARNING: abandoned app-host scope reclamation was skipped" \
-  "$TMP_DIR/advisory-reclaim.err" \
-  || fail "current-run recovery did not report skipped scope maintenance"
-for preserved_path in \
-  "$candidate_one_home" "$candidate_one_receipt_dir" \
-  "$candidate_one_confirmation_file" "$candidate_two_home" \
-  "$candidate_two_receipt_dir" "$candidate_two_confirmation_file"
-do
-  [ -e "$preserved_path" ] \
-    || fail "advisory scope maintenance partially deleted a stale scope"
-done
-printf '%s\n' "$candidate_two_record" > "$candidate_two_confirmation_file"
-chmod 600 "$candidate_two_confirmation_file"
-touch -t 200001010000 "$candidate_two_confirmation_file"
-cmux_reclaim_abandoned_app_host_scopes \
-  "$stale_runner_root" "$system_temp_root" "$current_key" \
-  2000000000 86400 \
-  "$current_key" "$candidate_one_key" "$candidate_two_key" \
-  || fail "valid terminated scope preview was rejected"
-for preserved_path in \
-  "$candidate_one_home" "$candidate_one_receipt_dir" \
-  "$candidate_one_confirmation_file" "$candidate_two_home" \
-  "$candidate_two_receipt_dir" "$candidate_two_confirmation_file"
-do
-  [ -e "$preserved_path" ] \
-    || fail "retry recovery deleted a prior scope without explicit confirmation"
-done
-
-# Pre-v3 records do not carry repository-scoped stale authority.
-make_durable_scope legacy "930005$$" 2 1 \
-  "$stale_runner_root/legacy/derived-data"
-legacy_key="$DURABLE_SCOPE_KEY"
-legacy_home="$DURABLE_SCOPE_HOME"
-legacy_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
-legacy_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
-legacy_record="$(cat "$legacy_confirmation_file")"
-printf 'version=2\nrun_id=%s\nrun_attempt=2\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
-  "930005$$" "$legacy_key" "$legacy_home" "$legacy_receipt_dir" \
-  "$DURABLE_SCOPE_CONFIRMATION" > "$legacy_confirmation_file"
-cmux_reclaim_abandoned_app_host_scopes \
-  "$stale_runner_root" "$system_temp_root" "$current_key" \
-  2000000000 86400 "$current_key" "$legacy_key" \
-  > "$TMP_DIR/v2-candidate.out" 2> "$TMP_DIR/v2-candidate.err" \
-  || fail "V2 confirmation preservation blocked valid recovery"
-[ -d "$legacy_home" ] \
-  || fail "stale recovery removed a V2 scope"
-printf 'version=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
-  "$legacy_key" "$legacy_home" "$legacy_receipt_dir" \
-  "$DURABLE_SCOPE_CONFIRMATION" > "$legacy_confirmation_file"
-cmux_reclaim_abandoned_app_host_scopes \
-  "$stale_runner_root" "$system_temp_root" "$current_key" \
-  2000000000 86400 "$current_key" "$legacy_key" \
-  > "$TMP_DIR/legacy-candidate.out" 2> "$TMP_DIR/legacy-candidate.err" \
-  || fail "legacy confirmation preservation blocked valid recovery"
-[ -d "$legacy_home" ] \
-  || fail "stale recovery removed a V1 scope"
-printf '%s\n' "$legacy_record" > "$legacy_confirmation_file"
-chmod 600 "$legacy_confirmation_file"
-touch -t 200001010000 "$legacy_confirmation_file"
-
-# Root symlinks and wrong owner identities fail closed.
+# Prior-scope admission rejects root symlinks and wrong owner identities without
+# mutating the scope. Internal symlinks do not escape validation boundaries.
 outside_scope="$TMP_DIR/outside-stale-scope"
 mkdir -p "$outside_scope"
 printf 'preserve\n' > "$outside_scope/sentinel"
-legacy_home_backup="$TMP_DIR/legacy-home-backup"
-mv "$legacy_home" "$legacy_home_backup"
-ln -s "$outside_scope" "$legacy_home"
-if cmux_reclaim_abandoned_app_host_scopes \
-  "$stale_runner_root" "$system_temp_root" "$current_key" \
-  2000000000 86400 "$current_key" "$legacy_key" \
-  > "$TMP_DIR/symlink-candidate.out" 2> "$TMP_DIR/symlink-candidate.err"; then
-  fail "stale recovery accepted a replacement home symlink"
+old_home_backup="$TMP_DIR/old-home-backup"
+mv "$old_home" "$old_home_backup"
+ln -s "$outside_scope" "$old_home"
+if cmux_validate_abandoned_app_host_scope \
+  "$system_temp_root" "$old_key" "$(/usr/bin/id -u)" \
+  > "$TMP_DIR/symlink-scope.out" 2> "$TMP_DIR/symlink-scope.err"; then
+  fail "prior-scope admission accepted a replacement home symlink"
 fi
 grep -Fxq preserve "$outside_scope/sentinel" \
-  || fail "stale recovery followed a replacement home symlink"
-unlink "$legacy_home"
-mv "$legacy_home_backup" "$legacy_home"
+  || fail "prior-scope admission followed a replacement home symlink"
+unlink "$old_home"
+mv "$old_home_backup" "$old_home"
 wrong_uid=$(( $(/usr/bin/id -u) + 1 ))
 if cmux_validate_abandoned_app_host_scope \
-  "$system_temp_root" "$legacy_key" "$wrong_uid" \
+  "$system_temp_root" "$old_key" "$wrong_uid" \
   > "$TMP_DIR/wrong-owner.out" 2> "$TMP_DIR/wrong-owner.err"; then
-  fail "stale recovery accepted a scope owned by another UID"
+  fail "prior-scope admission accepted a scope owned by another UID"
 fi
 
-# Internal symlinks are unlinked with the authenticated root, not traversed.
-ln -s "$outside_scope" "$legacy_home/internal-link"
-cmux_reclaim_abandoned_app_host_scopes \
-  "$stale_runner_root" "$system_temp_root" "$current_key" \
-  2000000000 86400 "$current_key" "$legacy_key" \
-  || fail "valid stale scope with an internal symlink was not previewed"
+ln -s "$outside_scope" "$old_home/internal-link"
+cmux_validate_abandoned_app_host_scope \
+  "$system_temp_root" "$old_key" "$(/usr/bin/id -u)" \
+  || fail "valid prior scope with an internal symlink was rejected"
 grep -Fxq preserve "$outside_scope/sentinel" \
-  || fail "stale recovery followed an internal home symlink"
-[ -d "$legacy_home" ] \
-  || fail "retry recovery deleted a stale scope without explicit confirmation"
+  || fail "prior-scope admission followed an internal home symlink"
+[ -d "$old_home" ] \
+  || fail "prior-scope admission mutated a validated scope"
 
 echo "PASS: app-host processes require matching receipts and executable vnodes"
