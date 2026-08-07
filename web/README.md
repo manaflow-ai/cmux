@@ -92,3 +92,11 @@ read-model access to the database.
 
 The Cloud VM REST routes now run through Effect workflows backed by Postgres. The supporting
 read model is `services/vms/dbReadModel.ts`; it is intentionally not exposed as an API route.
+
+## Newsletter
+
+Resend audience sync and product-update broadcast tooling live in
+`scripts/newsletter/`, `services/newsletter/`, and `emails/`. See
+[NEWSLETTER.md](./NEWSLETTER.md) for the full workflow: sync audiences,
+author with `bun run email:dev`, preview with `bun run email:test`, draft
+with `bun run email:draft`, send from the Resend dashboard.
