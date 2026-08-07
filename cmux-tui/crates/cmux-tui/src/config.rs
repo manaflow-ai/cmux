@@ -2641,20 +2641,30 @@ fn ghostty_defaults() -> DefaultColors {
     let config_paths = platform::ghostty_config_paths();
     let theme_dirs = platform::ghostty_theme_dirs();
     #[cfg(not(test))]
-    let helper_defaults = parse_ghostty_defaults_from_helper();
+    let helper_defaults = ghostty_defaults_from_helper();
     #[cfg(test)]
-    let helper_defaults = None;
+    let helper_defaults = GhosttyHelperDefaults::Unavailable;
     ghostty_defaults_from_sources(config_paths, theme_dirs, helper_defaults)
+}
+
+enum GhosttyHelperDefaults {
+    Resolved(DefaultColors),
+    Unavailable,
+    TimedOut,
 }
 
 fn ghostty_defaults_from_sources(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
-    helper_defaults: Option<DefaultColors>,
+    helper_defaults: GhosttyHelperDefaults,
 ) -> DefaultColors {
-    let parsed = helper_defaults
-        .or_else(|| parse_ghostty_defaults_from_paths(config_paths, theme_dirs))
-        .unwrap_or_default();
+    let parsed = match helper_defaults {
+        GhosttyHelperDefaults::Resolved(defaults) => defaults,
+        GhosttyHelperDefaults::Unavailable => {
+            parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
+        }
+        GhosttyHelperDefaults::TimedOut => DefaultColors::default(),
+    };
     resolve_ghostty_application_defaults(parsed)
 }
 
@@ -2723,8 +2733,10 @@ pub(crate) fn run_ghostty_config_helper() -> i32 {
 }
 
 #[cfg(not(test))]
-fn parse_ghostty_defaults_from_helper() -> Option<DefaultColors> {
-    let exe = std::env::current_exe().ok()?;
+fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
+    let Ok(exe) = std::env::current_exe() else {
+        return GhosttyHelperDefaults::Unavailable;
+    };
     let mut command = Command::new(exe);
     command
         .arg("__ghostty-config-defaults")
@@ -2732,22 +2744,34 @@ fn parse_ghostty_defaults_from_helper() -> Option<DefaultColors> {
         .stdout(ProcessStdio::piped())
         .stderr(ProcessStdio::null());
     scrub_ghostty_helper_secret_environment(&mut command);
-    let mut child = command.spawn().ok()?;
-    let mut stdout = child.stdout.take()?;
-    let status = match child.wait_timeout(GHOSTTY_CONFIG_PARSE_DEADLINE).ok()? {
+    let Ok(mut child) = command.spawn() else {
+        return GhosttyHelperDefaults::Unavailable;
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return GhosttyHelperDefaults::Unavailable;
+    };
+    let status = match child.wait_timeout(GHOSTTY_CONFIG_PARSE_DEADLINE) {
+        Ok(status) => status,
+        Err(_) => return GhosttyHelperDefaults::Unavailable,
+    };
+    let status = match status {
         Some(status) => status,
         None => {
             let _ = child.kill();
             let _ = child.wait();
-            return None;
+            return GhosttyHelperDefaults::TimedOut;
         }
     };
     if !status.success() {
-        return None;
+        return GhosttyHelperDefaults::Unavailable;
     }
     let mut output = String::new();
-    stdout.read_to_string(&mut output).ok()?;
-    Some(parse_resolved_ghostty_defaults(&output))
+    if stdout.read_to_string(&mut output).is_err() {
+        return GhosttyHelperDefaults::Unavailable;
+    }
+    GhosttyHelperDefaults::Resolved(parse_resolved_ghostty_defaults(&output))
 }
 
 #[cfg(any(not(test), all(test, unix)))]
@@ -2991,7 +3015,7 @@ fn gtk_settings_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
         match key {
             "gtk-application-prefer-dark-theme" => match value.to_ascii_lowercase().as_str() {
                 "1" | "true" | "yes" => return Some(GhosttyThemeMode::Dark),
-                "0" | "false" | "no" => return Some(GhosttyThemeMode::Light),
+                "0" | "false" | "no" => {}
                 _ => {}
             },
             "gtk-theme-name" => theme_name = gtk_theme_name_theme_mode(value),
@@ -4435,12 +4459,71 @@ mod tests {
         let config = dir.join("config");
         std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
 
-        let defaults = ghostty_defaults_from_sources(vec![config], Vec::new(), None);
+        let defaults = ghostty_defaults_from_sources(
+            vec![config],
+            Vec::new(),
+            GhosttyHelperDefaults::Unavailable,
+        );
 
         let _ = std::fs::remove_dir_all(dir);
 
         assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
         assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn ghostty_defaults_use_helper_result_before_file_fallback() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-result-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
+        let helper = DefaultColors {
+            fg: Some(Rgb { r: 0xa0, g: 0xa1, b: 0xa2 }),
+            bg: Some(Rgb { r: 0xb0, g: 0xb1, b: 0xb2 }),
+            ..Default::default()
+        };
+
+        let defaults = ghostty_defaults_from_sources(
+            vec![config],
+            Vec::new(),
+            GhosttyHelperDefaults::Resolved(helper),
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xa0, g: 0xa1, b: 0xa2 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0xb0, g: 0xb1, b: 0xb2 }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn ghostty_defaults_do_not_retry_files_after_helper_timeout() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-timeout-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
+
+        let defaults = ghostty_defaults_from_sources(
+            vec![config],
+            Vec::new(),
+            GhosttyHelperDefaults::TimedOut,
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, None);
+        assert_eq!(defaults.bg, None);
         assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
     }
 
@@ -4507,8 +4590,14 @@ mod tests {
             Some(GhosttyThemeMode::Dark)
         );
         assert_eq!(
-            gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=false\n"),
-            Some(GhosttyThemeMode::Light)
+            gtk_settings_theme_mode(
+                "[Settings]\ngtk-application-prefer-dark-theme=false\ngtk-theme-name=Adwaita-dark\n"
+            ),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(
+            gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=0\n"),
+            None
         );
         assert_eq!(
             gtk_settings_theme_mode("[Settings]\ngtk-theme-name=Adwaita-dark\n"),
