@@ -1,3 +1,4 @@
+import AppKit
 import CMUXAgentLaunch
 import Foundation
 import SQLite3
@@ -62,6 +63,85 @@ struct HermesFirstClassSupportTests {
         #expect(command.contains("'--resume' 'live-session'"))
         #expect(command.contains("'--tui'"))
         #expect(command.contains("'HERMES_HOME=\(fixture.hermesHome.path)'"))
+    }
+
+    @Test("The installed Python Hermes launcher remains live and restores through cmux")
+    func installedPythonLauncherRemainsRestorable() throws {
+        let fixture = try makeFixture { [StateRow("python-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let pythonExecutable = fixture.hermesHome
+            .appendingPathComponent("hermes-agent/venv/bin/python", isDirectory: false)
+            .path
+        let hermesEntrypoint = fixture.hermesHome
+            .appendingPathComponent("hermes-agent/hermes", isDirectory: false)
+            .path
+        let process = hermesProcess(
+            pid: 9_527,
+            workspaceID: fixture.workspaceID,
+            panelID: fixture.panelID,
+            name: "Python",
+            path: pythonExecutable
+        )
+
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [pythonExecutable, hermesEntrypoint, "--tui"],
+            environment: hermesEnvironment(fixture)
+        )
+        let detected = try detectedHermesSnapshots(
+            fixture: fixture,
+            processes: [process],
+            argumentsByPID: [process.pid: liveProcess]
+        )
+
+        let snapshot = try #require(detected.values.first?.snapshot)
+        #expect(snapshot.kind == .hermesAgent)
+        #expect(snapshot.sessionId == "python-session")
+        #expect(snapshot.launchCommand?.executablePath == "hermes")
+        #expect(snapshot.launchCommand?.arguments == ["hermes", "--tui"])
+        #expect(snapshot.resumeStartupInput() == " cmux restore hermes-agent python-session\n")
+        #expect(CachedAgentProcessIdentityValidator().currentProcess(liveProcess, matches: snapshot))
+    }
+
+    @Test(
+        "Python-backed Hermes management commands are detected but never restored",
+        arguments: ["gateway", "doctor", "update"]
+    )
+    func installedPythonManagementCommandsAreNotRestorable(command: String) throws {
+        let fixture = try makeFixture { [StateRow("management-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let pythonExecutable = fixture.hermesHome
+            .appendingPathComponent("hermes-agent/venv/bin/python", isDirectory: false)
+            .path
+        let hermesEntrypoint = fixture.hermesHome
+            .appendingPathComponent("hermes-agent/hermes", isDirectory: false)
+            .path
+        let process = hermesProcess(
+            pid: 9_528,
+            workspaceID: fixture.workspaceID,
+            panelID: fixture.panelID,
+            name: "Python",
+            path: pythonExecutable
+        )
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [pythonExecutable, hermesEntrypoint, command],
+            environment: hermesEnvironment(fixture)
+        )
+        let observed = VaultObservedAgentProcess(
+            processName: process.name,
+            processPath: process.path,
+            arguments: liveProcess.arguments,
+            environment: liveProcess.environment
+        )
+        let registration = CmuxVaultAgentRegistration.builtInHermes
+
+        #expect(registration.detect.matches(observed))
+        #expect(registration.processDetectedSnapshotIsRestorable(for: observed) == false)
+        let detected = try detectedHermesSnapshots(
+            fixture: fixture,
+            processes: [process],
+            argumentsByPID: [process.pid: liveProcess]
+        )
+        #expect(detected.isEmpty)
     }
 
     @Test(
@@ -188,6 +268,57 @@ struct HermesFirstClassSupportTests {
         #expect(outcome.errors.isEmpty)
         #expect(entry.sessionId == "indexed-session")
         #expect(entry.cwd == fixture.repo.path)
+    }
+
+    @MainActor
+    @Test("Indexed Hermes sessions form a visible Vault section")
+    func indexedSessionsFormVisibleVaultSection() throws {
+        let fixture = try makeFixture {
+            [StateRow("visible-session", cwd: $0.path, startedAt: 42)]
+        }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let outcome = SessionIndexStore.loadHermesAgentEntriesForTesting(
+            stateDBPath: fixture.stateDB.path
+        )
+        let entry = try #require(outcome.entries.first)
+        let defaults = UserDefaults.standard
+        let groupingKey = "sessionIndex.grouping"
+        let agentOrderKey = "sessionIndex.agentOrder"
+        let previousGrouping = defaults.object(forKey: groupingKey)
+        let previousAgentOrder = defaults.object(forKey: agentOrderKey)
+        defer {
+            restoreDefaultsValue(previousGrouping, key: groupingKey, defaults: defaults)
+            restoreDefaultsValue(previousAgentOrder, key: agentOrderKey, defaults: defaults)
+        }
+        defaults.set(SessionGrouping.agent.rawValue, forKey: groupingKey)
+        defaults.set([SessionAgent.hermesAgent.rawValue], forKey: agentOrderKey)
+
+        let store = SessionIndexStore()
+        store.replaceEntriesForTesting([entry])
+        let section = try #require(store.sectionsForCurrentGrouping().first)
+
+        #expect(section.key == .agent(.hermesAgent))
+        #expect(section.title == "Hermes Agent")
+        #expect(section.icon == .agent(.hermesAgent))
+        #expect(section.entries.map(\.sessionId) == ["visible-session"])
+        #expect(SessionAgent.hermesAgent.assetName == "AgentIcons/HermesAgent")
+        #expect(CmuxVaultAgentRegistration.builtInHermes.iconAssetName == "AgentIcons/HermesAgent")
+    }
+
+    @Test("Hermes loads the official desktop icon from the compiled asset catalog")
+    func officialDesktopIconAsset() throws {
+        let assetName = try #require(SessionAgent.hermesAgent.assetName)
+        let image = try #require(
+            Bundle.main.image(forResource: assetName)
+                ?? NSImage(named: NSImage.Name(assetName))
+        )
+        var proposedRect = NSRect(origin: .zero, size: image.size)
+        let rendered = try #require(
+            image.cgImage(forProposedRect: &proposedRect, context: nil, hints: nil)
+        )
+
+        #expect(rendered.width == 1_024)
+        #expect(rendered.height == 1_024)
     }
 
     @Test("User-configured detectors take precedence over the built-in Hermes detector")
@@ -454,12 +585,18 @@ struct HermesFirstClassSupportTests {
         )
     }
 
-    private func hermesProcess(pid: Int, workspaceID: UUID, panelID: UUID) -> CmuxTopProcessInfo {
+    private func hermesProcess(
+        pid: Int,
+        workspaceID: UUID,
+        panelID: UUID,
+        name: String = "hermes",
+        path: String = "/usr/local/bin/hermes"
+    ) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
             pid: pid,
             parentPID: 1,
-            name: "hermes",
-            path: "/usr/local/bin/hermes",
+            name: name,
+            path: path,
             ttyDevice: nil,
             cmuxWorkspaceID: workspaceID,
             cmuxSurfaceID: panelID,
@@ -486,6 +623,14 @@ struct HermesFirstClassSupportTests {
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func restoreDefaultsValue(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     private func writeStateDB(at url: URL, rows: [StateRow]) throws {
