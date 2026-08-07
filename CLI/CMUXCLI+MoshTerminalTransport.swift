@@ -35,8 +35,10 @@ extension CMUXCLI {
         )
         let remoteCommandArguments: [String]
         let preparationShellScript: String?
-        if !options.extraArguments.isEmpty {
-            remoteCommandArguments = options.extraArguments
+        if !options.remoteCommand.arguments.isEmpty {
+            // Mosh owns the terminal session; an SSH TTY request only applies
+            // if this startup command takes the already-built SSH fallback.
+            remoteCommandArguments = options.remoteCommand.arguments
             preparationShellScript = nil
         } else if let remoteBootstrapScript,
                   !remoteBootstrapScript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

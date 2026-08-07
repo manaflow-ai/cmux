@@ -12,7 +12,7 @@ extension CMUXCLI {
         let windowRaw: String?
         let noFocus: Bool
         var sshOptions: [String]
-        let extraArguments: [String]
+        let remoteCommand: SSHRemoteCommand
         let terminalTransport: WorkspaceRemoteTerminalTransport
         let terminalProfile: WorkspaceRemoteTerminalProfile
         let agentSocketPath: String?
@@ -35,7 +35,7 @@ extension CMUXCLI {
             windowRaw: String? = nil,
             noFocus: Bool,
             sshOptions: [String],
-            extraArguments: [String],
+            remoteCommand: SSHRemoteCommand,
             terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
             terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
             agentSocketPath: String? = nil,
@@ -55,7 +55,7 @@ extension CMUXCLI {
             self.windowRaw = windowRaw
             self.noFocus = noFocus
             self.sshOptions = sshOptions
-            self.extraArguments = extraArguments
+            self.remoteCommand = remoteCommand
             self.terminalTransport = terminalTransport
             self.terminalProfile = terminalProfile
             self.agentSocketPath = agentSocketPath
