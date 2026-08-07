@@ -254,8 +254,21 @@ extension SSHForegroundAuthenticationRetryPolicy {
           # journals, so rollback never depends on an arbitrary member staying
           # alive between the pre-STOP validation and the post-STOP snapshot.
           /usr/bin/awk -v cmux_root_group="${cmux_ssh_auth_owned_group:-0}" '
-            $1 == cmux_root_group { print $1 }
-          ' "$cmux_ssh_auth_owned_groups" \
+            FILENAME == ARGV[1] && $1 == cmux_root_group {
+              cmux_candidate[$1] = 1
+              next
+            }
+            FILENAME == ARGV[2] && NF >= 5 &&
+                $3 in cmux_candidate && $5 ~ /T/ {
+              cmux_previously_stopped[$3] = 1
+              next
+            }
+            END {
+              for (cmux_group in cmux_candidate) {
+                if (!(cmux_group in cmux_previously_stopped)) print cmux_group
+              }
+            }
+          ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
             > "$cmux_ssh_auth_ordered_processes" || return 1
           /bin/mv -f -- "$cmux_ssh_auth_ordered_processes" \
             "$cmux_ssh_auth_owned_groups" || return 1
@@ -271,7 +284,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
                 $3 in cmux_group &&
                 !($3 in cmux_witnessed) {
               cmux_witnessed[$3] = 1
-              print $3, $1, $2, $4
+              print $3, $1, $2, $4, $5
               next
             }
             END {
@@ -282,7 +295,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
           ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
             > "$cmux_ssh_auth_ordered_processes" || return 1
           while read -r cmux_ssh_auth_group cmux_ssh_auth_pid \
-            cmux_ssh_auth_parent cmux_ssh_auth_started; do
+            cmux_ssh_auth_parent cmux_ssh_auth_started cmux_ssh_auth_state; do
             cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent" in
@@ -291,15 +304,18 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_started" in
               ''|*[!A-Za-z0-9_:]*) continue ;;
             esac
+            case "$cmux_ssh_auth_state" in
+              ''|*[!A-Za-z+\<\>]*) continue ;;
+            esac
             cmux_ssh_auth_stop_budget_allows_signal || break
             cmux_ssh_auth_expected_identity="$cmux_ssh_auth_group|$cmux_ssh_auth_started"
             cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
               "$cmux_ssh_auth_pid")
             if [ "$cmux_ssh_auth_current_identity" != \
               "$cmux_ssh_auth_expected_identity" ]; then continue; fi
-            printf '%s %s %s %s\n' "$cmux_ssh_auth_group" \
+            printf '%s %s %s %s %s\n' "$cmux_ssh_auth_group" \
               "$cmux_ssh_auth_pid" "$cmux_ssh_auth_parent" \
-              "$cmux_ssh_auth_started" \
+              "$cmux_ssh_auth_started" "$cmux_ssh_auth_state" \
               >> "$cmux_ssh_auth_signaled_groups" || return 1
             kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || continue
           done < "$cmux_ssh_auth_ordered_processes"
@@ -323,6 +339,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) continue ;;
             esac
+            case "$cmux_ssh_auth_state" in
+              ''|*[!A-Za-z+\<\>]*) continue ;;
+            esac
             # A full batch is a successful partial transaction. Later
             # transactions resnapshot and continue with the remaining set.
             cmux_ssh_auth_stop_budget_allows_signal || break
@@ -332,17 +351,19 @@ extension SSHForegroundAuthenticationRetryPolicy {
             if [ "$cmux_ssh_auth_current_identity" != "$cmux_ssh_auth_expected_identity" ]; then
               continue
             fi
-            # Publish the exact resume identity after validation and before
-            # STOP. A replacement PID cannot match the stable journal key.
-            printf '%s %s %s %s\n' "$cmux_ssh_auth_pid" "$cmux_ssh_auth_parent" \
+            # Publish the exact resume identity and its pre-STOP state after
+            # validation. A replacement PID cannot match the stable key, and
+            # rollback will not wake a process that was already stopped.
+            printf '%s %s %s %s %s\n' "$cmux_ssh_auth_pid" "$cmux_ssh_auth_parent" \
               "$cmux_ssh_auth_group" "$cmux_ssh_auth_started" \
+              "$cmux_ssh_auth_state" \
               >> "$cmux_ssh_auth_signaled_processes" || return 1
             kill -STOP "$cmux_ssh_auth_pid" >/dev/null 2>&1 || continue
           done < "$cmux_ssh_auth_ordered_processes"
 
           cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_poststop_snapshot" || return 1
           /usr/bin/awk '
-            FILENAME == ARGV[1] && NF == 4 {
+            FILENAME == ARGV[1] && NF >= 4 {
               cmux_key = $2 SUBSEP $1 SUBSEP $4
               cmux_expected[cmux_key] = 1
               cmux_group[$1] = 1
@@ -378,7 +399,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
               cmux_stopped[$1 SUBSEP $3 SUBSEP cmux_started] = 1
               next
             }
-            FILENAME == ARGV[3] && NF == 4 {
+            FILENAME == ARGV[3] && NF >= 4 {
               cmux_key = $1 SUBSEP $3 SUBSEP $4
               if (cmux_key in cmux_stopped && cmux_key in cmux_original) {
                 print $1, $2, $3, $4, cmux_original[cmux_key]
@@ -389,7 +410,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
             "$cmux_ssh_auth_signaled_processes" \
             > "$cmux_ssh_auth_frozen_processes" || return 1
           cmux_ssh_auth_signaled_count=$(/usr/bin/awk \
-            'NF == 4 { count += 1 } END { print count + 0 }' \
+            'NF >= 4 { count += 1 } END { print count + 0 }' \
             "$cmux_ssh_auth_signaled_processes") || return 1
           cmux_ssh_auth_frozen_count=$(/usr/bin/awk \
             'NF >= 5 { count += 1 } END { print count + 0 }' \
@@ -402,7 +423,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
           # not commit until every newly discovered identity is covered by the
           # original group witness or the original individual-process set.
           /usr/bin/awk '
-            FILENAME == ARGV[1] && NF == 4 {
+            FILENAME == ARGV[1] && NF >= 4 {
               cmux_group[$1] = 1
               next
             }
@@ -423,11 +444,11 @@ extension SSHForegroundAuthenticationRetryPolicy {
           # Roll it back instead of silently dropping its STOP journal.
           /usr/bin/awk '
             FILENAME == ARGV[1] { cmux_group[$1] = 1; next }
-            FILENAME == ARGV[2] && NF == 4 && !($1 in cmux_group) { exit 1 }
+            FILENAME == ARGV[2] && NF >= 4 && !($1 in cmux_group) { exit 1 }
           ' "$cmux_ssh_auth_owned_groups" \
             "$cmux_ssh_auth_signaled_groups" || return 1
           /usr/bin/awk '
-            FILENAME == ARGV[1] && NF == 4 { cmux_signaled[$1] = 1; next }
+            FILENAME == ARGV[1] && NF >= 4 { cmux_signaled[$1] = 1; next }
             FILENAME == ARGV[2] && $1 in cmux_signaled { print $1 }
           ' "$cmux_ssh_auth_signaled_groups" "$cmux_ssh_auth_owned_groups" \
             > "$cmux_ssh_auth_next_owned_processes" || return 1
@@ -498,7 +519,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
               next
             }
             FILENAME == ARGV[2] {
-              if (NF == 4 && cmux_numeric($1) && cmux_numeric($2) &&
+              if ((NF == 4 || (NF == 5 && $5 ~ /^[A-Za-z+<>]+$/ && $5 !~ /T/)) &&
+                  cmux_numeric($1) && cmux_numeric($2) &&
                   $3 ~ /^[0-9]+$/ && cmux_started($4)) {
                 cmux_group_witness[$1 SUBSEP $2 SUBSEP $4] = 1
               } else if (NF == 1 && cmux_numeric($1)) {
@@ -507,7 +529,8 @@ extension SSHForegroundAuthenticationRetryPolicy {
               next
             }
             FILENAME == ARGV[3] {
-              if (NF == 4 && cmux_numeric($1) && $2 ~ /^[0-9]+$/ &&
+              if ((NF == 4 || (NF == 5 && $5 ~ /^[A-Za-z+<>]+$/ && $5 !~ /T/)) &&
+                  cmux_numeric($1) && $2 ~ /^[0-9]+$/ &&
                   cmux_numeric($3) && cmux_started($4)) {
                 cmux_pid_witness[$1 SUBSEP $3 SUBSEP $4] = 1
               } else if (NF == 1 && cmux_numeric($1)) {

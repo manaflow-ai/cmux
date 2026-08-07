@@ -831,7 +831,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         }
         kill() {
           if [ "$*" = '-STOP 101' ] && \
-            /usr/bin/grep -Fqx '101 1 2 Thu_Jan_1_00:00:00_1970' \
+            /usr/bin/grep -Fqx '101 1 2 Thu_Jan_1_00:00:00_1970 S' \
               "$CMUX_TEST_SIGNALED_PIDS"; then
             : > "$CMUX_TEST_RECORDED_BEFORE_STOP"
           fi
@@ -977,7 +977,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_freeze_owned_processes || exit 99
         /usr/bin/grep -Fqx -- '-STOP -- -777' "$CMUX_TEST_SIGNALS" || exit 98
         /usr/bin/grep -Fqx \
-          '777 101 1 Thu_Jan_1_00:00:00_1970' \
+          '777 101 1 Thu_Jan_1_00:00:00_1970 S' \
           "$CMUX_TEST_SIGNALED_GROUPS" || exit 97
         test ! -s "$CMUX_TEST_SIGNALED_PIDS" || exit 96
         """
