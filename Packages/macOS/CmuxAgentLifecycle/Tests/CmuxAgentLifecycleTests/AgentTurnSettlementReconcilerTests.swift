@@ -48,6 +48,22 @@ struct AgentTurnSettlementReconcilerTests {
         #expect(decision == .keepRunning)
     }
 
+    @Test("A settled thread retires while a sibling keeps the process active")
+    func settledThreadPreservesAggregateRunningState() {
+        let decision = AgentTurnSettlementReconciler().resolve(
+            integration: .amp,
+            evidence: AgentTurnSettlementEvidence(
+                boundary: .settled,
+                activeBackgroundWorkCount: 0,
+                activeSiblingTurnCount: 1,
+                processLiveness: .live,
+                turnFreshness: .current
+            )
+        )
+
+        #expect(decision == .settleTurnKeepingProcessRunning)
+    }
+
     @Test("A superseded turn cannot publish completion")
     func supersededTurnKeepsRunning() {
         let decision = AgentTurnSettlementReconciler().resolve(
