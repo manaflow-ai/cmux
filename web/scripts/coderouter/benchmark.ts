@@ -223,7 +223,9 @@ export function parseArgs(values: readonly string[]): Record<string, string> {
   const supported = new Set(["origin", "samples", "timeout", "token"]);
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index]!;
-    if (!value.startsWith("--")) throw new Error(`Unexpected argument: ${value}`);
+    if (!value.startsWith("--")) {
+      throw new Error("Unexpected benchmark argument.");
+    }
     const [inlineKey, inlineValue] = value.slice(2).split("=", 2);
     if (!inlineKey || !supported.has(inlineKey)) {
       throw new Error("Unsupported benchmark option.");

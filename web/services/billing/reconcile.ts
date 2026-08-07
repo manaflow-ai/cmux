@@ -36,6 +36,7 @@ type BillingReconcileDependencies = {
     context: Record<string, string | number | boolean>,
   ) => void;
   readonly concurrency?: number;
+  readonly withLease?: <T>(task: () => Promise<T>) => Promise<T>;
 };
 
 /**
@@ -52,6 +53,17 @@ export async function reconcileStripeSubscriptions(
     readonly dryRun?: boolean;
   } = {},
   dependencies: BillingReconcileDependencies = {},
+): Promise<BillingReconcileResult> {
+  const withLease = dependencies.withLease ?? withReconciliationLease;
+  return withLease(() => reconcileStripeSubscriptionsLocked(options, dependencies));
+}
+
+async function reconcileStripeSubscriptionsLocked(
+  options: {
+    readonly limit?: number;
+    readonly dryRun?: boolean;
+  },
+  dependencies: BillingReconcileDependencies,
 ): Promise<BillingReconcileResult> {
   const limit = clampInteger(options.limit ?? DEFAULT_LIMIT, 1, DEFAULT_LIMIT);
   const list = dependencies.list ?? listSubscriptionSnapshots;
@@ -91,7 +103,7 @@ export async function reconcileStripeSubscriptions(
       }
     },
   );
-  if (snapshots.length > 0) {
+  if (!options.dryRun && snapshots.length > 0) {
     await markChecked(snapshots.map((snapshot) => snapshot.id));
   }
 
@@ -109,6 +121,17 @@ export async function reconcileStripeSubscriptions(
     data: result,
   });
   return result;
+}
+
+async function withReconciliationLease<T>(
+  task: () => Promise<T>,
+): Promise<T> {
+  return cloudDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:billing-reconcile"}, 0))`,
+    );
+    return task();
+  });
 }
 
 async function listSubscriptionSnapshots(

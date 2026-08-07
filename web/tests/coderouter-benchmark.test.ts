@@ -17,6 +17,13 @@ describe("coderouter benchmark harness", () => {
   test("rejects unsupported and duplicate options", () => {
     expect(() => parseArgs(["--orign", "https://example.com"])).toThrow();
     expect(() => parseArgs(["--samples", "1", "--samples=2"])).toThrow();
+    const secret = "crt_must_not_be_printed";
+    expect(() => parseArgs([secret])).toThrow("Unexpected benchmark argument.");
+    try {
+      parseArgs([secret]);
+    } catch (error) {
+      expect(String(error)).not.toContain(secret);
+    }
   });
 
   test("normalizes safe origins and rejects credential-bearing origins", () => {

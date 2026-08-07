@@ -623,8 +623,8 @@ export const stripeSubscriptions = pgTable(
     index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
     index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
     index("stripe_subscriptions_reconcile_cursor_idx").on(
-      table.lastReconciledAt,
-      table.id,
+      table.lastReconciledAt.asc().nullsFirst(),
+      table.id.asc(),
     ),
   ],
 );

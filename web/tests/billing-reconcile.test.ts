@@ -3,6 +3,8 @@ import type Stripe from "stripe";
 
 import { reconcileStripeSubscriptions } from "../services/billing/reconcile";
 
+const withoutLease = async <T>(task: () => Promise<T>): Promise<T> => task();
+
 function subscription(
   id: string,
   status: Stripe.Subscription.Status = "active",
@@ -40,6 +42,7 @@ describe("Stripe subscription reconciliation", () => {
     });
     const applied: string[] = [];
     const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
       list: async () => [
         {
           id: "sub_equal",
@@ -86,7 +89,9 @@ describe("Stripe subscription reconciliation", () => {
 
   test("dry-run reports drift without mutation", async () => {
     let applied = false;
+    let marked = false;
     const result = await reconcileStripeSubscriptions({ dryRun: true }, {
+      withLease: withoutLease,
       list: async () => [{
         id: "sub_drift",
         status: "active",
@@ -97,9 +102,12 @@ describe("Stripe subscription reconciliation", () => {
       apply: async () => {
         applied = true;
       },
-      markChecked: async () => {},
+      markChecked: async () => {
+        marked = true;
+      },
     });
     expect(applied).toBe(false);
+    expect(marked).toBe(false);
     expect(result.drifted).toBe(1);
     expect(result.repaired).toBe(0);
   });
@@ -107,6 +115,7 @@ describe("Stripe subscription reconciliation", () => {
   test("isolates failures and never includes identifiers in error context", async () => {
     const contexts: Record<string, unknown>[] = [];
     const result = await reconcileStripeSubscriptions({}, {
+      withLease: withoutLease,
       list: async () => [{
         id: "sub_secret",
         status: "active",
@@ -129,6 +138,7 @@ describe("Stripe subscription reconciliation", () => {
 
   test("bounds each run and reports truncation", async () => {
     const result = await reconcileStripeSubscriptions({ limit: 1 }, {
+      withLease: withoutLease,
       list: async () => [
         {
           id: "sub_one",
@@ -165,6 +175,7 @@ describe("Stripe subscription reconciliation", () => {
       for (const id of ids) remaining.splice(remaining.indexOf(id), 1);
     };
     const dependencies = {
+      withLease: withoutLease,
       list,
       retrieve: async (id: string) => subscription(id),
       markChecked,
@@ -175,5 +186,56 @@ describe("Stripe subscription reconciliation", () => {
     expect((await reconcileStripeSubscriptions({ limit: 1 }, dependencies)).truncated)
       .toBe(false);
     expect(checked).toEqual(["sub_one", "sub_two"]);
+  });
+
+  test("serializes concurrent cron and operator runs with one shared lease", async () => {
+    let releaseFirst!: () => void;
+    let signalFirstStarted!: () => void;
+    const firstMayFinish = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstStarted = new Promise<void>((resolve) => {
+      signalFirstStarted = resolve;
+    });
+    let leaseTail = Promise.resolve();
+    let activeLeases = 0;
+    let peakLeases = 0;
+    const withLease = async <T>(task: () => Promise<T>): Promise<T> => {
+      const previous = leaseTail;
+      let release!: () => void;
+      leaseTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      activeLeases += 1;
+      peakLeases = Math.max(peakLeases, activeLeases);
+      try {
+        return await task();
+      } finally {
+        activeLeases -= 1;
+        release();
+      }
+    };
+    let listCalls = 0;
+    const dependencies = {
+      withLease,
+      list: async () => {
+        listCalls += 1;
+        if (listCalls === 1) {
+          signalFirstStarted();
+          await firstMayFinish;
+        }
+        return [];
+      },
+      markChecked: async () => {},
+    };
+    const first = reconcileStripeSubscriptions({}, dependencies);
+    const second = reconcileStripeSubscriptions({}, dependencies);
+    await firstStarted;
+    expect(listCalls).toBe(1);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(listCalls).toBe(2);
+    expect(peakLeases).toBe(1);
   });
 });
