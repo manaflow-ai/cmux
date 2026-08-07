@@ -254,7 +254,8 @@ struct WorkspaceShellView: View {
                             workspaceDestination(
                                 for: workspaceID,
                                 createWorkspace: createWorkspaceInCompactStack,
-                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                                canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                                paneZoomHosting: .navigationPush
                             )
                             .toolbarVisibility(.hidden, for: .tabBar)
                     }
@@ -411,7 +412,8 @@ struct WorkspaceShellView: View {
                 workspaceDestination(
                     for: workspaceID,
                     createWorkspace: createWorkspaceInCompactStack,
-                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection
+                    canCreateWorkspaceForSelection: presentation.canCreateWorkspaceForSelection,
+                    paneZoomHosting: .navigationPush
                 )
                 .toolbarVisibility(.hidden, for: .tabBar)
             }
@@ -474,6 +476,7 @@ struct WorkspaceShellView: View {
                     for: workspaceID,
                     createWorkspace: createWorkspaceInCompactStack,
                     canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                    paneZoomHosting: .navigationPush,
                     backButtonConfiguration: WorkspaceBackButtonConfiguration(
                         unreadCount: unreadWorkspaceCount(excluding: workspaceID),
                         badgeContrast: .darkBackground,
@@ -567,6 +570,7 @@ struct WorkspaceShellView: View {
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
                 canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
+                paneZoomHosting: .column,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
             #if os(iOS)
@@ -1048,6 +1052,7 @@ struct WorkspaceShellView: View {
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
         canCreateWorkspaceForSelection: Bool,
+        paneZoomHosting: PaneZoomHosting,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
     ) -> some View {
@@ -1061,6 +1066,7 @@ struct WorkspaceShellView: View {
             setWorkspaceUnread: setWorkspaceUnreadClosure,
             closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
+            paneZoomHosting: paneZoomHosting,
             backButtonConfiguration: backButtonConfiguration,
             signOut: signOut
         )

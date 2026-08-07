@@ -19,6 +19,10 @@ struct WorkspaceDetailContainer: View {
     let setWorkspaceUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)?
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?
     let safeAreaContext: MobileTerminalSafeAreaContext
+    /// Forwarded to ``WorkspaceDetailView``: `.navigationPush` when this
+    /// container is a pushed destination of an ancestor `NavigationStack`,
+    /// `.column` when it owns its navigation column (split detail).
+    let paneZoomHosting: PaneZoomHosting
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
@@ -56,6 +60,7 @@ struct WorkspaceDetailContainer: View {
                     reportTerminalViewport: store.reportTerminalViewport,
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext,
+                    paneZoomHosting: paneZoomHosting,
                     backButtonConfiguration: backButtonConfiguration,
                     signOut: signOut
                 )

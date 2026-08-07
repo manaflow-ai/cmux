@@ -41,6 +41,11 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    /// How the pane-zoom pair may be hosted here: `.navigationPush` when this
+    /// view is a pushed destination of an ancestor `NavigationStack` (where a
+    /// nested stack would trap the shared `NavigationAuthority`), `.column`
+    /// when it owns its navigation column (split detail, standalone hosts).
+    let paneZoomHosting: PaneZoomHosting
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
     @Environment(BrowserSurfaceStore.self) var browserStore
@@ -125,11 +130,35 @@ struct WorkspaceDetailView: View {
     #endif
     var body: some View {
         #if os(iOS)
+        // The presentation set is attached twice with opposite gates: once
+        // here (live whenever the base layer is what the user sees) and once
+        // inside the terminal's full-screen cover in push hosting (live while
+        // the cover is up), because a covered base cannot present sheets or
+        // dialogs. Exactly one attachment is active at a time.
+        detailPresentations(
+            detailRootContent,
+            active: !terminalCoverIsPresented
+        )
+        #else
+        Group { detailSurfaceContent }
+            .closeWorkspaceConfirmation(
+                isPresented: $isConfirmingClose,
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+        #endif
+    }
+
+    #if os(iOS)
+    private var detailRootContent: some View {
         Group {
             if let layout = workspace.layout {
-                PaneZoomNavigationStack(
+                PaneZoomHost(
                     presentation: $paneZoomPresentation,
-                    terminalTheme: store.activeTerminalTheme
+                    hosting: paneZoomHosting,
+                    terminalTheme: store.activeTerminalTheme,
+                    zoomSourceID: paneZoomSourceSurfaceID,
+                    zoomNamespace: paneZoomNamespace
                 ) {
                     paneMapRoot(layout: layout)
                         .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
@@ -139,20 +168,17 @@ struct WorkspaceDetailView: View {
                         .toolbar { workspaceDetailToolbar(mode: .paneMap) }
                         .navigationBarBackButtonHidden(true)
                 } terminal: {
-                    terminalWorkspaceEndpoint
-                        .mobileSurfaceDeckInset(
-                            isVisible: shouldShowSurfaceDeck,
-                            value: surfaceDeckValue,
-                            actions: surfaceDeckActions,
-                            terminalTheme: store.activeTerminalTheme
-                        )
-                        .navigationBarBackButtonHidden(true)
-                        .navigationTransition(
-                            .zoom(
-                                sourceID: paneZoomSourceSurfaceID,
-                                in: paneZoomNamespace
+                    detailPresentations(
+                        terminalWorkspaceEndpoint
+                            .mobileSurfaceDeckInset(
+                                isVisible: shouldShowSurfaceDeck,
+                                value: surfaceDeckValue,
+                                actions: surfaceDeckActions,
+                                terminalTheme: store.activeTerminalTheme
                             )
-                        )
+                            .navigationBarBackButtonHidden(true),
+                        active: terminalCoverIsPresented
+                    )
                 }
             } else {
                 terminalWorkspaceEndpoint
@@ -171,48 +197,76 @@ struct WorkspaceDetailView: View {
         .onChange(of: workspace.layout != nil) { _, hasLayout in
             paneZoomPresentation.layoutAvailabilityDidChange(hasLayout: hasLayout)
         }
-        .closeWorkspaceConfirmation(
-            isPresented: $isConfirmingClose,
-            confirm: confirmCloseWorkspaceFromMenu
-        )
-        .sheet(isPresented: $isFeedbackComposerPresented) {
-            feedbackComposer
-        }
-        .sheet(isPresented: $isTextSheetPresented) {
-            TerminalTextSheetView(surfaceID: textSheetSurfaceID)
-        }
-        .sheet(isPresented: $isWorkspaceChangesSheetPresented) {
-            WorkspaceChangesSheet(
-                store: store,
-                workspaceID: workspace.rpcWorkspaceID.rawValue,
-                workspaceTitle: workspace.name
-            )
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
-        .workspaceRenameDialog(
-            isPresented: $isRenamePresented,
-            text: $renameText,
-            onSave: commitRenameFromDialog
-        )
-        .sheet(isPresented: $isCustomizationPresented) {
-            WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
-                await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
-                    ?? .failure()
-            }
-        }
-        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
-        #else
-        Group { detailSurfaceContent }
-            .closeWorkspaceConfirmation(
-                isPresented: $isConfirmingClose,
-                confirm: confirmCloseWorkspaceFromMenu
-            )
-            .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
-        #endif
     }
 
-    #if os(iOS)
+    /// Whether the terminal currently renders inside a full-screen cover
+    /// (push hosting only), which blocks presentations from the covered base.
+    private var terminalCoverIsPresented: Bool {
+        paneZoomHosting == .navigationPush
+            && workspace.layout != nil
+            && paneZoomPresentation.isTerminalPresented
+    }
+
+    /// The workspace detail's sheets, dialogs, and the connection-recovery
+    /// overlay. Attached to both the base layer and the terminal cover with
+    /// opposite `active` gates so state stays shared while only the visible
+    /// layer presents. Gating happens through the bindings (not structurally)
+    /// so flipping layers never changes subtree identity.
+    private func detailPresentations(
+        _ content: some View,
+        active: Bool
+    ) -> some View {
+        content
+            .closeWorkspaceConfirmation(
+                isPresented: presentationGate($isConfirmingClose, active: active),
+                confirm: confirmCloseWorkspaceFromMenu
+            )
+            .sheet(isPresented: presentationGate($isFeedbackComposerPresented, active: active)) {
+                feedbackComposer
+            }
+            .sheet(isPresented: presentationGate($isTextSheetPresented, active: active)) {
+                TerminalTextSheetView(surfaceID: textSheetSurfaceID)
+            }
+            .sheet(isPresented: presentationGate($isWorkspaceChangesSheetPresented, active: active)) {
+                WorkspaceChangesSheet(
+                    store: store,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue,
+                    workspaceTitle: workspace.name
+                )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            }
+            .workspaceRenameDialog(
+                isPresented: presentationGate($isRenamePresented, active: active),
+                text: $renameText,
+                onSave: commitRenameFromDialog
+            )
+            .sheet(isPresented: presentationGate($isCustomizationPresented, active: active)) {
+                WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
+                    await customizeWorkspace?(workspace.id, initialDraft, submittedDraft)
+                        ?? .failure()
+                }
+            }
+            .mobileConnectionRecoveryOverlay(
+                store: store,
+                signOut: signOut,
+                isActive: active
+            )
+    }
+
+    /// A presentation binding that reads as presented only while its layer is
+    /// the visible one. Writes always land in the shared state, so a dismiss
+    /// from either layer clears the flag.
+    private func presentationGate(
+        _ binding: Binding<Bool>,
+        active: Bool
+    ) -> Binding<Bool> {
+        Binding(
+            get: { active && binding.wrappedValue },
+            set: { binding.wrappedValue = $0 }
+        )
+    }
+
     private var shouldShowSurfaceDeck: Bool {
         // The deck is the workspace's surface picker, including the documented
         // exit path from a browser stream (BrowserStreamPane has no close

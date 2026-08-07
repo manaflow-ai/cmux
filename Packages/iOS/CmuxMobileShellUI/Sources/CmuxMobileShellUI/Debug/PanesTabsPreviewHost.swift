@@ -2,6 +2,7 @@
 import CMUXMobileCore
 import CmuxMobileShellModel
 import CmuxMobileSupport
+import CmuxMobileWorkspace
 import os
 import SwiftUI
 import UIKit
@@ -152,51 +153,32 @@ struct PanesTabsPreviewHost: View {
         Self.testsSurfaceID: .needsInput,
     ]
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    /// Mirror the shell's layout policy so the fixture exercises the same
+    /// pane-zoom hosting the real workspace destination uses on this device:
+    /// the compact shell pushes workspace details inside a `NavigationStack`
+    /// (push hosting), the regular-width shell hosts them as a split detail
+    /// column (column hosting).
+    private var paneZoomHosting: PaneZoomHosting {
+        MobileWorkspaceShellLayoutPolicy.usesCompactStack(
+            horizontalSizeClass: horizontalSizeClass,
+            verticalSizeClass: verticalSizeClass
+        ) ? .navigationPush : .column
+    }
+
     var body: some View {
         Group {
-            if let layout = fixtureLayout {
-                PaneZoomNavigationStack(
-                    presentation: $paneZoomPresentation,
-                    terminalTheme: terminalTheme
-                ) {
-                    PaneMapOverlay(
-                        value: PaneMapValue(
-                            layout: layout,
-                            phoneSelectedSurfaceID: selectedSurfaceID,
-                            agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
-                        ),
-                        terminalTheme: terminalTheme,
-                        zoomNamespace: paneZoomNamespace,
-                        isVisible: !paneZoomPresentation.isTerminalPresented,
-                        allowsReordering: true,
-                        refreshTrigger: paneMapRefreshTrigger,
-                        fetchPreviews: Self.fetchFixturePreviews,
-                        selectTerminal: presentTerminalFromPaneMap,
-                        reorderPanes: reorderFixturePanes,
-                        refreshingChanged: { isPaneMapRefreshing = $0 }
-                    )
-                    .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
-                    .navigationTitle(workspace.name)
-                    .mobileTerminalNavigationChrome(theme: terminalTheme)
-                    .toolbar { previewToolbar(mode: .paneMap) }
-                    .navigationBarBackButtonHidden(true)
-                    .background { autoplayDriver(for: .paneMap) }
-                } terminal: {
-                    terminalPreviewEndpoint
-                        .mobileSurfaceDeckInset(
-                            isVisible: paneZoomPresentation.isTerminalPresented,
-                            value: deckValue,
-                            actions: deckActions,
-                            terminalTheme: terminalTheme
-                        )
-                        .navigationBarBackButtonHidden(true)
-                        .navigationTransition(
-                            .zoom(
-                                sourceID: paneZoomSourceSurfaceID,
-                                in: paneZoomNamespace
-                            )
-                        )
+            if fixtureLayout != nil {
+                if paneZoomHosting == .navigationPush {
+                    // Stand-in for the compact shell's outer stack, which owns
+                    // the pane-map root's navigation bar in push hosting.
+                    NavigationStack {
+                        paneZoomContent
+                    }
+                } else {
+                    paneZoomContent
                 }
             } else {
                 terminalPreviewEndpoint
@@ -211,6 +193,52 @@ struct PanesTabsPreviewHost: View {
         .background {
             terminalTheme.terminalBackgroundColor
                 .ignoresSafeArea()
+        }
+    }
+
+    @ViewBuilder
+    private var paneZoomContent: some View {
+        if let layout = fixtureLayout {
+            PaneZoomHost(
+                presentation: $paneZoomPresentation,
+                hosting: paneZoomHosting,
+                terminalTheme: terminalTheme,
+                zoomSourceID: paneZoomSourceSurfaceID,
+                zoomNamespace: paneZoomNamespace
+            ) {
+                PaneMapOverlay(
+                    value: PaneMapValue(
+                        layout: layout,
+                        phoneSelectedSurfaceID: selectedSurfaceID,
+                        agentStateKindsBySurfaceID: agentStateKindsBySurfaceID
+                    ),
+                    terminalTheme: terminalTheme,
+                    zoomNamespace: paneZoomNamespace,
+                    isVisible: !paneZoomPresentation.isTerminalPresented,
+                    allowsReordering: true,
+                    refreshTrigger: paneMapRefreshTrigger,
+                    fetchPreviews: Self.fetchFixturePreviews,
+                    selectTerminal: presentTerminalFromPaneMap,
+                    reorderPanes: reorderFixturePanes,
+                    refreshingChanged: { isPaneMapRefreshing = $0 }
+                )
+                .accessibilityHidden(paneZoomPresentation.isTerminalPresented)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
+                .navigationTitle(workspace.name)
+                .mobileTerminalNavigationChrome(theme: terminalTheme)
+                .toolbar { previewToolbar(mode: .paneMap) }
+                .navigationBarBackButtonHidden(true)
+                .background { autoplayDriver(for: .paneMap) }
+            } terminal: {
+                terminalPreviewEndpoint
+                    .mobileSurfaceDeckInset(
+                        isVisible: paneZoomPresentation.isTerminalPresented,
+                        value: deckValue,
+                        actions: deckActions,
+                        terminalTheme: terminalTheme
+                    )
+                    .navigationBarBackButtonHidden(true)
+            }
         }
     }
 
