@@ -481,15 +481,16 @@ extension CMUXCLI {
         let encodedLiteral = shellQuote(encodedScript)
         let wrapper = [
             "cmux_tmp=$(mktemp \"${TMPDIR:-/tmp}/\(tempPrefix).XXXXXX\") || exit 1",
+            "cmux_payload=\(encodedLiteral)",
             "cmux_cleanup() { rm -f -- \"$cmux_tmp\" 2>/dev/null || true; }",
             "trap 'cmux_cleanup' EXIT HUP INT TERM",
-            "(printf %s \(encodedLiteral) | base64 -d 2>/dev/null || printf %s \(encodedLiteral) | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
+            "(printf %s \"$cmux_payload\" | base64 -d 2>/dev/null || printf %s \"$cmux_payload\" | base64 -D 2>/dev/null) > \"$cmux_tmp\" || exit 1",
             "chmod 700 \"$cmux_tmp\" >/dev/null 2>&1 || true",
             "/bin/sh \"$cmux_tmp\"",
             "cmux_status=$?",
             "trap - EXIT HUP INT TERM",
             "cmux_cleanup",
-            "unset cmux_tmp cmux_status",
+            "unset cmux_tmp cmux_payload cmux_status",
             "unset -f cmux_cleanup 2>/dev/null || true",
             "exit $cmux_status",
         ].joined(separator: "\n")

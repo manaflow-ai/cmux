@@ -536,6 +536,27 @@ struct SSHConfiguredRemoteCommandHostTests {
         func startupCommandUsingFakeSSH(_ startupCommand: String) throws -> String {
             let systemSSHPath = "/usr/bin/ssh"
             let fakeSSHPath = binDirectory.appendingPathComponent("ssh").path
+            func replacingSystemSSH(
+                in command: String,
+                encodedRange: Range<String.Index>
+            ) -> String? {
+                let encodedScript = String(command[encodedRange])
+                guard let scriptData = Data(base64Encoded: encodedScript),
+                      let script = String(data: scriptData, encoding: .utf8),
+                      script.contains(systemSSHPath) else {
+                    return nil
+                }
+                let rewrittenScript = script.replacingOccurrences(
+                    of: systemSSHPath,
+                    with: fakeSSHPath
+                )
+                var rewrittenCommand = command
+                rewrittenCommand.replaceSubrange(
+                    encodedRange,
+                    with: Data(rewrittenScript.utf8).base64EncodedString()
+                )
+                return rewrittenCommand
+            }
             let trimmedCommand = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             let commandURL = URL(fileURLWithPath: trimmedCommand)
                 .standardizedFileURL
@@ -564,6 +585,17 @@ struct SSHConfiguredRemoteCommandHostTests {
             }
 
             guard startupCommand.contains(systemSSHPath) else {
+                let payloadPrefix = "cmux_payload="
+                if let prefixRange = startupCommand.range(of: payloadPrefix),
+                   let lineEnd = startupCommand[prefixRange.upperBound...].firstIndex(of: "\n") {
+                    let encodedRange = prefixRange.upperBound..<lineEnd
+                    if let rewrittenCommand = replacingSystemSSH(
+                        in: startupCommand,
+                        encodedRange: encodedRange
+                    ) {
+                        return rewrittenCommand
+                    }
+                }
                 let encodedPrefix = "(printf %s "
                 let encodedSuffix = " | base64"
                 if let prefixRange = startupCommand.range(of: encodedPrefix),
@@ -572,19 +604,10 @@ struct SSHConfiguredRemoteCommandHostTests {
                        range: prefixRange.upperBound..<startupCommand.endIndex
                    ) {
                     let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
-                    let encodedScript = String(startupCommand[encodedRange])
-                    if let scriptData = Data(base64Encoded: encodedScript),
-                       let script = String(data: scriptData, encoding: .utf8),
-                       script.contains(systemSSHPath) {
-                        let rewrittenScript = script.replacingOccurrences(
-                            of: systemSSHPath,
-                            with: fakeSSHPath
-                        )
-                        var rewrittenCommand = startupCommand
-                        rewrittenCommand.replaceSubrange(
-                            encodedRange,
-                            with: Data(rewrittenScript.utf8).base64EncodedString()
-                        )
+                    if let rewrittenCommand = replacingSystemSSH(
+                        in: startupCommand,
+                        encodedRange: encodedRange
+                    ) {
                         return rewrittenCommand
                     }
                 }
