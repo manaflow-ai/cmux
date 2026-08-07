@@ -100,6 +100,39 @@ struct NestedTopologyAssociationTests {
         #expect(result.panes[0].association.tabID == fixture.id("tab-2", kind: .tab))
     }
 
+    @Test("a new session cannot downgrade provider-owned parentage to a heuristic")
+    func sessionChangePreservesProviderParentage() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            panes: [fixture.pane(
+                tabRawID: "tab-1",
+                sessionID: "session-old",
+                associationAuthority: .provider
+            )]
+        )
+        let newSessionGuess = fixture.pane(
+            tabRawID: "tab-2",
+            sessionID: "session-new",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+
+        let result = try reducer.applying(
+            fixture.event(.paneUpdated(node: newSessionGuess)),
+            to: snapshot
+        )
+
+        #expect(result.panes[0].association.key.sessionID == "session-new")
+        #expect(result.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
+        #expect(result.panes[0].association.authority == .provider)
+        #expect(!result.panes[0].association.heuristicAlreadySatisfied)
+    }
+
     @Test("authoritative titles cannot be overwritten by inference")
     func titleAuthorityLock() throws {
         let fixture = NestedTopologyTestFixture()

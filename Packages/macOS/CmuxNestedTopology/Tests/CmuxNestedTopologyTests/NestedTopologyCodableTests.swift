@@ -132,4 +132,65 @@ struct NestedTopologyCodableTests {
         let decoded = try decoder.decode(NestedTopologySnapshot.self, from: data)
         #expect(decoded == snapshot)
     }
+
+    @Test("decoding rejects an oversized node collection before decoding its elements")
+    func boundedCollectionDecoding() throws {
+        let fixture = NestedTopologyTestFixture()
+        let snapshot = try fixture.snapshot(
+            capabilities: NestedProviderCapabilities([]),
+            workspaces: [fixture.workspace()],
+            tabs: [],
+            panes: [],
+            agents: []
+        )
+        let encoded = try JSONEncoder().encode(snapshot)
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let workspaces = try #require(object["workspaces"] as? [Any])
+        object["workspaces"] = [try #require(workspaces.first), NSNull()]
+        let oversized = try JSONSerialization.data(withJSONObject: object)
+        let limits = fixture.limits(maximumWorkspaces: 1)
+        let decoder = JSONDecoder()
+        decoder.userInfo[NestedTopologySnapshot.decodingLimitsUserInfoKey] = limits
+
+        #expect(throws: NestedTopologyError.nodeLimitExceeded(
+            kind: .workspace,
+            actual: 2,
+            maximum: 1
+        )) {
+            try decoder.decode(NestedTopologySnapshot.self, from: oversized)
+        }
+    }
+
+    @Test("decoding rejects an oversized capability collection before decoding its elements")
+    func boundedCapabilityDecoding() throws {
+        let fixture = NestedTopologyTestFixture()
+        let encoded = try JSONEncoder().encode(fixture.snapshot())
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let capabilities = try #require(object["capabilities"] as? [Any])
+        object["capabilities"] = [try #require(capabilities.first), NSNull()]
+        let oversized = try JSONSerialization.data(withJSONObject: object)
+        let limits = fixture.limits(maximumCapabilities: 1)
+        let decoder = JSONDecoder()
+        decoder.userInfo[NestedTopologySnapshot.decodingLimitsUserInfoKey] = limits
+
+        #expect(throws: NestedTopologyError.capabilityLimitExceeded(actual: 2, maximum: 1)) {
+            try decoder.decode(NestedTopologySnapshot.self, from: oversized)
+        }
+    }
+
+    @Test("decoding enforces the total node budget before decoding the next collection")
+    func boundedTotalNodeDecoding() throws {
+        let fixture = NestedTopologyTestFixture()
+        let encoded = try JSONEncoder().encode(fixture.snapshot())
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["agents"] = [NSNull()]
+        let oversized = try JSONSerialization.data(withJSONObject: object)
+        let limits = fixture.limits(maximumTotalNodes: 3)
+        let decoder = JSONDecoder()
+        decoder.userInfo[NestedTopologySnapshot.decodingLimitsUserInfoKey] = limits
+
+        #expect(throws: NestedTopologyError.totalNodeLimitExceeded(actual: 4, maximum: 3)) {
+            try decoder.decode(NestedTopologySnapshot.self, from: oversized)
+        }
+    }
 }
