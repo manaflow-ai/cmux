@@ -13,6 +13,19 @@ import Testing
 struct SidebarWorkspaceTableTests {
     @Test
     @MainActor
+    func reorderDropDestinationIsOverlayNotTable() throws {
+        let container = SidebarWorkspaceTableController().makeContainerView()
+        let pasteboardType = SidebarWorkspaceReorderDropOverlay.pasteboardType
+
+        #expect(!container.tableView.registeredDraggedTypes.contains(pasteboardType))
+        let reorderDropView = try #require(
+            container.subviews.lazy.compactMap { $0 as? SidebarWorkspaceReorderDropView }.first
+        )
+        #expect(reorderDropView.registeredDraggedTypes.contains(pasteboardType))
+    }
+
+    @Test
+    @MainActor
     func containerHasNoStructuralHorizontalRowInsetAndAlwaysActiveHoverTracking() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
         let column = try #require(container.tableView.tableColumns.first)
