@@ -206,38 +206,42 @@ final class TerminalTextView: NSTextView {
 
     @discardableResult
     func applyTerminalFrame(
-        _ next: String,
+        _ next: String?,
         dirtyRows: [UInt16] = [],
         dirtyRowText: [UInt16: String] = [:]
     ) -> TerminalTextEdit? {
-        let current = terminalFrameText
-        guard current != next else { return nil }
         let edit: TerminalTextEdit
-        if !terminalRows.isEmpty,
-            !dirtyRows.isEmpty,
-            let first = dirtyRows.min().map(Int.init),
-            let last = dirtyRows.max().map(Int.init),
-            last < terminalRows.count,
-            terminalRowOffsets.count == terminalRows.count + 1,
-            !(dirtyRows.first == 0 && dirtyRows.count == last + 1)
-                || last + 1 == terminalRows.count
-        {
-            let changedRows = (first...last).map { row in
-                dirtyRowText[UInt16(row)] ?? terminalRows[row]
-            }
-            let start = terminalRowOffsets[first]
-            let end = terminalRowOffsets[last + 1]
+        if let next {
+            let current = terminalFrameText
+            guard current != next else { return nil }
+            guard let fullEdit = terminalTextEdit(from: current, to: next) else { return nil }
+            edit = fullEdit
+            terminalRows = terminalRows(from: next)
+        } else if !terminalRows.isEmpty, !dirtyRows.isEmpty {
+            guard let first = dirtyRows.min().map(Int.init),
+                let last = dirtyRows.max().map(Int.init)
+            else { return nil }
+            let fullCoverage = dirtyRows.first == 0 && dirtyRows.count == last + 1
+            guard terminalRowOffsets.count == terminalRows.count + 1,
+                fullCoverage || last < terminalRows.count
+            else { return nil }
+            guard dirtyRows.allSatisfy({ dirtyRowText[$0] != nil }) else { return nil }
+            let changedRows = (first...last).map { dirtyRowText[UInt16($0)]! }
+            let start = fullCoverage ? 0 : terminalRowOffsets[first]
+            let end = fullCoverage ? terminalRowOffsets.last! : terminalRowOffsets[last + 1]
             edit = TerminalTextEdit(
                 range: NSRange(location: start, length: end - start),
                 replacement: changedRows.joined()
             )
-            for (offset, row) in changedRows.enumerated() {
-                terminalRows[first + offset] = row
+            if fullCoverage {
+                terminalRows = changedRows
+            } else {
+                for (offset, row) in changedRows.enumerated() {
+                    terminalRows[first + offset] = row
+                }
             }
         } else {
-            guard let fullEdit = terminalTextEdit(from: current, to: next) else { return nil }
-            edit = fullEdit
-            terminalRows = terminalRows(from: next)
+            return nil
         }
         let marked = detachMarkedText()
         guard let storage = textStorage else { return nil }
@@ -413,7 +417,7 @@ private final class TerminalContainerView: NSScrollView {
 }
 
 struct TerminalView: NSViewRepresentable {
-    let text: String
+    let text: String?
     let dirtyRows: [UInt16]
     let dirtyRowText: [UInt16: String]
     let inputReady: Bool
@@ -472,7 +476,7 @@ struct TerminalView: NSViewRepresentable {
             terminal.selectedRanges = terminalSelections(
                 preserving: selection,
                 applying: edit,
-                utf16Length: text.utf16.count
+                utf16Length: terminal.string.utf16.count
             )
         }
         if followedBottom {

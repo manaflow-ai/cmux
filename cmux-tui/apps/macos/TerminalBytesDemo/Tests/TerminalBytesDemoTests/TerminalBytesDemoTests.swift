@@ -188,7 +188,7 @@ final class TerminalBytesDemoTests: XCTestCase {
         terminal.applyTerminalFrame("first\nsecond\nthird\n")
 
         let edit = terminal.applyTerminalFrame(
-            "first\nchanged\nthird\n",
+            nil,
             dirtyRows: [1],
             dirtyRowText: [1: "changed\n"]
         )
@@ -206,7 +206,7 @@ final class TerminalBytesDemoTests: XCTestCase {
         terminal.applyTerminalFrame("one\ntwo\nthree\n")
 
         terminal.applyTerminalFrame(
-            "one\ntwo\n",
+            nil,
             dirtyRows: [0, 1],
             dirtyRowText: [0: "one\n", 1: "two\n"]
         )

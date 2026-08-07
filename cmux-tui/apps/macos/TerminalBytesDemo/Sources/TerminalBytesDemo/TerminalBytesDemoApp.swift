@@ -70,7 +70,7 @@ struct ContentView: View {
             }
 
             TerminalView(
-                text: model.frame,
+                text: model.frameUpdate,
                 dirtyRows: model.dirtyRows,
                 dirtyRowText: model.dirtyRowText,
                 inputReady: model.isConnected,

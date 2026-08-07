@@ -197,7 +197,7 @@ private let defaultTerminalConnector: TerminalConnector = { invitation, terminal
 }
 
 struct TerminalClientSnapshot: Equatable, Sendable {
-    let frame: String
+    let frame: String?
     let diagnostics: String
     let dirtyRows: [UInt16]
     let dirtyRowText: [UInt16: String]
@@ -307,6 +307,7 @@ actor TerminalClientHandle {
             Int
         ) -> Int
     private let hasExitedClient: @Sendable (OpaquePointer) -> Bool
+    private var frameSnapshotInitialized = false
 
     init(
         rawAddress: UInt,
@@ -445,6 +446,7 @@ actor TerminalClientHandle {
         }
         guard let raw, isAttached else { return }
         isAttached = false
+        frameSnapshotInitialized = false
         detachClient(raw)
     }
 
@@ -508,6 +510,7 @@ actor TerminalClientHandle {
             return result.error
         }
         isAttached = true
+        frameSnapshotInitialized = false
         return nil
     }
 
@@ -579,15 +582,21 @@ actor TerminalClientHandle {
 
     func snapshot() -> TerminalClientSnapshot? {
         guard let raw, isAttached,
-            let frame = copyString(using: copyFrameClient),
             let diagnostics = copyString(using: copyDiagnosticsClient)
         else { return nil }
         let dirtyRows = copyDirtyRows(raw)
         var dirtyRowText: [UInt16: String] = [:]
         for row in dirtyRows {
-            if let value = copyRowString(raw, row) {
-                dirtyRowText[row] = value
-            }
+            guard let value = copyRowString(raw, row) else { return nil }
+            dirtyRowText[row] = value
+        }
+        let frame: String?
+        if frameSnapshotInitialized {
+            frame = nil
+        } else {
+            guard let initialFrame = copyString(using: copyFrameClient) else { return nil }
+            frame = initialFrame
+            frameSnapshotInitialized = true
         }
         return TerminalClientSnapshot(
             frame: frame,
@@ -656,6 +665,7 @@ actor TerminalClientHandle {
         guard let raw else { return }
         isClosing = true
         isAttached = false
+        frameSnapshotInitialized = false
         if isAttaching {
             attachmentCancelled = true
             destroyAfterAttach = true
@@ -819,6 +829,7 @@ final class TerminalModel {
     var invitation: String
     var terminalID: String
     private(set) var frame = ""
+    private(set) var frameUpdate: String? = ""
     private(set) var dirtyRows: [UInt16] = []
     private(set) var dirtyRowText: [UInt16: String] = [:]
     private(set) var diagnostics = ""
@@ -929,6 +940,7 @@ final class TerminalModel {
             inputQueue.removeAll()
             isConnected = false
             frame = ""
+            frameUpdate = ""
             dirtyRows = []
             dirtyRowText = [:]
             diagnostics = ""
@@ -987,6 +999,7 @@ final class TerminalModel {
         inputQueue.removeAll()
         isConnected = false
         frame = ""
+        frameUpdate = ""
         dirtyRows = []
         dirtyRowText = [:]
         diagnostics = ""
@@ -1223,10 +1236,11 @@ final class TerminalModel {
                 }
             }
         }
-        if frame != snapshot.frame {
-            frame = snapshot.frame
-            dirtyRows = snapshot.dirtyRows
-            dirtyRowText = snapshot.dirtyRowText
+        frameUpdate = snapshot.frame
+        dirtyRows = snapshot.dirtyRows
+        dirtyRowText = snapshot.dirtyRowText
+        if let snapshotFrame = snapshot.frame {
+            frame = snapshotFrame
         }
         if diagnostics != snapshot.diagnostics {
             diagnostics = snapshot.diagnostics
