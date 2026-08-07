@@ -660,6 +660,22 @@ struct AgentLaunchSanitizerTests {
                 removeAllWorkingDirectoryOptions: true
             ) == attachedWorktree
         )
+
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["qoder", "-w", "/tmp/project", "--model", "best"],
+                workingDirectory: "/tmp/project",
+                agentKind: "qoder"
+            ) == ["qoder", "--model", "best"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "-w/local/repo", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                agentKind: "kimi",
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
     }
 
     @Test("Removes every cwd option while preserving arguments after the boundary")

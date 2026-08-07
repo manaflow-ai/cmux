@@ -227,7 +227,7 @@ enum TerminalStartupWorkingDirectoryPrefix {
         in words: [ShellWordRange],
         workingDirectory: String
     ) -> [Range<String.Index>] {
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
+        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace"]
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var ranges: [Range<String.Index>] = []
         var index = 0
@@ -449,13 +449,15 @@ enum AgentResumeCommandBuilder {
             sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: commandParts,
                 workingDirectory: nil,
+                agentKind: kind.rawValue,
                 removeAllWorkingDirectoryOptions: true
             )
         } else {
             sanitizedCommandParts = workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
-                    workingDirectory: directory
+                    workingDirectory: directory,
+                    agentKind: kind.rawValue
                 )
             }
         }

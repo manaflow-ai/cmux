@@ -243,11 +243,13 @@ public enum AgentLaunchSanitizer {
     /// - Parameters:
     ///   - args: The captured command arguments to sanitize.
     ///   - workingDirectory: The saved cwd whose matching options should be removed.
+    ///   - agentKind: The known agent kind, used only for kind-specific short cwd options.
     ///   - removeAllWorkingDirectoryOptions: Whether to remove every cwd option regardless of value.
     /// - Returns: Sanitized arguments while preserving content after `--`.
     public static func removingSavedWorkingDirectoryOptions(
         from args: [String],
         workingDirectory: String?,
+        agentKind: String? = nil,
         removeAllWorkingDirectoryOptions: Bool = false
     ) -> [String] {
         let savedWorkingDirectory = normalizedWorkingDirectory(workingDirectory)
@@ -259,9 +261,15 @@ public enum AgentLaunchSanitizer {
                 workingDirectoryValue(value, matches: $0)
             } == true
         }
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
+        var valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace"]
+        var attachedShortValueOptions: Set<String> = ["-C"]
+        if agentKind == "kimi" || agentKind == "qoder" {
+            // `-w` is a cwd alias for Kimi/Qoder, but a worktree selector for
+            // Claude Teams and Grok. Interpret it only with known agent semantics.
+            valueOptions.insert("-w")
+            attachedShortValueOptions.insert("-w")
+        }
         let optionPrefixes = valueOptions.map { "\($0)=" }
-        let attachedShortValueOptions: Set<String> = ["-C", "-w"]
         var result: [String] = []
         var index = 0
         while index < args.count {

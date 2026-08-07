@@ -1421,22 +1421,22 @@ extension Workspace {
                     return nil
                 }
                 if restoresRemoteWorkspaceTerminalSnapshot {
-                    // Keep directory-keyed agents in the launch namespace while
-                    // id-keyed agents may follow the latest remote runtime cwd.
-                    // Snapshot agent paths are eligible only when the panel's
-                    // remote-directory provenance says they are trusted.
-                    let hasTrustedRemoteDirectory = snapshot.directoryIsTrustedRemoteReport == true
-                    let trustedRuntimeWorkingDirectory = hasTrustedRemoteDirectory
-                        ? savedWorkingDirectory
-                        : nil
-                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory
-                        ? (restorableAgent.workingDirectory
-                            ?? restorableAgent.launchCommand?.workingDirectory)
-                        : nil
+                    // The panel report authenticates only its runtime cwd. Agent
+                    // snapshot fields have separate provenance and cannot become
+                    // trusted merely because the panel later reported a directory.
+                    guard snapshot.directoryIsTrustedRemoteReport == true else {
+                        return nil
+                    }
+                    guard restorableAgent.kind.cwdNamespacing == .cwdInFile else {
+                        // Directory-keyed agents need their original launch cwd to
+                        // find the session namespace. No trusted launch-cwd source is
+                        // persisted yet, so fail closed instead of guessing.
+                        return nil
+                    }
                     return AgentResumeWorkingDirectory().resolve(
                         kind: restorableAgent.kind.rawValue,
-                        runtimeCwd: trustedRuntimeWorkingDirectory,
-                        launchWorkingDirectory: trustedAgentWorkingDirectory
+                        runtimeCwd: snapshot.terminal?.workingDirectory,
+                        launchWorkingDirectory: nil
                     )
                 }
                 return restorableAgent.workingDirectory

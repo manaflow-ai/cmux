@@ -37,7 +37,8 @@ extension CMUXCLI {
         let workingDirectory = sessionsListNormalized(launchCommand?.workingDirectory ?? record.cwd)
         let sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
             from: commandParts,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            agentKind: agent
         )
         let shellCommand = agent == "codex"
             ? AgentResumeArgv.renderedPortableCodexResumeShellCommand(
