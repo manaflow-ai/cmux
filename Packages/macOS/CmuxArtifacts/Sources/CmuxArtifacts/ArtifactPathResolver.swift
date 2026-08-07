@@ -4,7 +4,8 @@ import Foundation
 struct ArtifactPathResolver: Sendable {
     static let workspaceMarkerName = "_workspace.json"
     static let sessionMarkerName = "_session.json"
-    private let fileManager: FileManager
+    // Only FileManager's thread-safe, stateless path queries are used through this immutable reference.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     init(fileManager: FileManager) {
         self.fileManager = fileManager

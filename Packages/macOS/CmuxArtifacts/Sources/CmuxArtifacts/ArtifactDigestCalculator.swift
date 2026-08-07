@@ -5,7 +5,8 @@ import Foundation
 /// Computes bounded-file SHA-256 identities for deduplication.
 struct ArtifactDigestCalculator: Sendable {
     private let chunkSize = 64 * 1024
-    private let fileManager: FileManager
+    // Only FileManager's thread-safe, stateless path queries are used through this immutable reference.
+    nonisolated(unsafe) private let fileManager: FileManager
 
     init(fileManager: FileManager) {
         self.fileManager = fileManager
