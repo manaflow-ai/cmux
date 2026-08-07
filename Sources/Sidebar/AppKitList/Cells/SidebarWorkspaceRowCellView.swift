@@ -584,6 +584,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             fontSize: model.scaled(9),
             emphasis: model.isActive ? 1.0 : 0.9,
             textColor: palette.semanticPrimaryText,
+            materialAppearance: environment.appKitAppearance,
             representedIdentity: model.workspaceId
         )
         topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
