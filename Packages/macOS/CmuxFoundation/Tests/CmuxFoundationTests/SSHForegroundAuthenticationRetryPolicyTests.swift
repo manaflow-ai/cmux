@@ -2591,6 +2591,71 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func concurrentCleanupCannotEnterSharedTransaction(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-cleanup-claim-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() { printf '1|777777|Thu_Jan_1_00:00:00_1970\n'; }
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_run_cleanup_transactions() {
+          if /bin/mkdir "$CMUX_TEST_TRANSACTION_GUARD" 2>/dev/null; then
+            : > "$CMUX_TEST_FIRST_READY"
+            cmux_test_release_attempt=0
+            while [ ! -e "$CMUX_TEST_RELEASE_FIRST" ] && \
+              [ "$cmux_test_release_attempt" -lt 300 ]; do
+              /bin/sleep 0.01
+              cmux_test_release_attempt=$((cmux_test_release_attempt + 1))
+            done
+            /bin/rmdir "$CMUX_TEST_TRANSACTION_GUARD" 2>/dev/null || true
+            return 0
+          fi
+          : > "$CMUX_TEST_OVERLAP"
+          return 0
+        }
+        printf '101|777777|Thu_Jan_1_00:00:00_1970\n' \
+          > "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        cmux_ssh_terminate_owned_auth_group 999999 &
+        cmux_test_first_cleanup=$!
+        cmux_test_ready_attempt=0
+        while [ ! -e "$CMUX_TEST_FIRST_READY" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -e "$CMUX_TEST_FIRST_READY" || exit 98
+        cmux_ssh_terminate_owned_auth_group 999999 &
+        cmux_test_second_cleanup=$!
+        wait "$cmux_test_second_cleanup" || exit 97
+        : > "$CMUX_TEST_RELEASE_FIRST"
+        wait "$cmux_test_first_cleanup" || exit 96
+        test ! -e "$CMUX_TEST_OVERLAP" || exit 95
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_FIRST_READY": root.appendingPathComponent("first-ready").path,
+                "CMUX_TEST_OVERLAP": root.appendingPathComponent("overlap").path,
+                "CMUX_TEST_RELEASE_FIRST": root.appendingPathComponent("release-first").path,
+                "CMUX_TEST_TRANSACTION_GUARD": root.appendingPathComponent("transaction.guard").path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func cleanupTransactionReusesValidatedPostStopSnapshot(shellPath: String) throws {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
