@@ -1089,6 +1089,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE86520000000000000105 /* FilePreviewPDFLoadResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000106 /* FilePreviewPDFLoadResult.swift */; };
 		C0DE86520000000000000107 /* FilePreviewPDFPageRotationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE86520000000000000108 /* FilePreviewPDFPageRotationState.swift */; };
 		C769A75E303493BCB5EC9CCC /* FilePreviewPDFSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */; };
+		A9128C05123456789ABCDEF0 /* FilePreviewPDFShareActivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9128C04123456789ABCDEF0 /* FilePreviewPDFShareActivation.swift */; };
+		D039D376AAA840E6A7B1FA64 /* FilePreviewPDFShareButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 731A9BEA043E485786E3CAFF /* FilePreviewPDFShareButton.swift */; };
+		A9128C03123456789ABCDEF0 /* FilePreviewPDFShareButtonControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9128C02123456789ABCDEF0 /* FilePreviewPDFShareButtonControl.swift */; };
+		A9128C01123456789ABCDEF0 /* FilePreviewPDFShareButtonCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9128C00123456789ABCDEF0 /* FilePreviewPDFShareButtonCoordinator.swift */; };
+		3F300FFCEA25412D838FAA1D /* FilePreviewPDFSharingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 718EA05B00314A5B942742EB /* FilePreviewPDFSharingPresenter.swift */; };
 		A5001427 /* FilePreviewPDFSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001426 /* FilePreviewPDFSizing.swift */; };
 		A5001434A5001434A5001434 /* FilePreviewPDFThumbnailCollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */; };
 		A5001436A5001436A5001436 /* FilePreviewPDFThumbnailSidebarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001435A5001435A5001435 /* FilePreviewPDFThumbnailSidebarTests.swift */; };
@@ -3723,6 +3728,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C0DE86520000000000000106 /* FilePreviewPDFLoadResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFLoadResult.swift; sourceTree = "<group>"; };
 		C0DE86520000000000000108 /* FilePreviewPDFPageRotationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFPageRotationState.swift; sourceTree = "<group>"; };
 		D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFSession.swift; sourceTree = "<group>"; };
+		A9128C04123456789ABCDEF0 /* FilePreviewPDFShareActivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFShareActivation.swift; sourceTree = "<group>"; };
+		731A9BEA043E485786E3CAFF /* FilePreviewPDFShareButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFShareButton.swift; sourceTree = "<group>"; };
+		A9128C02123456789ABCDEF0 /* FilePreviewPDFShareButtonControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFShareButtonControl.swift; sourceTree = "<group>"; };
+		A9128C00123456789ABCDEF0 /* FilePreviewPDFShareButtonCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFShareButtonCoordinator.swift; sourceTree = "<group>"; };
+		718EA05B00314A5B942742EB /* FilePreviewPDFSharingPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFSharingPresenter.swift; sourceTree = "<group>"; };
 		A5001426 /* FilePreviewPDFSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFSizing.swift; sourceTree = "<group>"; };
 		A5001433A5001433A5001433 /* FilePreviewPDFThumbnailCollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFThumbnailCollectionView.swift; sourceTree = "<group>"; };
 		A5001435A5001435A5001435 /* FilePreviewPDFThumbnailSidebarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePreviewPDFThumbnailSidebarTests.swift; sourceTree = "<group>"; };
@@ -6848,7 +6858,12 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE86520000000000000104 /* FilePreviewMediaView.swift */,
 				C0DE86520000000000000106 /* FilePreviewPDFLoadResult.swift */,
 				C0DE86520000000000000108 /* FilePreviewPDFPageRotationState.swift */,
+				A9128C04123456789ABCDEF0 /* FilePreviewPDFShareActivation.swift */,
+				731A9BEA043E485786E3CAFF /* FilePreviewPDFShareButton.swift */,
+				A9128C02123456789ABCDEF0 /* FilePreviewPDFShareButtonControl.swift */,
+				A9128C00123456789ABCDEF0 /* FilePreviewPDFShareButtonCoordinator.swift */,
 				C0DE86520000000000000006 /* FilePreviewPDFView.swift */,
+				718EA05B00314A5B942742EB /* FilePreviewPDFSharingPresenter.swift */,
 				C0DE8652000000000000010A /* FilePreviewPDFViewportAnchor.swift */,
 				A5001428 /* FilePreviewPDFViewportSnapshot.swift */,
 				C0DE8652000000000000010C /* FilePreviewPDFVisiblePageResolver.swift */,
@@ -9121,6 +9136,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE86520000000000000105 /* FilePreviewPDFLoadResult.swift in Sources */,
 				C0DE86520000000000000107 /* FilePreviewPDFPageRotationState.swift in Sources */,
 				C769A75E303493BCB5EC9CCC /* FilePreviewPDFSession.swift in Sources */,
+				A9128C05123456789ABCDEF0 /* FilePreviewPDFShareActivation.swift in Sources */,
+				D039D376AAA840E6A7B1FA64 /* FilePreviewPDFShareButton.swift in Sources */,
+				A9128C03123456789ABCDEF0 /* FilePreviewPDFShareButtonControl.swift in Sources */,
+				A9128C01123456789ABCDEF0 /* FilePreviewPDFShareButtonCoordinator.swift in Sources */,
+				3F300FFCEA25412D838FAA1D /* FilePreviewPDFSharingPresenter.swift in Sources */,
 				A5001427 /* FilePreviewPDFSizing.swift in Sources */,
 				A5001434A5001434A5001434 /* FilePreviewPDFThumbnailCollectionView.swift in Sources */,
 				C0DE86520000000000000005 /* FilePreviewPDFView.swift in Sources */,
