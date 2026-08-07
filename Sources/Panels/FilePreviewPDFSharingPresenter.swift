@@ -4,7 +4,7 @@ import AppKit
 @MainActor
 final class FilePreviewPDFSharingPresenter: NSObject {
     typealias PickerFactory = ([Any]) -> NSSharingServicePicker
-    typealias MenuPresenter = (NSMenu, NSView) -> Void
+    typealias MenuPresenter = @MainActor (NSMenu, NSView) -> Void
 
     private let presentMenu: MenuPresenter
     private let makePicker: PickerFactory
@@ -63,7 +63,7 @@ final class FilePreviewPDFSharingPresenter: NSObject {
     }
 }
 
-extension FilePreviewPDFSharingPresenter: NSSharingServicePickerDelegate {
+extension FilePreviewPDFSharingPresenter: @preconcurrency NSSharingServicePickerDelegate {
     func sharingServicePicker(
         _ sharingServicePicker: NSSharingServicePicker,
         didChoose service: NSSharingService?
