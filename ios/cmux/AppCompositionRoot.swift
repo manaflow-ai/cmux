@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxMobileAnalytics
 import CmuxMobileCrashReporting
 import CmuxMobileDiagnostics
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -21,6 +22,10 @@ final class AppCompositionRoot {
     let runtime: CMUXMobileRuntime
     let auth: MobileAuthComposition
     let iroh: MobileIrohRuntimeComposition
+    /// One build-compatibility policy shared by discovery, persistence, and
+    /// connection validation. Keeping it here prevents composition paths from
+    /// admitting different Mac app instances.
+    let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy
     let reachability: any ReachabilityProviding
     let pushCoordinator: MobilePushCoordinator
     let signOutHook: MobileSignOutHook
@@ -59,6 +64,7 @@ final class AppCompositionRoot {
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
         iroh: MobileIrohRuntimeComposition,
+        buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
     ) {
@@ -71,6 +77,7 @@ final class AppCompositionRoot {
         self.runtime = runtime
         self.auth = auth
         self.iroh = iroh
+        self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
         let telemetryConsent = UserDefaultsAnalyticsConsentProvider(defaults: .standard)
