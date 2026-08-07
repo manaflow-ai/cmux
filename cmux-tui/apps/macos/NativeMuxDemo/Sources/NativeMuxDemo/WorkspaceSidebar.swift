@@ -23,8 +23,9 @@ struct WorkspaceSidebar: View {
 
             ScrollView {
                 LazyVStack(spacing: 3) {
+                    let selectedWorkspaceID = model.selectedWorkspace?.id
                     ForEach(snapshot.workspaces.sorted { $0.index < $1.index }) { workspace in
-                        workspaceButton(workspace)
+                        workspaceButton(workspace, selectedWorkspaceID: selectedWorkspaceID)
                     }
                 }
                 .padding(.horizontal, 7)
@@ -45,8 +46,8 @@ struct WorkspaceSidebar: View {
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.7))
     }
 
-    private func workspaceButton(_ workspace: WorkspaceSnapshot) -> some View {
-        let selected = workspace.id == model.selectedWorkspace?.id
+    private func workspaceButton(_ workspace: WorkspaceSnapshot, selectedWorkspaceID: String?) -> some View {
+        let selected = workspace.id == selectedWorkspaceID
         return Button {
             model.selectWorkspace(workspace)
         } label: {

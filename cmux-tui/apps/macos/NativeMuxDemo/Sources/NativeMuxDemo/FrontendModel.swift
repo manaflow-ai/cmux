@@ -135,6 +135,14 @@ final class FrontendModel {
     }
 
     private func disconnectAfterFailure(_ error: any Error) async {
+        updatesTask?.cancel()
+        refreshTask?.cancel()
+        refreshRequested = false
+        for controller in terminalControllers.values { controller.shutdown() }
+        terminalControllers.removeAll()
+        snapshot = nil
+        machineID = nil
+        sessionID = nil
         let owned = service
         service = nil
         if let owned {
@@ -153,6 +161,10 @@ final class FrontendModel {
                 self?.scheduleRefresh()
             }
             await service.stopUpdates(generation: updates.generation)
+            guard !Task.isCancelled else { return }
+            await self?.disconnectAfterFailure(
+                FrontendServiceError.message("The session event stream ended.")
+            )
         }
     }
 
@@ -166,6 +178,11 @@ final class FrontendModel {
                 refreshRequested = false
                 do {
                     try await refreshNow()
+                    // Resource notifications are identity-less at the C ABI
+                    // boundary, so cap full-snapshot reconciliation to 10 Hz.
+                    if refreshRequested {
+                        try await Task.sleep(for: .milliseconds(100))
+                    }
                 } catch {
                     errorMessage = error.localizedDescription
                 }
@@ -204,7 +221,14 @@ final class FrontendModel {
 
     private func pruneTerminalControllers(_ next: ResourceSnapshot) {
         let live = Set(next.terminals.map(\.id))
-        let removed = terminalControllers.keys.filter { !live.contains($0) }
+        let visible: Set<String> = {
+            guard selectedWorkspaceID != nil,
+                  let screenID = selectedScreenID else { return [] }
+            let paneIDs = Set(next.panes.filter { $0.screenID == screenID }.map(\.id))
+            let tabIDs = Set(next.tabs.filter { paneIDs.contains($0.paneID) }.map(\.contentID))
+            return Set(next.terminals.filter { tabIDs.contains($0.id) }.map(\.id))
+        }()
+        let removed = terminalControllers.keys.filter { !live.contains($0) || !visible.contains($0) }
         for id in removed {
             let controller = terminalControllers.removeValue(forKey: id)
             controller?.shutdown()
