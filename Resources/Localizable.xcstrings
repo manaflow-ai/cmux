@@ -234578,13 +234578,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "缺少 owner_id 或其无效"
+            "value": "owner_id 缺失或无效"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "缺少 owner_id 或其無效"
+            "value": "owner_id 缺失或無效"
           }
         }
       }

@@ -122,7 +122,7 @@ extension ControlCommandCoordinator {
             return workspaceTodoSetResult(.tabManagerUnavailable)
         }
         let strings = context.controlWorkspaceTodoStrings()
-        guard let rawOwnerID = string(params, "owner_id") else {
+        guard case .string(let rawOwnerID)? = params["owner_id"] else {
             return .err(
                 code: "invalid_params",
                 message: strings.missingOwnerID,
