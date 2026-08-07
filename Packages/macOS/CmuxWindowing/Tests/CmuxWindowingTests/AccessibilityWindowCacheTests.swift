@@ -16,6 +16,15 @@ struct AccessibilityWindowCacheTests {
         return window
     }
 
+    private func makeHelpTagWindow() -> NSWindow {
+        HelpTagWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 253, height: 19),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
     private func windows(_ value: Any?) -> [NSWindow]? {
         value as? [NSWindow]
     }
@@ -88,6 +97,52 @@ struct AccessibilityWindowCacheTests {
 
         expectWindowsEqual(updatedWindowsValue, [window, otherWindow])
         #expect(buildCount == 2, "Expected the cache to rebuild once after the hierarchy token changes")
+    }
+
+    @Test("help tag windows stay out of AXWindows snapshots")
+    func helpTagWindowsStayOutOfAXWindowsSnapshots() {
+        let window = makeWindow()
+        let helpTagWindow = makeHelpTagWindow()
+        defer {
+            window.orderOut(nil)
+            helpTagWindow.orderOut(nil)
+        }
+
+        let cache = AccessibilityWindowCache()
+        let state = AccessibilityWindowCache.StateToken(windows: [window, helpTagWindow])
+
+        let windowsValue = cache.value(for: .windows, stateToken: state) {
+            .init(windows: [window, helpTagWindow])
+        }
+
+        expectWindowsEqual(windowsValue, [window])
+    }
+
+    @Test("help tag windows do not invalidate reusable AXWindows snapshots")
+    func helpTagWindowsDoNotInvalidateReusableAXWindowsSnapshots() {
+        let window = makeWindow()
+        let helpTagWindow = makeHelpTagWindow()
+        defer {
+            window.orderOut(nil)
+            helpTagWindow.orderOut(nil)
+        }
+
+        let cache = AccessibilityWindowCache()
+        let state = AccessibilityWindowCache.StateToken(windows: [window])
+        let stateWithHelpTag = AccessibilityWindowCache.StateToken(windows: [window, helpTagWindow])
+        var buildCount = 0
+
+        _ = cache.value(for: .windows, stateToken: state) {
+            buildCount += 1
+            return .init(windows: [window])
+        }
+        let windowsValue = cache.value(for: .windows, stateToken: stateWithHelpTag) {
+            Issue.record("Expected help tag windows to be ignored by the cache token")
+            return .init(windows: [window, helpTagWindow])
+        }
+
+        expectWindowsEqual(windowsValue, [window])
+        #expect(buildCount == 1)
     }
 
     @Test("non-.windows attributes stay passthrough")
