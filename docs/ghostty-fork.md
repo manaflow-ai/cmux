@@ -72,6 +72,10 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
     cannot hold a native-surface teardown worker indefinitely.
   - Keeps `ghostty_surface_free` as the final synchronization and ownership
     boundary for renderer, IO, callback userdata, and native allocation release.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5b20c62297aca8289b400cb7f5583f65a5c759bc-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `88a4e639d230f8532f44902ee563ed83527521c7cb2a09e10a3b06f40b8879b2`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note:
   - Preserve the two-phase contract during future embedded-surface or termio
     merges: the pre-free request must prevent new app-action retains, remain
