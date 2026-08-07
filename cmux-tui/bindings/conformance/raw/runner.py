@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the explicitly raw protocol-10 SDK conformance suite."""
+"""Run the explicitly raw protocol-11 SDK conformance suite."""
 
 from __future__ import annotations
 
@@ -401,7 +401,7 @@ class FakeServer:
             "version": "0.0.0-conformance",
             "build_commit": None,
             "ghostty_commit": None,
-            "protocol": 10,
+            "protocol": 11,
             "capabilities": [
                 "attach-initial-size",
                 "provider-managed-workspace-authority-v2",
@@ -471,13 +471,15 @@ class FakeServer:
                 "pane": 2,
                 "screen": 3,
                 "workspace": 4,
-                "terminal_id": None,
+                "terminal_id": "0123456789abcdef0123456789abcdef",
                 "terminal_incarnation": None,
                 "generation": "generation-conformance",
                 "key": "workspace-key",
                 "registry_id": "registry-conformance",
                 "replayed": False,
                 "terminal_revision": 5,
+                "exit": None,
+                "already_exited": False,
             }
             if not self.spec.get("omit_lifecycle", False):
                 data["lifecycle"] = self.spec.get("lifecycle")
@@ -518,7 +520,7 @@ class FakeServer:
                 "version": "0.0.0-conformance",
                 "build_commit": None,
                 "ghostty_commit": None,
-                "protocol": 10,
+                "protocol": 11,
             }
         elif command in (
             "browser-back",
