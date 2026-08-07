@@ -314,6 +314,23 @@ def test_noninteractive_entrypoints_bypass_install(failures: list[str]) -> None:
         expect(result.returncode == 0, f"{label}: wrapper exited {result.returncode}: {result.stderr}", failures)
         expect(result.real_argv == argv, f"{label}: original argv changed: {result.real_argv}", failures)
         expect(result.cmux_calls == [], f"{label}: noninteractive command installed hooks: {result.cmux_calls}", failures)
+        for key in (
+            "CMUX_SURFACE_ID",
+            "CMUX_WORKSPACE_ID",
+            "CMUX_SOCKET_PATH",
+            "CMUX_AGENT_LAUNCH_KIND",
+            "CMUX_AGENT_RESTORE_LAUNCH",
+        ):
+            expect(
+                result.real_environment.get(key) == "__UNSET__",
+                f"{label}: noninteractive command retained {key}: {result.real_environment}",
+                failures,
+            )
+        expect(
+            result.real_environment.get("HERMES_HOME") != "__UNSET__",
+            f"{label}: passthrough cleared non-cmux Hermes configuration: {result.real_environment}",
+            failures,
+        )
 
 
 def test_opt_out_and_non_cmux_launches_bypass_install(failures: list[str]) -> None:

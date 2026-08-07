@@ -10,6 +10,27 @@ struct CachedAgentProcessIdentityValidator: Sendable {
            !Self.launchKind(liveKind, matches: snapshot.kind, launcher: snapshot.launchCommand?.launcher) {
             return false
         }
+        if snapshot.kind == .hermesAgent {
+            let observed = VaultObservedAgentProcess(
+                processName: process.arguments.first.map(Self.executableBasename) ?? "",
+                processPath: process.arguments.first,
+                arguments: process.arguments,
+                environment: process.environment
+            )
+            guard CmuxVaultAgentRegistration.builtInHermes.detect.matches(observed),
+                  observed.isInteractiveHermesAgentInvocation else {
+                return false
+            }
+            guard let explicitSessionID = CmuxVaultAgentPersistedSessionStore.hermesStateDB
+                .explicitSessionID(arguments: process.arguments) else {
+                return true
+            }
+            return ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: snapshot.kind.rawValue,
+                lhs: explicitSessionID,
+                rhs: snapshot.sessionId
+            )
+        }
         guard currentProcessExecutable(process.arguments, environment: process.environment, matches: snapshot) else {
             return false
         }

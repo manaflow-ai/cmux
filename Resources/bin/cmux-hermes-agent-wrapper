@@ -144,7 +144,7 @@ hermes_known_subcommand() {
 
 hermes_option_consumes_value() {
     case "$1" in
-        --usage-file|-m|--model|--provider|-t|--toolsets|--skills|-s)
+        --usage-file|-m|--model|--provider|--reasoning|-t|--toolsets|--skills|-s|-p|--profile)
             return 0
             ;;
     esac
@@ -157,21 +157,37 @@ should_activate_hermes_hooks() {
     (( $# == 0 )) && return 0
 
     local argument
+    local command=""
     local skip_next=0
     for argument in "$@"; do
         if (( skip_next == 1 )); then
             skip_next=0
             continue
         fi
+        if [[ "$command" == "chat" ]]; then
+            case "$argument" in
+                -q|--query|-q?*|--query=*)
+                    return 1
+                    ;;
+                --)
+                    return 0
+                    ;;
+            esac
+            continue
+        fi
         case "$argument" in
             -h|--help|-V|--version)
                 return 1
                 ;;
-            -z|--oneshot|-r|--resume|-c|--continue|--tui|--cli)
-                return 0
+            -z|--oneshot|-z?*|--oneshot=*)
+                return 1
                 ;;
-            -z?*|-r?*|-c?*|--oneshot=*|--resume=*|--continue=*)
-                return 0
+            -r|--resume)
+                skip_next=1
+                continue
+                ;;
+            -r?*|-c?*|--resume=*|--continue=*|--continue|--tui|--cli)
+                continue
                 ;;
             --)
                 return 0
@@ -186,7 +202,8 @@ should_activate_hermes_hooks() {
                 continue
                 ;;
             chat)
-                return 0
+                command="chat"
+                continue
                 ;;
             *)
                 if hermes_known_subcommand "$argument"; then

@@ -1022,6 +1022,100 @@ struct RestorableAgentSessionIndex: Sendable {
         })
     }
 
+    /// Revalidates cache-reported agent processes against one current process snapshot.
+    ///
+    /// Quit-time persistence cannot synchronously reload every hook store, but it also must not
+    /// trust a TTL-cached PID after exit, exec, PID reuse, or a session-changing relaunch. A cached
+    /// running entry stays live only when its exact process generation, cmux scope, executable,
+    /// invocation mode, and explicit session argument still match.
+    func revalidatingCachedProcesses(
+        against processSnapshot: CmuxTopProcessSnapshot,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
+            CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
+        },
+        processIdentityProvider: (Int) -> AgentPIDProcessIdentity? = {
+            guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+            return AgentPIDProcessIdentity(pid: pid_t($0))
+        }
+    ) -> RestorableAgentSessionIndex {
+        let validator = CachedAgentProcessIdentityValidator()
+        var revalidatedEntries: [PanelKey: Entry] = [:]
+        revalidatedEntries.reserveCapacity(entriesByPanel.count)
+
+        for (key, entry) in entriesByPanel {
+            let recordedAgentProcessIDs = entry.agentProcessIDs.isEmpty
+                ? entry.processIDs
+                : entry.agentProcessIDs
+            let matchesByProcessID = Dictionary(uniqueKeysWithValues: recordedAgentProcessIDs.map { processID in
+                let processMatch = Self.scopedProcessMatch(
+                    for: entry.snapshot,
+                    workspaceId: key.workspaceId,
+                    panelId: key.panelId,
+                    processID: processID,
+                    recordedProcessIdentity: entry.agentProcessIdentities[processID]
+                        ?? entry.processIdentities[processID],
+                    currentProcessIdentity: processIdentityProvider(processID),
+                    processArgumentsProvider: processArgumentsProvider,
+                    processPresenceProvider: {
+                        processSnapshot.process(pid: $0) == nil ? .absent : .present
+                    },
+                    validator: validator
+                )
+                return (processID, processMatch)
+            })
+            let revalidatedLiveness = entry.processLiveness.revalidated(
+                against: matchesByProcessID.values
+            )
+            let processLiveness: RestorableAgentProcessLiveness = if entry.processLiveness == .running,
+                                                                    revalidatedLiveness != .running {
+                // Cache reuse is an optimization, not authority. Unknown argv or identity evidence
+                // must fail closed instead of letting shell activity revive a stale session binding.
+                .exited
+            } else {
+                revalidatedLiveness
+            }
+            let confirmedAgentProcessIDs = Set(matchesByProcessID.compactMap { processID, match in
+                match == .matches ? processID : nil
+            })
+            let confirmedAgentProcessIdentities = Dictionary(uniqueKeysWithValues:
+                confirmedAgentProcessIDs.compactMap { processID in
+                    processIdentityProvider(processID).map { (processID, $0) }
+                }
+            )
+            let currentPanelProcessIDs: Set<Int> = processLiveness == .running
+                ? Set(entry.processIDs.filter { processID in
+                    guard let process = processSnapshot.process(pid: processID) else { return false }
+                    return process.cmuxWorkspaceID == key.workspaceId
+                        && process.cmuxSurfaceID == key.panelId
+                }).union(confirmedAgentProcessIDs)
+                : []
+            let currentProcessIdentities = Dictionary(uniqueKeysWithValues:
+                currentPanelProcessIDs.compactMap { processID in
+                    processIdentityProvider(processID).map { (processID, $0) }
+                }
+            )
+
+            revalidatedEntries[key] = Entry(
+                snapshot: entry.snapshot,
+                lifecycle: entry.lifecycle,
+                updatedAt: entry.updatedAt,
+                processLiveness: processLiveness,
+                processIDs: currentPanelProcessIDs,
+                processIdentities: currentProcessIdentities,
+                agentProcessIDs: confirmedAgentProcessIDs,
+                agentProcessIdentities: confirmedAgentProcessIdentities,
+                hibernationPanelProcessIDs: entry.hibernationPanelProcessIDs.intersection(currentPanelProcessIDs),
+                terminationProcessIDs: entry.terminationProcessIDs.intersection(currentPanelProcessIDs),
+                terminationProcessIdentities: entry.terminationProcessIdentities.filter {
+                    currentPanelProcessIDs.contains($0.key)
+                },
+                containsUnrelatedProcess: processLiveness == .running && entry.containsUnrelatedProcess
+            )
+        }
+
+        return RestorableAgentSessionIndex(entriesByPanel: revalidatedEntries)
+    }
+
     // WARNING: Expensive. This reads every agent kind's hook-store file from disk,
     // resolves transcripts, and runs sysctl(KERN_PROCARGS2) per recorded session for
     // live-PID filtering (measured 350ms-1.8s on machines with large agent history).

@@ -19,7 +19,8 @@ public enum CmuxVaultAgentPersistedSessionStore: String, Codable, Hashable, Send
 
     /// Returns an explicitly requested session ID from an agent launch command.
     ///
-    /// Explicit launch arguments remain authoritative over persisted-store inference.
+    /// Fresh sessions are correlated by agent hooks; the store is never searched by cwd because
+    /// that cannot prove which live process owns a row.
     ///
     /// - Parameter arguments: The observed agent process arguments.
     /// - Returns: The explicit session ID, or `nil` when the launch is a fresh session.

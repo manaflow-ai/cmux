@@ -181,52 +181,6 @@ struct HermesAgentIndexTests {
         #expect(turns[1].content.contains("pwd"))
     }
 
-    @Test("Persisted resolver requires one live owner and supports read-disabled scans")
-    func persistedResolverFailsClosedForAmbiguousOrDisabledScans() throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let repo = root.appendingPathComponent("repo", isDirectory: true)
-        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
-        let dbURL = root.appendingPathComponent("state.db", isDirectory: false)
-        try makeHermesStateDB(at: dbURL)
-        try exec(dbURL, """
-        INSERT INTO sessions (id, source, model, started_at, cwd)
-        VALUES ('session-a', 'cli', 'model-a', 10, '\(repo.path)');
-        """)
-        let environment = ["HERMES_HOME": root.path]
-
-        var unique = CmuxVaultPersistedSessionResolver()
-        unique.registerFreshProcess(store: .hermesStateDB, environment: environment, cwd: repo.path)
-        #expect(
-            unique.uniqueSessionID(
-                store: .hermesStateDB,
-                environment: environment,
-                cwd: repo.path
-            ) == "session-a"
-        )
-
-        var ambiguous = CmuxVaultPersistedSessionResolver()
-        ambiguous.registerFreshProcess(store: .hermesStateDB, environment: environment, cwd: repo.path)
-        ambiguous.registerFreshProcess(store: .hermesStateDB, environment: environment, cwd: repo.path)
-        #expect(
-            ambiguous.uniqueSessionID(
-                store: .hermesStateDB,
-                environment: environment,
-                cwd: repo.path
-            ) == nil
-        )
-
-        var disabled = CmuxVaultPersistedSessionResolver(allowsStoreReads: false)
-        disabled.registerFreshProcess(store: .hermesStateDB, environment: environment, cwd: repo.path)
-        #expect(
-            disabled.uniqueSessionID(
-                store: .hermesStateDB,
-                environment: environment,
-                cwd: repo.path
-            ) == nil
-        )
-    }
-
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-hermes-index-\(UUID().uuidString)", isDirectory: true)

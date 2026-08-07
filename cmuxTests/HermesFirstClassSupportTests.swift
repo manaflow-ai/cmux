@@ -252,8 +252,7 @@ struct HermesFirstClassSupportTests {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
             homeDirectory: fixture.root.path,
             fileManager: .default,
-            cachedRestorableAgentIndex: cached,
-            persistedSessionStoreReadsAllowed: false
+            cachedRestorableAgentIndex: cached
         )
         let revalidated = try #require(
             resumeIndexes.restorableAgentIndex.entry(

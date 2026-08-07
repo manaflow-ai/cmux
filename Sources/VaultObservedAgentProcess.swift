@@ -47,10 +47,45 @@ struct VaultObservedAgentProcess: Sendable {
     ///
     /// The installed launcher execs Python with `hermes-agent/hermes` as its script, so the
     /// first Hermes argument is not always at index one. Management subcommands such as
-    /// `gateway`, `doctor`, and `update` must not become resumable chat panes.
+    /// `gateway`, `doctor`, and `update`, plus one-shot query modes, must not become resumable
+    /// chat panes.
     var isInteractiveHermesAgentInvocation: Bool {
-        guard let command = firstHermesAgentPositionalArgument else { return true }
-        return command.compare("chat", options: [.caseInsensitive, .literal]) == .orderedSame
+        var index = hermesAgentArgumentStartIndex
+        var commandIndex: Int?
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if Self.isHermesOneShotOption(argument) {
+                return false
+            }
+            if argument == "--" {
+                let nextIndex = arguments.index(after: index)
+                commandIndex = nextIndex < arguments.endIndex ? nextIndex : nil
+                break
+            }
+            guard argument.hasPrefix("-") else {
+                commandIndex = index
+                break
+            }
+
+            let option = argument
+                .split(separator: "=", maxSplits: 1)
+                .first
+                .map(String.init) ?? argument
+            if !argument.contains("="), Self.hermesTopLevelOptionConsumesValue(option) {
+                index = min(index + 2, arguments.endIndex)
+            } else {
+                index += 1
+            }
+        }
+
+        guard let commandIndex else { return true }
+        let command = arguments[commandIndex]
+        guard command.compare("chat", options: [.caseInsensitive, .literal]) == .orderedSame else {
+            return false
+        }
+        return !arguments[arguments.index(after: commandIndex)...].contains { argument in
+            Self.isHermesChatQueryOption(argument)
+        }
     }
 
     var openCodeExecutableArgumentIndex: Int? {
@@ -88,29 +123,6 @@ struct VaultObservedAgentProcess: Sendable {
         }
     }
 
-    private var firstHermesAgentPositionalArgument: String? {
-        var index = hermesAgentArgumentStartIndex
-        while index < arguments.endIndex {
-            let argument = arguments[index]
-            if argument == "--" {
-                let nextIndex = arguments.index(after: index)
-                return nextIndex < arguments.endIndex ? arguments[nextIndex] : nil
-            }
-            guard argument.hasPrefix("-") else { return argument }
-
-            let option = argument
-                .split(separator: "=", maxSplits: 1)
-                .first
-                .map(String.init) ?? argument
-            if !argument.contains("="), Self.hermesTopLevelOptionConsumesValue(option) {
-                index = min(index + 2, arguments.endIndex)
-            } else {
-                index += 1
-            }
-        }
-        return nil
-    }
-
     private var hermesAgentArgumentStartIndex: Int {
         if let entrypointIndex = arguments.indices.first(where: {
             Self.argumentLooksLikeHermesAgentEntrypoint(arguments[$0])
@@ -137,6 +149,20 @@ struct VaultObservedAgentProcess: Sendable {
         default:
             return false
         }
+    }
+
+    private static func isHermesOneShotOption(_ argument: String) -> Bool {
+        argument == "-z"
+            || argument.hasPrefix("-z")
+            || argument == "--oneshot"
+            || argument.hasPrefix("--oneshot=")
+    }
+
+    private static func isHermesChatQueryOption(_ argument: String) -> Bool {
+        argument == "-q"
+            || argument.hasPrefix("-q")
+            || argument == "--query"
+            || argument.hasPrefix("--query=")
     }
 
     static func argumentLooksLikeOpenCode(_ argument: String) -> Bool {

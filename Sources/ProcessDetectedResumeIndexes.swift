@@ -17,8 +17,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil,
-        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        persistedSessionStoreReadsAllowed: Bool = true
+        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = if let maximumSnapshotAge {
@@ -28,7 +27,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
         }
         let restorableAgentIndex: RestorableAgentSessionIndex
         if let cachedRestorableAgentIndex {
-            restorableAgentIndex = cachedRestorableAgentIndex
+            restorableAgentIndex = cachedRestorableAgentIndex.revalidatingCachedProcesses(
+                against: processSnapshot
+            )
         } else {
             let registry = CmuxVaultAgentRegistry.load(
                 homeDirectory: homeDirectory,
@@ -38,8 +39,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
                 registry: registry,
                 fileManager: fileManager,
                 processSnapshot: processSnapshot,
-                capturedAt: capturedAt,
-                persistedSessionStoreReadsAllowed: persistedSessionStoreReadsAllowed
+                capturedAt: capturedAt
             )
             restorableAgentIndex = RestorableAgentSessionIndex.load(
                 homeDirectory: homeDirectory,

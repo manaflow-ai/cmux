@@ -21,10 +21,10 @@ extension CmuxVaultAgentRegistration {
         )
     }
 
-    /// The persisted-store source this exact cmux-owned registration may access.
+    /// The persisted-session semantics supported by this exact cmux-owned registration.
     ///
-    /// Keeping this separate from the decoded `sessionIdSource` prevents arbitrary custom Vault
-    /// registrations from pointing the scanner at a user's Hermes database.
+    /// Keeping this separate from the decoded `sessionIdSource` prevents a custom Vault
+    /// registration from claiming the built-in Hermes argument and indexing contract.
     var persistedSessionStoreCapability: CmuxVaultAgentPersistedSessionStore? {
         self == Self.builtInHermes ? .hermesStateDB : nil
     }

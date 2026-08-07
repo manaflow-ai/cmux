@@ -57,7 +57,6 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
-        persistedSessionStoreReadsAllowed: Bool = true,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
@@ -106,9 +105,6 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        var persistedSessionResolver = CmuxVaultPersistedSessionResolver(
-            allowsStoreReads: persistedSessionStoreReadsAllowed
-        )
         var candidates: [VaultAgentProcessCandidate] = []
         for process in scopedProcesses {
             guard let workspaceID = process.cmuxWorkspaceID,
@@ -126,15 +122,6 @@ extension RestorableAgentSessionIndex {
             let processRegistry = registryForWorkingDirectory(cwd)
             guard let registration = processRegistry.matchingRegistration(for: observed) else {
                 continue
-            }
-            if let cwd,
-               case .persistedStore(let store) = registration.sessionIdSource,
-               registration.persistedSessionStoreCapability == store {
-                persistedSessionResolver.registerFreshProcess(
-                    store: store,
-                    environment: observed.environment,
-                    cwd: cwd
-                )
             }
             candidates.append(VaultAgentProcessCandidate(
                 process: process,
@@ -157,8 +144,7 @@ extension RestorableAgentSessionIndex {
                       from: observed,
                       registration: registration,
                       cwd: cwd,
-                      fileManager: fileManager,
-                      persistedSessionResolver: &persistedSessionResolver
+                      fileManager: fileManager
                   ) else {
                 continue
             }
@@ -717,8 +703,7 @@ private extension CmuxVaultAgentSessionIDSource {
         from process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration,
         cwd: String?,
-        fileManager: FileManager,
-        persistedSessionResolver: inout CmuxVaultPersistedSessionResolver
+        fileManager: FileManager
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
@@ -764,23 +749,15 @@ private extension CmuxVaultAgentSessionIDSource {
             guard registration.persistedSessionStoreCapability == store else {
                 return nil
             }
-            if let explicitSessionID = store.explicitSessionID(arguments: process.arguments) {
-                return VaultAgentSessionIDResolution(
-                    sessionId: explicitSessionID,
-                    source: .explicit
-                )
-            }
-            guard let cwd,
-                  let sessionID = persistedSessionResolver.uniqueSessionID(
-                      store: store,
-                      environment: process.environment,
-                      cwd: cwd
-                  ) else {
+            guard let explicitSessionID = store.explicitSessionID(arguments: process.arguments) else {
+                // Fresh Hermes sessions are bound by the on_session_start hook. A cwd-only
+                // state.db row cannot prove ownership of this process and must fail closed.
                 return nil
             }
-            // A persisted-store result is emitted only for a unique active row and unique live
-            // process owner, so it is authoritative rather than a fuzzy "latest file" guess.
-            return VaultAgentSessionIDResolution(sessionId: sessionID, source: .explicit)
+            return VaultAgentSessionIDResolution(
+                sessionId: explicitSessionID,
+                source: .explicit
+            )
         }
     }
 }
