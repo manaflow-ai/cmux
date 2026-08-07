@@ -549,7 +549,7 @@ struct SidebarDevFooter: View {
 }
 #endif
 
-/// Window dragging from empty sidebar space.
+/// Coordinates window dragging from empty sidebar space.
 ///
 /// Tracking runs synchronously from `mouseDown` with `nextEvent(matching:)`,
 /// the same shape as ``SidebarDividerTrackingView``, rather than through an
@@ -558,35 +558,41 @@ struct SidebarDevFooter: View {
 /// calls it never receives the event that would drive it back to `.possible`:
 /// it stays parked in a terminal state, `reset()` never runs, and it silently
 /// stops recognizing for the rest of the window's life.
-enum SidebarEmptyAreaWindowDrag {
-    /// Pointer travel, in window points, before a press becomes a window drag.
-    /// Below this a press stays a click so selection and menus are unaffected.
-    static let dragThreshold: CGFloat = 4
+@MainActor
+struct SidebarEmptyAreaWindowDragController {
+    private let dragThreshold: CGFloat
+    private let nextEvent: (NSWindow) -> NSEvent?
 
-    /// Production event pump: block in `.eventTracking` until the press
+    /// Creates a controller with its pointer threshold and event source.
+    ///
+    /// The default event source blocks in `.eventTracking` until the press
     /// resolves into either movement or a mouse-up.
-    @MainActor
-    static func pumpTrackingEvent(from window: NSWindow) -> NSEvent? {
-        window.nextEvent(
-            matching: [.leftMouseDragged, .leftMouseUp],
-            until: .distantFuture,
-            inMode: .eventTracking,
-            dequeue: true
-        )
+    init(
+        dragThreshold: CGFloat = 4,
+        nextEvent: @escaping (NSWindow) -> NSEvent? = { window in
+            window.nextEvent(
+                matching: [.leftMouseDragged, .leftMouseUp],
+                until: .distantFuture,
+                inMode: .eventTracking,
+                dequeue: true
+            )
+        }
+    ) {
+        self.dragThreshold = dragThreshold
+        self.nextEvent = nextEvent
     }
 
     /// Consumes `event` as a window drag when the press turns into one.
     ///
     /// Returns `true` when the window was dragged and the caller must not run
     /// its normal `mouseDown` handling. Returns `false` for a press that never
-    /// passed ``dragThreshold``, having pushed the terminating mouse-up back
-    /// onto the queue first — `NSTableView`'s own `mouseDown` tracking loop
-    /// waits for that event, and swallowing it would hang the click.
-    @MainActor
-    static func perform(
+    /// passed the configured drag threshold, having pushed the terminating
+    /// mouse-up back onto the queue first — `NSTableView`'s own `mouseDown`
+    /// tracking loop waits for that event, and swallowing it would hang the
+    /// click.
+    func perform(
         with event: NSEvent,
-        in view: NSView,
-        nextEvent: (NSWindow) -> NSEvent? = pumpTrackingEvent
+        in view: NSView
     ) -> Bool {
         guard let window = view.window else { return false }
         guard !isWindowDragSuppressed(window: window) else { return false }
@@ -618,21 +624,27 @@ enum SidebarEmptyAreaWindowDrag {
 /// Presses that turn into drags move the window; presses that do not fall
 /// through to normal handling untouched.
 private final class SidebarEmptyAreaWindowDragNSView: NSView {
+    private let windowDragController = SidebarEmptyAreaWindowDragController()
+
+    /// Routes single presses through threshold-based window dragging.
     override func mouseDown(with event: NSEvent) {
         guard event.clickCount == 1 else {
             super.mouseDown(with: event)
             return
         }
-        if SidebarEmptyAreaWindowDrag.perform(with: event, in: self) { return }
+        if windowDragController.perform(with: event, in: self) { return }
         super.mouseDown(with: event)
     }
 }
 
+/// Hosts the compact sidebar's native empty-area drag target in SwiftUI.
 private struct SidebarEmptyAreaWindowDragView: NSViewRepresentable {
+    /// Creates the AppKit hit target used by the compact sidebar empty area.
     func makeNSView(context: Context) -> NSView {
         SidebarEmptyAreaWindowDragNSView()
     }
 
+    /// The hit target has no SwiftUI state to synchronize after creation.
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
