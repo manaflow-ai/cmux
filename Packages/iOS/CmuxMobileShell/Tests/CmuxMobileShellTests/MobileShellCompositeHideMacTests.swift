@@ -69,6 +69,55 @@ import Testing
         #expect(store.workspaceListConnectionStatus == .connected)
     }
 
+    @Test func laterUnhideWinsWhenEarlierHidePersistenceFinishesLast() async throws {
+        let hiddenStore = DelayedFirstHidePairedMacHiddenStore()
+        let pairedStore = DelayedTeamPairedMacStore(
+            recordsByTeam: [
+                "team-a": [
+                    try Self.pairedMac(
+                        id: "mac-a",
+                        displayName: "Desk Mac",
+                        host: "100.82.214.112",
+                        lastSeenAt: Date(timeIntervalSince1970: 10),
+                        isActive: false
+                    ),
+                ],
+            ],
+            blockedTeams: []
+        )
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            teamIDProvider: { "team-a" },
+            hiddenMacStore: hiddenStore
+        )
+        await store.loadPairedMacs()
+        let computer = try #require(store.pairedMacs.first)
+        let scope = try #require(await store.currentScopeSnapshot())
+        let scopeKey = store.pairedMacScopeKey(scope)
+
+        let hideTask = Task { @MainActor in
+            await store.hideStoredPairedMacEntries(
+                representativeID: computer.id,
+                aliasIDs: [computer.id]
+            )
+        }
+        await hiddenStore.waitForDelayedHideSave()
+
+        await store.unhideMacDeviceID(
+            computer.macDeviceID,
+            instanceTag: computer.instanceTag
+        )
+        await hiddenStore.releaseDelayedHideSave()
+        await hideTask.value
+
+        #expect(
+            await hiddenStore.load(scope: scopeKey).isEmpty,
+            "The later show request must remain durable after relaunch."
+        )
+    }
+
     @Test func rawDeviceIDMarkerMatchingExistingRowSurvivesMigration() async throws {
         let defaultsSuiteName = "hidden-marker-hint-migration-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
@@ -895,5 +944,53 @@ import Testing
         try MobileNotificationFeedListResponse.decode(Data(
             #"{"revision":\#(revision),"notifications":[{"id":"\#(id)","workspace_id":"workspace","title":"Title","body":"Body","created_at":100,"is_read":false}]}"#.utf8
         ))
+    }
+}
+
+private actor DelayedFirstHidePairedMacHiddenStore: PairedMacHiddenStoring {
+    private var idsByScope: [String: Set<String>] = [:]
+    private var didDelayHideSave = false
+    private var hideSaveStarted = false
+    private var hideSaveStartWaiters: [CheckedContinuation<Void, Never>] = []
+    private var hideSaveRelease: CheckedContinuation<Void, Never>?
+
+    func load(scope: String) async -> Set<String> {
+        idsByScope[scope] ?? []
+    }
+
+    func save(_ ids: Set<String>, scope: String) async {
+        if !didDelayHideSave, !ids.isEmpty {
+            didDelayHideSave = true
+            hideSaveStarted = true
+            let waiters = hideSaveStartWaiters
+            hideSaveStartWaiters = []
+            for waiter in waiters {
+                waiter.resume()
+            }
+            await withCheckedContinuation { continuation in
+                hideSaveRelease = continuation
+            }
+        }
+        if ids.isEmpty {
+            idsByScope.removeValue(forKey: scope)
+        } else {
+            idsByScope[scope] = ids
+        }
+    }
+
+    func removeAll() async {
+        idsByScope.removeAll()
+    }
+
+    func waitForDelayedHideSave() async {
+        guard !hideSaveStarted else { return }
+        await withCheckedContinuation { continuation in
+            hideSaveStartWaiters.append(continuation)
+        }
+    }
+
+    func releaseDelayedHideSave() {
+        hideSaveRelease?.resume()
+        hideSaveRelease = nil
     }
 }
