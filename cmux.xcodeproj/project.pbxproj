@@ -2650,6 +2650,7 @@
 		C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */; };
 		9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9612B0010000000000000001 /* TerminalPortalReconciliation.swift */; };
 		D0F101000000000000000003 /* TerminalRawMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000013 /* TerminalRawMode.swift */; };
+		873900010000000000000001 /* TerminalPointerStyleViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 873900010000000000000002 /* TerminalPointerStyleViewTests.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
 		D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */; };
 		862C77A9D235803A22B715B5 /* TerminalSearchNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = E62F3D413D19EEA3E96B1271 /* TerminalSearchNavigation.swift */; };
@@ -5635,6 +5636,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicyTests.swift; sourceTree = "<group>"; };
 		9612B0010000000000000001 /* TerminalPortalReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliation.swift; sourceTree = "<group>"; };
 		D0F101000000000000000013 /* TerminalRawMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRawMode.swift; sourceTree = "<group>"; };
+		873900010000000000000002 /* TerminalPointerStyleViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerStyleViewTests.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
 		D5671102D5671102D5671102 /* TerminalScrollSpeedSettingsFileStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalScrollSpeedSettingsFileStoreTests.swift; sourceTree = "<group>"; };
 		E62F3D413D19EEA3E96B1271 /* TerminalSearchNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Find/TerminalSearchNavigation.swift; sourceTree = "<group>"; };
@@ -8593,6 +8595,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				AA5269A0C0DE0003FACE0003 /* ForeignFirstResponderPolicyTests.swift */,
 				F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */,
 				C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */,
+				873900010000000000000002 /* TerminalPointerStyleViewTests.swift */,
 				FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */,
 				A5008380 /* BrowserFindJavaScriptTests.swift */,
 				C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
@@ -12481,6 +12484,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
 				C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */,
+				873900010000000000000001 /* TerminalPointerStyleViewTests.swift in Sources */,
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				222425EC9FE2E318D8F6F46A /* TerminalSearchNavigationTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
