@@ -234,7 +234,8 @@ enum ClaudeHookLiveDeliveryHarness {
         workspaceId: String,
         surfaceId: String,
         cwd: String,
-        pid: Int? = nil
+        pid: Int? = nil,
+        markActive: Bool = false
     ) throws {
         let now = Date().timeIntervalSince1970
         var record: [String: Any] = [
@@ -247,10 +248,18 @@ enum ClaudeHookLiveDeliveryHarness {
             "updatedAt": now,
         ]
         if let pid { record["pid"] = pid }
-        let store: [String: Any] = [
+        var store: [String: Any] = [
             "version": 1,
             "sessions": [sessionId: record],
         ]
+        if markActive {
+            let active: [String: Any] = [
+                "sessionId": sessionId,
+                "updatedAt": now,
+            ]
+            store["activeSessionsByWorkspace"] = [workspaceId: active]
+            store["activeSessionsBySurface"] = [surfaceId: active]
+        }
         let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: storeURL)
     }

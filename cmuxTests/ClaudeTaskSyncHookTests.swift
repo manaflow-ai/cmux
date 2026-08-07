@@ -302,7 +302,7 @@ struct ClaudeTaskSyncHookTests {
         #expect(record["claudeTaskDirectoryName"] == nil)
     }
 
-    @Test("Configured shared task lists keep one identity across sessions and nested agents")
+    @Test("Configured shared task lists keep one identity while the leader remains active")
     func usesConfiguredSharedTaskListIdentity() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-shared")
         defer { context.cleanup() }
@@ -329,6 +329,14 @@ struct ClaudeTaskSyncHookTests {
         environment["CMUX_SURFACE_ID"] = surfaceId
         environment["CLAUDE_CODE_TASK_LIST_ID"] = taskListID
         let leaderSessionId = "shared-list-leader"
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: leaderSessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
         let leaderResult = runHook(
             context: context,
             environment: environment,
