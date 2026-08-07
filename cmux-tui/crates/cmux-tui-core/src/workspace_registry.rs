@@ -659,7 +659,7 @@ fn pending_session_reset_dirs(
 }
 
 fn workspace_state_root_exists(root: &Path) -> anyhow::Result<bool> {
-    let metadata = match fs::metadata(root) {
+    let metadata = match fs::symlink_metadata(root) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => {
@@ -667,6 +667,9 @@ fn workspace_state_root_exists(root: &Path) -> anyhow::Result<bool> {
                 .with_context(|| format!("inspect workspace state root {}", root.display()));
         }
     };
+    if metadata.file_type().is_symlink() {
+        anyhow::bail!("workspace state root must not be a symbolic link: {}", root.display());
+    }
     if !metadata.file_type().is_dir() {
         anyhow::bail!("workspace state root is not a directory: {}", root.display());
     }
@@ -961,7 +964,12 @@ fn collect_reset_path_fingerprints(
     entries.push(format!(
         "{}={}",
         relative_path.display(),
-        reset_path_fingerprint(path, &metadata, budget)?
+        reset_path_fingerprint(
+            path,
+            &metadata,
+            budget,
+            ignore_terminal_host_publication_lock && relative_path == Path::new("."),
+        )?
     ));
     if !metadata.file_type().is_dir() {
         return Ok(());
@@ -1497,13 +1505,30 @@ fn reset_path_fingerprint(
     path: &Path,
     metadata: &fs::Metadata,
     budget: &mut ResetFingerprintBudget,
+    stable_directory_identity: bool,
 ) -> anyhow::Result<String> {
-    let mut fingerprint = reset_metadata_fingerprint(metadata);
+    let mut fingerprint = if stable_directory_identity && metadata.file_type().is_dir() {
+        reset_stable_directory_identity_fingerprint(metadata)
+    } else {
+        reset_metadata_fingerprint(metadata)
+    };
     if metadata.file_type().is_file() {
         fingerprint.push_str(";sha256=");
         fingerprint.push_str(&reset_file_content_sha256(path, metadata, budget)?);
     }
     Ok(fingerprint)
+}
+
+#[cfg(unix)]
+fn reset_stable_directory_identity_fingerprint(metadata: &fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+
+    format!("dir:dev={},ino={},uid={}", metadata.dev(), metadata.ino(), metadata.uid())
+}
+
+#[cfg(not(unix))]
+fn reset_stable_directory_identity_fingerprint(metadata: &fs::Metadata) -> String {
+    reset_metadata_fingerprint(metadata)
 }
 
 fn reset_metadata_fingerprint(metadata: &fs::Metadata) -> String {

@@ -354,6 +354,30 @@ fn reset_errors_when_state_root_cannot_be_inspected() {
 
 #[cfg(unix)]
 #[test]
+fn reset_rejects_symlinked_state_root() {
+    use std::os::unix::fs::symlink;
+
+    let real_root = temp_root("reset-symlink-real-root");
+    let linked_root = temp_root("reset-symlink-linked-root");
+    let session = "reset-symlinked-state-root";
+    let resetter = PersistentSessionStateResetter::new(linked_root.clone());
+    let session_dir = real_root.join(session_storage_component(session));
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    symlink(&real_root, &linked_root).unwrap();
+
+    let preview_error = resetter.preview(session).unwrap_err();
+    let reset_error = resetter.reset(session, Some("unused")).unwrap_err();
+
+    assert!(preview_error.to_string().contains("workspace state root must not be a symbolic link"));
+    assert!(reset_error.to_string().contains("workspace state root must not be a symbolic link"));
+    assert!(session_dir.exists(), "reset touched the symlink target");
+    fs::remove_file(linked_root).unwrap();
+    fs::remove_dir_all(real_root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn terminal_host_reset_holds_structured_live_marker_lock() {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 

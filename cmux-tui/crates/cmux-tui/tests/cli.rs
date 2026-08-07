@@ -1136,7 +1136,7 @@ fn session_reset_state_rejects_symlinked_terminal_host_state() {
 
 #[cfg(unix)]
 #[test]
-fn session_reset_state_accepts_symlinked_state_root() {
+fn session_reset_state_rejects_symlinked_state_root() {
     let dir = unique_temp_dir("session-reset-symlink-root");
     fs::create_dir_all(&dir).unwrap();
     let actual_state = dir.join("actual-state");
@@ -1158,10 +1158,9 @@ fn session_reset_state_accepts_symlinked_state_root() {
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();
-    assert_success(&preview);
-    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
-    assert_eq!(preview["state_root"], state.display().to_string());
-    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+    assert!(!preview.status.success(), "preview accepted a symlinked state root");
+    let preview_error: serde_json::Value = serde_json::from_slice(&preview.stderr).unwrap();
+    assert_eq!(preview_error["code"], "session.reset_state.filesystem");
 
     let reset = Command::new(bin())
         .args([
@@ -1171,19 +1170,18 @@ fn session_reset_state_accepts_symlinked_state_root() {
             "reset-state",
             "--force",
             "--confirm-reset",
-            confirm_reset,
+            "unused",
             "--state",
         ])
         .arg(&state)
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();
-    assert_success(&reset);
-    let reset: serde_json::Value = serde_json::from_slice(&reset.stdout).unwrap();
-    assert_eq!(reset["removed_session_state"], true);
-    assert_eq!(reset["removed_terminal_hosts"], true);
-    assert!(!database.exists(), "reset left stale database");
-    assert!(!host_root.exists(), "reset left stale terminal-host state");
+    assert!(!reset.status.success(), "reset accepted a symlinked state root");
+    let reset_error: serde_json::Value = serde_json::from_slice(&reset.stderr).unwrap();
+    assert_eq!(reset_error["code"], "session.reset_state.filesystem");
+    assert!(database.exists(), "reset removed stale database through symlinked state root");
+    assert!(host_root.exists(), "reset removed terminal-host state through symlinked state root");
     assert!(fs::symlink_metadata(&state).unwrap().file_type().is_symlink());
     assert!(actual_state.join("root-sentinel").exists(), "reset removed root sibling data");
 

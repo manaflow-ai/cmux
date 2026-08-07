@@ -3584,22 +3584,15 @@ mod unix {
     pub(crate) fn acquire_terminal_host_reset_lock(
         root: &Path,
     ) -> anyhow::Result<Option<TerminalHostResetLock>> {
+        prepare_terminal_host_publication_lock(root)?;
         let path = terminal_host_publication_lock_path(root);
-        let file = match OpenOptions::new()
+        let file = OpenOptions::new()
             .read(true)
             .write(true)
             .mode(0o600)
             .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
             .open(&path)
-        {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!("open terminal-host publication lock {}", path.display())
-                });
-            }
-        };
+            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
         validate_terminal_host_publication_lock(root, &path, &file)?;
         lock_terminal_host_publication_file(&file, libc::LOCK_EX | libc::LOCK_NB).with_context(
             || format!("terminal host state has live or unverified hosts: {}", root.display()),
@@ -5720,6 +5713,46 @@ mod unix {
             let reset_lock = acquire_terminal_host_reset_lock(&root).unwrap();
             assert!(reset_lock.is_some());
             drop(reset_lock);
+            let _ = fs::remove_dir_all(root);
+        }
+
+        #[test]
+        fn reset_lock_prepares_missing_publication_lock() {
+            use std::os::fd::AsRawFd;
+            use std::os::unix::fs::OpenOptionsExt;
+
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-reset-prepares-publication-lock-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            prepare_private_dir(&root).unwrap();
+            assert!(!terminal_host_publication_lock_path(&root).exists());
+
+            let reset_lock = acquire_terminal_host_reset_lock(&root).unwrap();
+
+            assert!(reset_lock.is_some());
+            let publication_lock = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+                .open(terminal_host_publication_lock_path(&root))
+                .unwrap();
+            // SAFETY: flock only observes the advisory lock on this valid test descriptor.
+            assert_ne!(
+                unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+                0,
+                "publication reservation should be blocked while reset holds the lock"
+            );
+            drop(reset_lock);
+            // SAFETY: flock only observes the advisory lock on this valid test descriptor.
+            assert_eq!(
+                unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_SH | libc::LOCK_NB) },
+                0
+            );
+            // SAFETY: flock only changes the advisory lock on this valid test descriptor.
+            let _ = unsafe { libc::flock(publication_lock.as_raw_fd(), libc::LOCK_UN) };
+            drop(publication_lock);
             let _ = fs::remove_dir_all(root);
         }
 
