@@ -18,7 +18,7 @@ extension PaneDropTargetView {
                   filePreviewPanel.previewMode == .text else { return nil }
             return .editor
         case .browser, .markdown, .rightSidebarTool, .customSidebar, .simulator,
-             .agentSession, .project, .extensionBrowser, .workspaceTodo, .cloudVMLoading,
+             .agentSession, .project, .extensionBrowser, .workspaceTodo, .notifications, .cloudVMLoading,
              .mobilePairing, .accountSignIn:
             return nil
         }
