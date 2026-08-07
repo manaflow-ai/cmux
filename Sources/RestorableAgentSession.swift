@@ -329,13 +329,34 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool = true,
         observedPermissionMode: String? = nil
     ) -> String? {
+        resumeShellCommand(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            resolvedWorkingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            registrationOverride: registrationOverride,
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            observedPermissionMode: observedPermissionMode
+        )
+    }
+
+    /// Builds a resume command after the caller has applied its cwd fallback policy.
+    static func resumeShellCommand(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        resolvedWorkingDirectory: String?,
+        registrationOverride: CmuxVaultAgentRegistration? = nil,
+        includeWorkingDirectoryPrefix: Bool = true,
+        observedPermissionMode: String? = nil
+    ) -> String? {
         let customRegistration = registrationOverride
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let argv = resumeArguments(
                   kind: kind,
                   sessionId: sessionId,
                   launchCommand: launchCommand,
-                  workingDirectory: workingDirectory,
+                  workingDirectory: resolvedWorkingDirectory,
                   customRegistration: customRegistration,
                   observedPermissionMode: observedPermissionMode
               ),
@@ -347,7 +368,7 @@ enum AgentResumeCommandBuilder {
             argv: argv,
             kind: kind,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
         )
@@ -363,12 +384,13 @@ enum AgentResumeCommandBuilder {
         observedPermissionMode: String? = nil
     ) -> String? {
         let customRegistration = registrationOverride
+        let resolvedWorkingDirectory = workingDirectory ?? launchCommand?.workingDirectory
         guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
                   launchCommand: launchCommand,
-                  workingDirectory: workingDirectory,
+                  workingDirectory: resolvedWorkingDirectory,
                   customRegistration: customRegistration,
                   observedPermissionMode: observedPermissionMode
               ),
@@ -380,7 +402,7 @@ enum AgentResumeCommandBuilder {
             argv: argv,
             kind: kind,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
         )
@@ -404,7 +426,7 @@ enum AgentResumeCommandBuilder {
 
         let cwd = customRegistration?.cwd == .ignore
             ? nil
-            : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+            : normalized(workingDirectory)
         let workingDirectoriesToRemove = [
             cwd,
             normalized(launchCommand?.workingDirectory),
@@ -650,7 +672,7 @@ enum AgentResumeCommandBuilder {
             "sessionId": sessionId,
             "sessionPath": sessionId,
             "executable": original.executable,
-            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
+            "cwd": normalized(workingDirectory) ?? "",
             "sessionDir": sessionDirectory ?? "",
         ]
         var resolved: [String] = []
@@ -793,7 +815,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
             customRegistration: registration,
             observedPermissionMode: observedPermissionMode
         )
@@ -803,6 +825,16 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         useLocalRestoreVerb: Bool = true,
         restoringWorkingDirectory: String? = nil
     ) -> String? {
+        resumeStartupInput(
+            useLocalRestoreVerb: useLocalRestoreVerb,
+            workingDirectorySelection: .recordedFallback(preferred: restoringWorkingDirectory)
+        )
+    }
+
+    func resumeStartupInput(
+        useLocalRestoreVerb: Bool,
+        workingDirectorySelection: RestorableAgentWorkingDirectorySelection
+    ) -> String? {
         if useLocalRestoreVerb {
             let executable = AgentRestoreLaunch.cliStartupExecutableToken
             guard AgentRestoreCLIArgument(rawValue: kind.rawValue) != nil,
@@ -811,12 +843,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             }
             return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
         }
-        let effectiveWorkingDirectory = resumeWorkingDirectory(
-            preferred: restoringWorkingDirectory
-        )
+        let effectiveWorkingDirectorySelection = registration?.cwd == .ignore
+            ? RestorableAgentWorkingDirectorySelection.exact(nil)
+            : workingDirectorySelection
         let restoreCommand = resumeCommand(
             includeWorkingDirectoryPrefix: true,
-            restoringWorkingDirectory: effectiveWorkingDirectory
+            workingDirectorySelection: effectiveWorkingDirectorySelection
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
@@ -861,18 +893,6 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return nil
         }
         return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
-    }
-
-    private func resumeWorkingDirectory(preferred: String?) -> String? {
-        guard registration?.cwd != .ignore else { return nil }
-        for candidate in [preferred, workingDirectory, launchCommand?.workingDirectory] {
-            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !trimmed.isEmpty else {
-                continue
-            }
-            return trimmed
-        }
-        return nil
     }
 }
 
