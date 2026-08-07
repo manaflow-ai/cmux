@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 final class FilePreviewPDFSession {
     private let viewSession = PanelOwnedNativeViewSession(
-        makeView: FilePreviewPDFContainerView.init,
+        makeView: { FilePreviewPDFContainerView(frame: .zero) },
         closeView: { $0.close() }
     )
 
