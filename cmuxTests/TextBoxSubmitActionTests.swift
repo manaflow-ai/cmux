@@ -191,7 +191,7 @@ struct TextBoxSubmitActionTests {
 
         XCTAssertEqual(
             plan.launchCommand,
-            "sh -c 'case \"$(pi --version 2>/dev/null)\" in 0.8[4-9].*|0.9[0-9].*|[1-9]*.*) exec pi --session-id \"$1\" -- \"$2\" ;; *) exec pi -- \"$2\" ;; esac' sh 'cmux-12345678-1234-1234-1234-123456789ABC' 'keep this session'"
+            "sh -c 'case \"$(pi --version 2>/dev/null)\" in 0.8[4-9].*|0.9[0-9].*|[1-9]*.*) exec pi --session-id \"$1\" \"$2\" ;; *) exec pi \"$2\" ;; esac' sh 'cmux-12345678-1234-1234-1234-123456789ABC' 'keep this session'"
         )
     }
 
@@ -414,7 +414,7 @@ struct TextBoxSubmitActionTests {
 
         XCTAssertTrue(template.contains(#""commandTemplate" : "codex --yolo -- {{prompt}}""#))
         XCTAssertTrue(template.contains(#""commandTemplate" : "opencode --prompt {{prompt}}""#))
-        XCTAssertTrue(template.contains(#""commandTemplate" : "pi -- {{prompt}}""#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "pi {{prompt}}""#))
         XCTAssertFalse(template.contains(#""preservePromptAfterLaunch" : true"#))
     }
 
