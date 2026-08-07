@@ -4100,7 +4100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let routes = orderedSessionRouteSnapshots()
         hasher.combine(routes.count)
 
-        for route in routes.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+        // Snapshot construction can skip remote-mirror-only or crash-diagnostic
+        // routes before reaching its cap. Hash every route so whichever windows
+        // fill the persisted set are covered by the autosave fingerprint.
+        for route in routes {
             hasher.combine(route.windowId)
             hasher.combine(
                 route.tabManager.sessionAutosaveFingerprint(
@@ -4641,14 +4644,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWindowSnapshot {
         sessionWindowSnapshot(
-            for: MainWindowRouteSnapshot(
-                windowId: context.windowId,
-                tabManager: context.tabManager,
-                window: context.window ?? windowForMainWindowId(context.windowId),
-                sidebar: context.sidebarState,
-                sidebarSelection: context.sidebarSelectionState,
-                dock: context.existingWindowDock().map { .live($0) }
-            ),
+            for: registeredMainWindowRouteSnapshot(for: context),
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
@@ -9140,7 +9136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         controller.onClose = { [weak self, weak controller] in
             guard let self, let controller else { return }
-            let manager = self.tabManagerFor(windowId: windowId)
+            let manager = self.tabManagerForWindowTeardown(windowId: windowId)
             // An explicit close of the window's LAST remote workspace (a tab/session
             // close) kills its remote session(s) — synced with tmux — even though it
             // also closes the app window. A plain window/quit close leaves the marker

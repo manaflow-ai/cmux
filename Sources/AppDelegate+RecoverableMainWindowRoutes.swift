@@ -97,7 +97,7 @@ extension AppDelegate {
         }
     }
 
-    private func registeredMainWindowRouteSnapshot(
+    func registeredMainWindowRouteSnapshot(
         for context: MainWindowContext
     ) -> MainWindowRouteSnapshot {
         MainWindowRouteSnapshot(
@@ -266,13 +266,14 @@ extension AppDelegate {
         if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
             return context.tabManager
         }
-        if let manager = recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager {
-            return manager
-        }
-        // Live-window consumers use mainWindowRouteSnapshot(windowId:). Keep the raw
-        // ledger fallback here so teardown bookkeeping can still resolve a
-        // lingering manager after its window orders out.
-        return mainWindowRouteLedger.routesByWindowId[windowId]?.tabManager
+        return recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager
+    }
+
+    /// Resolves a manager retained only for close bookkeeping. Live routing must
+    /// use `tabManagerFor(windowId:)` so teardown-only routes cannot receive work.
+    func tabManagerForWindowTeardown(windowId: UUID) -> TabManager? {
+        tabManagerFor(windowId: windowId)
+            ?? mainWindowRouteLedger.routesByWindowId[windowId]?.tabManager
     }
 
     func windowId(for tabManager: TabManager) -> UUID? {

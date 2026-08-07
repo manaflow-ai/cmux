@@ -223,7 +223,8 @@ struct ClosedMainWindowRoutingTests {
 
         #expect(closingWindow.isVisible)
         #expect(!app.listMainWindowSummaries().contains { $0.windowId == closingWindowId })
-        #expect(app.tabManagerFor(windowId: closingWindowId) === closingManager)
+        #expect(app.tabManagerFor(windowId: closingWindowId) == nil)
+        #expect(app.tabManagerForWindowTeardown(windowId: closingWindowId) === closingManager)
         let snapshot = try #require(app.sessionSnapshotForTesting())
         #expect(snapshot.windows.contains { $0.windowId == survivorWindowId })
         #expect(!snapshot.windows.contains { $0.windowId == closingWindowId })
@@ -256,16 +257,27 @@ struct ClosedMainWindowRoutingTests {
             fileExplorerState: FileExplorerState()
         )
         window.makeKeyAndOrderFront(nil)
-        let terminal = try #require(manager.selectedWorkspace?.focusedTerminalPanel)
+        let workspace = try #require(manager.selectedWorkspace)
+        let terminal = try #require(workspace.focusedTerminalPanel)
         #expect(GhosttyApp.terminalSurfaceRegistry.surface(id: terminal.id) === terminal.surface)
+        let expectedFrame = SessionRectSnapshot(window.frame)
+        let expectedDisplay = app.displaySnapshot(for: window)
 
         app.unregisterMainWindowContextForTesting(windowId: windowId)
         app.captureMainWindowVisibilityRestoreTargetsForApplicationHide()
+        #expect(app.mainWindowParticipatedBeforeApplicationHide(window))
         window.orderOut(nil)
 
         #expect(!window.isVisible)
+        #expect(app.mainWindowParticipatedBeforeApplicationHide(window))
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
-        #expect(app.sessionSnapshotForTesting()?.windows.contains { $0.windowId == windowId } == true)
+        let snapshot = try #require(app.sessionSnapshotForTesting())
+        let recoveredWindowSnapshot = try #require(
+            snapshot.windows.first { $0.windowId == windowId }
+        )
+        #expect(recoveredWindowSnapshot.frame == expectedFrame)
+        #expect(recoveredWindowSnapshot.display == expectedDisplay)
+        #expect(recoveredWindowSnapshot.tabManager.workspaces.compactMap(\.workspaceId) == [workspace.id])
     }
 
     @Test("Recovered visible window stays in the session snapshot")
@@ -327,12 +339,18 @@ struct ClosedMainWindowRoutingTests {
         #expect(app.listMainWindowSummaries().contains { $0.windowId == recoveredWindowId })
         #expect(app.existingWindowDock(forWindowId: recoveredWindowId) == nil)
         let snapshot = try #require(app.sessionSnapshotForTesting())
+        let snapshotWindowIds = snapshot.windows.compactMap(\.windowId)
+        let snapshotWorkspaceIds = snapshot.windows
+            .flatMap(\.tabManager.workspaces)
+            .compactMap(\.workspaceId)
+        #expect(snapshotWindowIds.count == 2)
+        #expect(snapshotWorkspaceIds.count == 2)
         #expect(
-            Set(snapshot.windows.compactMap(\.windowId))
+            Set(snapshotWindowIds)
                 == Set([registeredWindowId, recoveredWindowId])
         )
         #expect(
-            Set(snapshot.windows.flatMap(\.tabManager.workspaces).compactMap(\.workspaceId))
+            Set(snapshotWorkspaceIds)
                 == Set([registeredWorkspace.id, recoveredWorkspace.id])
         )
         let recoveredWindowSnapshot = try #require(
