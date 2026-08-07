@@ -48,7 +48,7 @@ import json
 import pathlib
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 # ---------------------------------------------------------------------------
@@ -293,73 +293,235 @@ _HOST_PORT_TUPLE = re.compile(
 # ---------------------------------------------------------------------------
 
 
-def _strip_comment(line: str, path_suffix: str) -> str:
-    """Best-effort removal of trailing line comments so we don't flag comments.
-
-    Conservative: only strips when the comment marker is clearly not inside a
-    string by a cheap heuristic (even count of quotes before it).
-    """
-    markers = ["#"] if path_suffix in (".py", ".sh") else ["//"]
-    out = line
-    for marker in markers:
-        idx = out.find(marker)
-        while idx != -1:
-            prefix = out[:idx]
-            if prefix.count('"') % 2 == 0 and prefix.count("'") % 2 == 0:
-                out = prefix
-                break
-            idx = out.find(marker, idx + len(marker))
-    return out
-
-
 def _is_assertion_line(line: str) -> bool:
     return bool(_ASSERT_TOKEN.search(line) or _RAISE_IF.search(line))
 
 
 @dataclass
-class _QuotedLiteralMaskState:
-    """Lexical state carried across lines while masking string fixtures."""
+class _LexicalFrame:
+    """One nested string or executable-interpolation context."""
 
+    kind: str
     quote: Optional[str] = None
+    interpolation: Optional[str] = None
+    terminator: Optional[str] = None
+    depth: int = 0
     escaped: bool = False
 
 
-def _quoted_literal_delimiters(path_suffix: str) -> tuple[str, ...]:
-    """Return string delimiters that are inert for the source language."""
+@dataclass
+class _SourceLexState:
+    """Source-language lexical state shared by consecutive lines."""
+
+    frames: list[_LexicalFrame] = field(default_factory=list)
+    in_block_comment: bool = False
+
+
+def _python_string_prefix(line: str, quote_index: int) -> str:
+    """Return a valid Python string prefix immediately before a quote."""
+    start = quote_index
+    while start > 0 and line[start - 1].isalpha() and quote_index - start < 3:
+        start -= 1
+    prefix = line[start:quote_index].lower()
+    if not prefix or any(character not in "bfru" for character in prefix):
+        return ""
+    if start > 0 and (line[start - 1].isalnum() or line[start - 1] == "_"):
+        return ""
+    return prefix
+
+
+def _string_literal_at(
+    line: str,
+    index: int,
+    path_suffix: str,
+) -> Optional[tuple[str, Optional[str]]]:
+    """Return the delimiter and interpolation kind for a string opener."""
+    character = line[index]
     if path_suffix in (".ts", ".tsx", ".js", ".mjs"):
-        return ("'", '"', "`")
-    if path_suffix in (".py", ".sh"):
-        # Backticks execute command substitutions in shell and are not Python
-        # string delimiters, so they must remain visible to network detectors.
-        return ("'", '"')
-    if path_suffix == ".swift":
-        return ('"',)
-    return ("'", '"')
+        if character in ("'", '"'):
+            return (character, None)
+        if character == "`":
+            return (character, "javascript")
+        return None
+    if path_suffix == ".py":
+        if character not in ("'", '"'):
+            return None
+        delimiter = character * 3 if line.startswith(character * 3, index) else character
+        interpolation = "python" if "f" in _python_string_prefix(line, index) else None
+        return (delimiter, interpolation)
+    if path_suffix == ".sh":
+        if character == "'":
+            return (character, None)
+        if character == '"':
+            return (character, "shell")
+        return None
+    if path_suffix == ".swift" and character == '"':
+        delimiter = '"""' if line.startswith('"""', index) else character
+        return (delimiter, "swift")
+    return None
 
 
-def _mask_quoted_literals(
+def _lex_source_line(
     line: str,
     path_suffix: str,
-    state: _QuotedLiteralMaskState,
-) -> str:
-    """Blank inert quoted contents while retaining executable token positions."""
-    masked = list(line)
-    delimiters = _quoted_literal_delimiters(path_suffix)
-    for index, character in enumerate(line):
-        if state.quote is None:
-            if character in delimiters:
-                state.quote = character
-                masked[index] = " "
+    state: _SourceLexState,
+) -> tuple[str, str]:
+    """Strip comments and mask inert literal text in one source-aware pass."""
+    comment_stripped = list(line)
+    executable = list(line)
+    index = 0
+
+    while index < len(line):
+        if state.in_block_comment:
+            comment_end = line.find("*/", index)
+            if comment_end == -1:
+                comment_stripped[index:] = [" "] * (len(line) - index)
+                executable[index:] = [" "] * (len(line) - index)
+                break
+            end_index = comment_end + 2
+            comment_stripped[index:end_index] = [" "] * (end_index - index)
+            executable[index:end_index] = [" "] * (end_index - index)
+            state.in_block_comment = False
+            index = end_index
             continue
 
-        masked[index] = " "
-        if state.escaped:
-            state.escaped = False
-        elif character == "\\":
-            state.escaped = True
-        elif character == state.quote:
-            state.quote = None
-    return "".join(masked)
+        frame = state.frames[-1] if state.frames else None
+        if frame is not None and frame.kind == "string":
+            if frame.escaped:
+                executable[index] = " "
+                frame.escaped = False
+                index += 1
+                continue
+
+            if frame.interpolation == "swift" and line.startswith("\\(", index):
+                executable[index:index + 2] = [" ", " "]
+                state.frames.append(_LexicalFrame(kind="code", terminator=")", depth=1))
+                index += 2
+                continue
+            if frame.interpolation == "shell" and line.startswith("$(", index):
+                executable[index:index + 2] = [" ", " "]
+                state.frames.append(_LexicalFrame(kind="code", terminator=")", depth=1))
+                index += 2
+                continue
+            if frame.interpolation == "shell" and line[index] == "`":
+                executable[index] = " "
+                state.frames.append(_LexicalFrame(kind="code", terminator="`"))
+                index += 1
+                continue
+            if frame.interpolation == "javascript" and line.startswith("${", index):
+                executable[index:index + 2] = [" ", " "]
+                state.frames.append(_LexicalFrame(kind="code", terminator="}", depth=1))
+                index += 2
+                continue
+            if frame.interpolation == "python" and line.startswith("{{", index):
+                executable[index:index + 2] = [" ", " "]
+                index += 2
+                continue
+            if frame.interpolation == "python" and line.startswith("}}", index):
+                executable[index:index + 2] = [" ", " "]
+                index += 2
+                continue
+            if frame.interpolation == "python" and line[index] == "{":
+                executable[index] = " "
+                state.frames.append(_LexicalFrame(kind="code", terminator="}", depth=1))
+                index += 1
+                continue
+
+            delimiter = frame.quote or ""
+            if delimiter and line.startswith(delimiter, index):
+                end_index = index + len(delimiter)
+                executable[index:end_index] = [" "] * len(delimiter)
+                state.frames.pop()
+                index = end_index
+                continue
+
+            executable[index] = " "
+            if line[index] == "\\" and not (
+                path_suffix == ".sh" and frame.quote == "'"
+            ):
+                frame.escaped = True
+            index += 1
+            continue
+
+        is_python_comment = path_suffix == ".py" and line[index] == "#"
+        is_shell_comment = (
+            path_suffix == ".sh"
+            and line[index] == "#"
+            and (
+                index == 0
+                or line[index - 1].isspace()
+                or line[index - 1] in ";&|()<>{}"
+            )
+        )
+        is_slash_comment = path_suffix not in (".py", ".sh") and line.startswith("//", index)
+        if is_python_comment or is_shell_comment or is_slash_comment:
+            comment_stripped[index:] = [" "] * (len(line) - index)
+            executable[index:] = [" "] * (len(line) - index)
+            break
+
+        supports_block_comments = path_suffix not in (".py", ".sh")
+        if supports_block_comments and line.startswith("/*", index):
+            comment_stripped[index:index + 2] = [" ", " "]
+            executable[index:index + 2] = [" ", " "]
+            state.in_block_comment = True
+            index += 2
+            continue
+
+        code_frame = frame if frame is not None and frame.kind == "code" else None
+        if path_suffix == ".sh" and code_frame is not None:
+            if code_frame.escaped:
+                code_frame.escaped = False
+                index += 1
+                continue
+            if line[index] == "\\":
+                code_frame.escaped = True
+                index += 1
+                continue
+
+        if code_frame is not None and code_frame.terminator == "`" and line[index] == "`":
+            executable[index] = " "
+            state.frames.pop()
+            index += 1
+            continue
+
+        if path_suffix == ".sh" and line[index] == "`":
+            executable[index] = " "
+            state.frames.append(_LexicalFrame(kind="code", terminator="`"))
+            index += 1
+            continue
+
+        literal = _string_literal_at(line, index, path_suffix)
+        if literal is not None:
+            delimiter, interpolation = literal
+            end_index = index + len(delimiter)
+            executable[index:end_index] = [" "] * len(delimiter)
+            state.frames.append(
+                _LexicalFrame(
+                    kind="string",
+                    quote=delimiter,
+                    interpolation=interpolation,
+                )
+            )
+            index = end_index
+            continue
+
+        if code_frame is not None and code_frame.terminator in (")", "}"):
+            opening = "(" if code_frame.terminator == ")" else "{"
+            if line[index] == opening:
+                code_frame.depth += 1
+            elif line[index] == code_frame.terminator:
+                code_frame.depth -= 1
+                if code_frame.depth == 0:
+                    executable[index] = " "
+                    state.frames.pop()
+            index += 1
+            continue
+
+        index += 1
+
+    if state.frames:
+        state.frames[-1].escaped = False
+    return ("".join(comment_stripped), "".join(executable))
 
 
 def detect_assert_on_duration(line: str) -> bool:
@@ -501,7 +663,7 @@ def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bo
         return False
     seen = 0
     for j in range(idx + 1, len(lines)):
-        nxt = _strip_comment(lines[j], path_suffix)
+        nxt = lines[j]
         if not nxt.strip():
             continue
         seen += 1
@@ -539,12 +701,10 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
-    code_lines = [_strip_comment(l, suffix) for l in raw_lines]
-    quote_state = _QuotedLiteralMaskState()
-    executable_lines = [
-        _mask_quoted_literals(line, suffix, quote_state)
-        for line in code_lines
-    ]
+    lex_state = _SourceLexState()
+    lexical_lines = [_lex_source_line(line, suffix, lex_state) for line in raw_lines]
+    code_lines = [line[0] for line in lexical_lines]
+    executable_lines = [line[1] for line in lexical_lines]
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -715,6 +875,12 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/commented-delimiter.ts",
+            '// unmatched ` " delimiter stays inside the comment\n'
+            'await fetch("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -856,6 +1022,13 @@ def _self_test() -> int:
         (
             "tests/n24.sh",
             "expected='\ncurl -fsSL https://api.openai.com/v1/items\n'\n",
+        ),
+        # Comment contents neither execute nor leak unmatched delimiters into
+        # the lexical state carried to the next line.
+        (
+            "web/tests/n25.ts",
+            '// unmatched ` fetch("https://api.openai.com/v1/items")\n'
+            "const complete = true\n",
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
