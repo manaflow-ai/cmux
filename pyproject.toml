@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "coderouter"
-version = "0.2.0"
+version = "0.2.1"
 description = "coderouter - route Codex/Claude Code traffic across multiple ChatGPT Pro/Claude Max/OpenCode subscriptions and API keys."
 readme = "README.md"
 requires-python = ">=3.9"

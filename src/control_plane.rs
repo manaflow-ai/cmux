@@ -345,7 +345,7 @@ fn current_route_config() -> Result<Config, Error> {
 
 fn renew_route_config(client: &Client) -> Result<Config, Error> {
     let mut current = refreshed_config()?;
-    let public = load_public_config(&client, &current.api_url)?;
+    let public = load_public_config(client, &current.api_url)?;
     let route: RouteSession = response_json(
         authenticated(client.post(&public.coderouter.session_url), &current)
             .send()
