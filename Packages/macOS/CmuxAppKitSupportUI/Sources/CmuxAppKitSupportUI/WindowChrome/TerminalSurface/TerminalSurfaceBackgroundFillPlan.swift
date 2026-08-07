@@ -8,18 +8,17 @@ public struct TerminalSurfaceBackgroundFillPlan {
     /// Color to apply to the terminal host layer, or clear when another layer owns the fill.
     public let hostLayerColor: NSColor
 
-    /// Whether a host-layer fill must subtract itself from the shared window backdrop.
-    public let clearsSharedWindowBackdrop: Bool
-
     /// Creates a terminal surface background fill plan.
+    ///
+    /// - Parameters:
+    ///   - owner: Component responsible for the visible terminal background.
+    ///   - hostLayerColor: Color painted by the terminal host, or clear for another owner.
     public init(
         owner: TerminalSurfaceBackgroundFillOwner,
-        hostLayerColor: NSColor,
-        clearsSharedWindowBackdrop: Bool
+        hostLayerColor: NSColor
     ) {
         self.owner = owner
         self.hostLayerColor = hostLayerColor
-        self.clearsSharedWindowBackdrop = clearsSharedWindowBackdrop
     }
 
     /// Whether the terminal host layer should paint a non-clear fill.
@@ -83,8 +82,7 @@ public struct TerminalSurfaceBackgroundFillPlan {
         }
         return Self(
             owner: owner,
-            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear,
-            clearsSharedWindowBackdrop: usesPaneLocalSurfaceFill && sharesWindowBackdrop
+            hostLayerColor: owner == .surfaceHostLayer ? resolvedColor : .clear
         )
     }
 }

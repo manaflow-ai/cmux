@@ -5,23 +5,13 @@ import Testing
 
 @MainActor
 @Suite struct WindowBackdropControllerTests {
-    @Test func opaqueWindowFillRemovesGlassAndResetsCompositorBlur() {
+    @Test func opaqueRootBackdropUsesOrdinaryLayerBelowWindowContent() throws {
         let dependencies = FakeBackdropDependencies()
         dependencies.glass.removeResult = true
         let controller = WindowBackdropController(dependencies: dependencies)
         let window = makeWindow()
 
-        let result = controller.apply(
-            plan: WindowBackdropPlan(
-                hostingPhase: .opaqueWindowFill,
-                windowBackgroundColor: .systemRed,
-                windowIsOpaque: true,
-                rootPolicy: .clear,
-                glass: nil,
-                shouldApplyGhosttyCompositorBlur: false
-            ),
-            to: window
-        )
+        let result = controller.apply(plan: makeOpaqueRootPlan(color: .systemRed), to: window)
 
         #expect(result.didChangeGlassRoot)
         #expect(!result.usesWindowGlass)
@@ -30,13 +20,50 @@ import Testing
         #expect(dependencies.resetBlurWindowNumbers.count == 1)
         #expect(dependencies.appliedBlurWindows.isEmpty)
         #expect(window.isOpaque)
-        #expect(window.backgroundColor == .systemRed)
+        #expect(window.backgroundColor == .clear)
+
+        let contentView = try #require(window.contentView)
+        let themeFrame = try #require(contentView.superview)
+        let rootBackdrop = try #require(
+            themeFrame.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        let rootIndex = try #require(themeFrame.subviews.firstIndex { $0 === rootBackdrop })
+        let contentIndex = try #require(themeFrame.subviews.firstIndex { $0 === contentView })
+        #expect(rootIndex < contentIndex)
+        #expect(rootBackdrop.layer?.backgroundColor == NSColor.systemRed.cgColor)
+        #expect(rootBackdrop.layer?.isOpaque == true)
+        #expect(!rootBackdrop.layerUsesCoreImageFilters)
+        #expect(rootBackdrop.compositingFilter == nil)
+
+        _ = controller.apply(plan: makeOpaqueRootPlan(color: .systemBlue), to: window)
+        let updatedRoot = try #require(
+            themeFrame.subviews.first { $0 is WindowRootBackdropView } as? WindowRootBackdropView
+        )
+        #expect(updatedRoot === rootBackdrop)
+        #expect(updatedRoot.layer?.backgroundColor == NSColor.systemBlue.cgColor)
+
+        _ = controller.apply(
+            plan: makeOpaqueRootPlan(color: .systemGreen, opacity: 0.999),
+            to: window
+        )
+        let compositedColor = try #require(
+            updatedRoot.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))
+        )
+        #expect(abs(compositedColor.alphaComponent - 1) < 0.0001)
+        #expect(updatedRoot.layer?.isOpaque == true)
     }
 
-    @Test func transparentRootBackdropRemovesGlassAndAppliesGhosttyBlurWhenRequested() {
+    @Test func transparentRootBackdropRemovesOpaqueRootAndAppliesGhosttyBlurWhenRequested() throws {
         let dependencies = FakeBackdropDependencies()
         let controller = WindowBackdropController(dependencies: dependencies)
         let window = makeWindow()
+        _ = controller.apply(plan: makeOpaqueRootPlan(color: .systemRed), to: window)
+        let installedRoot = try #require(
+            window.contentView?.superview?.subviews.first { $0 is WindowRootBackdropView }
+                as? WindowRootBackdropView
+        )
+        dependencies.glass.removeCallCount = 0
+        dependencies.resetBlurWindowNumbers.removeAll()
 
         let result = controller.apply(
             plan: WindowBackdropPlan(
@@ -56,13 +83,22 @@ import Testing
         #expect(dependencies.appliedBlurWindows.first === window)
         #expect(!window.isOpaque)
         #expect(window.backgroundColor == .clear)
+        #expect(installedRoot.superview == nil)
+        #expect(!((window.contentView?.superview?.subviews.contains { $0 is WindowRootBackdropView }) ?? false))
     }
 
-    @Test func windowGlassPlanAppliesInjectedGlassEffectAndResetsCompositorBlur() {
+    @Test func windowGlassPlanRemovesOpaqueRootAndAppliesInjectedGlassEffect() throws {
         let dependencies = FakeBackdropDependencies()
         dependencies.glass.applyResult = true
         let controller = WindowBackdropController(dependencies: dependencies)
         let window = makeWindow()
+        _ = controller.apply(plan: makeOpaqueRootPlan(color: .systemRed), to: window)
+        let installedRoot = try #require(
+            window.contentView?.superview?.subviews.first { $0 is WindowRootBackdropView }
+                as? WindowRootBackdropView
+        )
+        dependencies.glass.removeCallCount = 0
+        dependencies.resetBlurWindowNumbers.removeAll()
         let tintColor = NSColor.systemBlue.withAlphaComponent(0.4)
 
         let result = controller.apply(
@@ -87,6 +123,8 @@ import Testing
         #expect(dependencies.resetBlurWindowNumbers.count == 1)
         #expect(dependencies.appliedBlurWindows.isEmpty)
         #expect(!window.isOpaque)
+        #expect(installedRoot.superview == nil)
+        #expect(!((window.contentView?.superview?.subviews.contains { $0 is WindowRootBackdropView }) ?? false))
     }
 
     private func makeWindow() -> NSWindow {
@@ -99,6 +137,24 @@ import Testing
         )
         window.contentView = contentView
         return window
+    }
+
+    private func makeOpaqueRootPlan(
+        color: NSColor,
+        opacity: CGFloat = 1
+    ) -> WindowBackdropPlan {
+        WindowBackdropPlan(
+            hostingPhase: .opaqueRootBackdrop,
+            windowBackgroundColor: .clear,
+            windowIsOpaque: true,
+            rootPolicy: .ghosttyTerminalBackdrop(
+                color: color,
+                opacity: opacity,
+                renderingMode: .windowHostBackdrop
+            ),
+            glass: nil,
+            shouldApplyGhosttyCompositorBlur: false
+        )
     }
 }
 

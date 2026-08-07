@@ -159,9 +159,11 @@ public struct WindowAppearanceSnapshot {
             )
         }
 
+        // Keep the WindowServer fill clear: the opaque color lives in the root
+        // AppKit layer, where pane-local layers can cover it without Core Image.
         return WindowBackdropPlan(
-            hostingPhase: .opaqueWindowFill,
-            windowBackgroundColor: compositedTerminalBackgroundColor,
+            hostingPhase: .opaqueRootBackdrop,
+            windowBackgroundColor: .clear,
             windowIsOpaque: true,
             rootPolicy: rootPolicy,
             glass: nil,

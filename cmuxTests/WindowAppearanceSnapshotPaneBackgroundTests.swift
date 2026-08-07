@@ -36,17 +36,14 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
         )
         #expect(!usesInProcessCoreImageCompositing(in: host))
 
-        host.setBackgroundColor(
-            try #require(NSColor(hex: "#EEF5F8")),
-            clearsSharedWindowBackdrop: true
-        )
+        host.setBackgroundColor(try #require(NSColor(hex: "#EEF5F8")))
 
         let paintedColor = try #require(paneBackground.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
         #expect(paintedColor.hexString(includeAlpha: true) == "#EEF5F8FF")
         #expect(paneBackground.layer?.isOpaque == true)
         #expect(!usesInProcessCoreImageCompositing(in: host))
 
-        host.setBackgroundColor(.clear, clearsSharedWindowBackdrop: false)
+        host.setBackgroundColor(.clear)
         let resetColor = try #require(paneBackground.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
         #expect(resetColor.alphaComponent == 0)
         #expect(paneBackground.layer?.isOpaque == false)
@@ -75,7 +72,6 @@ struct WindowAppearanceSnapshotPaneBackgroundTests {
 
         #expect(fillPlan.owner == .surfaceHostLayer)
         #expect(fillPlan.hostLayerColor.hexString(includeAlpha: true) == "#E6BE78FF")
-        #expect(fillPlan.clearsSharedWindowBackdrop)
         #expect(windowRoot.source == "defaultBackground(surfaceOverrideLocal)")
         #expect(windowRoot.overrideHex == "#E6BE78")
         #expect(windowRoot.snapshot.terminalBackgroundColor.hexString() == "#272822")
