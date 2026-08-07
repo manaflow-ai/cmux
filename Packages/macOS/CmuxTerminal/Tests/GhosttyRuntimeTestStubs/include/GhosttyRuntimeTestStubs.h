@@ -15,6 +15,15 @@ typedef struct {
   bool sentinel;
 } ghostty_string_s;
 
+typedef struct {
+  uint16_t columns;
+  uint16_t rows;
+  uint32_t width_px;
+  uint32_t height_px;
+  uint32_t cell_width_px;
+  uint32_t cell_height_px;
+} ghostty_surface_size_s;
+
 typedef void (*ghostty_font_size_action_cb)(
     void* userdata,
     int32_t action,
@@ -80,6 +89,11 @@ ghostty_string_s ghostty_surface_render_grid_json_v2(
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);
+bool ghostty_surface_set_grid_size(
+    void *surface,
+    uint16_t columns,
+    uint16_t rows,
+    ghostty_surface_size_s *resolved);
 void ghostty_surface_set_occlusion(void *surface, bool visible);
 bool ghostty_surface_set_renderer_realized(void *surface, bool realized);
 bool ghostty_surface_rebuild_renderer(void *surface);

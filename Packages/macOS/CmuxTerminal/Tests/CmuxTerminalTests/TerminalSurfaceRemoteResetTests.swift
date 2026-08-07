@@ -21,6 +21,23 @@ private final class RemoteResetFreedSurfaceBox: @unchecked Sendable {
     }
 }
 
+private final class RemoteResetFailureReasonBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reason: String?
+
+    func store(_ reason: String?) {
+        lock.lock()
+        self.reason = reason
+        lock.unlock()
+    }
+
+    func load() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return reason
+    }
+}
+
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceRemoteResetTests {
@@ -120,17 +137,62 @@ struct TerminalSurfaceRemoteResetTests {
         #expect(surface.debugBackgroundSurfaceStartQueuedForTesting())
     }
 
-    private func makeSurface(ioMode: TerminalSurfaceIOMode) -> TerminalSurface {
+    @Test func failedBackgroundResetStartPublishesACompletionSignal() async {
+        let surface = makeSurface(
+            ioMode: .manualMirror,
+            attachesThroughSurfaceModel: true
+        )
+        defer {
+            surface.closeHeadlessStartupWindowIfNeeded()
+            surface.releaseSurfaceForTesting()
+        }
+
+        let failureReason = RemoteResetFailureReasonBox()
+        let observer = NotificationCenter.default.addObserver(
+            forName: Notification.Name("cmux.terminalSurfaceRuntimeCreationFailed"),
+            object: surface,
+            queue: .main
+        ) { notification in
+            failureReason.store(notification.userInfo?["reason"] as? String)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(surface.resetRemoteOutput(
+            columns: 80,
+            rows: 24,
+            replay: Data("snapshot".utf8)
+        ))
+        for _ in 0..<100 where failureReason.load() == nil {
+            await Task.yield()
+        }
+
+        #expect(failureReason.load() == "appNotInitialized")
+        #expect(!surface.hasLiveSurface)
+    }
+
+    private func makeSurface(
+        ioMode: TerminalSurfaceIOMode,
+        attachesThroughSurfaceModel: Bool = false
+    ) -> TerminalSurface {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
-        let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: attachesThroughSurfaceModel
+        )
+        let manualInputHandler: (@Sendable (TerminalManualInput) -> Void)?
+        if ioMode.usesManualIO {
+            manualInputHandler = { _ in }
+        } else {
+            manualInputHandler = nil
+        }
         return TerminalSurface(
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
             ioMode: ioMode,
-            manualInputHandler: ioMode.usesManualIO ? { _ in } : nil,
+            manualInputHandler: manualInputHandler,
             dependencies: TerminalSurfaceRuntimeDependencies(
                 registry: FakeSurfaceRegistry(),
                 engine: FakeTerminalEngine(),

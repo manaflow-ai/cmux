@@ -292,6 +292,22 @@ ghostty_string_s ghostty_surface_render_grid_json_v2(
 void ghostty_surface_set_content_scale(void) {}
 void ghostty_surface_set_display_id(void) {}
 void ghostty_surface_set_focus(void) {}
+bool ghostty_surface_set_grid_size(
+    void *surface,
+    uint16_t columns,
+    uint16_t rows,
+    ghostty_surface_size_s *resolved
+) {
+    (void)surface;
+    if (columns == 0 || rows == 0) return false;
+    if (resolved != NULL) {
+        *resolved = (ghostty_surface_size_s){
+            .columns = columns,
+            .rows = rows,
+        };
+    }
+    return true;
+}
 void ghostty_surface_set_occlusion(void *surface, bool visible) {
     if (surface != cmux_test_renderer_realized_target) return;
     cmux_test_renderer_occlusion_visible = visible;
