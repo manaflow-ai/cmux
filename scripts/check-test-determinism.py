@@ -301,6 +301,7 @@ _HTTPX_METHOD_PATTERN = "(?:" + "|".join(_HTTPX_METHOD_NAMES) + ")"
 _NETWORK_VERB = re.compile(
     rf"""(?x)
     \bfetch\s*\(
+  | \bProcess\.run\s*\(
   | \baxios\.create\s*\(
   | \baxios(?:\.{_AXIOS_METHOD_PATTERN})?\s*\(
   | \b(?:request|got|superagent|undici)\s*\(
@@ -322,6 +323,15 @@ _NETWORK_VERB = re.compile(
 _NETWORK_TARGET_LABELS = frozenset({"uri", "url"})
 _NETWORK_BASE_TARGET_LABELS = frozenset({"base_url", "baseurl"})
 _NETWORK_TARGET_SPECS = (
+    _NetworkTargetSpec(
+        # Foundation's Process.run(URL, arguments:) executes the command at
+        # the URL and every item in its `arguments` array. Keep this Swift-only
+        # form separate from HTTP clients so a public URL in an unrelated
+        # argument cannot be mistaken for a request target.
+        verb_pattern=re.compile(r"\bProcess\.run\s*\("),
+        positional_index=1,
+        labels=frozenset({"arguments"}),
+    ),
     _NetworkTargetSpec(
         verb_pattern=re.compile(
             r"\.open\s*\("
@@ -371,6 +381,7 @@ _SHELL_CALL_LAUNCHER = re.compile(
   | \bsubprocess\.get(?:status)?output\s*\(
   | (?<![A-Za-z0-9_.])(?:eval|execSync|execaCommand|execaCommandSync)\s*\(
   | \b(?:childProcess|child_process)\.(?:exec|execSync)\s*\(
+  | (?P<javascript_exec>(?<![A-Za-z0-9_.])exec)\s*\(
     """
 )
 
@@ -2243,6 +2254,11 @@ def _launcher_target_ranges(
     for launcher in _SHELL_CALL_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
+        if (
+            launcher.group("javascript_exec") is not None
+            and path_suffix not in _JAVASCRIPT_SUFFIXES
+        ):
+            continue
         if _is_inside_string_literal(line, launcher.start(), path_suffix):
             continue
         opening_paren = line.find("(", launcher.start(), launcher.end())
@@ -3266,6 +3282,8 @@ def _direct_network_target_ranges(
     path_suffix: str,
 ) -> list[tuple[int, int]]:
     matched_verb = match.group(0).lower()
+    if matched_verb.strip().startswith("process.run") and path_suffix != ".swift":
+        return []
     if matched_verb.strip() == "curl":
         if path_suffix == ".sh":
             command_word = _shell_command_word_bounds(line, match.start())
@@ -3937,6 +3955,41 @@ def _self_test() -> int:
         (
             "web/tests/c2.ts",
             "await fetch('https://93.184.216.34/probe')\n",  # public IP in a real URL
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/curl_exec.py",
+            'subprocess.run("curl -fsSL https://cmux.com/install.sh", shell=True)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/template_exec.ts",
+            'expect(`${fetch("https://api.openai.com/v1/items")}`).toBeTruthy()\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/fstring_exec.py",
+            'value = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_exec.sh",
+            'value="$(curl https://api.openai.com/v1/items)"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/bash_exec.sh",
+            'bash -c "curl https://api.openai.com/v1/items"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/process_exec.swift",
+            'Process.run(URL(fileURLWithPath: "/usr/bin/curl"), arguments: ["https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/exec_and_expect.ts",
+            'expect(exec("curl https://api.openai.com/v1/items")).toContain("ok")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -4983,6 +5036,15 @@ def _self_test() -> int:
         (
             "web/tests/n18.ts",
             'const llms = buildLlmsText("https://cmux.com")\n',
+        ),
+        # A rendered shell command spanning multiple expectation lines is still
+        # inert text, even though it contains a network verb and public URL.
+        (
+            "web/tests/n18b_multiline.ts",
+            'expect(html).toContain("curl -fsSL https://cmux.com/install.sh | sh")\n'
+            'expect(html).toContain(\n'
+            '  "curl -fsSL https://cmux.com/coderouter/install.sh | sh",\n'
+            ')\n',
         ),
         # A rendered shell command is output text. Merely asserting that it is
         # present does not execute curl or open a network connection.
