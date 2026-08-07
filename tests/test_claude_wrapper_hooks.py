@@ -645,8 +645,8 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             )
     permission_request_hooks = hooks.get("PermissionRequest", [{}])[0].get("hooks", [{}])
     expect(
-        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude' for h in permission_request_hooks),
-        f"PermissionRequest hook should call hooks feed, got {permission_request_hooks}",
+        any(h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks claude permission-request' for h in permission_request_hooks),
+        f"PermissionRequest hook should use the correlated Claude bridge, got {permission_request_hooks}",
         failures,
     )
     subagent_stop_hooks = hooks.get("SubagentStop", [{}])[0].get("hooks", [{}])

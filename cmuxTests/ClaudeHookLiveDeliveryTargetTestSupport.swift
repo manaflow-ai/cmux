@@ -88,7 +88,8 @@ enum ClaudeHookLiveDeliveryHarness {
         resolverMethodAvailable: Bool = true,
         acknowledgesPIDResolution: Bool = true,
         resumeClearSucceeds: Bool = true,
-        resumeClearOwnsCheckpoint: Bool? = true
+        resumeClearOwnsCheckpoint: Bool? = true,
+        feedExitPlanModesByRequestId: [String: String] = [:]
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -140,6 +141,16 @@ enum ClaudeHookLiveDeliveryHarness {
                 }
                 return v2Response(id: id, ok: true, result: ["terminals": terminals])
             case "feed.push":
+                if let event = params["event"] as? [String: Any],
+                   let requestId = event["_opencode_request_id"] as? String,
+                   let mode = feedExitPlanModesByRequestId[requestId] {
+                    return v2Response(id: id, ok: true, result: [
+                        "status": "resolved",
+                        "decision": ["kind": "exit_plan", "mode": mode],
+                    ])
+                }
+                return v2Response(id: id, ok: true, result: [:])
+            case "feed.attention.begin", "feed.attention.end":
                 return v2Response(id: id, ok: true, result: [:])
             case "surface.resume.set":
                 return v2Response(id: id, ok: true, result: ["resume_binding": [:]])

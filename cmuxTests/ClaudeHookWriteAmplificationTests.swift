@@ -260,4 +260,168 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(resolvedRecord?["agentLifecycle"] as? String == "running")
         #expect(resolvedRecord?["pendingBlockingToolUseIds"] == nil)
     }
+
+    @Test func deniedPlanDoesNotPoisonTheNextBlockingTool() throws {
+        let context = try Harness.makeContext(name: "denied-plan-blocker")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "denied-plan-blocker-session"
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path
+        )
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedExitPlanModesByRequestId: [
+                "rejected-plan": "deny",
+                "accepted-plan": "manual",
+            ]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        func runHook(
+            subcommand: String,
+            eventName: String,
+            toolUseId: String
+        ) -> Harness.ProcessRunResult {
+            let result = Harness.runHookProcess(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"\#(eventName)","tool_name":"ExitPlanMode","tool_use_id":"\#(toolUseId)","permission_mode":"plan","cwd":"\#(context.root.path)"}"#
+            )
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            return result
+        }
+
+        _ = runHook(
+            subcommand: "pre-tool-use",
+            eventName: "PreToolUse",
+            toolUseId: "rejected-plan"
+        )
+        let rejection = runHook(
+            subcommand: "permission-request",
+            eventName: "PermissionRequest",
+            toolUseId: "rejected-plan"
+        )
+        #expect(rejection.stdout.contains(#""behavior":"deny""#))
+
+        var record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
+
+        _ = runHook(
+            subcommand: "pre-tool-use",
+            eventName: "PreToolUse",
+            toolUseId: "accepted-plan"
+        )
+        let approval = runHook(
+            subcommand: "permission-request",
+            eventName: "PermissionRequest",
+            toolUseId: "accepted-plan"
+        )
+        #expect(approval.stdout.contains(#""behavior":"allow""#))
+
+        record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "running")
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
+
+        let beforeLateCompletion = context.state.snapshot().count
+        _ = runHook(
+            subcommand: "input-resolved",
+            eventName: "PostToolUse",
+            toolUseId: "accepted-plan"
+        )
+        let lateCompletionCommands = Array(
+            context.state.snapshot().dropFirst(beforeLateCompletion)
+        )
+        #expect(!lateCompletionCommands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(!lateCompletionCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
+        #expect(!lateCompletionCommands.contains { $0.hasPrefix("set_status ") })
+    }
+
+    @Test func bypassCompletionUsesRequestScopedAttention() throws {
+        let context = try Harness.makeContext(name: "request-scoped-attention")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "request-scoped-attention-session"
+        let toolUseId = "bypass-question"
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path
+        )
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        func runHook(subcommand: String, eventName: String) -> Harness.ProcessRunResult {
+            let result = Harness.runHookProcess(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"\#(eventName)","tool_name":"AskUserQuestion","tool_use_id":"\#(toolUseId)","permission_mode":"bypassPermissions","cwd":"\#(context.root.path)"}"#
+            )
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            #expect(result.stdout == "{}\n")
+            return result
+        }
+
+        let beforeNeedsInput = context.state.snapshot().count
+        _ = runHook(subcommand: "pre-tool-use", eventName: "PreToolUse")
+        let needsInputCommands = Array(context.state.snapshot().dropFirst(beforeNeedsInput))
+        #expect(needsInputCommands.contains { command in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.attention.begin",
+                  let params = object["params"] as? [String: Any] else {
+                return false
+            }
+            return params["request_id"] as? String == toolUseId
+        })
+        #expect(!needsInputCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
+        #expect(!needsInputCommands.contains { $0.hasPrefix("set_status ") })
+        #expect(!needsInputCommands.contains { $0.hasPrefix("notify_target_async ") })
+
+        let beforeCompletion = context.state.snapshot().count
+        _ = runHook(subcommand: "input-resolved", eventName: "PostToolUse")
+        let completionCommands = Array(context.state.snapshot().dropFirst(beforeCompletion))
+        #expect(completionCommands.contains { command in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.attention.end",
+                  let params = object["params"] as? [String: Any] else {
+                return false
+            }
+            return params["request_id"] as? String == toolUseId
+        })
+        #expect(!completionCommands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(!completionCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
+        #expect(!completionCommands.contains { $0.hasPrefix("set_status ") })
+    }
 }
