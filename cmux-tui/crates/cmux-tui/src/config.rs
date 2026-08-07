@@ -126,7 +126,7 @@ use std::process::Child;
 use std::process::Command;
 #[cfg(not(test))]
 use std::process::Stdio as ProcessStdio;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -2821,13 +2821,60 @@ fn terminate_ghostty_helper_child(mut child: Child) {
 
 #[cfg(unix)]
 fn ghostty_helper_descendant_process_groups(root_pid: libc::pid_t) -> Vec<libc::pid_t> {
-    let Ok(output) = Command::new("/bin/ps").args(["-axo", "pid=,ppid=,pgid="]).output() else {
+    let Some(text) = ghostty_helper_process_table_snapshot() else {
         return Vec::new();
     };
-    if !output.status.success() {
-        return Vec::new();
+    ghostty_helper_descendant_process_groups_from_table(root_pid, &text)
+}
+
+#[cfg(unix)]
+fn ghostty_helper_process_table_snapshot() -> Option<String> {
+    let mut command = Command::new("/bin/ps");
+    command
+        .args(["-axo", "pid=,ppid=,pgid="])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0);
+    let Ok(mut child) = command.spawn() else {
+        return None;
+    };
+    let Some(stdout) = child.stdout.take() else {
+        terminate_ghostty_process_scan_child(child);
+        return None;
+    };
+    let Some(output_reader) = read_ghostty_helper_output_async(stdout) else {
+        terminate_ghostty_process_scan_child(child);
+        return None;
+    };
+    let status = match child.wait_timeout(GHOSTTY_PROCESS_SCAN_DEADLINE) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            terminate_ghostty_process_scan_child(child);
+            return None;
+        }
+    };
+    if !status.success() {
+        return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    output_reader.join().ok().flatten()
+}
+
+#[cfg(unix)]
+fn terminate_ghostty_process_scan_child(mut child: Child) {
+    unsafe {
+        // SAFETY: this only targets the bounded process-scan child group.
+        libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+    }
+    let _ = child.kill();
+    let _ = child.wait_timeout(Duration::from_millis(10));
+}
+
+#[cfg(unix)]
+fn ghostty_helper_descendant_process_groups_from_table(
+    root_pid: libc::pid_t,
+    text: &str,
+) -> Vec<libc::pid_t> {
     let mut children = HashMap::<libc::pid_t, Vec<(libc::pid_t, libc::pid_t)>>::new();
     for line in text.lines() {
         let mut parts = line.split_whitespace();
@@ -2968,6 +3015,8 @@ const GHOSTTY_CONFIG_MAX_DEPTH: usize = 16;
 const GHOSTTY_CONFIG_MAX_BYTES: u64 = 1024 * 1024;
 const GHOSTTY_HELPER_OUTPUT_MAX_BYTES: u64 = 64 * 1024;
 const GHOSTTY_CONFIG_PARSE_DEADLINE: Duration = Duration::from_millis(250);
+#[cfg(unix)]
+const GHOSTTY_PROCESS_SCAN_DEADLINE: Duration = Duration::from_millis(150);
 #[cfg(not(test))]
 const GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE: Duration = Duration::from_millis(300);
 #[cfg(not(target_os = "macos"))]
@@ -5034,7 +5083,7 @@ mod tests {
         terminate_ghostty_helper_child(child);
 
         let deadline = Instant::now() + Duration::from_secs(2);
-        while (unix_process_exists(parent_pid) || unix_process_exists(child_pid))
+        while (unix_process_exists(parent_pid) || unix_process_is_live(child_pid))
             && Instant::now() < deadline
         {
             std::thread::sleep(Duration::from_millis(10));
@@ -5107,9 +5156,26 @@ mod tests {
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
         assert!(
-            !unix_process_exists(child_pid),
+            !unix_process_is_live(child_pid),
             "descendant process-group child {child_pid} was not killed"
         );
+    }
+
+    #[cfg(unix)]
+    fn unix_process_is_live(pid: libc::pid_t) -> bool {
+        if !unix_process_exists(pid) {
+            return false;
+        }
+        let Ok(output) =
+            Command::new("/bin/ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+        else {
+            return true;
+        };
+        if !output.status.success() {
+            return unix_process_exists(pid);
+        }
+        let stat = String::from_utf8_lossy(&output.stdout);
+        !stat.trim_start().starts_with('Z')
     }
 
     #[cfg(unix)]
