@@ -35,20 +35,14 @@ extension CMUXCLI {
             "herdr",
             searchPath: ProcessInfo.processInfo.environment["PATH"]
         ) else {
-            throw CLIError(
-                message: missingProviderExecutableMessage(
-                    displayName: "Herdr",
-                    executableName: "herdr"
-                ),
-                exitCode: 127
-            )
+            throw herdrCompatLaunchError(exitCode: 127)
         }
 
         var cArguments: [UnsafeMutablePointer<CChar>?] = []
         for argument in [executable] + translated {
             guard let duplicated = strdup(argument) else {
                 Self.freeHerdrCompatArguments(cArguments)
-                throw herdrCompatLaunchError()
+                throw herdrCompatLaunchError(exitCode: 126)
             }
             cArguments.append(duplicated)
         }
@@ -57,9 +51,10 @@ extension CMUXCLI {
         _ = cliExecFailureErrno {
             execv(executable, &cArguments)
         }
-        throw herdrCompatLaunchError()
+        throw herdrCompatLaunchError(exitCode: 126)
     }
 
+    /// Translates a compatibility alias into the provider CLI arguments it owns.
     static func herdrCompatArguments(
         command: String,
         arguments: [String],
@@ -90,18 +85,22 @@ extension CMUXCLI {
         herdrCompatCommands.map(\.name).joined(separator: ", ")
     }
 
-    private func herdrCompatLaunchError() -> CLIError {
+    /// Builds the provider-neutral error returned when discovery or launch fails.
+    private func herdrCompatLaunchError(exitCode: Int32) -> CLIError {
         CLIError(
             message: String(
                 localized: "cli.herdrCompat.error.launchFailed",
                 defaultValue: "Couldn't start the required command. Verify it is installed and try again."
             ),
-            exitCode: 126
+            exitCode: exitCode
         )
     }
 
+    /// Releases an argv buffer that was allocated incrementally with `strdup`.
     private static func freeHerdrCompatArguments(_ arguments: [UnsafeMutablePointer<CChar>?]) {
-        arguments.forEach { free($0) }
+        for argument in arguments {
+            free(argument)
+        }
     }
 
     private static var herdrCompatUsage: String {
