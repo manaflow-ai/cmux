@@ -184,6 +184,23 @@ class TabManager: ObservableObject {
     /// templates that expose a WM-matchable per-window token.
     var windowId: UUID?
     private(set) var isFinalizedForWindowClose = false
+    private var recoverableMainWindowRouteOwnerRegistration:
+        RecoverableMainWindowRouteOwnerRegistration?
+
+    func installRecoverableMainWindowRouteOwnerRegistration(
+        _ registration: RecoverableMainWindowRouteOwnerRegistration
+    ) {
+        recoverableMainWindowRouteOwnerRegistration = registration
+    }
+
+    func clearRecoverableMainWindowRouteOwnerRegistration(
+        for route: RecoverableMainWindowRoute
+    ) {
+        guard recoverableMainWindowRouteOwnerRegistration?.observes(route) == true else {
+            return
+        }
+        recoverableMainWindowRouteOwnerRegistration = nil
+    }
 
     // Wave-4 sub-model (TabManager decomposition): the workspace list, the
     // sidebar group sections, and the selected-workspace id storage live in

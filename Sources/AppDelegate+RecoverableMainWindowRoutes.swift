@@ -99,9 +99,13 @@ extension AppDelegate {
 
         let before = mainWindowRouteLedger.routesByWindowId.count
         for windowId in inactiveWindowIds {
-            mainWindowRouteLedger.routesByWindowId
-                .removeValue(forKey: windowId)?
-                .retireWindowDock()
+            guard let route = mainWindowRouteLedger.routesByWindowId[windowId] else {
+                continue
+            }
+            retireRecoverableMainWindowRouteIfCurrent(
+                route,
+                reason: reason
+            )
         }
         let after = mainWindowRouteLedger.routesByWindowId.count
 #if DEBUG
@@ -196,12 +200,31 @@ extension AppDelegate {
     }
 
     func forgetRecoverableMainWindowRoute(windowId: UUID) {
-        if let route = mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId) {
-            route.retireWindowDock()
+        if let route = mainWindowRouteLedger.routesByWindowId[windowId] {
+            retireRecoverableMainWindowRouteIfCurrent(route, reason: "forget")
 #if DEBUG
             cmuxDebugLog("recoverableRoute.forget windowId=\(String(windowId.uuidString.prefix(8)))")
 #endif
         }
+    }
+
+    func retireRecoverableMainWindowRouteIfCurrent(
+        _ route: RecoverableMainWindowRoute,
+        reason: String
+    ) {
+        guard mainWindowRouteLedger.routesByWindowId[route.windowId] === route else {
+            return
+        }
+        mainWindowRouteLedger.routesByWindowId.removeValue(forKey: route.windowId)
+        route.tabManager?.clearRecoverableMainWindowRouteOwnerRegistration(
+            for: route
+        )
+        route.retireWindowDock()
+#if DEBUG
+        cmuxDebugLog(
+            "recoverableRoute.retire reason=\(reason) removed=1 remaining=\(mainWindowRouteLedger.routesByWindowId.count)"
+        )
+#endif
     }
 
     func rememberRecoverableMainWindowRoute(
@@ -224,13 +247,26 @@ extension AppDelegate {
             windowDock: windowDock,
             order: mainWindowRouteLedger.issueOrder()
         )
-        if let replacedRoute = mainWindowRouteLedger.routesByWindowId.updateValue(
+        let replacedRoute = mainWindowRouteLedger.routesByWindowId.updateValue(
             route,
             forKey: windowId
-        ), let replacedDock = replacedRoute.takeWindowDock(),
-           replacedDock !== windowDock {
-            replacedDock.retire()
+        )
+        if let replacedRoute {
+            replacedRoute.tabManager?
+                .clearRecoverableMainWindowRouteOwnerRegistration(
+                    for: replacedRoute
+                )
+            if let replacedDock = replacedRoute.takeWindowDock(),
+               replacedDock !== windowDock {
+                replacedDock.retire()
+            }
         }
+        tabManager.installRecoverableMainWindowRouteOwnerRegistration(
+            RecoverableMainWindowRouteOwnerRegistration(
+                appDelegate: self,
+                route: route
+            )
+        )
 #if DEBUG
         cmuxDebugLog("recoverableRoute.remember windowId=\(String(windowId.uuidString.prefix(8)))")
 #endif
@@ -247,9 +283,10 @@ extension AppDelegate {
               tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
             // Single-route lookups stay O(1). Full-ledger retirement belongs to
             // insertion and the coalesced lifecycle maintenance sweep.
-            mainWindowRouteLedger.routesByWindowId
-                .removeValue(forKey: windowId)?
-                .retireWindowDock()
+            retireRecoverableMainWindowRouteIfCurrent(
+                route,
+                reason: "routeAccess"
+            )
 #if DEBUG
             cmuxDebugLog("recoverableRoute.prune reason=routeAccess removed=1 remaining=\(mainWindowRouteLedger.routesByWindowId.count)")
 #endif
