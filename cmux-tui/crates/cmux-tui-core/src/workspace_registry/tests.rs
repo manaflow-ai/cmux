@@ -276,6 +276,50 @@ fn reset_rejects_unpublished_terminal_host_publication() {
 
 #[cfg(unix)]
 #[test]
+fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("reset-dead-v2-host-without-marker");
+    let session = "reset-dead-v2-host-without-marker";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
+    let uid = fs::metadata(&host_root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 2,
+        terminal_id: terminal_id.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: u32::MAX,
+        host_start_nonce: "02".repeat(32),
+        workspace_key: String::new(),
+        supports_set_defaults: true,
+        supports_clear_history: true,
+    };
+    let record_path = record.record_path(&host_root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!live_path.exists(), "reset created a live marker before deletion");
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -294,6 +338,45 @@ fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
     assert!(!reset.removed_session_state);
     assert!(reset.removed_terminal_hosts);
     assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_path_budget() {
+    let root = temp_root("reset-manifest-path-budget");
+    let session = "reset-manifest-path-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    for index in 0..MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
+        fs::write(session_dir.join(format!("extra-{index}")), b"x").unwrap();
+    }
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("paths"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_byte_budget() {
+    let root = temp_root("reset-manifest-byte-budget");
+    let session = "reset-manifest-byte-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(
+        session_dir.join(WORKSPACE_REGISTRY_FILE),
+        vec![0_u8; usize::try_from(MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES).unwrap() + 1],
+    )
+    .unwrap();
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("bytes"), "{error:#}");
     fs::remove_dir_all(root).unwrap();
 }
 

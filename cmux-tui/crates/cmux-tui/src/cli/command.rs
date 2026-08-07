@@ -2340,6 +2340,12 @@ fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
             reason: messages.reason_state_changed,
             recovery: messages.recovery_state_changed,
         }
+    } else if error.contains("reset confirmation scan exceeds") {
+        ResetFailureAdvice {
+            code: "session.reset_state.state_too_large",
+            reason: messages.reason_state_too_large,
+            recovery: messages.recovery_state_too_large,
+        }
     } else {
         ResetFailureAdvice {
             code: "session.reset_state.filesystem",
@@ -2375,6 +2381,15 @@ mod tests {
         ));
         assert_eq!(advice.code, "session.reset_state.state_changed");
         assert!(advice.recovery.contains("rerun the preview"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_confirmation_scan_limit() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "reset confirmation scan exceeds 64 paths; scoped state is too large"
+        ));
+        assert_eq!(advice.code, "session.reset_state.state_too_large");
+        assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
     }
 
     fn operation_catalog() -> Value {

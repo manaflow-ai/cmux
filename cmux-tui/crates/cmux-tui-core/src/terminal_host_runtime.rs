@@ -1580,7 +1580,7 @@ mod unix {
         kitty_graphics_limits: KittyGraphicsLimits,
         terminal_id: TerminalId,
     ) -> anyhow::Result<HostAttachment> {
-        prepare_terminal_host_publication_lock(root)?;
+        let launch_publication_lock = reserve_terminal_host_publication(root)?;
         let owner_token = CapabilityToken::random()?;
         let terminal_hex = encode_hex(terminal_id.as_bytes());
         // macOS limits sockaddr_un paths to roughly one hundred bytes and
@@ -1693,6 +1693,7 @@ mod unix {
         {
             anyhow::bail!("terminal-host discovery record changed during launch");
         }
+        drop(launch_publication_lock);
         // Keep the exact-kill guard armed through record validation and a
         // successful authenticated Snapshot. Returning Err after disarming it
         // would leave a live published host while the mux marks its registry
@@ -3571,6 +3572,13 @@ mod unix {
         file.sync_all()?;
         File::open(root)?.sync_all()?;
         Ok(())
+    }
+
+    pub(crate) fn reserve_terminal_host_publication(
+        root: &Path,
+    ) -> anyhow::Result<TerminalHostPublicationLock> {
+        prepare_terminal_host_publication_lock(root)?;
+        acquire_terminal_host_publication_lock(root)
     }
 
     pub(crate) fn acquire_terminal_host_reset_lock(
@@ -5691,6 +5699,28 @@ mod unix {
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
             assert!(!record_path.exists());
             let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
+        fn launch_publication_reservation_blocks_reset_lock_until_released() {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-host-publication-reservation-{}-{}",
+                std::process::id(),
+                RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+            ));
+            let reservation = reserve_terminal_host_publication(&root).unwrap();
+
+            let error = match acquire_terminal_host_reset_lock(&root) {
+                Ok(_) => panic!("reset lock was not blocked by publication reservation"),
+                Err(error) => error,
+            };
+            assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+
+            drop(reservation);
+            let reset_lock = acquire_terminal_host_reset_lock(&root).unwrap();
+            assert!(reset_lock.is_some());
+            drop(reset_lock);
+            let _ = fs::remove_dir_all(root);
         }
 
         #[test]

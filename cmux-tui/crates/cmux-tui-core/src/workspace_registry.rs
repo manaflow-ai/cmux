@@ -66,6 +66,14 @@ const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
+#[cfg(not(test))]
+const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 100_000;
+#[cfg(test)]
+const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 64;
+#[cfg(not(test))]
+const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 512 * 1024 * 1024;
+#[cfg(test)]
+const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 1024 * 1024;
 const RESOURCE_EFFECT_PEPPER_BYTES: usize = 32;
 const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
@@ -744,19 +752,26 @@ fn reset_confirmation_token(
     pending_reset_dirs: &[PathBuf],
 ) -> anyhow::Result<String> {
     let mut hash = Sha256::new();
+    let mut budget = ResetFingerprintBudget::default();
     update_reset_confirmation_part(&mut hash, "cmux-session-reset-v1");
     update_reset_confirmation_part(&mut hash, session_name);
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(state_root));
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(session_dir));
     update_reset_confirmation_part(&mut hash, &canonical_reset_path(terminal_host_root));
-    update_reset_confirmation_part(&mut hash, &session_reset_target_fingerprint(session_dir)?);
     update_reset_confirmation_part(
         &mut hash,
-        &reset_dir_fingerprint("terminal-hosts", terminal_host_root)?,
+        &session_reset_target_fingerprint(session_dir, &mut budget)?,
+    );
+    update_reset_confirmation_part(
+        &mut hash,
+        &reset_dir_fingerprint("terminal-hosts", terminal_host_root, &mut budget)?,
     );
     for reset_dir in pending_reset_dirs {
         update_reset_confirmation_part(&mut hash, &canonical_reset_path(reset_dir));
-        update_reset_confirmation_part(&mut hash, &reset_dir_fingerprint("pending", reset_dir)?);
+        update_reset_confirmation_part(
+            &mut hash,
+            &reset_dir_fingerprint("pending", reset_dir, &mut budget)?,
+        );
     }
     let digest = hash.finalize();
     Ok(digest[..12].iter().map(|byte| format!("{byte:02x}")).collect())
@@ -771,21 +786,80 @@ fn canonical_reset_path(path: &Path) -> String {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
 }
 
-fn session_reset_target_fingerprint(session_dir: &Path) -> anyhow::Result<String> {
-    reset_dir_fingerprint("session", session_dir)
+fn session_reset_target_fingerprint(
+    session_dir: &Path,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
+    reset_dir_fingerprint("session", session_dir, budget)
 }
 
-fn reset_dir_fingerprint(label: &str, path: &Path) -> anyhow::Result<String> {
+fn reset_dir_fingerprint(
+    label: &str,
+    path: &Path,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
     let mut entries = Vec::new();
-    collect_reset_path_fingerprints(path, Path::new("."), label == "terminal-hosts", &mut entries)?;
+    collect_reset_path_fingerprints(
+        path,
+        Path::new("."),
+        label == "terminal-hosts",
+        budget,
+        &mut entries,
+    )?;
     entries.sort();
     Ok(format!("{label}:{}", entries.join(",")))
+}
+
+#[derive(Default)]
+struct ResetFingerprintBudget {
+    entries: usize,
+    bytes: u64,
+}
+
+impl ResetFingerprintBudget {
+    fn add_entry(&mut self, path: &Path) -> anyhow::Result<()> {
+        self.entries = self.entries.saturating_add(1);
+        if self.entries > MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
+            return Err(reset_confirmation_scan_limit_error("paths", path));
+        }
+        Ok(())
+    }
+
+    fn check_queued_child(&self, queued_children: usize, path: &Path) -> anyhow::Result<()> {
+        if self.entries.saturating_add(queued_children).saturating_add(1)
+            > MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES
+        {
+            return Err(reset_confirmation_scan_limit_error("paths", path));
+        }
+        Ok(())
+    }
+
+    fn add_file_bytes(&mut self, path: &Path, bytes: u64) -> anyhow::Result<()> {
+        self.bytes = self.bytes.saturating_add(bytes);
+        if self.bytes > MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES {
+            return Err(reset_confirmation_scan_limit_error("bytes", path));
+        }
+        Ok(())
+    }
+}
+
+fn reset_confirmation_scan_limit_error(unit: &str, path: &Path) -> anyhow::Error {
+    let limit = match unit {
+        "paths" => MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES.to_string(),
+        "bytes" => MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES.to_string(),
+        _ => "configured".to_string(),
+    };
+    anyhow::anyhow!(
+        "reset confirmation scan exceeds {limit} {unit}; scoped state is too large to reset safely: {}",
+        path.display()
+    )
 }
 
 fn collect_reset_path_fingerprints(
     path: &Path,
     relative_path: &Path,
     ignore_terminal_host_publication_lock: bool,
+    budget: &mut ResetFingerprintBudget,
     entries: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     let metadata = match fs::symlink_metadata(path) {
@@ -798,10 +872,11 @@ fn collect_reset_path_fingerprints(
             return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
         }
     };
+    budget.add_entry(path)?;
     entries.push(format!(
         "{}={}",
         relative_path.display(),
-        reset_path_fingerprint(path, &metadata)?
+        reset_path_fingerprint(path, &metadata, budget)?
     ));
     if !metadata.file_type().is_dir() {
         return Ok(());
@@ -810,10 +885,7 @@ fn collect_reset_path_fingerprints(
     for entry in
         fs::read_dir(path).with_context(|| format!("read reset path {}", path.display()))?
     {
-        child_paths.push(entry?.path());
-    }
-    child_paths.sort();
-    for child_path in child_paths {
+        let child_path = entry?.path();
         let child_name = child_path.file_name().ok_or_else(|| {
             anyhow::anyhow!("reset path has no file name: {}", child_path.display())
         })?;
@@ -823,10 +895,19 @@ fn collect_reset_path_fingerprints(
         {
             continue;
         }
+        budget.check_queued_child(child_paths.len(), &child_path)?;
+        child_paths.push(child_path);
+    }
+    child_paths.sort();
+    for child_path in child_paths {
+        let child_name = child_path.file_name().ok_or_else(|| {
+            anyhow::anyhow!("reset path has no file name: {}", child_path.display())
+        })?;
         collect_reset_path_fingerprints(
             &child_path,
             &relative_path.join(Path::new(child_name)),
             ignore_terminal_host_publication_lock,
+            budget,
             entries,
         )?;
     }
@@ -841,14 +922,18 @@ fn reset_path_metadata_fingerprint(path: &Path) -> anyhow::Result<String> {
             return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
         }
     };
-    reset_path_fingerprint(path, &metadata)
+    Ok(reset_metadata_fingerprint(&metadata))
 }
 
-fn reset_path_fingerprint(path: &Path, metadata: &fs::Metadata) -> anyhow::Result<String> {
+fn reset_path_fingerprint(
+    path: &Path,
+    metadata: &fs::Metadata,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
     let mut fingerprint = reset_metadata_fingerprint(metadata);
     if metadata.file_type().is_file() {
         fingerprint.push_str(";sha256=");
-        fingerprint.push_str(&reset_file_content_sha256(path, metadata)?);
+        fingerprint.push_str(&reset_file_content_sha256(path, metadata, budget)?);
     }
     Ok(fingerprint)
 }
@@ -866,7 +951,11 @@ fn reset_metadata_fingerprint(metadata: &fs::Metadata) -> String {
     format!("{kind}:{}", metadata_identity(metadata))
 }
 
-fn reset_file_content_sha256(path: &Path, expected: &fs::Metadata) -> anyhow::Result<String> {
+fn reset_file_content_sha256(
+    path: &Path,
+    expected: &fs::Metadata,
+    budget: &mut ResetFingerprintBudget,
+) -> anyhow::Result<String> {
     let mut file = open_reset_fingerprint_file(path)
         .with_context(|| format!("open reset file {}", path.display()))?;
     let opened =
@@ -883,6 +972,7 @@ fn reset_file_content_sha256(path: &Path, expected: &fs::Metadata) -> anyhow::Re
         if read == 0 {
             break;
         }
+        budget.add_file_bytes(path, read as u64)?;
         hash.update(&buffer[..read]);
     }
     let current = fs::symlink_metadata(path)
@@ -3441,7 +3531,7 @@ fn prepare_terminal_host_root_for_reset(
         if path.extension().and_then(|value| value.to_str()) == Some("live")
             && !expected_live_markers.contains(&path)
         {
-            let Some(lease) = lock_verified_dead_live_marker(&path, expected_uid, false)? else {
+            let Some(lease) = lock_verified_dead_live_marker(&path, expected_uid)? else {
                 anyhow::bail!("terminal host state still has live or unverified hosts");
             };
             live_marker_leases.push(lease);
@@ -3452,9 +3542,8 @@ fn prepare_terminal_host_root_for_reset(
             TerminalHostLiveness::Dead => {
                 if record.record_version >= 2 {
                     let marker = terminal_host_live_marker_path(record_path, record);
-                    let Some(lease) = lock_verified_dead_live_marker(&marker, expected_uid, true)?
-                    else {
-                        anyhow::bail!("terminal host state still has live or unverified hosts");
+                    let Some(lease) = lock_verified_dead_live_marker(&marker, expected_uid)? else {
+                        continue;
                     };
                     live_marker_leases.push(lease);
                 }
@@ -3484,7 +3573,6 @@ struct TerminalHostLiveMarkerLease {
 fn lock_verified_dead_live_marker(
     path: &Path,
     expected_uid: u32,
-    create_if_missing: bool,
 ) -> anyhow::Result<Option<TerminalHostLiveMarkerLease>> {
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -3496,24 +3584,8 @@ fn lock_verified_dead_live_marker(
         .open(path)
     {
         Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !create_if_missing => {
-            return Ok(None);
-        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(path)
-            {
-                Ok(file) => file,
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    return lock_verified_dead_live_marker(path, expected_uid, false);
-                }
-                Err(_) => return Ok(None),
-            }
+            return Ok(None);
         }
         Err(_) => return Ok(None),
     };
