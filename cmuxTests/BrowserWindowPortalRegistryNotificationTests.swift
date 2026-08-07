@@ -29,15 +29,6 @@ struct BrowserWindowPortalRegistryNotificationTests {
         }
     }
 
-    private final class CountingLayoutView: NSView {
-        var layoutPassCount = 0
-
-        override func layout() {
-            layoutPassCount += 1
-            super.layout()
-        }
-    }
-
     private func realizeWindowLayout(_ window: NSWindow) {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -214,15 +205,22 @@ struct BrowserWindowPortalRegistryNotificationTests {
         let slot = try #require(
             webView.cmuxBrowserViewportAttachmentSuperview as? WindowBrowserSlotView
         )
-        let layoutProbe = CountingLayoutView(frame: slot.bounds)
-        slot.addSubview(layoutProbe)
-        layoutProbe.layoutPassCount = 0
-        layoutProbe.needsLayout = true
-
-        var layoutPassesDuringAnchorLayout = -1
+        let existingLayoutCallback = slot.onHostedInspectorLayout
+        defer { slot.onHostedInspectorLayout = existingLayoutCallback }
+        var isSynchronizingFromAnchorLayout = false
+        var hostedLayoutCount = 0
+        var hostedLayoutsDuringAnchorLayout = 0
+        slot.onHostedInspectorLayout = { slotView in
+            hostedLayoutCount += 1
+            if isSynchronizingFromAnchorLayout {
+                hostedLayoutsDuringAnchorLayout += 1
+            }
+            existingLayoutCallback?(slotView)
+        }
         anchor.onLayout = {
+            isSynchronizingFromAnchorLayout = true
+            defer { isSynchronizingFromAnchorLayout = false }
             BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
-            layoutPassesDuringAnchorLayout = layoutProbe.layoutPassCount
         }
         anchor.setFrameSize(NSSize(width: 320, height: 190))
         anchor.needsLayout = true
@@ -230,14 +228,14 @@ struct BrowserWindowPortalRegistryNotificationTests {
         anchor.onLayout = nil
 
         #expect(
-            layoutPassesDuringAnchorLayout == 0,
+            hostedLayoutsDuringAnchorLayout == 0,
             "Restored browser geometry must not synchronously lay out WebKit while AppKit is already laying out the anchor"
         )
 
         advanceAnimations()
         #expect(
-            layoutProbe.layoutPassCount > 0,
-            "The coalesced portal refresh must still lay out WebKit after the outer layout pass unwinds"
+            hostedLayoutCount > 0,
+            "The portal slot must still receive its normal layout after the anchor callback returns"
         )
     }
 
