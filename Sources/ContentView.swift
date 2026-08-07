@@ -876,8 +876,7 @@ struct ContentView: View {
 #endif
     @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
-    @AppStorage(SidebarCatalogSection().toolPosition.userDefaultsKey)
-    private var toolSidebarPositionRawValue = ToolSidebarPosition.right.rawValue
+    @LiveSetting(\.sidebar.toolPosition) private var toolSidebarPosition
     private let toolSidebarLayoutPolicy = ToolSidebarLayoutPolicy()
     private let toolSidebarModeBarLayoutPolicy = ToolSidebarModeBarLayoutPolicy()
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
@@ -1246,10 +1245,6 @@ struct ContentView: View {
     private enum SidebarResizerHandle: Hashable {
         case divider
         case explorerDivider
-    }
-
-    private var toolSidebarPosition: ToolSidebarPosition {
-        ToolSidebarPosition(rawValue: toolSidebarPositionRawValue) ?? .right
     }
 
     /// Injects the current tool-sidebar placement into this window's AppKit portal hosts.
@@ -3323,7 +3318,7 @@ struct ContentView: View {
             updateSidebarResizerBandState()
         })
 
-        view = AnyView(view.onChange(of: toolSidebarPositionRawValue) { _, _ in
+        view = AnyView(view.onChange(of: toolSidebarPosition) { _, _ in
             syncToolSidebarPositionToPortals()
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
