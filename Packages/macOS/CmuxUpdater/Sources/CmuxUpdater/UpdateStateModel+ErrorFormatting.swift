@@ -104,6 +104,12 @@ extension UpdateStateModel {
                 break
             }
         }
+        if isUpdaterAgentConnectionFailure(nsError) {
+            return String(
+                localized: "update.error.installerAgent.message",
+                defaultValue: "macOS didn’t start cmux’s updater helper in time. Security software can delay it. Retry once; if it still fails, restart your Mac or download and install the latest version below."
+            )
+        }
         if nsError.domain == SUSparkleErrorDomain {
             switch nsError.code {
             case 2001:
