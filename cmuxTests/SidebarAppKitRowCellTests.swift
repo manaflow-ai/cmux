@@ -840,6 +840,58 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func detachedRowDefersAccessibilityLinkProxyUntilAccessibilityQuery() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let source = NSAttributedString(
+            string: "cmux",
+            attributes: [.link: url]
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let textView = SidebarRowTextView(lines: 1)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+        let linkLocation = try #require(Self.firstRowLinkLocation(in: textView.attributedStringValue))
+
+        #expect(textView.window == nil)
+        #expect(
+            Self.linkURL(
+                from: textView.attributedStringValue.attribute(
+                    .sidebarRowLink,
+                    at: linkLocation,
+                    effectiveRange: nil
+                )
+            ) == url
+        )
+        #expect(
+            textView.attributedStringValue.attribute(
+                .accessibilityLink,
+                at: linkLocation,
+                effectiveRange: nil
+            ) == nil
+        )
+
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        let attributedAccessibilityLink = try #require(
+            textView.attributedStringValue.attribute(
+                .accessibilityLink,
+                at: linkLocation,
+                effectiveRange: nil
+            ) as? SidebarRowTextAccessibilityLink
+        )
+
+        #expect(accessibilityLink === attributedAccessibilityLink)
+    }
+
+    @Test
     func changedThenClearedAccessibilityLinkReplacesAndInvalidatesProxy() throws {
         let workspaceID = UUID()
         let initialURL = try #require(URL(string: "https://one.example"))
