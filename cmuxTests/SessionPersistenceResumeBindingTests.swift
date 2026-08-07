@@ -216,7 +216,12 @@ import Testing
 
         #expect(binding.kind == nil)
         #expect(binding.command.contains(executablePath), "\(binding.command)")
-        #expect(startupInput.contains("codex 'resume' 'session-legacy-cli'"), "\(startupInput)")
+        #expect(
+            startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                && startupInput.contains("resume")
+                && startupInput.contains("session-legacy-cli"),
+            "\(startupInput)"
+        )
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
@@ -263,7 +268,12 @@ import Testing
             )
 
             let startupInput = try #require(binding.startupInput)
-            #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
+            #expect(
+                startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                    && startupInput.contains("resume")
+                    && startupInput.contains("session-managed-cli"),
+                "\(startupInput)"
+            )
             #expect(!startupInput.contains(executablePath), "\(startupInput)")
         }
     }
@@ -287,7 +297,12 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("CMUX_TRACE=1 codex 'resume' 'session-env-cli'"), "\(startupInput)")
+        #expect(
+            startupInput.contains("CMUX_TRACE=1")
+                && startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                && startupInput.contains("session-env-cli"),
+            "\(startupInput)"
+        )
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -309,7 +324,12 @@ import Testing
         )
         let startupInput = try #require(binding.startupInput)
 
-        #expect(startupInput.contains("env 'CMUX_TRACE=1' codex 'resume' 'session-quoted-env-cli'"), "\(startupInput)")
+        #expect(
+            startupInput.contains("env CMUX_TRACE=1")
+                && startupInput.contains("CMUX_CODEX_WRAPPER_SHIM")
+                && startupInput.contains("session-quoted-env-cli"),
+            "\(startupInput)"
+        )
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -496,7 +516,8 @@ import Testing
         )
         let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
         #expect(restoredPanel.surface.debugInitialCommand() == nil)
-        let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        let restoredBinding = try #require(restoredLocalPanel.terminal?.resumeBinding)
+        let restoredInput = try #require(restoredBinding.restoreStartupInput())
         #expect(restoredPanel.requestedWorkingDirectory == localDirectory)
         #expect(
             restoredInput
