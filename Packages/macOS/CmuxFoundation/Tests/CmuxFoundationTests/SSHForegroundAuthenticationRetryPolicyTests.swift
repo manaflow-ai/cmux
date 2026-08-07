@@ -2314,6 +2314,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_cancel_attempt=$((cmux_test_cancel_attempt + 1))
         done
         test -f "$CMUX_SSH_AUTH_GROUP_DIR/cancel" || exit 98
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/cleanup.owner" || exit 95
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/cleanup.lock/owner" || exit 94
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         wait "$cmux_test_auth_root"
@@ -2641,17 +2643,21 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(functions.contains("kill -CONT"))
     }
 
-    @Test func cleanupPublishesOwnerLeaseBeforeFreezeTransaction() throws {
+    @Test func cleanupClaimsOwnershipBeforeCancellationAndFreezeTransaction() throws {
         let functions = SSHForegroundAuthenticationRetryPolicy()
             .processTreeTerminationShellFunction()
-        let ownerPublication = try #require(
-            functions.range(of: "cmux-cleanup-owner \"$cmux_ssh_auth_cleanup_owner_publish_file\"")
+        let claimAcquisition = try #require(
+            functions.range(of: "cmux_ssh_auth_cleanup_claim || exit 0")
+        )
+        let cancellationPublication = try #require(
+            functions.range(of: ": > \"$cmux_ssh_auth_group_cancel_file\" 2>/dev/null || exit 0")
         )
         let cleanupTransaction = try #require(
             functions.range(of: "cmux_ssh_auth_run_cleanup_transactions || exit 0")
         )
 
-        #expect(ownerPublication.lowerBound < cleanupTransaction.lowerBound)
+        #expect(claimAcquisition.lowerBound < cancellationPublication.lowerBound)
+        #expect(claimAcquisition.lowerBound < cleanupTransaction.lowerBound)
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
