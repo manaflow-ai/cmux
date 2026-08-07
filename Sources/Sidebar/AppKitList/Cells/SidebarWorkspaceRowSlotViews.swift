@@ -485,9 +485,9 @@ final class SidebarRowTextView: NSTextField {
         pendingLinkURL = nil
         linkDescriptors = []
         accessibilityLinksAreMaterialized = true
-        replaceAccessibilityLinks(with: [])
         attributedStringValue = NSAttributedString(string: "")
         cachedLinkHitLayout = nil
+        replaceAccessibilityLinks(with: [])
         needsLayout = true
     }
 

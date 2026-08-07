@@ -6,7 +6,7 @@ import Testing
 
 /// Behavior tests for the pure-AppKit workspace row cell: hover enforcement
 /// (authoritative sweep) and optimistic selection paint semantics.
-@Suite
+@Suite(.serialized)
 @MainActor
 struct SidebarAppKitRowCellTests {
     private static func makeSnapshot(
