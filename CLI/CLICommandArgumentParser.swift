@@ -87,15 +87,8 @@ struct CLICommandArgumentParser {
                           arguments[valueIndex] != "--" else {
                         throw missingValueError(optionName)
                     }
-                    let candidate = arguments[valueIndex]
-                    if isFlag(candidate) {
-                        let candidateName = attachedValue(in: candidate)?.name ?? candidate
-                        if definitions[candidateName] == nil {
-                            throw unknownFlagError(candidateName)
-                        }
-                        throw missingValueError(optionName)
-                    }
-                    value = candidate
+                    // Required options own the next token, including values such as `-1` and `-c`.
+                    value = arguments[valueIndex]
                     index += 1
                 }
                 guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
