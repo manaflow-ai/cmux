@@ -6766,7 +6766,9 @@ final class cmuxUITests: XCTestCase {
 
         var evidence: [String] = []
         defer {
-            let attachment = XCTAttachment(string: evidence.joined(separator: "\n"))
+            let report = evidence.joined(separator: "\n")
+            print("keyboard-dock-frame-evidence:\n\(report)")
+            let attachment = XCTAttachment(string: report)
             attachment.name = "keyboard-dock-frame-evidence"
             attachment.lifetime = .keepAlways
             add(attachment)

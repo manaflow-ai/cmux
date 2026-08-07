@@ -376,6 +376,7 @@ jobs:
             # hardware keyboard suppresses that UI and would turn the run into a
             # false pass over keyboard-down geometry.
             defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+            defaults write com.apple.iphonesimulator AutomaticKeyboard -bool true
           fi
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
@@ -420,6 +421,14 @@ jobs:
             echo "Preparing $SIMULATOR_NAME ($SIMULATOR_ID), attempt $attempt"
             xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl erase "$SIMULATOR_ID"
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+              # Simulator may materialize a per-device hardware-keyboard default
+              # after an erase, overriding the domain-level setting above. Pin
+              # this freshly erased device too so focusing MobileComposerField
+              # always draws the software keyboard that the test measures.
+              defaults write com.apple.iphonesimulator DevicePreferences \
+                -dict-add "$SIMULATOR_ID" '{ ConnectHardwareKeyboard = 0; }'
+            fi
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
             if xcodebuild "${XCODEBUILD_ARGS[@]}" 2>&1 | tee "$LOG_PATH"; then
