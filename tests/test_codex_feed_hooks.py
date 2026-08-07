@@ -922,6 +922,110 @@ def test_codex_subagent_stop_replays_deferred_turn_settlement(
                 subprocess.run(["/bin/kill", str(pid)], check=False)
 
 
+def test_codex_deferred_settlement_replay_requires_exact_acknowledgement(
+    cli_path: str,
+    root: Path,
+) -> None:
+    socket_path = root / "cmux-codex-settlement-ack.sock"
+    state_dir = root / "codex-settlement-ack-state"
+    transcript_path = root / "codex-settlement-ack.jsonl"
+    state_dir.mkdir()
+    transcript_path.write_text("", encoding="utf-8")
+
+    session_id = f"codex-settlement-ack-session-{os.getpid()}"
+    settled_turn_id = f"codex-settlement-ack-turn-{os.getpid()}"
+    active_turn_id = f"{settled_turn_id}-active"
+    settled_id = "11111111-1111-4111-8111-111111111111"
+    active_id = "22222222-2222-4222-8222-222222222222"
+    env = os.environ.copy()
+    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["CMUX_CODEX_PID"] = str(os.getpid())
+
+    def run_hook(arguments: list[str], payload: dict) -> dict:
+        result = subprocess.run(
+            [cli_path, "--socket", str(socket_path), *arguments],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            raise AssertionError(
+                f"{' '.join(arguments)} failed exit={result.returncode}\n"
+                f"stdout={result.stdout}\nstderr={result.stderr}"
+            )
+        return json.loads(result.stdout.strip() or "{}")
+
+    with FakeCmuxSocket(socket_path, None):
+        try:
+            settled_payload = {
+                "session_id": session_id,
+                "turn_id": settled_turn_id,
+                "cwd": str(root),
+                "transcript_path": str(transcript_path),
+            }
+            run_hook(["hooks", "codex", "session-start"], settled_payload)
+            run_hook(["hooks", "codex", "prompt-submit"], settled_payload)
+            settled_output = run_hook(
+                ["hooks", "codex", "stop"],
+                {
+                    **settled_payload,
+                    "cmux_turn_boundary": "settled",
+                    "cmux_deferred_settlement_id": settled_id,
+                },
+            )
+            expected_acknowledgement = {
+                "cmux_deferred_settlement_acknowledged_id": settled_id,
+            }
+            if settled_output != expected_acknowledgement:
+                raise AssertionError(
+                    "A genuinely settled Codex replay did not acknowledge its "
+                    f"exact durable boundary: {settled_output!r}"
+                )
+
+            active_payload = {
+                **settled_payload,
+                "turn_id": active_turn_id,
+            }
+            run_hook(["hooks", "codex", "prompt-submit"], active_payload)
+            run_hook(
+                [
+                    "hooks",
+                    "feed",
+                    "--source",
+                    "codex",
+                    "--event",
+                    "SubagentStart",
+                ],
+                {
+                    **active_payload,
+                    "hook_event_name": "SubagentStart",
+                    "agent_id": f"codex-settlement-ack-work-{os.getpid()}",
+                },
+            )
+            active_output = run_hook(
+                ["hooks", "codex", "stop"],
+                {
+                    **active_payload,
+                    "cmux_turn_boundary": "settled",
+                    "cmux_deferred_settlement_id": active_id,
+                },
+            )
+            if active_output != {}:
+                raise AssertionError(
+                    "A Codex replay with active structured work acknowledged "
+                    f"an unsettled boundary: {active_output!r}"
+                )
+        finally:
+            for pid in monitor_pids_for_session(session_id):
+                subprocess.run(["/bin/kill", str(pid)], check=False)
+
+
 def test_structured_background_work_bounds_and_generation_owned_clear(
     cli_path: str,
     root: Path,
@@ -5465,6 +5569,10 @@ def main() -> int:
             test_codex_monitor_exits_when_workspace_has_no_surfaces(cli_path, root)
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_subagent_stop_replays_deferred_turn_settlement(
+                cli_path,
+                root,
+            )
+            test_codex_deferred_settlement_replay_requires_exact_acknowledgement(
                 cli_path,
                 root,
             )
