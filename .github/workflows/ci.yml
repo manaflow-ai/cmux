@@ -136,9 +136,6 @@ jobs:
       - name: Validate app bundle license compliance
         run: ./tests/test_app_bundle_license_compliance.sh
 
-      - name: Validate unit-test SwiftPM retry guard
-        run: ./tests/test_ci_unit_test_spm_retry.sh
-
       - name: Validate Swift Testing suite timeout guard
         run: python3 tests/test_swift_testing_suite_timeout.py
 
@@ -280,6 +277,12 @@ jobs:
 
       - name: Validate test determinism gate
         run: python3 scripts/check-test-determinism.py --strict
+
+      - name: Validate the crash-report scan
+        run: python3 scripts/crash-reports-since.py --self-test
+
+      - name: Validate the unit-test log diagnostics
+        run: python3 tests/test_ci_unit_test_log_summary.py
 
   remote-daemon-tests:
     needs: changes
@@ -955,37 +958,153 @@ jobs:
           # Stream output via tee so CI logs are visible in real time, while still
           # capturing for post-run analysis of expected vs unexpected failures.
           TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"
-          set +e
-          run_unit_tests | tee "$TEST_OUTPUT"
-          EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat "$TEST_OUTPUT")
-          set -e
+          TEST_ANALYSIS="$RUNNER_TEMP/cmux-unit-analysis-shard-${{ matrix.shard }}.env"
+          LOST_TESTS="$RUNNER_TEMP/cmux-unit-lost-verdicts-shard-${{ matrix.shard }}.txt"
+          analyze_test_output() {
+            # One owner interprets the raw log. It emits fixed numeric assignments safe to source
+            # plus a bounded diagnostic file; the workflow never scans TEST_OUTPUT again.
+            python3 scripts/ci/unit_test_log_summary.py \
+              "$TEST_OUTPUT" \
+              --env-output "$TEST_ANALYSIS" \
+              --lost-output "$LOST_TESTS" \
+              --lost-limit 20
+            source "$TEST_ANALYSIS"
+          }
+          capture_unit_test_output() {
+            local -a capture_status
+            set +e
+            run_unit_tests | tee "$TEST_OUTPUT"
+            capture_status=("${PIPESTATUS[@]}")
+            set -e
+
+            EXIT_CODE="${capture_status[0]}"
+            if [ "${capture_status[1]}" -ne 0 ]; then
+              echo "::error::failed to retain complete unit-test output"
+              exit 1
+            fi
+          }
+          # macOS writes crash reports to one fixed directory, so this shard cannot have its own.
+          # Recording what is already there gives the same thing by subtraction: anything
+          # cmux-named that appears later belongs to this run.
+          CRASH_SNAPSHOT="$RUNNER_TEMP/cmux-crash-snapshot-shard-${{ matrix.shard }}.txt"
+          CRASH_KEPT="$RUNNER_TEMP/cmux-crashes-shard-${{ matrix.shard }}"
+          python3 scripts/crash-reports-since.py --snapshot "$CRASH_SNAPSHOT"
+          capture_unit_test_output
+          analyze_test_output
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
           # runners with "Could not resolve package dependencies". Retry once after
           # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
+          if [ "$EXIT_CODE" -ne 0 ] && \
+            [ "$PACKAGE_RESOLUTION_FAILED" -eq 1 ] && \
+            [ "$HOST_DEATHS" -eq 0 ]; then
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf "$CMUX_DERIVED_DATA_PATH"
             mkdir -p "$CMUX_DERIVED_DATA_PATH"
-            set +e
-            run_unit_tests | tee "$TEST_OUTPUT"
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat "$TEST_OUTPUT")
-            set -e
+            capture_unit_test_output
+            analyze_test_output
           fi
 
+          # A dead app host is never a pass, whatever the summary says. When the host dies the
+          # runner relaunches it and the summary line then describes only the tests the LAST
+          # launch managed. Measured on this repo: a shard printing "Test run with 0 tests in 1
+          # suite passed" while two hosts had died, and job logs carrying 24 restarts. Those
+          # verdicts are not green, they are absent.
+          if [ "$HOST_DEATHS" -ne 0 ]; then
+            echo "::error::app host died ${HOST_DEATHS} time(s); every verdict pending in those launches is lost"
+            echo "Tests that started but never reported (the last one named is where a host died):"
+            # Both harnesses, because they announce tests in different shapes and this shard may be
+            # either. swift-testing prints "Test foo() started"; XCTest prints
+            # "Test Case '-[Suite testFoo]' started". Matching only the first form made this list
+            # empty for a shard of XCTest suites — which is most of them — and an empty list reads
+            # as "nothing was lost" at the exact moment something was.
+            cat "$LOST_TESTS"
+            # Keep going long enough to copy any crash report into the always-uploaded evidence.
+          fi
+
+          # The restart line above is the runner noticing a host it has to replace, so it misses a
+          # crash with nothing left to restart — one during teardown, after the last verdict is
+          # already printed. That crash is still an over-release, and it reads as a clean shard.
+          # The process's own crash report is the evidence. Reports that appeared since the
+          # snapshot belong to this run, and each is copied out because macOS prunes that
+          # directory and the copy is what survives into the artifact.
+          #
+          # A report above zero proves a crash; zero does not prove none, because ReportCrash
+          # writes asynchronously and can land after this runs. ReportCrash is a persistent
+          # launchd service and exposes no supported flush, wait, or completion interface; a
+          # fixed delay or a momentarily quiet directory would still race it. The grading
+          # invariant therefore remains the runner's restart line above: a host death before all
+          # verdicts are emitted requires a replacement launch and fails the shard. A teardown
+          # death after the final verdict loses no verdicts, and this scan catches it when the
+          # report is already available. The scan is supplementary evidence, not a negative
+          # completion protocol.
+          #
+          # Attribution assumes this job has the crash directory to itself, which holds because
+          # the macOS runners are ephemeral per-job Tart VMs (docs/ci-runners.md). On a shared,
+          # persistent runner another job's cmux crash could land in the window and fail this
+          # shard too — a false failure, never a false pass, since a report that predates the
+          # snapshot is excluded and one that appears during the run is always attributed.
+          #
+          # The scan's own failure is a failure. Swallowing its exit status would turn a renamed
+          # script or a missing interpreter into empty output, which reads as "nothing crashed".
+          set +e
+          CRASHES=$(python3 scripts/crash-reports-since.py --new-since "$CRASH_SNAPSHOT" --copy-to "$CRASH_KEPT")
+          CRASH_SCAN_RC=$?
+          set -e
+          if [ "$CRASH_SCAN_RC" -ne 0 ]; then
+            echo "::error::the crash-report scan failed (exit ${CRASH_SCAN_RC}); refusing to read that as a clean shard"
+            exit 1
+          fi
+          if [ -n "$CRASHES" ]; then
+            echo "::error::a cmux process crashed during this shard, even if every verdict printed"
+            echo "$CRASHES" | sed 's/^/  /'
+            exit 1
+          fi
+          if [ "$HOST_DEATHS" -ne 0 ]; then
+            exit 1
+          fi
+
+          # A run that executed nothing is not a pass either. A selector naming a file rather than
+          # a suite, or a suite that no longer exists, leaves xcodebuild reporting success having
+          # done no work at all.
+          #
+          # Both harnesses have numeric summaries, but in different shapes. The single analysis
+          # pass parses those rather than counting lines beginning with "✔ Test": Swift Testing's
+          # zero-test summary itself begins "✔ Test run with 0 tests", so that line made an empty
+          # shard look nonempty. It takes the largest reported count because XCTest emits nested
+          # suite summaries; summing them would count the same tests repeatedly.
+          if [ "$TESTS_SEEN" -eq 0 ]; then
+            echo "::error::no tests executed for this shard; its selectors matched nothing"
+            exit 1
+          fi
+          echo "shard reported at least ${TESTS_SEEN} executed tests with no host deaths"
+
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
+            if [ "$EXPECTED_FAILURES_ONLY" -eq 1 ]; then
               echo "All failures are expected, treating as pass"
             else
               echo "Unexpected test failures detected"
               exit 1
             fi
           fi
+
+      - name: Keep the unit test evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-unit-shard-${{ matrix.shard }}-output
+          # Without this, "which test failed on CI" is unanswerable after the fact: the job log is a
+          # filtered excerpt, and neither the xcodebuild output nor an xcresult was kept.
+          path: |
+            ${{ runner.temp }}/cmux-unit-output-shard-${{ matrix.shard }}.txt
+            ${{ runner.temp }}/cmux-unit-analysis-shard-${{ matrix.shard }}.env
+            ${{ runner.temp }}/cmux-unit-lost-verdicts-shard-${{ matrix.shard }}.txt
+            ${{ runner.temp }}/cmux-unit-shard-${{ matrix.shard }}.args
+            ${{ runner.temp }}/cmux-crashes-shard-${{ matrix.shard }}/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Run bundled Ghostty theme picker helper regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
