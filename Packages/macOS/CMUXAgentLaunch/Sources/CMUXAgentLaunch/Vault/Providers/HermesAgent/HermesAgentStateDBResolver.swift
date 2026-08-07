@@ -33,7 +33,6 @@ public struct HermesAgentStateDBResolver: Sendable {
             return nil
         }
         defer { sqlite3_close(database) }
-        _ = sqlite3_busy_timeout(database, 50)
 
         guard sessionsHaveCwdColumn(database) else { return nil }
         let placeholders = cwdCandidates.map { _ in "?" }.joined(separator: ", ")

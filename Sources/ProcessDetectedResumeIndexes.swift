@@ -16,7 +16,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
-        maximumSnapshotAge: TimeInterval? = nil
+        maximumSnapshotAge: TimeInterval? = nil,
+        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        persistedSessionStoreReadsAllowed: Bool = true
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = if let maximumSnapshotAge {
@@ -24,19 +26,28 @@ struct ProcessDetectedResumeIndexes: Sendable {
         } else {
             CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
         }
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-        let restorableAgentIndex = RestorableAgentSessionIndex.load(
-            homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots
-        )
+        let restorableAgentIndex: RestorableAgentSessionIndex
+        if let cachedRestorableAgentIndex {
+            restorableAgentIndex = cachedRestorableAgentIndex
+        } else {
+            let registry = CmuxVaultAgentRegistry.load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            )
+            let detectedSnapshots = RestorableAgentSessionIndex.processDetectedSnapshots(
+                registry: registry,
+                fileManager: fileManager,
+                processSnapshot: processSnapshot,
+                capturedAt: capturedAt,
+                persistedSessionStoreReadsAllowed: persistedSessionStoreReadsAllowed
+            )
+            restorableAgentIndex = RestorableAgentSessionIndex.load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                registry: registry,
+                detectedSnapshots: detectedSnapshots
+            )
+        }
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
             processSnapshot: processSnapshot,

@@ -69,7 +69,14 @@ extension CMUXCLI {
         let configDirectoryFileError = String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.error.configDirectoryIsFile",
-                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
+            ),
+            configDir
+        )
+        let configDirectoryCreateError = String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.error.configDirectoryCreateFailed",
+                defaultValue: "cmux could not create the hooks directory at %@. Check the parent directory permissions and try again."
             ),
             configDir
         )
@@ -82,7 +89,7 @@ extension CMUXCLI {
             do {
                 try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
             } catch {
-                throw CLIError(message: configDirectoryFileError)
+                throw CLIError(message: configDirectoryCreateError)
             }
         }
 

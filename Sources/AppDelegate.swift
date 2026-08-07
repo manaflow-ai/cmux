@@ -4435,7 +4435,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        // The shared index performs persisted-store resolution off-main. Termination must consume
+        // that cache, or fail closed on a cold cache, instead of opening an agent database here.
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+            cachedRestorableAgentIndex: SharedLiveAgentIndex.shared.index,
+            persistedSessionStoreReadsAllowed: false
+        )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,

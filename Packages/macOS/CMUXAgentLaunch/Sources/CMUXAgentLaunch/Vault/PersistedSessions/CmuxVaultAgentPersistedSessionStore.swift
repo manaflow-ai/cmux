@@ -1,13 +1,14 @@
 import Foundation
 
-/// A typed persisted-session store capability.
-///
-/// Config decoding may name a store, but resolution remains fail-closed unless the registration
-/// exactly matches the cmux-owned built-in that owns it.
-enum CmuxVaultAgentPersistedSessionStore: String, Codable, Hashable, Sendable {
+/// A persisted agent-session store that cmux knows how to resolve safely.
+public enum CmuxVaultAgentPersistedSessionStore: String, Codable, Hashable, Sendable {
+    /// Hermes's SQLite `state.db` session store.
     case hermesStateDB
 
-    init?(configurationValue: String) {
+    /// Creates a store identifier from a Vault configuration value.
+    ///
+    /// - Parameter configurationValue: A supported persisted-store spelling.
+    public init?(configurationValue: String) {
         switch configurationValue.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "hermesStateDB", "hermes-state-db", "stateDB", "state-db":
             self = .hermesStateDB
@@ -16,7 +17,13 @@ enum CmuxVaultAgentPersistedSessionStore: String, Codable, Hashable, Sendable {
         }
     }
 
-    func explicitSessionID(arguments: [String]) -> String? {
+    /// Returns an explicitly requested session ID from an agent launch command.
+    ///
+    /// Explicit launch arguments remain authoritative over persisted-store inference.
+    ///
+    /// - Parameter arguments: The observed agent process arguments.
+    /// - Returns: The explicit session ID, or `nil` when the launch is a fresh session.
+    public func explicitSessionID(arguments: [String]) -> String? {
         switch self {
         case .hermesStateDB:
             return Self.optionValue("--resume", arguments: arguments)

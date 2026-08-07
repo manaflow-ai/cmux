@@ -29495,7 +29495,7 @@ export default CMUXSessionRestore;
         let configDirectoryFileError = String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.error.configDirectoryIsFile",
-                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
             ),
             configDir
         )
@@ -29694,7 +29694,7 @@ export default CMUXSessionRestore;
         let configDirectoryFileError = String.localizedStringWithFormat(
             String(
                 localized: "cli.hooks.error.configDirectoryIsFile",
-                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@. Remove or rename the conflicting file, then run `cmux hooks setup` again."
             ),
             configDir
         )

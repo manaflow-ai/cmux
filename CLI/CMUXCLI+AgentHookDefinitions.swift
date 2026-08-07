@@ -385,12 +385,9 @@ extension CMUXCLI {
               pinnedAgentHookSocketPath() == nil else {
             return
         }
-        throw CLIError(message: String.localizedStringWithFormat(
-            String(
-                localized: "cli.hooks.error.pinnedTargetMissing",
-                defaultValue: "cmux cannot install %@ hooks without a target socket. Run this command inside cmux, or set CMUX_SOCKET_PATH or CMUX_TAG and try again."
-            ),
-            def.displayName
+        throw CLIError(message: String(
+            localized: "cli.hooks.error.pinnedTargetMissing",
+            defaultValue: "cmux could not connect this hook installation to a running app. Open a cmux workspace and run this command again."
         ))
     }
 

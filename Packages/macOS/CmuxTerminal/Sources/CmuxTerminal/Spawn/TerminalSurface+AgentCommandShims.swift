@@ -95,6 +95,11 @@ extension TerminalSurface {
         fi
         cmux_path_without_shim=""
         cmux_old_ifs="$IFS"
+        cmux_globbing_was_disabled=0
+        case "$-" in
+            *f*) cmux_globbing_was_disabled=1 ;;
+            *) set -f ;;
+        esac
         IFS=:
         for cmux_entry in ${PATH:-}; do
             if [[ "$cmux_entry" == "$cmux_shim_root" || "$cmux_entry" == */cmux-cli-shims/* || "$cmux_entry" == */cmux-cli-shims ]]; then
@@ -107,6 +112,9 @@ extension TerminalSurface {
             fi
         done
         IFS="$cmux_old_ifs"
+        if [[ "$cmux_globbing_was_disabled" == 0 ]]; then
+            set +f
+        fi
         export PATH="$cmux_path_without_shim"
         exec \(shellSingleQuoted(definition.commandName)) "$@"
         """

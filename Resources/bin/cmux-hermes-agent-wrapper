@@ -94,6 +94,10 @@ run_hermes_hook_installer() {
     if [[ ! "$timeout_seconds" =~ ^[0-9]+([.][0-9]+)?$ || ! -x /usr/bin/perl ]]; then
         return 0
     fi
+    # alarm(0) removes the deadline, so non-positive values skip best-effort setup.
+    if [[ "$timeout_seconds" =~ ^0+([.]0+)?$ ]]; then
+        return 0
+    fi
 
     CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC="$timeout_seconds" \
         /usr/bin/perl -MTime::HiRes=alarm -e '

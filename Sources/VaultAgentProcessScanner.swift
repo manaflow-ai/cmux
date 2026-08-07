@@ -57,6 +57,7 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager,
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval,
+        persistedSessionStoreReadsAllowed: Bool = true,
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         }
@@ -105,7 +106,9 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        var persistedSessionResolver = VaultPersistedSessionResolver()
+        var persistedSessionResolver = CmuxVaultPersistedSessionResolver(
+            allowsStoreReads: persistedSessionStoreReadsAllowed
+        )
         var candidates: [VaultAgentProcessCandidate] = []
         for process in scopedProcesses {
             guard let workspaceID = process.cmuxWorkspaceID,
@@ -124,11 +127,15 @@ extension RestorableAgentSessionIndex {
             guard let registration = processRegistry.matchingRegistration(for: observed) else {
                 continue
             }
-            persistedSessionResolver.registerFreshProcess(
-                observed: observed,
-                cwd: cwd,
-                registration: registration
-            )
+            if let cwd,
+               case .persistedStore(let store) = registration.sessionIdSource,
+               registration.persistedSessionStoreCapability == store {
+                persistedSessionResolver.registerFreshProcess(
+                    store: store,
+                    environment: observed.environment,
+                    cwd: cwd
+                )
+            }
             candidates.append(VaultAgentProcessCandidate(
                 process: process,
                 workspaceID: workspaceID,
@@ -711,7 +718,7 @@ private extension CmuxVaultAgentSessionIDSource {
         registration: CmuxVaultAgentRegistration,
         cwd: String?,
         fileManager: FileManager,
-        persistedSessionResolver: inout VaultPersistedSessionResolver
+        persistedSessionResolver: inout CmuxVaultPersistedSessionResolver
     ) -> VaultAgentSessionIDResolution? {
         switch self {
         case .argvOption(let option):
