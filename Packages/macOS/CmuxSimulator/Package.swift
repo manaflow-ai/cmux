@@ -9,6 +9,7 @@ let package = Package(
     ],
     products: [
         .library(name: "CmuxSimulator", targets: ["CmuxSimulator"]),
+        .library(name: "CmuxSimulatorCLI", type: .static, targets: ["CmuxSimulator"]),
         .library(name: "CmuxSimulatorUI", targets: ["CmuxSimulatorUI"]),
         .library(name: "CmuxSimulatorWorker", targets: ["CmuxSimulatorWorker"]),
     ],

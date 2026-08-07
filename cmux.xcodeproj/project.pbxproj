@@ -814,6 +814,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C51A700000000000000000A3 /* CmuxSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000A2 /* CmuxSimulator */; };
 		C51A700000000000000000A4 /* CmuxSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000A2 /* CmuxSimulator */; };
 		C51A700000000000000000A5 /* CmuxSimulator in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000A2 /* CmuxSimulator */; };
+		C51A700000000000000000D3 /* CmuxSimulatorCLI in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000D2 /* CmuxSimulatorCLI */; };
 		C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000B2 /* CmuxSimulatorUI */; };
 		C51A700000000000000000B4 /* CmuxSimulatorUI in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000B2 /* CmuxSimulatorUI */; };
 		C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */ = {isa = PBXBuildFile; productRef = C51A700000000000000000C2 /* CmuxSimulatorWorker */; };
@@ -5378,7 +5379,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				CE57E10000000000000000A4 /* CmuxSentryScrubbing in Frameworks */,
 				CD0CFE5700000000CD0CFE57 /* CmuxSettings in Frameworks */,
 				C5A1FED200000000000000E2 /* CmuxSidebarInterpreterClient in Frameworks */,
-				C51A700000000000000000A5 /* CmuxSimulator in Frameworks */,
+				C51A700000000000000000D3 /* CmuxSimulatorCLI in Frameworks */,
 				C5A1FED000000000000000C2 /* CmuxSwiftRender in Frameworks */,
 				C5A1FED100000000000000D2 /* CmuxSwiftRenderUI in Frameworks */,
 				B9000024A1B2C3D4E5F60719 /* Sentry in Frameworks */,
@@ -8197,7 +8198,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C5A1FED000000000000000C3 /* CmuxSwiftRender */,
 				C5A1FED100000000000000D3 /* CmuxSwiftRenderUI */,
 				C5A1FED200000000000000E3 /* CmuxSidebarInterpreterClient */,
-				C51A700000000000000000A2 /* CmuxSimulator */,
+				C51A700000000000000000D2 /* CmuxSimulatorCLI */,
 				CD0CFE5200000000CD0CFE52 /* CmuxSettings */,
 				CF00F00000000000000000A2 /* CmuxFoundation */,
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
@@ -11880,6 +11881,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = XCSwiftPackageProductDependency;
 			package = C51A700000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSimulator" */;
 			productName = CmuxSimulatorWorker;
+		};
+		C51A700000000000000000D2 /* CmuxSimulatorCLI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C51A700000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSimulator" */;
+			productName = CmuxSimulatorCLI;
 		};
 		C617000000000000000000A2 /* CmuxGit */ = {
 			isa = XCSwiftPackageProductDependency;
