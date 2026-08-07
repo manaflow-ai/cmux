@@ -1,0 +1,193 @@
+# gitleaks configuration for the cmux repository.
+#
+# Why this exists (https://github.com/manaflow-ai/cmux/issues/5978):
+# the Sentry-scrubber test suites and one doc-comment example deliberately embed
+# token-shaped strings (PEM blocks, ghp_/sk-/JWT/AWS samples) so the scrubber can
+# prove it redacts them. Those are fixtures, not leaks. Left unannotated they
+# dominate a secret scan and make a *real* leak hard to spot, which defeats the
+# point of scanning.
+#
+# This config EXTENDS gitleaks' default rule set (so real secrets still fail) and
+# adds a narrow, individually-justified allowlist. Every entry is scoped to a
+# specific file — and, for non-fixture source files, to the specific known-public
+# value — so it can never blanket-ignore an entire language or test tree.
+#
+# gitleaks auto-loads this file when it sits at the scan root, so external review
+# tools that run `gitleaks` over the checkout honor it automatically.
+#
+# Reproduce locally:  ./scripts/secret-scan.sh   (see docs/secret-scanning.md)
+
+title = "cmux gitleaks config"
+
+[extend]
+# Inherit every built-in rule so real credentials still fail the scan.
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Scan scope. Vendored, generated, and submodule trees are not cmux source:
+# the ghostty submodule is a separate upstream repo with its own scanning, and
+# node_modules / .build / DerivedData / vendor are third-party or generated.
+# Excluding them keeps the scan about code we actually own.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Vendored, generated, and submodule trees (not cmux source)"
+paths = [
+  '''(^|/)ghostty/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.build/''',
+  '''(^|/)DerivedData/''',
+  '''(^|/)vendor/''',
+]
+
+# This config necessarily embeds the token-shaped literals it allowlists. Keep
+# the self-allowlist to exact synthetic/public values so a different secret added
+# to .gitleaks.toml still fails the scan.
+[[allowlists]]
+description = "Synthetic/public literals inside the gitleaks config itself"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)\.gitleaks\.toml$''']
+regexes = [
+  '''token=sk-abc123def456ghij''',
+  '''ticket-secret''',
+  '''0c33124b-9f59-4ba2-a2c2-9bd3b1cba001''',
+  '''2bb80d537b1da3e38bd30361aa855686bde0ba2cf9c27ffb6b3874b764d66e16''',
+  '''CMUX_PALETTE_FOCUS_PROBE_9412''',
+  '''CMUX_PALETTE_RESTORE_PROBE_7731''',
+  '''00112233445566778899aabbccddeeff''',
+  '''3q2-7wDqzfQqzKpQ4XB8x1n0o5pYkz9jW2sT8uVbLwM''',
+  '''dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5''',
+  '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
+  '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
+  '''phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP''',
+]
+
+# ---------------------------------------------------------------------------
+# issue #5978 — intentional Sentry-scrubber redaction fixtures.
+# These files exist solely to feed token-shaped inputs through the scrubber and
+# assert the output is redacted. Every "secret" in them is a deliberate sample.
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Sentry-scrubber redaction test fixtures (issue #5978)"
+paths = [
+  '''(^|/)Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/ScrubberDenylistsTests\.swift$''',
+  '''(^|/)Packages/macOS/CmuxFoundation/Tests/CmuxFoundationTests/SentryScrubberTests\.swift$''',
+  '''(^|/)cmuxTests/SentryEventScrubberTests\.swift$''',
+]
+
+# The scrubber's own doc-comment shows a `token=sk-...` redaction example. Scope
+# to that one source file AND the exact placeholder, so a *real* key added to
+# this file would still fail the scan.
+[[allowlists]]
+description = "SentryScrubber doc-comment example token (issue #5978)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Packages/macOS/CmuxFoundation/Sources/CmuxFoundation/SentryScrubber\.swift$''']
+regexes = ['''token=sk-abc123def456ghij''']
+
+# ---------------------------------------------------------------------------
+# Other intentional, synthetic test-only tokens. These are ordinary tests, so
+# each allowlist is scoped to one exact file AND the known fixture literal(s).
+# ---------------------------------------------------------------------------
+[[allowlists]]
+description = "Attach-ticket compact-coder fixture token"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Packages/Shared/CMUXMobileCore/Tests/CMUXMobileCoreTests/CmxAttachTicketCompactCoderTests\.swift$''']
+regexes = [
+  '''ticket-secret''',
+  '''3q2-7wDqzfQqzKpQ4XB8x1n0o5pYkz9jW2sT8uVbLwM''',
+]
+
+[[allowlists]]
+description = "Diff-viewer URL fixture token"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)cmuxTests/DiffCommentStoreTests\.swift$''']
+regexes = ['''0c33124b-9f59-4ba2-a2c2-9bd3b1cba001''']
+
+[[allowlists]]
+description = "Remote websocket lease fuzz seed token hash"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)daemon/remote/cmd/cmuxd-remote/ws_pty_fuzz_test\.go$''']
+regexes = ['''2bb80d537b1da3e38bd30361aa855686bde0ba2cf9c27ffb6b3874b764d66e16''']
+
+[[allowlists]]
+description = "Command-palette focus probe markers"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)tests_v2/test_command_palette_focus\.py$''']
+regexes = [
+  '''CMUX_PALETTE_FOCUS_PROBE_9412''',
+  '''CMUX_PALETTE_RESTORE_PROBE_7731''',
+]
+
+[[allowlists]]
+description = "Remote CLI relay fixture token hex"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Packages/macOS/CmuxRemoteWorkspace/Tests/CmuxRemoteWorkspaceTests/RemoteCLIRelayServerTests\.swift$''']
+regexes = ['''00112233445566778899aabbccddeeff''']
+
+[[allowlists]]
+description = "Sentry CLI release checksum (public integrity hash)"
+condition = "AND"
+regexTarget = "line"
+paths = [
+  '''(^|/)scripts/ensure-sentry-cli\.sh$''',
+  '''(^|/)tests/test_ci_self_hosted_guard\.sh$''',
+]
+regexes = ['''dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5''']
+
+# ---------------------------------------------------------------------------
+# Embedded public/publishable keys and non-secret env references. These ship in
+# clients by design (publishable keys) or are plain variable references, not
+# hardcoded secrets. Each is scoped to the exact file AND value, so a real
+# secret added to the same file is still caught.
+# ---------------------------------------------------------------------------
+# The dev and prod publishable keys both appear in each auth file, so each block
+# is scoped to a single file AND its two known-public values. Splitting per file
+# (rather than one block over both files) keeps the suppressed set to exactly the
+# real occurrences — no cross-file combinations. A real, *non-publishable* secret
+# added to either file still fails, because it won't match these exact values.
+[[allowlists]]
+description = "Stack Auth publishable client keys in AuthConfig.swift (public by design)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthConfig\.swift$''']
+regexes = [
+  '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
+  '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
+]
+
+[[allowlists]]
+description = "Stack Auth publishable client keys in AuthEnvironment.swift (public by design)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Sources/Auth/AuthEnvironment\.swift$''']
+regexes = [
+  '''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''',
+  '''pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr''',
+]
+
+[[allowlists]]
+description = "Stack Auth publishable client key in setup-team-dev.sh (public by design)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)scripts/setup-team-dev\.sh$''']
+regexes = ['''pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g''']
+
+[[allowlists]]
+description = "PostHog project API key (public, intentionally embedded in the client)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)Sources/PostHogAnalytics\.swift$''']
+regexes = ['''phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP''']
+
+[[allowlists]]
+description = "APNs key env-var reference (not a hardcoded secret)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''(^|/)web/app/api/notifications/push/route\.ts$''']
+regexes = ['''env\.CMUX_APNS_KEY_P8''']
