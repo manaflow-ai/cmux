@@ -43,6 +43,18 @@ extension CMUXCLI {
               FileManager.default.isExecutableFile(atPath: executablePath) else {
             return
         }
+        guard let observerLease = CursorNativeApprovalObserverLease.claim(
+            processIdentity: processIdentity,
+            observationID: identifiers.observationId
+        ) else {
+            return
+        }
+        var childOwnsObserverLease = false
+        defer {
+            if !childOwnsObserverLease {
+                observerLease.release()
+            }
+        }
 
         let observationEpoch = DispatchTime.now().uptimeNanoseconds
         var arguments = [
@@ -59,6 +71,7 @@ extension CMUXCLI {
             "--expected-tool-call-id", expectedToolCallId,
             "--observation-epoch", String(observationEpoch),
         ]
+        arguments += observerLease.commandArguments
         if let surfaceId = normalizedHookValue(surfaceId),
            UUID(uuidString: surfaceId) != nil {
             arguments += ["--surface-id", surfaceId]
@@ -90,6 +103,24 @@ extension CMUXCLI {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
+            let childPID = process.processIdentifier
+            guard let childProcessIdentity = AgentPIDProcessIdentity(
+                agentTurnPID: Int(childPID)
+            ) else {
+                _ = Darwin.kill(childPID, SIGTERM)
+                return
+            }
+            guard observerLease.activate(
+                childProcessIdentity: childProcessIdentity
+            ) else {
+                if AgentPIDProcessIdentity(
+                    agentTurnPID: Int(childPID)
+                ) == childProcessIdentity {
+                    _ = Darwin.kill(childPID, SIGTERM)
+                }
+                return
+            }
+            childOwnsObserverLease = true
         } catch {
             CLISocketSentryTelemetry(
                 command: "hooks",
@@ -128,6 +159,9 @@ extension CMUXCLI {
         }
 
         let boundaryEpoch = DispatchTime.now().uptimeNanoseconds
+        CursorNativeApprovalObserverLease.cancelAll(
+            processIdentity: processIdentity
+        )
         let params: [String: Any] = [
             "source": BuiltInAgentIntegration.cursor.feedSourceName,
             "session_id": sessionId,
@@ -168,6 +202,10 @@ extension CMUXCLI {
             sessionId: sessionId
         )
         guard identifiers.expectedToolCallId != nil else { return }
+        CursorNativeApprovalObserverLease.cancel(
+            processIdentity: processIdentity,
+            observationID: identifiers.observationId
+        )
         sendBestEffortAgentAttentionV2Message(
             method: "agent.attention.end",
             params: [
@@ -291,7 +329,16 @@ extension CMUXCLI {
                   commandArgs,
                   name: "--observation-epoch"
               ),
-              let observationEpoch = UInt64(observationEpochValue)
+              let observationEpoch = UInt64(observationEpochValue),
+              let observerLeaseSlotValue = optionValue(
+                  commandArgs,
+                  name: "--observer-lease-slot"
+              ),
+              let observerLeaseSlot = Int(observerLeaseSlotValue),
+              let observerLeaseID = optionValue(
+                  commandArgs,
+                  name: "--observer-lease-id"
+              )
         else {
             throw CLIError(
                 message: String(
@@ -306,6 +353,15 @@ extension CMUXCLI {
             startSeconds: startSeconds,
             startMicroseconds: startMicroseconds
         )
+        guard let observerLease = CursorNativeApprovalObserverLease.existing(
+            processIdentity: processIdentity,
+            slotIndex: observerLeaseSlot,
+            leaseID: observerLeaseID,
+            observationID: observationId
+        ), observerLease.isCurrent else {
+            return
+        }
+        defer { observerLease.release() }
         guard processIdentity.liveness == .live else { return }
         let outcome = CursorNativeApprovalFileObserver(
             logDirectory: Self.cursorNativeApprovalLogDirectory(),

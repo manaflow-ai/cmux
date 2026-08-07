@@ -144,24 +144,30 @@ enum ControlSidebarPanelOwner {
         }
         switch self {
         case .workspace(let workspace):
-            return .accepted(
-                replacedOtherRuntime: workspace.recordAgentPID(
-                    key: key,
-                    pid: pid,
-                    panelId: panelId,
-                    processIdentity: acceptedProcessIdentity
-                )
+            let result = workspace.recordAgentPIDResult(
+                key: key,
+                pid: pid,
+                panelId: panelId,
+                processIdentity: acceptedProcessIdentity
             )
+            return result.accepted
+                ? .accepted(
+                    replacedOtherRuntime: result.replacedOtherRuntime
+                )
+                : .rejected
         case .dock(let dock):
             guard let panelId else { return .rejected }
-            return .accepted(
-                replacedOtherRuntime: dock.recordAgentPID(
-                    key: key,
-                    pid: pid,
-                    panelId: panelId,
-                    processIdentity: acceptedProcessIdentity
-                )
+            let result = dock.recordAgentPIDResult(
+                key: key,
+                pid: pid,
+                panelId: panelId,
+                processIdentity: acceptedProcessIdentity
             )
+            return result.accepted
+                ? .accepted(
+                    replacedOtherRuntime: result.replacedOtherRuntime
+                )
+                : .rejected
         }
     }
 

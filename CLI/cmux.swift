@@ -405,6 +405,11 @@ final class ClaudeHookSessionStore {
                 terminalWorkIds.append(normalizedWorkId)
                 if terminalWorkIds.count
                     > Self.maxRememberedTerminalBackgroundWorkIdsPerTurn {
+                    // Once an exact terminal tombstone is evicted, a delayed
+                    // duplicate start can no longer be disproven. Preserve the
+                    // same conservative latch used when active identities
+                    // overflow until authoritative process/session cleanup.
+                    overflowTurnKeys.insert(turnKey)
                     terminalWorkIds.removeFirst(
                         terminalWorkIds.count
                             - Self

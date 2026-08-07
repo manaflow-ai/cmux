@@ -122,19 +122,23 @@ final class WorkspaceSidebarAgentRuntimeObservationModel {
         return ended
     }
 
+    @discardableResult
     func recordAgentProcessGeneration(
         key: String,
         panelId: UUID,
         generation: AgentPIDProcessIdentity,
         isBuiltIn: Bool
-    ) {
-        agentLifecycleReconciliationState.recordProcessGeneration(
+    ) -> Bool {
+        let accepted = agentLifecycleReconciliationState.recordProcessGeneration(
             key: key,
             panelId: panelId,
             generation: generation,
             isBuiltIn: isBuiltIn
         )
-        publishReconciledLifecycle()
+        if accepted {
+            publishReconciledLifecycle()
+        }
+        return accepted
     }
 
     @discardableResult

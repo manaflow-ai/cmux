@@ -227,6 +227,24 @@ extension Workspace {
             AgentPIDProcessIdentity? = nil,
         refreshPorts: Bool = true
     ) -> Bool {
+        recordAgentPIDResult(
+            key: key,
+            pid: pid,
+            panelId: panelId,
+            processIdentity: providedProcessIdentity,
+            refreshPorts: refreshPorts
+        ).replacedOtherRuntime
+    }
+
+    /// Admits an exact process generation before replacing any runtime owner.
+    func recordAgentPIDResult(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        processIdentity providedProcessIdentity:
+            AgentPIDProcessIdentity? = nil,
+        refreshPorts: Bool = true
+    ) -> (accepted: Bool, replacedOtherRuntime: Bool) {
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
@@ -239,7 +257,25 @@ extension Workspace {
            previous.panelId == panelId,
            previous.pid == pid,
            previous.identity == processIdentity {
-            return false
+            return (accepted: true, replacedOtherRuntime: false)
+        }
+        if let processIdentity,
+           let previousIdentity = previous.identity,
+           processIdentity < previousIdentity {
+            return (accepted: false, replacedOtherRuntime: false)
+        }
+        if let panelId, let processIdentity {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard sidebarAgentRuntimeObservation.recordAgentProcessGeneration(
+                key: statusKey,
+                panelId: panelId,
+                generation: processIdentity,
+                isBuiltIn: AgentHibernationLifecycleStatusKeys(
+                    rawValue: statusKey
+                ).isAllowed
+            ) else {
+                return (accepted: false, replacedOtherRuntime: false)
+            }
         }
         let replacesProcessGeneration =
             previous.identity != nil
@@ -292,15 +328,6 @@ extension Workspace {
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
         sidebarAgentRuntimeObservation.cancelAgentProcessExitObservation(key: key)
         if let panelId, let processIdentity {
-            let statusKey = agentStatusKey(forAgentPIDKey: key)
-            sidebarAgentRuntimeObservation.recordAgentProcessGeneration(
-                key: statusKey,
-                panelId: panelId,
-                generation: processIdentity,
-                isBuiltIn: AgentHibernationLifecycleStatusKeys(
-                    rawValue: statusKey
-                ).isAllowed
-            )
             sidebarAgentRuntimeObservation.observeAgentProcessExit(
                 key: key,
                 generation: processIdentity
@@ -317,7 +344,10 @@ extension Workspace {
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
-        return didClearOtherStructuredAgentRuntime
+        return (
+            accepted: true,
+            replacedOtherRuntime: didClearOtherStructuredAgentRuntime
+        )
     }
 
     @discardableResult
