@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCore
+import CmuxSidebar
 import Darwin
 import Foundation
 import Testing
@@ -600,7 +601,7 @@ struct RemoteResumeBindingTests {
 
     @Test
     func persistentBindingOnlyRestoreTracksStartupCommandUntilPromptReturns() throws {
-        let fixture = try makeRelayedFixture(verifyingPromptNotificationCleanup: true)
+        let fixture = try makeRelayedFixture(verifyingPromptSelectiveRuntimeCleanup: true)
         let suiteName = "cmux-remote-resume-lifecycle-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -635,6 +636,79 @@ struct RemoteResumeBindingTests {
                 .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
         )
         #expect(retiredBinding.autoResume == false)
+    }
+
+    @Test
+    func transferredPersistentSSHAgentRuntimeNeverUsesLocalPIDNamespace() throws {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let configuration = remoteConfiguration()
+        source.configureRemoteConnection(configuration, autoConnect: false)
+        let sourcePanelID = try #require(source.focusedPanelId)
+        let authority = try #require(WorkspaceRemoteTerminalAuthority(configuration: configuration))
+        #expect(source.markRemoteTerminalSessionConnected(
+            surfaceId: sourcePanelID,
+            authority: authority
+        ))
+
+        let sessionID = "transferred-remote-session"
+        let runtimeKey = "codex.\(sessionID)"
+        source.recordAgentPID(
+            key: runtimeKey,
+            pid: getpid(),
+            panelId: sourcePanelID,
+            refreshPorts: false
+        )
+        source.updatePanelShellActivityState(panelId: sourcePanelID, state: .commandRunning)
+        let detached = try #require(source.detachSurface(panelId: sourcePanelID))
+
+        let destination = Workspace()
+        defer { destination.teardownAllPanels() }
+        let destinationPaneID = try #require(destination.bonsplitController.allPaneIds.first)
+        let destinationPanelID = try #require(
+            destination.attachDetachedSurface(
+                detached,
+                inPane: destinationPaneID,
+                focus: false
+            )
+        )
+        #expect(!destination.isRemoteTerminalSurface(destinationPanelID))
+        #expect(
+            destination.surfaceRegistry
+                .remoteTTYReportOriginWorkspaceIDs[destinationPanelID] == source.id
+        )
+
+        // A later hook arrives after the remote panel moved into a local
+        // workspace. Its PID is still from the SSH host and must remain opaque.
+        destination.recordAgentPID(
+            key: runtimeKey,
+            pid: getpid(),
+            panelId: destinationPanelID,
+            refreshPorts: false
+        )
+        #expect(destination.agentPIDs[runtimeKey] == nil)
+        #expect(
+            destination.confirmedRuntimeAgentProcessIdentities(
+                kind: .codex,
+                sessionId: sessionID,
+                panelId: destinationPanelID,
+                currentProcessIdentity: { pid in
+                    Workspace.agentPIDProcessIdentity(pid: pid_t(pid))
+                }
+            ).isEmpty
+        )
+
+        destination.recordAgentPID(
+            key: runtimeKey,
+            pid: .max,
+            panelId: destinationPanelID,
+            refreshPorts: false
+        )
+        #expect(!destination.clearStaleAgentPIDs(
+            panelId: destinationPanelID,
+            refreshPorts: false
+        ))
+        #expect(destination.agentPIDKeysByPanelId[destinationPanelID]?.contains(runtimeKey) == true)
     }
 
     @Test
@@ -765,7 +839,7 @@ struct RemoteResumeBindingTests {
     }
 
     private func makeRelayedFixture(
-        verifyingPromptNotificationCleanup: Bool = false
+        verifyingPromptSelectiveRuntimeCleanup: Bool = false
     ) throws -> (
         snapshot: SessionWorkspaceSnapshot,
         workspaceID: UUID,
@@ -926,7 +1000,29 @@ struct RemoteResumeBindingTests {
             snapshot.panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == true
         )
 
-        if verifyingPromptNotificationCleanup {
+        let unrelatedRuntimeKey = "remote-build-helper"
+        let unrelatedLifecycleKey = "remote-build-lifecycle"
+        let unrelatedStatusKey = "remote-build-status"
+        let unrelatedStatus = SidebarStatusEntry(
+            key: unrelatedStatusKey,
+            value: "Building",
+            icon: "hammer.fill",
+            color: nil,
+            timestamp: .distantPast
+        )
+        if verifyingPromptSelectiveRuntimeCleanup {
+            workspace.recordAgentPID(
+                key: unrelatedRuntimeKey,
+                pid: .max,
+                panelId: surfaceID,
+                refreshPorts: false
+            )
+            workspace.setAgentLifecycle(
+                key: unrelatedLifecycleKey,
+                panelId: surfaceID,
+                lifecycle: .running
+            )
+            workspace.statusEntries[unrelatedStatusKey] = unrelatedStatus
             app.notificationStore = notificationStore
             notificationStore.replaceNotificationsForTesting([
                 TerminalNotification(
@@ -950,11 +1046,17 @@ struct RemoteResumeBindingTests {
         // fails. Keep the binding armed to model that failure and prove the
         // later prompt callback prevents a dead agent from being auto-resumed.
         workspace.updatePanelShellActivityState(panelId: surfaceID, state: .promptIdle)
-        if verifyingPromptNotificationCleanup {
-            #expect(!notificationStore.hasUnreadNotification(
+        if verifyingPromptSelectiveRuntimeCleanup {
+            #expect(notificationStore.hasUnreadNotification(
                 forTabId: workspace.id,
                 surfaceId: surfaceID
             ))
+            #expect(workspace.agentPIDKeysByPanelId[surfaceID]?.contains(remoteRuntimeKey) == false)
+            #expect(workspace.agentPIDKeysByPanelId[surfaceID]?.contains(unrelatedRuntimeKey) == true)
+            #expect(
+                workspace.agentLifecycleStatesByPanelId[surfaceID]?[unrelatedLifecycleKey] == .running
+            )
+            #expect(workspace.statusEntries[unrelatedStatusKey] == unrelatedStatus)
         }
         let promptSnapshot = workspace.sessionSnapshot(includeScrollback: false)
         let promptTerminal = try #require(

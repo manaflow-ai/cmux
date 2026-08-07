@@ -300,6 +300,10 @@ struct ClaudeHookLifecycleCleanupTests {
             "PreToolUse status must follow the moved pane; saw \(commands)"
         )
         #expect(
+            !commands.contains { $0.hasPrefix("set_agent_pid ") },
+            "High-frequency PreToolUse must not re-register unchanged PID ownership; saw \(commands)"
+        )
+        #expect(
             !commands.contains { $0.contains("--panel=\(Self.fallbackSurfaceId)") },
             "PreToolUse must not mutate the old workspace's focused pane; saw \(commands)"
         )

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSidebar
 import CmuxWorkspaces
 import Combine
 import Darwin
@@ -132,6 +133,15 @@ extension DockSocketLifecycleTests {
         let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
         let remotePTYSessionID = "cmux-remote-pty-\(UUID().uuidString)"
         let runtimeKey = "codex.remote-session"
+        let unrelatedStatusKey = "remote-build-status"
+        let unrelatedLifecycleKey = "remote-build-lifecycle"
+        let unrelatedStatus = SidebarStatusEntry(
+            key: unrelatedStatusKey,
+            value: "Building",
+            icon: "hammer.fill",
+            color: nil,
+            timestamp: .distantPast
+        )
         let binding = SurfaceResumeBindingSnapshot(
             name: "Codex",
             kind: "codex",
@@ -159,11 +169,14 @@ extension DockSocketLifecycleTests {
             managedAgentResumeBinding: binding,
             agentRuntime: Workspace.DetachedAgentRuntimeState(
                 panelId: panel.id,
-                statusEntries: [:],
+                statusEntries: [unrelatedStatusKey: unrelatedStatus],
                 agentPIDs: [runtimeKey: .max],
                 agentPIDProcessIdentities: [:],
                 agentPIDKeys: [runtimeKey],
-                agentLifecycleStates: ["codex": .unknown]
+                agentLifecycleStates: [
+                    "codex": .unknown,
+                    unrelatedLifecycleKey: .running,
+                ]
             ),
             isRemoteTerminal: true,
             remoteTerminalSessionPhase: .connected,
@@ -218,6 +231,14 @@ extension DockSocketLifecycleTests {
         )
         #expect(promptTerminal.resumeBinding?.autoResume == true)
         #expect(promptTerminal.wasAgentRunning == false)
+        #expect(store.agentRuntimeByPanelId[panel.id]?.agentPIDKeys.contains(runtimeKey) == false)
+        #expect(
+            store.agentRuntimeByPanelId[panel.id]?.statusEntries[unrelatedStatusKey] == unrelatedStatus
+        )
+        #expect(
+            store.agentRuntimeByPanelId[panel.id]?
+                .agentLifecycleStates[unrelatedLifecycleKey] == .running
+        )
 
         // A later unrelated command plus a kind-only lifecycle write cannot
         // revive the consumed session-scoped runtime key.
