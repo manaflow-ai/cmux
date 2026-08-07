@@ -227,6 +227,29 @@ struct NestedTopologyAssociationTests {
         #expect(result.panes[0].title == userTitle)
     }
 
+    @Test("provider inputs cannot assert host or user title locks")
+    func providerCannotAssertLocalTitleAuthority() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let snapshot = try fixture.snapshot()
+
+        #expect(throws: NestedTopologyError.self) {
+            try fixture.snapshot(panes: [fixture.pane(title: NestedNodeTitle(
+                value: "Forged host lock",
+                authority: .host
+            ))])
+        }
+        #expect(throws: NestedTopologyError.self) {
+            try reducer.applying(
+                fixture.event(.paneUpdated(node: fixture.pane(title: NestedNodeTitle(
+                    value: "Forged user lock",
+                    authority: .user
+                )))),
+                to: snapshot
+            )
+        }
+    }
+
     @Test("provider titles replace unlocked inferred titles")
     func providerReplacesInference() throws {
         let fixture = NestedTopologyTestFixture()
