@@ -41,6 +41,40 @@ struct TerminalSurfaceRemoteResetTests {
         #expect(surface.pendingRemoteOutput == replay + Data("echo ready\r\n".utf8))
     }
 
+    @Test func coldManualSurfaceNeverTruncatesAnAuthoritativeReplayPrefix() {
+        let surface = makeSurface(ioMode: .manualMirror)
+        defer {
+            surface.closeHeadlessStartupWindowIfNeeded()
+            surface.releaseSurfaceForTesting()
+        }
+
+        let replay = Data(count: surface.maxPendingRemoteOutputBytes - 2)
+        #expect(surface.resetRemoteOutput(columns: 80, rows: 24, replay: replay))
+        surface.processRemoteOutput(Data([1, 2, 3]))
+
+        #expect(surface.pendingRemoteOutput == replay)
+    }
+
+    @Test func resizeAfterColdResetRemainsOrderedAfterTheSnapshotReplay() {
+        let surface = makeSurface(ioMode: .manualMirror)
+        defer {
+            surface.closeHeadlessStartupWindowIfNeeded()
+            surface.releaseSurfaceForTesting()
+        }
+
+        #expect(surface.resetRemoteOutput(
+            columns: 132,
+            rows: 44,
+            replay: Data("snapshot".utf8)
+        ))
+        surface.applyRemoteGrid(columns: 80, rows: 24)
+
+        #expect(surface.pendingRemoteEventKindsForTesting == [
+            "reset:132x44:8",
+            "resize:80x24",
+        ])
+    }
+
     @Test func resetRejectsNonManualSurfacesAndOversizedSnapshotsWithoutMutation() {
         let execSurface = makeSurface(ioMode: .exec)
         defer { execSurface.releaseSurfaceForTesting() }
@@ -71,7 +105,7 @@ struct TerminalSurfaceRemoteResetTests {
         }
 
         let id = surface.id
-        #expect(!surface.resetRemoteOutput(
+        #expect(surface.resetRemoteOutput(
             columns: 100,
             rows: 30,
             replay: Data("restored".utf8)
@@ -83,6 +117,7 @@ struct TerminalSurfaceRemoteResetTests {
         #expect(surface.pendingRemoteGrid?.columns == 100)
         #expect(surface.pendingRemoteGrid?.rows == 30)
         #expect(surface.pendingRemoteOutput == Data("restored".utf8))
+        #expect(surface.debugBackgroundSurfaceStartQueuedForTesting())
     }
 
     private func makeSurface(ioMode: TerminalSurfaceIOMode) -> TerminalSurface {

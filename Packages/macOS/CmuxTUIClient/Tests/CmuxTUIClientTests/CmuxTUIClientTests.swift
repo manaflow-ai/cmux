@@ -128,6 +128,20 @@ struct CmuxTUIClientTests {
         }
         #expect(source.remainingEventCount == 0)
     }
+
+    @Test("A reset ends its render batch before later output is consumed")
+    func resetEndsRenderBatch() throws {
+        let source = RenderEventSource([
+            .init(kind: CmuxTUIRenderEvent.Kind.reset.rawValue, payload: Data("reset".utf8)),
+            .init(kind: CmuxTUIRenderEvent.Kind.bytes.rawValue, payload: Data("later".utf8)),
+        ])
+
+        let batch = try drainCmuxTUIRenderEventBatch(copyNext: source.copyNext)
+
+        #expect(batch.events.map(\.kind) == [.reset])
+        #expect(batch.hasMore)
+        #expect(source.remainingEventCount == 1)
+    }
 }
 
 private final class RenderEventSource {
