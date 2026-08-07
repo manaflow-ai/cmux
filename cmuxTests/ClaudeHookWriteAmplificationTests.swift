@@ -68,8 +68,11 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(try Data(contentsOf: context.storeURL) == stateData)
     }
 
-    @Test func blockingToolCompletionClearsNeedsInputWithoutFeedTelemetry() throws {
-        let context = try Harness.makeContext(name: "post-tool-input-resolved")
+    @Test(arguments: ["PostToolUse", "PostToolUseFailure"])
+    func blockingToolCompletionClearsNeedsInputWithoutFeedTelemetry(
+        hookEventName: String
+    ) throws {
+        let context = try Harness.makeContext(name: "input-resolved-\(hookEventName)")
         defer { context.cleanup() }
 
         let workspaceId = "11111111-1111-1111-1111-111111111111"
@@ -106,7 +109,7 @@ struct ClaudeHookWriteAmplificationTests {
             context: context,
             arguments: ["hooks", "claude", "input-resolved"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PostToolUse","tool_name":"AskUserQuestion","cwd":"\#(context.root.path)"}"#
+            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"\#(hookEventName)","tool_name":"AskUserQuestion","cwd":"\#(context.root.path)"}"#
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)

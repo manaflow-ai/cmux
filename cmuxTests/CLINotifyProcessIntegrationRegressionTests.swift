@@ -81,7 +81,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
+    func testClaudeBlockingPreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
 
@@ -106,7 +106,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
-            standardInput: #"{"session_id":"tail-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo recent"}}"#
+            standardInput: #"{"session_id":"tail-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Continue?","header":"Continue","options":[{"label":"Yes","description":"Continue"}],"multiSelect":false}]}}"#
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -120,7 +120,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
     }
 
-    func testClaudePreToolUseFeedContextKeepsOversizedFinalTranscriptLine() throws {
+    func testClaudeBlockingPreToolUseFeedContextKeepsOversizedFinalTranscriptLine() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-oversized-final")
         defer { context.cleanup() }
 
@@ -139,7 +139,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
-            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo huge"}}"#
+            standardInput: #"{"session_id":"oversized-final-session","turn_id":"turn-1","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"PreToolUse","tool_name":"AskUserQuestion","tool_input":{"questions":[{"question":"Continue?","header":"Continue","options":[{"label":"Yes","description":"Continue"}],"multiSelect":false}]}}"#
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -156,7 +156,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     //
     // With `--dangerously-skip-permissions` Claude Code renders the blocking
     // ExitPlanMode plan-approval prompt WITHOUT firing PermissionRequest or
-    // Notification, so the async PreToolUse handler is the only needs-input signal.
+    // Notification, so the targeted PreToolUse handler is the only needs-input signal.
     // ExitPlanMode had no needs-input branch, so it fell through to the generic
     // ".running" tail and a tab blocked on plan approval looked busy and stayed
     // silent. It must flag Needs input (lifecycle + status + bell), never Running.
