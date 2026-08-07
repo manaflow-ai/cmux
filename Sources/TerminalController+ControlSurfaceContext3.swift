@@ -200,6 +200,10 @@ extension TerminalController {
 
     nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
         ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: String(
+                localized: "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType",
+                defaultValue: "Initial command input can only be used with terminal surfaces"
+            ),
             inputQueueFull: String(
                 localized: "socket.terminal.inputQueueFull",
                 defaultValue: "The terminal can't accept more input right now. Wait a moment and retry, or reopen the terminal if it stays unavailable."

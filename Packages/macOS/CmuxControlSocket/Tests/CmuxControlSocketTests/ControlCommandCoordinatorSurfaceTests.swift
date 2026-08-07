@@ -157,10 +157,7 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: String(
-                localized: "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType",
-                defaultValue: "Initial command input can only be used with terminal surfaces"
-            ),
+            message: "app-localized terminal creation type error",
             data: .object(["type": .string(type)])
         ))
         #expect(context.paneCreateInputs == nil)

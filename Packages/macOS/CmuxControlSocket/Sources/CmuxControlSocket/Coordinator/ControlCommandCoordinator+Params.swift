@@ -199,12 +199,12 @@ extension ControlCommandCoordinator {
               normalizedToken(typeRaw) != "terminal" else {
             return nil
         }
+        guard let message = context?.controlSurfaceInputStrings().initialInputRequiresTerminalType else {
+            return nil
+        }
         return .err(
             code: "invalid_params",
-            message: String(
-                localized: "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType",
-                defaultValue: "Initial command input can only be used with terminal surfaces"
-            ),
+            message: message,
             data: .object(["type": .string(typeRaw)])
         )
     }

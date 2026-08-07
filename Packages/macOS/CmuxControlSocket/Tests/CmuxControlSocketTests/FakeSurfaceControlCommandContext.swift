@@ -64,6 +64,15 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         return createResolution
     }
 
+    nonisolated func controlSurfaceInputStrings() -> ControlSurfaceInputStrings {
+        ControlSurfaceInputStrings(
+            initialInputRequiresTerminalType: "app-localized terminal creation type error",
+            inputQueueFull: "",
+            surfaceUnavailable: "",
+            processExited: ""
+        )
+    }
+
     func controlSurfaceResumeSet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
