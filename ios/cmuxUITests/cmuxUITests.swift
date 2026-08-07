@@ -3279,12 +3279,14 @@ final class cmuxUITests: XCTestCase {
             return maximumOffset > 100 && abs(rawOffset - maximumOffset) < 1
         }
         let initialOffset = try XCTUnwrap(Double(initial["nativeScrollRawOffset"] ?? ""))
+        let initialHistoryOffset = try XCTUnwrap(Int(initial["scrollOffset"] ?? ""))
 
         surface.swipeDown(velocity: .fast)
 
         let moved = waitForDock(in: app, timeout: 3, describe: "native terminal fling moved into history") {
-            guard let rawOffset = Double($0["nativeScrollRawOffset"] ?? "") else { return false }
-            return rawOffset < initialOffset - 20
+            guard let rawOffset = Double($0["nativeScrollRawOffset"] ?? ""),
+                  let historyOffset = Int($0["scrollOffset"] ?? "") else { return false }
+            return rawOffset < initialOffset - 20 && historyOffset < initialHistoryOffset
         }
         XCTAssertEqual(moved["nativeScrollScreen"], "primary")
 
