@@ -95,6 +95,35 @@ struct PanelOwnedNativeViewSessionTests {
     }
 
     @Test
+    func quickLookContainerHandlesToolbarShareActions() throws {
+        let fileURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-9128-quicklook-share-\(UUID().uuidString).pdf")
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        try Data("%PDF-1.4".utf8).write(to: fileURL)
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: fileURL.path)
+        defer { panel.close() }
+        let session = FilePreviewQuickLookSession()
+        let container = try #require(session.view(
+            panel: panel,
+            revision: panel.previewRevision,
+            isVisibleInUI: true,
+            backgroundColor: .clear,
+            drawsBackground: false
+        ) as? FilePreviewQuickLookContainerView)
+        defer { session.dismantle(container) }
+        let previewView = try #require(container.livePreviewView())
+
+        for actionName in ["share:", "shareFromButton:"] {
+            let action = NSSelectorFromString(actionName)
+            #expect(
+                container.tryToPerform(action, with: previewView),
+                "The embedded Quick Look toolbar's \(actionName) action must resolve in the mounted preview responder chain"
+            )
+        }
+    }
+
+    @Test
     func quickLookUpdateRetiresPreviewDeactivatedByWindowLoss() throws {
         let firstURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("cmux-7311-detach-a-\(UUID().uuidString).txt")
