@@ -257,9 +257,37 @@ struct AgentPromptSubmissionTests {
         let response = try #require(payload as? [String: Any])
         #expect(response["submitted"] as? Bool == true)
         let pending = panel.surface.pendingSocketInputSnapshotForTests
-        #expect(pending.items == 4)
-        #expect(pending.keyEvents == 3)
+        #expect(pending.items == 1)
+        #expect(pending.keyEvents == 0)
         #expect(pending.promptSubmissionItems == 1)
+
+        workspace.recordAgentPID(
+            key: "codex.prebinding-mobile",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+
+        let agentResult = TerminalController.shared.v2WorkspaceAgentSubmit(
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelID.uuidString,
+                "text": "supervisor message",
+            ]
+        )
+        guard case .ok(let agentPayload) = agentResult else {
+            Issue.record(
+                "Expected agent submission after initial binding to remain available"
+            )
+            return
+        }
+        let agentResponse = try #require(agentPayload as? [String: Any])
+        #expect(agentResponse["submitted"] as? Bool == true)
+        #expect(agentResponse["queued"] as? Bool == true)
+        #expect(
+            panel.surface.pendingSocketInputSnapshotForTests.items == 2
+        )
     }
 
     @MainActor
