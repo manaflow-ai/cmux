@@ -15,13 +15,14 @@ import Testing
             }
         )
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeLifecycleId = UUID()
         defer {
             releaseNativeFree.signal()
             surface.deallocate()
         }
 
         let ticket = coordinator.enqueueRuntimeTeardown(
-            id: UUID(),
+            id: runtimeLifecycleId,
             workspaceId: UUID(),
             reason: "test.teardownBeforeNativeBorrow",
             surface: surface,
@@ -31,6 +32,7 @@ import Testing
             }
         )
         let request = TerminalSurfaceRuntimeScreenTailRequest(
+            runtimeLifecycleId: runtimeLifecycleId,
             surface: surface,
             maxRows: 1,
             maxBytes: 1
@@ -52,6 +54,7 @@ import Testing
             }
         )
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let runtimeLifecycleId = UUID()
         defer { surface.deallocate() }
         let surfaceBits = UInt(bitPattern: surface)
         cmux_test_ghostty_surface_read_blocking_begin(surface)
@@ -62,6 +65,7 @@ import Testing
 
         let borrowedSurface = UnsafeMutableRawPointer(bitPattern: surfaceBits)!
         let request = TerminalSurfaceRuntimeScreenTailRequest(
+            runtimeLifecycleId: runtimeLifecycleId,
             surface: borrowedSurface,
             maxRows: 1,
             maxBytes: 1
@@ -84,7 +88,7 @@ import Testing
         #expect(cmux_test_ghostty_surface_read_blocking_is_active())
 
         let ticket = coordinator.enqueueRuntimeTeardown(
-            id: UUID(),
+            id: runtimeLifecycleId,
             workspaceId: UUID(),
             reason: "test.activeNativeBorrow",
             surface: surface,

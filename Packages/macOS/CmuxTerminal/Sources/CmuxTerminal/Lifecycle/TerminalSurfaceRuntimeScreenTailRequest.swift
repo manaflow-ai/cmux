@@ -9,6 +9,7 @@ internal import GhosttyKit
 /// defers process termination and native free. `@unchecked Sendable` is limited
 /// to transporting the borrowed pointer onto the coordinator actor.
 struct TerminalSurfaceRuntimeScreenTailRequest: @unchecked Sendable {
+    let runtimeLifecycleId: UUID
     let surface: ghostty_surface_t
     let maxRows: Int
     let maxBytes: Int

@@ -18,6 +18,7 @@ extension TerminalSurface {
             return nil
         }
         let request = TerminalSurfaceRuntimeScreenTailRequest(
+            runtimeLifecycleId: terminalLifecycleId,
             surface: surface,
             maxRows: maxRows,
             maxBytes: maxBytes

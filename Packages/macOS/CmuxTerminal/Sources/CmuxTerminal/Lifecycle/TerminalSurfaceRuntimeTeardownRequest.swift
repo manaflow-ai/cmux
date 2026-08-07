@@ -18,6 +18,7 @@ public import CmuxTerminalCore
 /// so a release ordered after the free can never race an in-flight callback.
 struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
     let id: UUID
+    let runtimeLifecycleId: UUID
     let workspaceId: UUID
     let reason: String
     let surface: ghostty_surface_t
@@ -33,6 +34,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
 
     init(
         id: UUID,
+        runtimeLifecycleId: UUID,
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
@@ -43,6 +45,7 @@ struct TerminalSurfaceRuntimeTeardownRequest: @unchecked Sendable {
         completion: TerminalSurfaceRuntimeTeardownCompletion
     ) {
         self.id = id
+        self.runtimeLifecycleId = runtimeLifecycleId
         self.workspaceId = workspaceId
         self.reason = reason
         self.surface = surface

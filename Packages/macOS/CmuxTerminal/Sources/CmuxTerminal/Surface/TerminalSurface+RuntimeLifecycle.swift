@@ -275,6 +275,7 @@ extension TerminalSurface {
             // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
+                runtimeLifecycleId: terminalLifecycleId,
                 workspaceId: tabId,
                 reason: "teardown",
                 surface: surfaceToFree,
@@ -292,6 +293,7 @@ extension TerminalSurface {
         // releases all callback userdata only after the free returns.
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
+            runtimeLifecycleId: terminalLifecycleId,
             workspaceId: tabId,
             reason: "teardown",
             surface: surfaceToFree,
@@ -367,6 +369,7 @@ extension TerminalSurface {
             // native free, which is what joins ghostty's IO threads.
             agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
+                runtimeLifecycleId: terminalLifecycleId,
                 workspaceId: tabId,
                 reason: reason,
                 surface: surfaceToFree,
@@ -383,6 +386,7 @@ extension TerminalSurface {
 
         agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
+            runtimeLifecycleId: terminalLifecycleId,
             workspaceId: tabId,
             reason: reason,
             surface: surfaceToFree,

@@ -1,31 +1,27 @@
-internal import GhosttyKit
+internal import Foundation
 internal import os
 
 /// Admits native surface borrows before suspension and orders teardown after them.
 ///
-/// `@unchecked Sendable` is safe because both the per-surface entries and each
-/// borrow's one-shot release state are protected by their dedicated locks.
-/// User callbacks always run after the entry lock is released.
-final class TerminalSurfaceRuntimeNativeAccessGate: @unchecked Sendable {
+/// Entries use the terminal's unique runtime-lifecycle identity rather than a
+/// raw pointer address, which an allocator may reuse immediately after free.
+final class TerminalSurfaceRuntimeNativeAccessGate: Sendable {
     /// A one-shot borrow whose lifetime prevents teardown of its native surface.
-    ///
-    /// `@unchecked Sendable` is safe because its only mutable state is accessed
-    /// through its dedicated lock and the referenced gate is concurrency-safe.
-    final class Borrow: @unchecked Sendable {
+    final class Borrow: Sendable {
         private struct State {
             var gate: TerminalSurfaceRuntimeNativeAccessGate?
         }
 
-        private let surfaceKey: UInt
+        private let runtimeLifecycleId: UUID
         // Synchronous cancellation/deinit must release exactly once; this is a
         // bounded compare-and-set, not ongoing domain state.
         private let state: OSAllocatedUnfairLock<State>
 
         fileprivate init(
             gate: TerminalSurfaceRuntimeNativeAccessGate,
-            surfaceKey: UInt
+            runtimeLifecycleId: UUID
         ) {
-            self.surfaceKey = surfaceKey
+            self.runtimeLifecycleId = runtimeLifecycleId
             state = OSAllocatedUnfairLock(initialState: State(gate: gate))
         }
 
@@ -34,7 +30,7 @@ final class TerminalSurfaceRuntimeNativeAccessGate: @unchecked Sendable {
                 defer { state.gate = nil }
                 return state.gate
             }
-            gate?.releaseBorrow(surfaceKey: surfaceKey)
+            gate?.releaseBorrow(runtimeLifecycleId: runtimeLifecycleId)
         }
 
         deinit {
@@ -42,83 +38,92 @@ final class TerminalSurfaceRuntimeNativeAccessGate: @unchecked Sendable {
         }
     }
 
+    private enum Phase {
+        case acceptingBorrows
+        case teardownPending(@Sendable () -> Void)
+        case tearingDown
+    }
+
     private struct Entry {
         var borrowCount = 0
-        var teardownStarted = false
-        var pendingTeardown: (@Sendable () -> Void)?
+        var phase = Phase.acceptingBorrows
     }
 
     // Borrow admission and synchronous deinit teardown cannot await an actor.
-    // The lock guards only bounded counters/flags; callbacks run after unlock.
-    private let entries = OSAllocatedUnfairLock(initialState: [UInt: Entry]())
+    // The lock guards only short, nonblocking entry transitions; callbacks run
+    // after unlock. Idle borrow entries leave on release, and teardown entries
+    // leave immediately after the corresponding native free returns.
+    private let entries = OSAllocatedUnfairLock(initialState: [UUID: Entry]())
 
-    func acquireBorrow(for surface: ghostty_surface_t) -> Borrow? {
-        let surfaceKey = UInt(bitPattern: surface)
+    func acquireBorrow(for runtimeLifecycleId: UUID) -> Borrow? {
         let acquired = entries.withLock { entries in
-            var entry = entries[surfaceKey] ?? Entry()
-            guard !entry.teardownStarted,
-                  entry.pendingTeardown == nil else {
+            var entry = entries[runtimeLifecycleId] ?? Entry()
+            guard case .acceptingBorrows = entry.phase else {
                 return false
             }
             entry.borrowCount += 1
-            entries[surfaceKey] = entry
+            entries[runtimeLifecycleId] = entry
             return true
         }
         guard acquired else { return nil }
-        return Borrow(gate: self, surfaceKey: surfaceKey)
+        return Borrow(gate: self, runtimeLifecycleId: runtimeLifecycleId)
     }
 
     func requestTeardown(
-        for surface: ghostty_surface_t,
+        for runtimeLifecycleId: UUID,
         start: @escaping @Sendable () -> Void
     ) {
-        let surfaceKey = UInt(bitPattern: surface)
         let ready = entries.withLock { entries -> (@Sendable () -> Void)? in
-            var entry = entries[surfaceKey] ?? Entry()
-            guard !entry.teardownStarted,
-                  entry.pendingTeardown == nil else {
+            var entry = entries[runtimeLifecycleId] ?? Entry()
+            guard case .acceptingBorrows = entry.phase else {
                 return nil
             }
             guard entry.borrowCount > 0 else {
-                entry.teardownStarted = true
-                entries[surfaceKey] = entry
+                entry.phase = .tearingDown
+                entries[runtimeLifecycleId] = entry
                 return start
             }
-            entry.pendingTeardown = start
-            entries[surfaceKey] = entry
+            entry.phase = .teardownPending(start)
+            entries[runtimeLifecycleId] = entry
             return nil
         }
         ready?()
     }
 
-    func finishTeardown(for surface: ghostty_surface_t) {
-        let surfaceKey = UInt(bitPattern: surface)
+    func finishTeardown(for runtimeLifecycleId: UUID) {
         entries.withLock { entries in
-            guard let entry = entries[surfaceKey],
-                  entry.teardownStarted,
+            guard let entry = entries[runtimeLifecycleId],
+                  case .tearingDown = entry.phase,
                   entry.borrowCount == 0 else {
                 return
             }
-            entries.removeValue(forKey: surfaceKey)
+            entries.removeValue(forKey: runtimeLifecycleId)
         }
     }
 
-    private func releaseBorrow(surfaceKey: UInt) {
+    private func releaseBorrow(runtimeLifecycleId: UUID) {
         let ready = entries.withLock { entries -> (@Sendable () -> Void)? in
-            guard var entry = entries[surfaceKey],
+            guard var entry = entries[runtimeLifecycleId],
                   entry.borrowCount > 0 else {
                 return nil
             }
             entry.borrowCount -= 1
-            guard entry.borrowCount == 0,
-                  let pendingTeardown = entry.pendingTeardown else {
-                entries[surfaceKey] = entry
+            guard entry.borrowCount == 0 else {
+                entries[runtimeLifecycleId] = entry
                 return nil
             }
-            entry.pendingTeardown = nil
-            entry.teardownStarted = true
-            entries[surfaceKey] = entry
-            return pendingTeardown
+            switch entry.phase {
+            case .acceptingBorrows:
+                entries.removeValue(forKey: runtimeLifecycleId)
+                return nil
+            case .teardownPending(let pendingTeardown):
+                entry.phase = .tearingDown
+                entries[runtimeLifecycleId] = entry
+                return pendingTeardown
+            case .tearingDown:
+                entries[runtimeLifecycleId] = entry
+                return nil
+            }
         }
         ready?()
     }

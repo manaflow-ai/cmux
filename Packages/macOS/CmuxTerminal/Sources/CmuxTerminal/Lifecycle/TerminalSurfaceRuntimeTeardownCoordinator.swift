@@ -97,7 +97,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     nonisolated func acquireScreenTailBorrow(
         for request: TerminalSurfaceRuntimeScreenTailRequest
     ) -> TerminalSurfaceRuntimeNativeAccessGate.Borrow? {
-        nativeAccessGate.acquireBorrow(for: request.surface)
+        nativeAccessGate.acquireBorrow(for: request.runtimeLifecycleId)
     }
 
     /// Reads a bounded screen tail away from the main actor under an admitted borrow.
@@ -175,6 +175,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     @discardableResult
     nonisolated func enqueueRuntimeTeardown(
         id: UUID,
+        runtimeLifecycleId: UUID? = nil,
         workspaceId: UUID,
         reason: String,
         surface: ghostty_surface_t,
@@ -192,6 +193,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         let ticket = TerminalSurfaceRuntimeTeardownTicket(completion: completion)
         let request = TerminalSurfaceRuntimeTeardownRequest(
             id: id,
+            runtimeLifecycleId: runtimeLifecycleId ?? id,
             workspaceId: workspaceId,
             reason: reason,
             surface: surface,
@@ -201,7 +203,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             freeSurface: freeSurface,
             completion: completion
         )
-        nativeAccessGate.requestTeardown(for: surface) {
+        nativeAccessGate.requestTeardown(for: request.runtimeLifecycleId) {
             // When there is no admitted borrow this remains synchronous and
             // precedes the Task hop. A pending borrow is the only reason to
             // defer termination, because Ghostty forbids surface API calls
@@ -303,7 +305,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         )
 #endif
         request.freeSurface(request.surface)
-        nativeAccessGate.finishTeardown(for: request.surface)
+        nativeAccessGate.finishTeardown(for: request.runtimeLifecycleId)
     }
 
     private nonisolated func finishFree(

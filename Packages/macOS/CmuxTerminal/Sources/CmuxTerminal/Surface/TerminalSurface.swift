@@ -700,6 +700,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         if let freeSurface = Self.runtimeSurfaceFreeOverrideForTesting {
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
+                runtimeLifecycleId: terminalLifecycleId,
                 workspaceId: tabId,
                 reason: "deinit",
                 surface: surfaceToFree,
@@ -713,6 +714,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 #endif
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
+            runtimeLifecycleId: terminalLifecycleId,
             workspaceId: tabId,
             reason: "deinit",
             surface: surfaceToFree,
