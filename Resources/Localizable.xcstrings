@@ -55220,6 +55220,23 @@
         }
       }
     },
+    "cli.terminalCreation.error.commandRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command requires <text>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command には <text> が必要です"
+          }
+        }
+      }
+    },
     "cli.terminalCreation.error.commandRequiresTerminalType": {
       "extractionState": "manual",
       "localizations": {
@@ -147160,6 +147177,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースが見つかりません"
+          }
+        }
+      }
+    },
+    "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initial command input can only be used with terminal surfaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初期コマンド入力はターミナルサーフェスでのみ使用できます"
           }
         }
       }

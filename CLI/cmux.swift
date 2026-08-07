@@ -4832,7 +4832,10 @@ struct CMUXCLI {
             let (sfArg, rem2) = parseOption(rem1, name: "--surface")
             let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
             let (windowOpt, rem4) = parseOption(rem3, name: "--window")
-            let (commandOpt, rem5) = parseOption(rem4, name: "--command")
+            let (commandOpt, rem5) = try parseTerminalCreationCommandOption(
+                rem4,
+                commandName: "new-split"
+            )
             let windowRaw = windowOpt ?? windowId
             let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
@@ -4941,7 +4944,10 @@ struct CMUXCLI {
             let profile = try parseBrowserProfileOption(commandArgs).selector
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
-            let commandOpt = optionValue(commandArgs, name: "--command")
+            let commandOpt = try parseTerminalCreationCommandOption(
+                commandArgs,
+                commandName: "new-pane"
+            ).command
             try validateTerminalCreationCommandOption(
                 commandOpt,
                 type: type,
@@ -4978,7 +4984,10 @@ struct CMUXCLI {
             let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
-            let commandOpt = optionValue(commandArgs, name: "--command")
+            let commandOpt = try parseTerminalCreationCommandOption(
+                commandArgs,
+                commandName: "new-surface"
+            ).command
             try validateTerminalCreationCommandOption(
                 commandOpt,
                 type: type,
@@ -7878,7 +7887,10 @@ struct CMUXCLI {
         windowOverride: String?,
         honorJSONOutput: Bool
     ) throws {
-        let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
+        let (commandOpt, rem0) = try parseTerminalCreationCommandOption(
+            commandArgs,
+            commandName: commandName
+        )
         let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
         let (nameOpt, rem2) = parseOption(rem1, name: "--name")
         let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
@@ -17712,6 +17724,61 @@ struct CMUXCLI {
             return nil
         }
         return command
+    }
+
+    /// Parses terminal-creation command text without consuming a following flag as its value.
+    private func parseTerminalCreationCommandOption(
+        _ args: [String],
+        commandName: String
+    ) throws -> (command: String?, remaining: [String]) {
+        var remaining: [String] = []
+        var command: String?
+        var index = 0
+        var pastTerminator = false
+
+        while index < args.count {
+            let argument = args[index]
+            if pastTerminator || argument == "--" {
+                pastTerminator = true
+                remaining.append(argument)
+                index += 1
+                continue
+            }
+            if argument == "--command" {
+                guard index + 1 < args.count,
+                      !args[index + 1].hasPrefix("--") else {
+                    throw terminalCreationCommandMissingValueError(commandName: commandName)
+                }
+                command = args[index + 1]
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("--command=") {
+                let value = String(argument.dropFirst("--command=".count))
+                guard !value.isEmpty else {
+                    throw terminalCreationCommandMissingValueError(commandName: commandName)
+                }
+                command = value
+                index += 1
+                continue
+            }
+            remaining.append(argument)
+            index += 1
+        }
+
+        return (command, remaining)
+    }
+
+    /// Builds the localized diagnostic shared by all terminal-creation commands.
+    private func terminalCreationCommandMissingValueError(commandName: String) -> CLIError {
+        CLIError(message: String(
+            format: String(
+                localized: "cli.terminalCreation.error.commandRequiresValue",
+                defaultValue: "%@: --command requires <text>"
+            ),
+            locale: .current,
+            commandName
+        ))
     }
 
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {

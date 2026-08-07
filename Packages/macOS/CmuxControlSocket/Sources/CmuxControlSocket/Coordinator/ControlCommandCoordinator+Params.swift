@@ -190,6 +190,25 @@ extension ControlCommandCoordinator {
             .lowercased()
     }
 
+    /// Rejects terminal input when an RPC explicitly requests a non-terminal surface type.
+    func incompatibleTerminalCreationInputError(
+        _ params: [String: JSONValue]
+    ) -> ControlCallResult? {
+        guard nonBlankRawString(params, "initial_input") != nil,
+              let typeRaw = string(params, "type"),
+              normalizedToken(typeRaw) != "terminal" else {
+            return nil
+        }
+        return .err(
+            code: "invalid_params",
+            message: String(
+                localized: "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType",
+                defaultValue: "Initial command input can only be used with terminal surfaces"
+            ),
+            data: .object(["type": .string(typeRaw)])
+        )
+    }
+
     /// `v2InitialDividerPosition`: optional clamped `[0.1, 0.9]` divider, or an
     /// `invalid_params` error when present-but-non-numeric.
     func initialDividerPosition(
