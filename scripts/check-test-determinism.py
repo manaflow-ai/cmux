@@ -335,11 +335,7 @@ _HOST_PORT_TUPLE = re.compile(
 
 
 def _strip_comment(line: str, path_suffix: str) -> str:
-    """Best-effort removal of trailing line comments so we don't flag comments.
-
-    Conservative: only strips when the comment marker is clearly not inside a
-    string by a cheap heuristic (even count of quotes before it).
-    """
+    """Best-effort removal of trailing comments for non-network detectors."""
     markers = ["#"] if path_suffix in (".py", ".sh") else ["//"]
     out = line
     for marker in markers:
@@ -381,12 +377,32 @@ def _quote_delimiter_at(line: str, quote_index: int) -> str:
     return triple if line.startswith(triple, quote_index) else quote
 
 
-@lru_cache(maxsize=128)
-def _executable_code_positions(
+# Whole-file network candidates are one-shot inputs whose source keys dominate
+# cache memory. Cache only small repeated launcher/chunk inputs.
+_LEXER_CACHE_SOURCE_LIMIT = 16 * 1024
+
+
+def _line_comment_marker_length(
+    source: str,
+    index: int,
+    path_suffix: str,
+) -> int:
+    if path_suffix in (".py", ".sh"):
+        if source[index] != "#":
+            return 0
+        if path_suffix == ".sh" and index > 0:
+            previous = source[index - 1]
+            if not (previous.isspace() or previous in ";|&()<>\n"):
+                return 0
+        return 1
+    return 2 if source.startswith("//", index) else 0
+
+
+def _lexical_positions(
     line: str,
     path_suffix: str = "",
-) -> tuple[bool, ...]:
-    """Return which character offsets are executable code in the source text.
+) -> tuple[bytes, bytes]:
+    """Return compact executable-code and line-comment masks for source text.
 
     The network detector intentionally accepts URLs in string arguments to real
     clients (for example, ``fetch("https://...")``), so stripping every string
@@ -401,7 +417,8 @@ def _executable_code_positions(
     ``$(...)`` and backtick substitutions. This remains a conservative lexer,
     not a full language parser.
     """
-    executable = [False] * len(line)
+    executable = bytearray(len(line))
+    comments = bytearray(len(line))
     # Contexts are (kind, brace_depth, closing_delimiter). Only interpolation
     # contexts use brace depth; nested quote/template contexts sit above them.
     contexts: list[tuple[str, int, str]] = [("code", 0, "")]
@@ -484,6 +501,19 @@ def _executable_code_positions(
             index += 1
             continue
 
+        comment_marker_length = _line_comment_marker_length(
+            line,
+            index,
+            path_suffix,
+        )
+        if comment_marker_length:
+            comment_end = line.find("\n", index + comment_marker_length)
+            if comment_end == -1:
+                comment_end = len(line)
+            comments[index:comment_end] = b"\x01" * (comment_end - index)
+            index = comment_end
+            continue
+
         executable[index] = True
         if character == "\\" and index + 1 < len(line):
             # Outside a literal, shell uses a backslash to quote the next
@@ -535,7 +565,41 @@ def _executable_code_positions(
                 contexts[-1] = (kind, brace_depth - 1, delimiter)
         index += 1
 
-    return tuple(executable)
+    return bytes(executable), bytes(comments)
+
+
+@lru_cache(maxsize=128)
+def _cached_lexical_positions(
+    line: str,
+    path_suffix: str,
+) -> tuple[bytes, bytes]:
+    return _lexical_positions(line, path_suffix)
+
+
+def _source_lexical_positions(
+    line: str,
+    path_suffix: str = "",
+) -> tuple[bytes, bytes]:
+    if len(line) > _LEXER_CACHE_SOURCE_LIMIT:
+        return _lexical_positions(line, path_suffix)
+    return _cached_lexical_positions(line, path_suffix)
+
+
+def _executable_code_positions(
+    line: str,
+    path_suffix: str = "",
+) -> bytes:
+    return _source_lexical_positions(line, path_suffix)[0]
+
+
+def _strip_comments(source: str, path_suffix: str) -> str:
+    comments = _source_lexical_positions(source, path_suffix)[1]
+    if not any(comments):
+        return source
+    return "".join(
+        " " if comments[index] else character
+        for index, character in enumerate(source)
+    )
 
 
 def _is_inside_string_literal(
@@ -626,6 +690,45 @@ def _quoted_literals_in_range(line: str, start: int, end: int) -> list[tuple[int
     return bounds
 
 
+def _argv_literal_tokens(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> list[tuple[int, int]]:
+    """Return argv literals only when argv[0] itself is a quoted literal."""
+    call_end = _call_end(line, opening_paren, path_suffix)
+    argument_start = opening_paren + 1
+    while argument_start < call_end and line[argument_start].isspace():
+        argument_start += 1
+
+    keyword = re.match(
+        r"[A-Za-z_][A-Za-z0-9_]*\s*=\s*",
+        line[argument_start:call_end],
+    )
+    if keyword:
+        argument_start += len(keyword.group(0))
+
+    while argument_start < call_end and line[argument_start].isspace():
+        argument_start += 1
+    while argument_start < call_end and line[argument_start] in "([":
+        argument_start += 1
+        while argument_start < call_end and line[argument_start].isspace():
+            argument_start += 1
+
+    first_literal = _quoted_argument_bounds(line, argument_start)
+    if first_literal is None or first_literal[1] > call_end:
+        return []
+
+    literals = _quoted_literals_in_range(
+        line,
+        opening_paren + 1,
+        call_end,
+    )
+    if not literals or literals[0] != first_literal:
+        return []
+    return literals
+
+
 def _quoted_argument_contains_offset(line: str, argument_start: int, offset: int) -> bool:
     """Whether ``offset`` remains inside the first quoted shell argument."""
     bounds = _quoted_argument_bounds(line, argument_start)
@@ -655,11 +758,7 @@ def _argv_shell_source_contains_offset(
     path_suffix: str = "",
 ) -> bool:
     """Whether argv launches a shell whose command-source argument owns offset."""
-    literals = _quoted_literals_in_range(
-        line,
-        opening_paren + 1,
-        _call_end(line, opening_paren, path_suffix),
-    )
+    literals = _argv_literal_tokens(line, opening_paren, path_suffix)
     token_index = _argv_executable_index(line, literals)
     if token_index is None or len(literals) - token_index < 3:
         return False
@@ -691,17 +790,17 @@ def _argv_executable_index(
 
     index = 1
     while index < len(literals):
-        token = line[literals[index][0] : literals[index][1]]
-        if token == "--":
+        argument = line[literals[index][0] : literals[index][1]]
+        if argument == "--":
             index += 1
             break
-        if token in ("-u", "--unset"):
+        if argument in ("-u", "--unset"):
             index += 2
             continue
-        if token.startswith("--unset=") or token.startswith("-"):
+        if argument.startswith("-"):
             index += 1
             continue
-        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token):
+        if re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", argument):
             index += 1
             continue
         break
@@ -713,11 +812,7 @@ def _argv_executable_bounds(
     opening_paren: int,
     path_suffix: str = "",
 ) -> Optional[tuple[int, int]]:
-    literals = _quoted_literals_in_range(
-        line,
-        opening_paren + 1,
-        _call_end(line, opening_paren, path_suffix),
-    )
+    literals = _argv_literal_tokens(line, opening_paren, path_suffix)
     index = _argv_executable_index(line, literals)
     return literals[index] if index is not None else None
 
@@ -1045,8 +1140,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
     findings: list[Finding] = []
-    network_source = "\n".join(code_lines)
-    if _NETWORK_VERB.search(network_source) and _contains_public_network_url(network_source):
+    if _NETWORK_VERB.search(text) and _contains_public_network_url(text):
+        network_source = _strip_comments(text, suffix)
         live_network_lines = {
             start_line + chunk.count("\n", 0, offset)
             for start_line, chunk in _logical_network_chunks(network_source, suffix)
@@ -1246,6 +1341,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/backtick_url_then_fetch.ts",
+            (
+                "const docs = `https://cmux.com`;\n"
+                'const result = await fetch("https://api.openai.com/v1/items");\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/fstring_network.py",
             'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1267,10 +1370,12 @@ def _self_test() -> int:
         ),
         (
             "tests/multiline_subprocess_shell.py",
-            "subprocess.run(\n"
-            '    "curl https://api.openai.com/v1/items",\n'
-            "    shell=True,\n"
-            ")\n",
+            (
+                "subprocess.run(\n"
+                '    "curl https://api.openai.com/v1/items",\n'
+                "    shell=True,\n"
+                ")\n"
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -1320,12 +1425,14 @@ def _self_test() -> int:
         # Deadline-bounded poll of a real predicate: sleep is inside a while loop.
         (
             "tests/n2.py",
-            "deadline = time.monotonic() + 5\n"
-            "while time.monotonic() < deadline:\n"
-            "    if widget.is_rendered():\n"
-            "        break\n"
-            "    time.sleep(0.05)\n"
-            "assert widget.is_rendered()\n",
+            (
+                "deadline = time.monotonic() + 5\n"
+                "while time.monotonic() < deadline:\n"
+                "    if widget.is_rendered():\n"
+                "        break\n"
+                "    time.sleep(0.05)\n"
+                "assert widget.is_rendered()\n"
+            ),
         ),
         # data: URL must not be a live-network finding.
         (
@@ -1461,25 +1568,43 @@ def _self_test() -> int:
             "tests/n18k.py",
             'subprocess.run(["printf", "bash", "-c", "curl https://api.openai.com/v1/items"])\n',
         ),
+        # A later quoted argv element is not the executable when argv[0] is a
+        # dynamic expression.
+        (
+            "tests/n18k_dynamic_command.py",
+            (
+                "subprocess.run([\n"
+                "    helper,\n"
+                '    "curl",\n'
+                '    "https://api.openai.com/v1/items",\n'
+                "])\n"
+            ),
+        ),
         # Multiline literal contents are fixture text in every scanned language,
         # even when a middle physical line looks like executable source.
         (
             "tests/n18l.py",
-            'fixture = """\n'
-            'fetch("https://api.openai.com/v1/items")\n'
-            '"""\n',
+            (
+                'fixture = """\n'
+                'fetch("https://api.openai.com/v1/items")\n'
+                '"""\n'
+            ),
         ),
         (
             "web/tests/n18m.ts",
-            "const fixture = `\n"
-            'fetch("https://api.openai.com/v1/items")\n'
-            "`;\n",
+            (
+                "const fixture = `\n"
+                'fetch("https://api.openai.com/v1/items")\n'
+                "`;\n"
+            ),
         ),
         (
             "cmuxTests/n18n.swift",
-            'let fixture = """\n'
-            'fetch("https://api.openai.com/v1/items")\n'
-            '"""\n',
+            (
+                'let fixture = """\n'
+                'fetch("https://api.openai.com/v1/items")\n'
+                '"""\n'
+            ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
@@ -1497,18 +1622,20 @@ def _self_test() -> int:
         # loop). The enclosing `while` must be found regardless of body length.
         (
             "tests/n21.py",
-            "        body = ''\n"
-            "        deadline = time.time() + 15.0\n"
-            "        while time.time() < deadline:\n"
-            "            try:\n"
-            "                body = fetch()\n"
-            "            except Exception:\n"
-            "                time.sleep(0.5)\n"
-            "                continue\n"
-            "            if 'ok' in body:\n"
-            "                break\n"
-            "            time.sleep(0.3)\n"
-            "        _must('ok' in body, body)\n",
+            (
+                "        body = ''\n"
+                "        deadline = time.time() + 15.0\n"
+                "        while time.time() < deadline:\n"
+                "            try:\n"
+                "                body = fetch()\n"
+                "            except Exception:\n"
+                "                time.sleep(0.5)\n"
+                "                continue\n"
+                "            if 'ok' in body:\n"
+                "                break\n"
+                "            time.sleep(0.3)\n"
+                "        _must('ok' in body, body)\n"
+            ),
         ),
     ]
 
