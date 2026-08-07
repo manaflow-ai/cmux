@@ -1,3 +1,4 @@
+@MainActor
 enum MainWindowRouteDockState {
     case live(DockSplitStore)
     case frozen(SessionSplitContainerSnapshot)
