@@ -478,9 +478,14 @@ struct SSHConfiguredRemoteCommandHostTests {
             alongside cmux's override; command: \(command)
             """
         )
+        let lifecycleUUIDAssignment = "cmux_ssh_attach_lifecycle_id=$(/usr/bin/uuidgen"
         #expect(
-            command.components(separatedBy: "/usr/bin/uuidgen").count - 1 == 2,
-            "The restored wrapper needs one persistent lifecycle UUID and one per-attempt readiness UUID: \(command)"
+            command.components(separatedBy: lifecycleUUIDAssignment).count - 1 == 1,
+            "The restored wrapper needs one persistent lifecycle UUID: \(command)"
+        )
+        #expect(
+            command.components(separatedBy: "CMUX_SSH_ATTEMPT_ID=$(/usr/bin/uuidgen").count - 1 == 1,
+            "The restored wrapper needs one per-attempt readiness UUID: \(command)"
         )
         #expect(!command.contains("-$$"), Comment(rawValue: command))
         #expect(

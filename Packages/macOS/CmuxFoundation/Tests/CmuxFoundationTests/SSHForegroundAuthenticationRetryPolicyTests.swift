@@ -858,7 +858,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_identity_calls=$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS") || return 1
           cmux_test_identity_calls=$((cmux_test_identity_calls + 1))
           printf '%s\n' "$cmux_test_identity_calls" > "$CMUX_TEST_IDENTITY_CALLS" || return 1
-          if [ "$cmux_test_identity_calls" -eq 1 ]; then
+          if [ "$cmux_test_identity_calls" -le 2 ]; then
             printf '1|2|Thu_Jan_1_00:00:00_1970\n'
           else
             printf '9|99|Thu_Jan_1_00:00:00_1970\n'
@@ -890,7 +890,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_freeze_owned_processes || exit 99
         test -f "$CMUX_TEST_RECORDED_BEFORE_STOP" || exit 98
-        test "$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS")" -eq 2 || exit 97
+        test "$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS")" -eq 3 || exit 97
         /usr/bin/grep -Fqx -- '-STOP 101' "$CMUX_TEST_SIGNALS" || exit 96
         /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
         test ! -s "$CMUX_TEST_FROZEN" || exit 94
@@ -901,6 +901,53 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         environment["CMUX_TEST_RECORDED_BEFORE_STOP"] = root
             .appendingPathComponent("recorded-before-stop").path
         let result = try runShellCommand(command, environment: environment, shellPath: shellPath)
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func resumeSignaledProcessesRequiresDurableIdentity(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-resume-identity-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_identity() {
+          case "$1" in
+            101|103) printf '1|2|Thu_Jan_1_00:00:00_1970\n' ;;
+            102|104) printf '9|99|Thu_Jan_1_00:00:00_1970\n' ;;
+            *) return 1 ;;
+          esac
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 2 Thu_Jan_1_00:00:00_1970\n102 1 2 Thu_Jan_1_00:00:00_1970\n103\n104\n' \
+          > "$CMUX_TEST_SIGNALED_PIDS"
+        printf '103 1 2 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_FROZEN"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        cmux_ssh_auth_resume_signaled_processes
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" -eq 2 || exit 99
+        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 98
+        /usr/bin/grep -Fqx -- '-CONT 103' "$CMUX_TEST_SIGNALS" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+            ],
+            shellPath: shellPath
+        )
 
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
