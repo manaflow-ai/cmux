@@ -12,7 +12,8 @@
   </BuildAction>
   <TestAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.DebuggerFoundation.Launcher.LLDB" shouldUseLaunchSchemeArgsEnv="YES">
     <Testables>
-      <TestableReference skipped="NO">
+      <!-- The app-host suites share process-global AppKit, Ghostty, environment, and user-defaults state. -->
+      <TestableReference skipped="NO" parallelizable="NO">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="F1000004A1B2C3D4E5F60718" BuildableName="cmuxTests.xctest" BlueprintName="cmuxTests" ReferencedContainer="container:cmux.xcodeproj"/>
         <!-- Superseded by explicit-setting Swift Testing coverage in FocusHistoryScopeTests. -->
         <SkippedTests>
