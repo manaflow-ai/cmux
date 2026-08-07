@@ -60,7 +60,7 @@ Remote slot files:
 1. `/tmp/cmuxd-remote-<uid>/cmuxd-<slot-hash>.sock` authenticated Unix socket for stdio proxies.
 2. `~/.cmux/daemon/<version>/<slot>/auth.token` random 32-byte hex token, mode `0600`.
 3. `~/.cmux/daemon/<version>/<slot>/daemon.lock` single-owner lock.
-4. `~/.cmux/daemon/<version>/<slot>/daemon.log` startup and crash diagnostics.
+4. `~/.cmux/daemon/<version>/<slot>/daemon.log` lifecycle and crash diagnostics.
 
 PTY lifecycle:
 1. A local attach creates or reuses a named `pty.*` session in the persistent daemon.
@@ -68,7 +68,7 @@ PTY lifecycle:
 3. `cmux ssh-session-list` calls `pty.list`; `cmux ssh-session-attach` creates a new local terminal whose startup script calls `ssh-pty-attach --require-existing`.
 4. `cmux ssh-session-cleanup` calls `pty.close` to terminate a persisted PTY session explicitly.
 5. Sessions with no attachments keep their last-known size and are reaped by the daemon idle TTL.
-6. Closing the owning workspace sends an authenticated slot-shutdown request, waits a bounded interval for the daemon lock to be released, and removes the relay's shell-state directory. As defense in depth, a daemon launched with `--persistent-lease-port` observes that exact `~/.cmux/relay/<port>.slot` lease, exits after the observed lease disappears and stdio disconnects, and removes the matching shell-state directory. Older callers that omit the flag retain the prior behavior without unsafe broad lease scanning.
+6. Closing the owning workspace sends an authenticated slot-shutdown request, waits a bounded interval for the daemon lock to be released, and removes the relay's shell-state directory. As defense in depth, a daemon launched with `--persistent-lease-port` observes that exact `~/.cmux/relay/<port>.slot` lease, but retires passively only after the observed lease disappears and both stdio connections and live PTY sessions are empty. A detached live PTY survives lease loss until it exits or is closed explicitly. Older callers that omit the flag retain the prior behavior without unsafe broad lease scanning.
 
 ## Cloud WebSocket PTY transport
 
