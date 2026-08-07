@@ -749,6 +749,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/requests-fstring.py",
+            "assert f\"{requests.get('https://api.openai.com/v1/items')}\" == expected\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/project-command-wrapper.py",
+            'assert _run("curl -fsSL https://cmux.com/install.sh").returncode == 0\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/fetch-template.ts",
             "const result = `${await fetch('https://api.openai.com/v1/items')}`\n",
             {RULE_LIVE_NETWORK_HOST},
@@ -882,6 +892,10 @@ def _self_test() -> int:
             'expect(text).toContain(\n'
             '  "curl -fsSL https://cmux.com/install.sh | sh",\n'
             ')\n',
+        ),
+        (
+            "web/tests/n17c.ts",
+            'expect(text).toStartWith("curl -fsSL https://cmux.com/install.sh | sh")\n',
         ),
         (
             "web/tests/n18.ts",
