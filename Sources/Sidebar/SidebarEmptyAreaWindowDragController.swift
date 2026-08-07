@@ -41,6 +41,10 @@ struct SidebarEmptyAreaWindowDragController {
             return .dragged(location: event.locationInWindow)
         }
     ) {
+        precondition(
+            dragThreshold.isFinite && dragThreshold >= 0,
+            "Sidebar drag threshold must be finite and non-negative"
+        )
         self.dragThreshold = dragThreshold
         self.nextEvent = nextEvent
     }
