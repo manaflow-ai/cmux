@@ -100,6 +100,18 @@ size_t cmux_terminal_client_copy_frame(
     const CmuxTerminalClient *client,
     char *buffer,
     size_t capacity);
+// Returns the number of changed viewport rows in the latest frame. Passing a
+// null buffer or insufficient capacity returns the required entry count.
+size_t cmux_terminal_client_copy_frame_dirty_rows(
+    const CmuxTerminalClient *client,
+    uint16_t *buffer,
+    size_t capacity);
+// Copies one zero-based viewport row from the latest frame.
+size_t cmux_terminal_client_copy_frame_row(
+    const CmuxTerminalClient *client,
+    uint16_t row,
+    char *buffer,
+    size_t capacity);
 size_t cmux_terminal_client_copy_diagnostics(
     const CmuxTerminalClient *client,
     char *buffer,

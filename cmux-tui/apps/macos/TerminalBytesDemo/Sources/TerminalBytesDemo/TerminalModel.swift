@@ -199,6 +199,8 @@ private let defaultTerminalConnector: TerminalConnector = { invitation, terminal
 struct TerminalClientSnapshot: Equatable, Sendable {
     let frame: String
     let diagnostics: String
+    let dirtyRows: [UInt16]
+    let dirtyRowText: [UInt16: String]
     let didExit: Bool
     let resizeAcknowledgement: TerminalResizeAcknowledgement?
 }
@@ -285,6 +287,19 @@ actor TerminalClientHandle {
             UnsafeMutablePointer<CChar>?,
             Int
         ) -> Int
+    private let copyFrameDirtyRowsClient:
+        @Sendable (
+            OpaquePointer,
+            UnsafeMutablePointer<UInt16>?,
+            Int
+        ) -> Int
+    private let copyFrameRowClient:
+        @Sendable (
+            OpaquePointer,
+            UInt16,
+            UnsafeMutablePointer<CChar>?,
+            Int
+        ) -> Int
     private let copyDiagnosticsClient:
         @Sendable (
             OpaquePointer,
@@ -295,6 +310,7 @@ actor TerminalClientHandle {
 
     init(
         rawAddress: UInt,
+        enableFrameDelta: Bool = false,
         attachClient:
             @escaping @Sendable (
                 OpaquePointer,
@@ -370,6 +386,23 @@ actor TerminalClientHandle {
             ) -> Int = {
                 cmux_terminal_client_copy_frame($0, $1, $2)
             },
+        copyFrameDirtyRowsClient:
+            @escaping @Sendable (
+                OpaquePointer,
+                UnsafeMutablePointer<UInt16>?,
+                Int
+            ) -> Int = {
+                cmux_terminal_client_copy_frame_dirty_rows($0, $1, $2)
+            },
+        copyFrameRowClient:
+            @escaping @Sendable (
+                OpaquePointer,
+                UInt16,
+                UnsafeMutablePointer<CChar>?,
+                Int
+            ) -> Int = {
+                cmux_terminal_client_copy_frame_row($0, $1, $2, $3)
+            },
         copyDiagnosticsClient:
             @escaping @Sendable (
                 OpaquePointer,
@@ -393,6 +426,13 @@ actor TerminalClientHandle {
         self.resizeClient = resizeClient
         self.resizeAcknowledgementClient = resizeAcknowledgementClient
         self.copyFrameClient = copyFrameClient
+        if enableFrameDelta {
+            self.copyFrameDirtyRowsClient = copyFrameDirtyRowsClient
+            self.copyFrameRowClient = copyFrameRowClient
+        } else {
+            self.copyFrameDirtyRowsClient = { _, _, _ in 0 }
+            self.copyFrameRowClient = { _, _, _, _ in 0 }
+        }
         self.copyDiagnosticsClient = copyDiagnosticsClient
         self.hasExitedClient = hasExitedClient
     }
@@ -542,12 +582,38 @@ actor TerminalClientHandle {
             let frame = copyString(using: copyFrameClient),
             let diagnostics = copyString(using: copyDiagnosticsClient)
         else { return nil }
+        let dirtyRows = copyDirtyRows(raw)
+        var dirtyRowText: [UInt16: String] = [:]
+        for row in dirtyRows {
+            if let value = copyRowString(raw, row) {
+                dirtyRowText[row] = value
+            }
+        }
         return TerminalClientSnapshot(
             frame: frame,
             diagnostics: diagnostics,
+            dirtyRows: dirtyRows,
+            dirtyRowText: dirtyRowText,
             didExit: hasExitedClient(raw),
             resizeAcknowledgement: resizeAcknowledgement(raw)
         )
+    }
+
+    private func copyDirtyRows(_ raw: OpaquePointer) -> [UInt16] {
+        let required = copyFrameDirtyRowsClient(raw, nil, 0)
+        guard required > 0 else { return [] }
+        var rows = [UInt16](repeating: 0, count: required)
+        let copied = rows.withUnsafeMutableBufferPointer {
+            copyFrameDirtyRowsClient(raw, $0.baseAddress, $0.count)
+        }
+        guard copied == required else { return [] }
+        return rows
+    }
+
+    private func copyRowString(_ raw: OpaquePointer, _ row: UInt16) -> String? {
+        copyGrowingCString { buffer, capacity in
+            copyFrameRowClient(raw, row, buffer, capacity)
+        }
     }
 
     private func resizeAcknowledgement(
@@ -753,6 +819,8 @@ final class TerminalModel {
     var invitation: String
     var terminalID: String
     private(set) var frame = ""
+    private(set) var dirtyRows: [UInt16] = []
+    private(set) var dirtyRowText: [UInt16: String] = [:]
     private(set) var diagnostics = ""
     private var errorKind: TerminalErrorKind?
     var errorMessage: String { errorKind?.message ?? "" }
@@ -881,7 +949,7 @@ final class TerminalModel {
             }.value
             guard operation == connectionOperation, !isShuttingDown else {
                 if let address = result.rawAddress {
-                    await TerminalClientHandle(rawAddress: address).shutdown()
+                    await TerminalClientHandle(rawAddress: address, enableFrameDelta: true).shutdown()
                 }
                 return
             }
@@ -894,7 +962,7 @@ final class TerminalModel {
                 )
                 return
             }
-            let client = TerminalClientHandle(rawAddress: address)
+            let client = TerminalClientHandle(rawAddress: address, enableFrameDelta: true)
             guard !isShuttingDown else {
                 await client.shutdown()
                 return
@@ -1153,6 +1221,8 @@ final class TerminalModel {
         }
         if frame != snapshot.frame {
             frame = snapshot.frame
+            dirtyRows = snapshot.dirtyRows
+            dirtyRowText = snapshot.dirtyRowText
         }
         if diagnostics != snapshot.diagnostics {
             diagnostics = snapshot.diagnostics

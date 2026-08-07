@@ -181,6 +181,24 @@ final class TerminalBytesDemoTests: XCTestCase {
         XCTAssertEqual(terminal.string, "prompt> output")
     }
 
+    @MainActor
+    func testDirtyRowsUpdateOnlyTheChangedViewportRows() {
+        let terminal = TerminalTextView()
+        terminal.configureForTerminal()
+        terminal.applyTerminalFrame("first\nsecond\nthird\n")
+
+        let edit = terminal.applyTerminalFrame(
+            "first\nchanged\nthird\n",
+            dirtyRows: [1],
+            dirtyRowText: [1: "changed\n"]
+        )
+
+        XCTAssertNotNil(edit)
+        XCTAssertEqual(edit?.range, NSRange(location: 6, length: 7))
+        XCTAssertEqual(edit?.replacement, "changed\n")
+        XCTAssertEqual(terminal.string, "first\nchanged\nthird\n")
+    }
+
     func testLauncherUsesAnInvocationOwnedSwiftBuildDirectory() throws {
         let demoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

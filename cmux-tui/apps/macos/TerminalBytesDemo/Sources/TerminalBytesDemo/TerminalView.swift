@@ -62,6 +62,8 @@ final class TerminalTextView: NSTextView {
     }
     private var terminalMarkedRange = NSRange(location: NSNotFound, length: 0)
     private var terminalMarkedSelection = NSRange(location: NSNotFound, length: 0)
+    private var terminalRows: [String] = []
+    private var terminalRowOffsets: [Int] = []
 
     var terminalFrameText: String {
         guard let range = validMarkedRange else { return string }
@@ -203,9 +205,38 @@ final class TerminalTextView: NSTextView {
     }
 
     @discardableResult
-    func applyTerminalFrame(_ next: String) -> TerminalTextEdit? {
+    func applyTerminalFrame(
+        _ next: String,
+        dirtyRows: [UInt16] = [],
+        dirtyRowText: [UInt16: String] = [:]
+    ) -> TerminalTextEdit? {
         let current = terminalFrameText
-        guard let edit = terminalTextEdit(from: current, to: next) else { return nil }
+        guard current != next else { return nil }
+        let edit: TerminalTextEdit
+        if !terminalRows.isEmpty,
+            !dirtyRows.isEmpty,
+            let first = dirtyRows.min().map(Int.init),
+            let last = dirtyRows.max().map(Int.init),
+            last < terminalRows.count,
+            terminalRowOffsets.count == terminalRows.count + 1
+        {
+            let changedRows = (first...last).map { row in
+                dirtyRowText[UInt16(row)] ?? terminalRows[row]
+            }
+            let start = terminalRowOffsets[first]
+            let end = terminalRowOffsets[last + 1]
+            edit = TerminalTextEdit(
+                range: NSRange(location: start, length: end - start),
+                replacement: changedRows.joined()
+            )
+            for (offset, row) in changedRows.enumerated() {
+                terminalRows[first + offset] = row
+            }
+        } else {
+            guard let fullEdit = terminalTextEdit(from: current, to: next) else { return nil }
+            edit = fullEdit
+            terminalRows = terminalRows(from: next)
+        }
         let marked = detachMarkedText()
         guard let storage = textStorage else { return nil }
 
@@ -228,7 +259,23 @@ final class TerminalTextView: NSTextView {
                 )?.location ?? storage.length
             attachMarkedText(marked, at: min(max(0, remapped), storage.length))
         }
+        rebuildTerminalRowOffsets()
         return edit
+    }
+
+    private func terminalRows(from text: String) -> [String] {
+        var lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if lines.last == "" { lines.removeLast() }
+        return lines.map { $0 + "\n" }
+    }
+
+    private func rebuildTerminalRowOffsets() {
+        terminalRowOffsets = [0]
+        for row in terminalRows {
+            terminalRowOffsets.append(
+                terminalRowOffsets[terminalRowOffsets.count - 1] + row.utf16.count
+            )
+        }
     }
 
     private var validMarkedRange: NSRange? {
@@ -365,6 +412,8 @@ private final class TerminalContainerView: NSScrollView {
 
 struct TerminalView: NSViewRepresentable {
     let text: String
+    let dirtyRows: [UInt16]
+    let dirtyRowText: [UInt16: String]
     let inputReady: Bool
     let submit: (TerminalInput) -> Void
     let resize: (TerminalGeometry) -> Void
@@ -412,7 +461,11 @@ struct TerminalView: NSViewRepresentable {
         let followedBottom = visible.maxY >= terminal.bounds.maxY - 24
         // applyTerminalFrame computes the cached-frame edit once. Keeping the
         // equality check there avoids a second full-frame scan on every update.
-        guard let edit = terminal.applyTerminalFrame(text) else { return }
+        guard let edit = terminal.applyTerminalFrame(
+            text,
+            dirtyRows: dirtyRows,
+            dirtyRowText: dirtyRowText
+        ) else { return }
         if !isComposing {
             terminal.selectedRanges = terminalSelections(
                 preserving: selection,

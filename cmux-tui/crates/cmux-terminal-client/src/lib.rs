@@ -164,6 +164,8 @@ struct ClientState {
     key_encoder: KeyEncoder,
     render: RenderState,
     frame_text: String,
+    frame_rows: Vec<String>,
+    frame_dirty_rows: Vec<u16>,
     render_dirty: bool,
     status: String,
     transport_provider: String,
@@ -231,6 +233,8 @@ impl ClientState {
             key_encoder: KeyEncoder::new().map_err(|error| error.to_string())?,
             render: RenderState::new().map_err(|error| error.to_string())?,
             frame_text: String::new(),
+            frame_rows: Vec::new(),
+            frame_dirty_rows: Vec::new(),
             render_dirty: false,
             status: "bootstrap".into(),
             transport_provider: provider,
@@ -469,13 +473,19 @@ impl ClientState {
         self.render.update(terminal).map_err(|error| error.to_string())?;
         let frame = self.render.build_frame().map_err(|error| error.to_string())?;
         let mut text = String::new();
+        let mut rows = Vec::with_capacity(frame.styled_rows().len());
         // The UI polls at a bounded cadence. Only the visible viewport is
         // materialized here; raw transport frames never trigger a grid walk,
         // and history remains local in libghostty for a later paged API.
         for row in frame.styled_rows() {
-            append_row(&mut text, row);
+            let mut rendered = String::new();
+            append_row(&mut rendered, row);
+            text.push_str(&rendered);
+            rows.push(rendered);
         }
         self.frame_text = text;
+        self.frame_rows = rows;
+        self.frame_dirty_rows = frame.dirty_rows;
         self.render_dirty = false;
         Ok(())
     }
@@ -1657,6 +1667,46 @@ pub unsafe extern "C" fn cmux_terminal_client_copy_frame(
         state.status = format!("render: {error}");
     }
     copy_utf8(&state.frame_text, buffer, capacity)
+}
+
+/// Copies the row indexes changed by the latest materialized frame. A null
+/// buffer or undersized capacity returns the required number of entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_copy_frame_dirty_rows(
+    client: *const CmuxTerminalClient,
+    buffer: *mut u16,
+    capacity: usize,
+) -> usize {
+    let Some(client) = (unsafe { client.as_ref() }) else { return 0 };
+    let mut state = client.state.lock().unwrap();
+    if let Err(error) = state.materialize_frame() {
+        state.status = format!("render: {error}");
+    }
+    let required = state.frame_dirty_rows.len();
+    if buffer.is_null() || capacity < required {
+        return required;
+    }
+    unsafe {
+        std::ptr::copy_nonoverlapping(state.frame_dirty_rows.as_ptr(), buffer, required);
+    }
+    required
+}
+
+/// Copies one row from the latest materialized frame as a NUL-terminated
+/// UTF-8 string. The row index is zero-based.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_terminal_client_copy_frame_row(
+    client: *const CmuxTerminalClient,
+    row: u16,
+    buffer: *mut c_char,
+    capacity: usize,
+) -> usize {
+    let Some(client) = (unsafe { client.as_ref() }) else { return 0 };
+    let mut state = client.state.lock().unwrap();
+    if let Err(error) = state.materialize_frame() {
+        state.status = format!("render: {error}");
+    }
+    state.frame_rows.get(row as usize).map(|value| copy_utf8(value, buffer, capacity)).unwrap_or(0)
 }
 
 /// Copies current client diagnostics as a NUL-terminated UTF-8 string.

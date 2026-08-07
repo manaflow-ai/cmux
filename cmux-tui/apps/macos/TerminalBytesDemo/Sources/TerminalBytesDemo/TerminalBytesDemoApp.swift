@@ -71,6 +71,8 @@ struct ContentView: View {
 
             TerminalView(
                 text: model.frame,
+                dirtyRows: model.dirtyRows,
+                dirtyRowText: model.dirtyRowText,
                 inputReady: model.isConnected,
                 submit: model.submit,
                 resize: model.resize
