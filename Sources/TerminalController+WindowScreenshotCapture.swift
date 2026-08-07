@@ -224,19 +224,19 @@ extension TerminalController {
         // worker's five-second waiter expires. Every WebKit request consumes
         // from this one aggregate budget instead of receiving two fresh seconds.
         let captureDeadline = ProcessInfo.processInfo.systemUptime + 4
-        guard let contentView = window.contentView else {
+        guard let captureRoot = WindowAppKitCapture.rootView(for: window) else {
             return nil
         }
 
-        let bounds = contentView.bounds
+        let bounds = captureRoot.bounds
         guard !bounds.isEmpty,
-              let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
+              let bitmap = captureRoot.bitmapImageRepForCachingDisplay(in: bounds) else {
             return nil
         }
         bitmap.size = bounds.size
 
-        contentView.displayIfNeeded()
-        contentView.cacheDisplay(in: bounds, to: bitmap)
+        captureRoot.displayIfNeeded()
+        captureRoot.cacheDisplay(in: bounds, to: bitmap)
         guard !Task.isCancelled else { return nil }
 
         var overlays: [(
@@ -248,7 +248,7 @@ extension TerminalController {
         var capturedOccludingViews = Set<ObjectIdentifier>()
         var capturedAllExternalContent = true
 
-        for terminalView in visibleDescendants(of: contentView, as: GhosttySurfaceScrollView.self) {
+        for terminalView in visibleDescendants(of: captureRoot, as: GhosttySurfaceScrollView.self) {
             guard !Task.isCancelled else { return nil }
             guard let image = terminalView.debugCopyIOSurfaceCGImage() else {
                 capturedAllExternalContent = false
@@ -256,22 +256,22 @@ extension TerminalController {
             }
             let rect = terminalView.surfaceView.convert(
                 terminalView.surfaceView.bounds,
-                to: contentView
+                to: captureRoot
             )
             guard !rect.isEmpty else {
                 capturedAllExternalContent = false
                 continue
             }
-            let alpha = effectiveAlpha(of: terminalView.surfaceView, through: contentView)
+            let alpha = effectiveAlpha(of: terminalView.surfaceView, through: captureRoot)
             guard alpha > 0 else { continue }
-            guard let zOrder = hierarchyZOrder(of: terminalView.surfaceView, through: contentView) else {
+            guard let zOrder = hierarchyZOrder(of: terminalView.surfaceView, through: captureRoot) else {
                 capturedAllExternalContent = false
                 continue
             }
             overlays.append((image, rect, alpha, zOrder))
             if !appendNativeOccluderOverlays(
                 above: terminalView.surfaceView,
-                through: contentView,
+                through: captureRoot,
                 overlapping: rect,
                 capturedViews: &capturedOccludingViews,
                 to: &overlays
@@ -280,7 +280,7 @@ extension TerminalController {
             }
         }
 
-        for webView in visibleDescendants(of: contentView, as: WKWebView.self) {
+        for webView in visibleDescendants(of: captureRoot, as: WKWebView.self) {
             guard !Task.isCancelled else { return nil }
             let remainingBudget =
                 captureDeadline - ProcessInfo.processInfo.systemUptime
@@ -303,21 +303,21 @@ extension TerminalController {
                     capturedAllExternalContent = false
                     continue
                 }
-                let rect = webView.convert(webView.bounds, to: contentView)
+                let rect = webView.convert(webView.bounds, to: captureRoot)
                 guard !rect.isEmpty else {
                     capturedAllExternalContent = false
                     continue
                 }
-                let alpha = effectiveAlpha(of: webView, through: contentView)
+                let alpha = effectiveAlpha(of: webView, through: captureRoot)
                 guard alpha > 0 else { continue }
-                guard let zOrder = hierarchyZOrder(of: webView, through: contentView) else {
+                guard let zOrder = hierarchyZOrder(of: webView, through: captureRoot) else {
                     capturedAllExternalContent = false
                     continue
                 }
                 overlays.append((cgImage, rect, alpha, zOrder))
                 if !appendNativeOccluderOverlays(
                     above: webView,
-                    through: contentView,
+                    through: captureRoot,
                     overlapping: rect,
                     capturedViews: &capturedOccludingViews,
                     to: &overlays
@@ -351,7 +351,7 @@ extension TerminalController {
             context.saveGState()
             context.setAlpha(overlay.alpha)
             let destinationRect: NSRect
-            if contentView.isFlipped {
+            if captureRoot.isFlipped {
                 destinationRect = NSRect(
                     x: overlay.rect.minX - bounds.minX,
                     y: bounds.maxY - overlay.rect.maxY,

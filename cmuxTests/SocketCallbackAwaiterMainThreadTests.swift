@@ -159,6 +159,23 @@ import Testing
         #expect(selected === auxiliaryWindow)
     }
 
+    @MainActor
+    @Test func appKitCaptureRootIncludesNativeWindowChrome() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = try #require(window.contentView)
+
+        let captureRoot = try #require(WindowAppKitCapture.rootView(for: window))
+
+        #expect(captureRoot !== contentView)
+        #expect(contentView.isDescendant(of: captureRoot))
+        #expect(captureRoot.bounds.height > contentView.bounds.height)
+    }
+
     @Test func screenshotLabelsCannotCreatePathComponents() {
         #expect(WindowScreenshotLabel("").value == "")
         #expect(
