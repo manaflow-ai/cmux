@@ -21,6 +21,12 @@ struct CustomSidebarFocusScopeTests {
         )
     }
 
+    @Test("a document source carrying a non-file URL never arms")
+    func nonFileDocumentDoesNotArm() {
+        let source = CustomSidebarWebSource.document(URL(string: "https://example.com/board.html")!)
+        #expect(CustomSidebarFocusScope(source: source) == nil)
+    }
+
     @Test(
         "a literal loopback page arms",
         arguments: [

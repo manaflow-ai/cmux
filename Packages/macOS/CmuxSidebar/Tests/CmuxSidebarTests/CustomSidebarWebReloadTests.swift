@@ -14,8 +14,6 @@ import WebKit
 @Suite("CustomSidebarWebView reload")
 @MainActor
 struct CustomSidebarWebReloadTests {
-    private let source = CustomSidebarWebSource.remote(URL(string: "http://127.0.0.1:8787/")!)
-
     private func makeCoordinator() -> (CustomSidebarWebView.Coordinator, WKWebView) {
         let webView = WKWebView(frame: .zero)
         let container = CustomSidebarWebContainerView(webView: webView)
@@ -25,8 +23,21 @@ struct CustomSidebarWebReloadTests {
         return (coordinator, webView)
     }
 
+    private func makeRemoteSource() throws -> (LoopbackHTTPServer, CustomSidebarWebSource) {
+        let (server, origin) = try LoopbackHTTPServer.started(body: "<!doctype html><title>fixture</title>")
+        return (server, .remote(origin))
+    }
+
+    private func unqualifiedURL(for origin: URL) throws -> URL {
+        var components = try #require(URLComponents(url: origin, resolvingAgainstBaseURL: false))
+        components.host = "localhost"
+        return try #require(components.url)
+    }
+
     @Test("an unchanged source with an unchanged token does not reload")
-    func unchangedUpdateDoesNotReload() {
+    func unchangedUpdateDoesNotReload() throws {
+        let (server, source) = try makeRemoteSource()
+        defer { server.stop() }
         let (coordinator, webView) = makeCoordinator()
         coordinator.apply(source: source, focusWorkspace: nil, into: webView)
         let afterFirst = coordinator.issuedLoadCount
@@ -40,7 +51,9 @@ struct CustomSidebarWebReloadTests {
     }
 
     @Test("an unchanged source with a bumped token reloads")
-    func bumpedTokenReloadsUnchangedSource() {
+    func bumpedTokenReloadsUnchangedSource() throws {
+        let (server, source) = try makeRemoteSource()
+        defer { server.stop() }
         let (coordinator, webView) = makeCoordinator()
         coordinator.apply(source: source, focusWorkspace: nil, into: webView)
         let afterFirst = coordinator.issuedLoadCount
@@ -56,7 +69,9 @@ struct CustomSidebarWebReloadTests {
     }
 
     @Test("each further bump reloads again")
-    func repeatedBumpsReloadEachTime() {
+    func repeatedBumpsReloadEachTime() throws {
+        let (server, source) = try makeRemoteSource()
+        defer { server.stop() }
         let (coordinator, webView) = makeCoordinator()
         var token = CustomSidebarWebReloadToken.initial
         coordinator.apply(source: source, reloadToken: token, focusWorkspace: nil, into: webView)
@@ -94,8 +109,10 @@ struct CustomSidebarWebReloadTests {
 
     // A reload must not quietly re-open a capability the source no longer earns, or the reverse.
     @Test("reloading preserves the arming decision rather than re-deciding it loosely")
-    func reloadKeepsArmingCorrect() {
-        let publicSource = CustomSidebarWebSource.remote(URL(string: "https://example.com/")!)
+    func reloadKeepsArmingCorrect() throws {
+        let (server, origin) = try LoopbackHTTPServer.started(body: "<!doctype html><title>fixture</title>")
+        defer { server.stop() }
+        let publicSource = CustomSidebarWebSource.remote(try unqualifiedURL(for: origin))
         let (coordinator, webView) = makeCoordinator()
         coordinator.apply(
             source: publicSource,

@@ -61,6 +61,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a reload request bumps the token so an unchanged page still re-fetches")
     func reloadBumpsToken() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
         let before = observer.reloadToken
@@ -74,6 +75,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("an unnamed reload request reaches web sidebars too, matching the interpreted filter")
     func unnamedReloadReachesWebSidebars() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
         let before = observer.reloadToken
@@ -91,6 +93,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a reload naming a different sidebar leaves this one alone")
     func namedReloadIsFiltered() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
         let before = observer.reloadToken
@@ -106,6 +109,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("an interpreted file appearing demotes the web source on the next reload")
     func precedenceFlipToInterpreted() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
         #expect(observer.webSource != nil)
@@ -123,6 +127,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("deleting the interpreted file promotes the web source on the next reload")
     func precedenceFlipToWeb() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("Text(\"Swift\")", to: dir, as: "board.swift")
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
@@ -140,6 +145,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a url sidebar follows its target changing behind the same file")
     func urlTargetChangeIsPickedUp() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
         let observer = await makeObserver(name: "board", directory: dir)
         #expect(observer.webSource == .remote(URL(string: "http://127.0.0.1:8787/")!))
@@ -154,6 +160,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("deleting every file for a name resolves to nothing rather than the stale file")
     func deletedSidebarResolvesToNothing() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
         #expect(observer.resolvedFileURL != nil)
@@ -170,6 +177,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a posted reload notification drives the observer once started")
     func notificationDrivesObserver() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
         observer.start()
@@ -189,6 +197,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a stopped observer ignores further notifications")
     func stoppedObserverIgnoresNotifications() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
         observer.start()
@@ -214,72 +223,85 @@ struct CustomSidebarWebReloadObserverTests {
     /// that put a whole-file read on the main thread on every render pass — roughly once a second,
     /// forever, for as long as the sidebar is open.
     ///
-    /// Measured as main-actor responsiveness rather than by inspecting call stacks: a stall is what
-    /// the user experiences, and it is the thing that has to stay fixed.
+    /// Asserted as an ordering fact, using the observer's own injected resolver as the seam. The
+    /// resolver parks; the main actor then completes a round trip and only afterwards releases it.
+    /// If any part of the resolution pipeline ran on the main actor, the main thread would be inside
+    /// the parked resolver and the round trip could not complete — which is what the expectation
+    /// catches.
     ///
-    /// Stated as a *difference* between a trivial sidebar file and a very large one, not as an
-    /// absolute budget. These tests run in the app host, whose own main thread is busy with display
-    /// links and layout, so an absolute ceiling measures the app's noise as much as this code. The
-    /// difference does not: if the read were inline, the large file would add its whole parse to the
-    /// main actor and the small one would not.
-    ///
-    /// Each condition is measured several times and compared on its *best* run, because the two
-    /// error sources are not symmetric. Ambient app work can only ever add to a measurement, so a
-    /// noisy run overstates the gap and the minimum is the closest thing to this code's own cost. An
-    /// inline read, by contrast, would put its parse into every large-file run, floor included —
-    /// which is exactly what the minimum cannot hide.
-    @Test("resolving a .url sidebar keeps main-actor cost independent of the file's size")
+    /// The previous shape measured how long the main actor went unserviced while a deliberately
+    /// enormous `.url` file was parsed, and compared best-of-three runs against a millisecond
+    /// budget. That measures the app host's own display-link and layout work as much as this code,
+    /// so it needed a fixture big enough to out-shout it and a threshold loose enough to survive a
+    /// loaded CI box. The ordering claim needs neither.
+    @Test("resolving a sidebar leaves the main actor free while the resolution is in flight")
     func resolutionDoesNotStallTheMainActor() async throws {
-        // The target sits behind enough non-URL lines that parsing it is unmistakable if it happens
-        // inline. Same code path as a one-line file, just long enough to measure.
-        var large = String(repeating: "# padding line that is not a url\n", count: 400_000)
-        large += "http://127.0.0.1:8787/\n"
-        let small = "http://127.0.0.1:8787/\n"
+        let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
 
-        var smallBest = Double.greatestFiniteMagnitude
-        var largeBest = Double.greatestFiniteMagnitude
-        for _ in 0..<3 {
-            smallBest = min(smallBest, try await longestMainActorGapResolving(contents: small))
-            largeBest = min(largeBest, try await longestMainActorGapResolving(contents: large))
+        let resolverEntered = AsyncSignal()
+        let mayFinishResolving = AsyncSignal()
+        let observed = ResolverObservation()
+        let observer = CustomSidebarWebReloadObserver(sidebarName: "board") { _ in
+            resolverEntered.signal()
+            // Blocking rather than awaiting: an `await` here would suspend and free the thread,
+            // which is precisely the thing the test must not do for it. A resolution running on the
+            // main actor holds the main thread right here, so the release below never arrives and
+            // the bounded wait reports it instead of hanging the suite.
+            observed.mainActorRanWhileParked = mayFinishResolving.waitBlocking()
+            return CmuxExtensionSidebarSelection.customSidebarFileURL(
+                forName: "board",
+                sidebarsDirectory: dir
+            )
         }
 
-        // The fixture parses in hundreds of milliseconds, so an inline read cannot fit under this,
-        // while scheduling jitter between two best-of-three runs stays well below it.
-        #expect(
-            largeBest < smallBest + 100,
-            "a large .url file added \(largeBest - smallBest)ms of main-actor stall over a small one"
-        )
+        await resolverEntered.wait()
+        // A main-actor round trip, completed while the resolver is still parked. Releasing only
+        // afterwards is what makes "the main actor ran first" the recorded fact.
+        await MainActor.run {}
+        mayFinishResolving.signal()
+
+        await observer.resolutionSettled()
+
+        #expect(observed.mainActorRanWhileParked, "the main actor was blocked by the resolution")
+        // The resolution really happened, so the ordering above is not about a no-op.
+        #expect(observer.webSource == .remote(URL(string: "http://127.0.0.1:8787/")!))
     }
 
-    /// Resolves a `.url` sidebar with the given contents, returning the longest the main actor went
-    /// without servicing a heartbeat while that happened.
-    private func longestMainActorGapResolving(contents: String) async throws -> Double {
-        let dir = try directory()
-        try write(contents, to: dir, as: "board.url")
+    /// What the parked resolver saw, read back once it has finished.
+    private final class ResolverObservation: @unchecked Sendable {
+        var mainActorRanWhileParked = false
+    }
 
-        let heartbeat = Task { @MainActor () -> Double in
-            var longest: Double = 0
-            var last = DispatchTime.now()
-            while !Task.isCancelled {
-                await Task.yield()
-                let now = DispatchTime.now()
-                longest = max(
-                    longest,
-                    Double(now.uptimeNanoseconds &- last.uptimeNanoseconds) / 1_000_000
-                )
-                last = now
-            }
-            return longest
+    /// A one-shot signal that can be awaited from a task or blocked on from a thread.
+    ///
+    /// The bounded blocking wait is a safety valve: a main actor that really is stuck reports as a
+    /// failed expectation rather than hanging the suite. Nothing asserts on how long it took.
+    private final class AsyncSignal: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+        private let stream: AsyncStream<Void>
+        private let continuation: AsyncStream<Void>.Continuation
+
+        init() {
+            (stream, continuation) = AsyncStream<Void>.makeStream()
         }
 
-        let observer = await makeObserver(name: "board", directory: dir)
-        observer.requestReload(names: ["board"])
-        await observer.resolutionSettled()
-        heartbeat.cancel()
+        func signal() {
+            semaphore.signal()
+            continuation.yield(())
+        }
 
-        // The work really did happen, so the measurement is not of a no-op.
-        #expect(observer.webSource == .remote(URL(string: "http://127.0.0.1:8787/")!))
-        return await heartbeat.value
+        func wait() async {
+            var iterator = stream.makeAsyncIterator()
+            _ = await iterator.next()
+        }
+
+        /// Blocks until signalled, giving up after long enough that only a real block reaches it.
+        /// Returns whether the signal arrived.
+        func waitBlocking() -> Bool {
+            semaphore.wait(timeout: .now() + 30) == .success
+        }
     }
 
     // MARK: - Mount decision
@@ -289,6 +311,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a .url naming nothing loadable settles on unavailable")
     func rejectedURLSettlesUnavailable() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("file:///etc/passwd\n", to: dir, as: "board.url")
         let observer = await makeObserver(name: "board", directory: dir)
 
@@ -303,6 +326,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a pane's fallback file decides the first frame when its extension can")
     func fallbackDecidesFirstFrameForExtensionDecidedKinds() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let html = dir.appendingPathComponent("board.html")
         let observer = CustomSidebarWebReloadObserver(
             sidebarName: "board",
@@ -315,6 +339,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a .url fallback file renders nothing until its target has been read")
     func urlFallbackWaitsForItsRead() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let observer = CustomSidebarWebReloadObserver(
             sidebarName: "board",
             fallbackFileURL: dir.appendingPathComponent("board.url")
@@ -328,6 +353,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a pane keeps its last known file while the backing file is briefly gone")
     func fallbackSurvivesADisappearingFile() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let html = dir.appendingPathComponent("board.html")
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir, fallbackFileURL: html)
@@ -346,6 +372,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("without a fallback, a name resolving to nothing is unavailable")
     func railHasNoLastKnownFile() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let observer = await makeObserver(name: "board", directory: dir)
 
@@ -361,6 +388,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("the reload token and the re-resolved decision land together")
     func tokenAndDecisionLandTogether() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
         let observer = await makeObserver(name: "board", directory: dir)
         let tokenBefore = observer.reloadToken
@@ -382,6 +410,7 @@ struct CustomSidebarWebReloadObserverTests {
     @Test("a burst of reloads settles on the newest state")
     func burstOfReloadsSettlesOnTheNewestState() async throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("http://127.0.0.1:8000/\n", to: dir, as: "board.url")
         let observer = await makeObserver(name: "board", directory: dir)
 

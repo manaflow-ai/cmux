@@ -19,80 +19,86 @@ struct CustomSidebarSourceOffMainThreadTests {
         return url
     }
 
-    /// Writes a `.url` file whose parse is slow enough to be unmistakable if it happens inline.
+    /// Creates a `.url` sidebar whose read parks until the test decides to complete it.
     ///
-    /// The URL is on the last line behind a few hundred thousand comment lines, so the parser has to
-    /// walk the whole file — the same code path a one-line file takes, just long enough to measure.
-    private func writeSlowURLFile(in directory: URL) throws -> URL {
+    /// A FIFO is a file whose `open` for reading blocks until a writer arrives, so it puts the read
+    /// under the test's control exactly: the read is *in progress*, and stays that way, until the
+    /// test says otherwise. That is what makes the claim below an ordering fact rather than a
+    /// measurement — no fixture has to be large enough to be slow, and nothing depends on how loaded
+    /// the machine is.
+    private func makeParkedURLFile(in directory: URL) throws -> URL {
         let fileURL = directory.appendingPathComponent("board.url", isDirectory: false)
-        var contents = String(repeating: "# padding line that is not a url\n", count: 400_000)
-        contents += "http://127.0.0.1:8787/\n"
-        try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        let created = mkfifo(fileURL.path, 0o600)
+        try #require(created == 0, "mkfifo failed with errno \(errno)")
         return fileURL
     }
 
-    /// The blocking classifier, timed on the main actor, establishes that the fixture is genuinely
-    /// slow. Without this the off-main test below could pass on a file that parses instantly.
-    @MainActor
-    @Test("the fixture is slow enough that a main-thread parse would be visible")
-    func blockingClassificationIsMeasurablySlow() async throws {
-        let directory = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let fileURL = try writeSlowURLFile(in: directory)
-
-        let start = DispatchTime.now()
-        let source = CustomSidebarSource.classify(fileURL: fileURL)
-        let elapsed = Self.milliseconds(since: start)
-
-        #expect(source == .web(.remote(URL(string: "http://127.0.0.1:8787/")!)))
-        #expect(elapsed > 50, "fixture parsed in \(elapsed)ms; too fast to detect a main-thread stall")
-    }
-
-    /// The behaviour that matters: while the same file is being classified, the main actor keeps
-    /// servicing work.
+    /// The behaviour that matters: while a `.url` file is being read, the main actor keeps servicing
+    /// work.
     ///
-    /// A main-thread read shows up as one long gap between heartbeats, roughly the parse time from
-    /// the test above. Off the main thread the heartbeats stay tight regardless of how slow the parse
-    /// is.
-    ///
-    /// Best of several runs: ambient work on a loaded machine can only ever add to a measurement, so
-    /// the minimum is the closest thing to this code's own cost — and an inline read would land in
-    /// every run, floor included.
+    /// Asserted as causality. The read parks in the FIFO; the main actor then completes a round trip
+    /// and only afterwards releases the writer that lets the read finish. An inline read would hold
+    /// the main thread inside `open`, so the round trip could not complete, and the writer's release
+    /// would never be signalled — which is exactly the expectation that fails. The writer proceeds
+    /// on its own after a bounded wait regardless, so the failing case reports rather than hangs.
     @MainActor
-    @Test("classifying a .url sidebar leaves the main actor responsive")
+    @Test("classifying a .url sidebar leaves the main actor free while the read is in flight")
     func urlFileIsReadOffTheMainThread() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let fileURL = try writeSlowURLFile(in: directory)
+        let fileURL = try makeParkedURLFile(in: directory)
 
-        var bestGapMilliseconds = Double.greatestFiniteMagnitude
-        for _ in 0..<3 {
-            // A main-actor heartbeat that runs for as long as the classification does. Each
-            // iteration records how long the main actor went without servicing it.
-            let heartbeat = Task { @MainActor () -> Double in
-                var longest: Double = 0
-                var last = DispatchTime.now()
-                while !Task.isCancelled {
-                    await Task.yield()
-                    let now = DispatchTime.now()
-                    longest = max(longest, Self.milliseconds(between: last, and: now))
-                    last = now
-                }
-                return longest
+        let mainActorRanFirst = Signal()
+        let writerFinished = Signal()
+        let observed = Observation()
+        Thread.detachNewThread {
+            // Recorded, not asserted here: what the test claims is that the main actor ran *before*
+            // the read was allowed to finish.
+            observed.mainActorRanBeforeWrite = mainActorRanFirst.waitBounded()
+            if let handle = FileHandle(forWritingAtPath: fileURL.path) {
+                try? handle.write(contentsOf: Data("http://127.0.0.1:8787/\n".utf8))
+                try? handle.close()
             }
-
-            let source = await CustomSidebarSource.classifying(fileURL: fileURL)
-            heartbeat.cancel()
-            #expect(source == .web(.remote(URL(string: "http://127.0.0.1:8787/")!)))
-            bestGapMilliseconds = min(bestGapMilliseconds, await heartbeat.value)
+            writerFinished.signal()
         }
 
-        // Generous: the parse measured above is hundreds of milliseconds, so an inline read cannot
-        // hide under this, while ordinary scheduling noise stays well below it.
-        #expect(
-            bestGapMilliseconds < 50,
-            "main actor stalled \(bestGapMilliseconds)ms during classification"
-        )
+        // Inherits the main actor, so an inline read would block the main thread here.
+        let classification = Task { @MainActor in
+            await CustomSidebarSource.classifying(fileURL: fileURL)
+        }
+
+        // A main-actor round trip. It can only complete if the main thread is not sitting inside the
+        // parked read.
+        await MainActor.run {}
+        await Task.yield()
+        mainActorRanFirst.signal()
+
+        let source = await classification.value
+        _ = writerFinished.waitBounded()
+
+        #expect(observed.mainActorRanBeforeWrite, "the main actor was blocked by the .url read")
+        #expect(source == .web(.remote(URL(string: "http://127.0.0.1:8787/")!)))
+    }
+
+    /// A one-shot cross-thread signal.
+    ///
+    /// The bounded wait is a safety valve so a blocked main actor reports as a failed expectation
+    /// instead of hanging the suite; nothing is asserted about how long it took.
+    private final class Signal: @unchecked Sendable {
+        private let semaphore = DispatchSemaphore(value: 0)
+
+        func signal() { semaphore.signal() }
+
+        /// Waits for the signal, giving up after long enough that only a real block reaches it.
+        /// Returns whether the signal arrived.
+        func waitBounded() -> Bool {
+            semaphore.wait(timeout: .now() + 30) == .success
+        }
+    }
+
+    /// What the writer thread saw, read back on the main actor once it has finished.
+    private final class Observation: @unchecked Sendable {
+        var mainActorRanBeforeWrite = false
     }
 
     /// The non-blocking half: for every extension whose kind follows from its name, the answer must
@@ -145,13 +151,5 @@ struct CustomSidebarSourceOffMainThreadTests {
 
         #expect(await CustomSidebarSource.classifying(fileURL: fileURL)
             == CustomSidebarSource.classify(fileURL: fileURL))
-    }
-
-    private static func milliseconds(since start: DispatchTime) -> Double {
-        milliseconds(between: start, and: DispatchTime.now())
-    }
-
-    private static func milliseconds(between start: DispatchTime, and end: DispatchTime) -> Double {
-        Double(end.uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000
     }
 }

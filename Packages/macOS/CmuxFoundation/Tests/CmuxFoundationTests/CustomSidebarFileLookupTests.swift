@@ -135,43 +135,75 @@ struct CustomSidebarFileLookupTests {
         ))
     }
 
-    /// Resolution probes one candidate per recognised extension, so its cost must not scale with how
-    /// many sidebars the user has authored. Listing the directory to learn one entry's real name is
-    /// the shape that does scale, and it put that cost on the sidebar's render path.
-    @Test("resolution cost does not scale with the size of the sidebars directory")
-    func costIsIndependentOfDirectorySize() throws {
-        let small = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: small) }
-        let large = try makeDirectory()
-        defer { try? FileManager.default.removeItem(at: large) }
-        try "x".write(to: small.appendingPathComponent("board.swift"), atomically: true, encoding: .utf8)
-        try "x".write(to: large.appendingPathComponent("board.swift"), atomically: true, encoding: .utf8)
-        for index in 0..<2_000 {
-            try "x".write(
-                to: large.appendingPathComponent("filler-\(index).swift"),
-                atomically: true,
-                encoding: .utf8
+    /// A `FileManager` that records every directory enumeration asked of it.
+    ///
+    /// Enumeration is the operation whose cost scales with the directory, so counting the calls is
+    /// the property itself rather than a proxy for it. Recorded rather than refused, so a failure
+    /// says how many times it happened instead of surfacing as an unrelated error.
+    private final class EnumerationCountingFileManager: FileManager, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _enumerationCount = 0
+
+        var enumerationCount: Int { lock.withLock { _enumerationCount } }
+
+        private func recordEnumeration() {
+            lock.withLock { _enumerationCount += 1 }
+        }
+
+        override func contentsOfDirectory(atPath path: String) throws -> [String] {
+            recordEnumeration()
+            return try super.contentsOfDirectory(atPath: path)
+        }
+
+        override func contentsOfDirectory(
+            at url: URL,
+            includingPropertiesForKeys keys: [URLResourceKey]?,
+            options mask: FileManager.DirectoryEnumerationOptions = []
+        ) throws -> [URL] {
+            recordEnumeration()
+            return try super.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: keys,
+                options: mask
             )
         }
-        let lookup = CustomSidebarFileLookup()
 
-        func elapsedMilliseconds(in directory: URL) -> Double {
-            let candidate = directory.appendingPathComponent("board.swift")
-            let start = DispatchTime.now()
-            for _ in 0..<200 { _ = lookup.exists(candidate) }
-            return Double(DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000
+        override func enumerator(atPath path: String) -> FileManager.DirectoryEnumerator? {
+            recordEnumeration()
+            return super.enumerator(atPath: path)
         }
+    }
 
-        _ = elapsedMilliseconds(in: large) // warm the directory's caches
-        let smallElapsed = elapsedMilliseconds(in: small)
-        let largeElapsed = elapsedMilliseconds(in: large)
+    /// Resolution probes one candidate per recognised extension, on the sidebar's render path, so
+    /// its cost must not scale with how many sidebars the user has authored.
+    ///
+    /// Stated as the operation rather than as a duration: listing the enclosing directory to learn
+    /// one entry's real name is the shape whose cost is proportional to the directory, and reading
+    /// the entry's own `nameKey` is the shape that is not. Asserting that no enumeration happens
+    /// pins the algorithm directly, and does it identically on a fast machine and a loaded CI box —
+    /// which a measured comparison against a 2000-entry directory could not.
+    @Test("a lookup answers from the entry itself, never by listing the directory")
+    func lookupDoesNotEnumerateTheDirectory() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try "x".write(
+            to: directory.appendingPathComponent("board.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let fileManager = EnumerationCountingFileManager()
+        let lookup = CustomSidebarFileLookup(fileManager: fileManager)
 
-        #expect(lookup.exists(large.appendingPathComponent("board.swift")))
-        // A per-probe directory listing made the large case ~250x the small one. Ten leaves ample
-        // room for filesystem noise while still failing loudly if the cost becomes proportional.
+        // Every answer the lookup can give: a hit, a case-only miss, an absent file, and a
+        // directory. None of them is a reason to list the enclosing directory.
+        #expect(lookup.exists(directory.appendingPathComponent("board.swift")))
+        #expect(!lookup.exists(directory.appendingPathComponent("BOARD.swift")))
+        #expect(!lookup.exists(directory.appendingPathComponent("absent.swift")))
+        #expect(!lookup.exists(directory))
+
         #expect(
-            largeElapsed < max(smallElapsed * 10, 5),
-            "2000-entry directory took \(largeElapsed)ms vs \(smallElapsed)ms for one entry"
+            fileManager.enumerationCount == 0,
+            "the lookup listed the directory \(fileManager.enumerationCount) time(s)"
         )
     }
 }

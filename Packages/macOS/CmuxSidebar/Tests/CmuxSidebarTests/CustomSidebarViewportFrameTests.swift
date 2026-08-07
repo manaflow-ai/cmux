@@ -112,11 +112,9 @@ struct CustomSidebarViewportFrameTests {
     /// itself never asked for.
     @Test("an embedded frame cannot claim full bleed for the page hosting it")
     func subframeClaimIsRejected() async throws {
-        let server = LoopbackHTTPServer(body: Self.claimingPage(bodyText: "sub"))
-        guard let origin = server.start() else {
-            Issue.record("loopback server did not start")
-            return
-        }
+        let (server, origin) = try LoopbackHTTPServer.started(
+            body: Self.claimingPage(bodyText: "sub")
+        )
         defer { server.stop() }
 
         let harness = makeHarness()

@@ -41,6 +41,7 @@ struct CustomSidebarWebCommandResolutionTests {
     @Test("an html sidebar resolves to a file the open path can mount")
     func htmlResolvesForOpen() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html><title>Board</title>", to: dir, as: "board.html")
 
         #expect(resolvedFile("board", in: dir)?.lastPathComponent == "board.html")
@@ -49,6 +50,7 @@ struct CustomSidebarWebCommandResolutionTests {
     @Test("a url sidebar resolves to a file the open path can mount")
     func urlResolvesForOpen() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
 
         #expect(resolvedFile("board", in: dir)?.lastPathComponent == "board.url")
@@ -62,6 +64,7 @@ struct CustomSidebarWebCommandResolutionTests {
     )
     func resolutionAgreesWithValidation(file: String) throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         switch (file as NSString).pathExtension {
         case "swift": try write("Text(\"Swift\")", to: dir, as: file)
         case "json": try write(#"{"version":1,"root":{"type":"text","text":"J"}}"#, to: dir, as: file)
@@ -80,6 +83,7 @@ struct CustomSidebarWebCommandResolutionTests {
     @Test("both paths honour interpreted precedence when several files share a name")
     func precedenceAgrees() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("Text(\"Swift\")", to: dir, as: "board.swift")
         try write("<!doctype html>", to: dir, as: "board.html")
         try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
@@ -96,6 +100,7 @@ struct CustomSidebarWebCommandResolutionTests {
     @Test("a url sidebar naming an unloadable target fails the check select and open gate on")
     func unloadableURLBlocksSelect() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("file:///etc/passwd\n", to: dir, as: "board.url")
 
         let report = CustomSidebarValidator().validate(directory: dir, name: "board")
@@ -109,6 +114,7 @@ struct CustomSidebarWebCommandResolutionTests {
     @Test("a web sidebar classifies as a web source so the pane renders it as a page")
     func webSidebarClassifiesForPaneRendering() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.html")
         let fileURL = try #require(resolvedFile("board", in: dir))
 

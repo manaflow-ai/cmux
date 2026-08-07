@@ -35,15 +35,41 @@ final class LoopbackHTTPServer: @unchecked Sendable {
 
     /// Creates a server that is not yet listening.
     ///
+    /// Throws rather than trapping when the listener cannot be created. A test host that has run out
+    /// of sockets is a condition worth reading in the failure message; `try!` turns it into a crash
+    /// that takes the whole suite with it and says nothing about why.
+    ///
     /// - Parameters:
     ///   - body: The initial response body.
     ///   - maxAge: The `Cache-Control: max-age` seconds to advertise.
-    init(body: String, maxAge: Int = 3600) {
+    init(body: String, maxAge: Int = 3600) throws {
         _body = body
         self.maxAge = maxAge
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
-        listener = try! NWListener(using: parameters)
+        listener = try NWListener(using: parameters)
+    }
+
+    /// Creates a started server and its origin in one step.
+    ///
+    /// The common case: a test wants a live origin on a port nothing else on the machine owns, and
+    /// has nothing to say about a server that failed to come up beyond reporting it.
+    ///
+    /// - Parameters:
+    ///   - body: The initial response body.
+    ///   - maxAge: The `Cache-Control: max-age` seconds to advertise.
+    static func started(body: String, maxAge: Int = 3600) throws -> (LoopbackHTTPServer, URL) {
+        let server = try LoopbackHTTPServer(body: body, maxAge: maxAge)
+        guard let origin = server.start() else {
+            server.stop()
+            throw StartFailure()
+        }
+        return (server, origin)
+    }
+
+    /// The listener came up but never reported a port.
+    struct StartFailure: Error, CustomStringConvertible {
+        var description: String { "loopback HTTP server did not resolve a port" }
     }
 
     /// Starts listening and resolves the origin. Returns `nil` if the port never materialises.

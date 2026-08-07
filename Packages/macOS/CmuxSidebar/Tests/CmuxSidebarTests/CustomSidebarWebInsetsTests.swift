@@ -39,7 +39,9 @@ struct CustomSidebarWebInsetsTests {
     // The safe default is the whole point: a naive page must not be able to end up under the chrome
     // just because it never said anything about viewport-fit.
     @Test("a reloaded page starts safe again rather than inheriting the previous page's opt-in")
-    func fullBleedResetsAcrossLoads() {
+    func fullBleedResetsAcrossLoads() throws {
+        let (server, origin) = try LoopbackHTTPServer.started(body: "<!doctype html><title>fixture</title>")
+        defer { server.stop() }
         let container = makeContainer()
         container.isFullBleed = true
         container.layout()
@@ -48,7 +50,7 @@ struct CustomSidebarWebInsetsTests {
         let coordinator = CustomSidebarWebView.Coordinator()
         coordinator.container = container
         coordinator.apply(
-            source: .remote(URL(string: "https://example.com")!),
+            source: .remote(origin),
             focusWorkspace: nil,
             into: container.webView
         )

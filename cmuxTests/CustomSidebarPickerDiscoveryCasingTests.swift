@@ -43,6 +43,7 @@ struct CustomSidebarPickerDiscoveryCasingTests {
     @Test("lowercase extensions are discovered")
     func lowercaseExtensionsAreDiscovered() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("Text(\"a\")", to: dir, as: "alpha.swift")
         try write("{}", to: dir, as: "bravo.json")
         try write("<!doctype html>", to: dir, as: "charlie.html")
@@ -57,6 +58,7 @@ struct CustomSidebarPickerDiscoveryCasingTests {
     )
     func uppercaseExtensionIsNotListed(fileName: String) throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: fileName)
 
         #expect(discoveredNames(in: dir).isEmpty)
@@ -72,6 +74,7 @@ struct CustomSidebarPickerDiscoveryCasingTests {
     @Test("every discovered name resolves to a file")
     func discoveryAndResolutionAgree() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("Text(\"a\")", to: dir, as: "alpha.swift")
         try write("<!doctype html>", to: dir, as: "bravo.HTML")
         try write("<!doctype html>", to: dir, as: "charlie.html")
@@ -93,6 +96,7 @@ struct CustomSidebarPickerDiscoveryCasingTests {
     @Test("an uppercase file does not displace its lowercase sibling")
     func uppercaseDoesNotShadowLowercase() throws {
         let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
         try write("<!doctype html>", to: dir, as: "board.HTML")
         try write("Text(\"a\")", to: dir, as: "board.swift")
 
