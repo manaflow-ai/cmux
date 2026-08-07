@@ -70,6 +70,7 @@ def run_wrapper(
     installer_timeout_seconds: float = 3,
     cli_available: bool = True,
     custom_executable: bool = False,
+    path_glob_decoy: bool = False,
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-amp-wrapper-test-") as td:
         tmp = Path(td)
@@ -119,6 +120,13 @@ printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
 } > "$FAKE_REAL_ENV_LOG"
 """,
         )
+        glob_path_entry = tmp / "amp-path-*"
+        if path_glob_decoy:
+            decoy_directory = tmp / "amp-path-decoy"
+            decoy_directory.mkdir()
+            decoy_amp = decoy_directory / "amp"
+            shutil.copy2(real_amp, decoy_amp)
+            decoy_amp.chmod(0o755)
 
         bundled_cli = bundled_dir / "cmux"
         if cli_available:
@@ -144,7 +152,11 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
 
         socket_path = str(tmp / "cmux.sock")
         env = os.environ.copy()
-        env["PATH"] = f"{shim_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        path_entries = [str(shim_dir)]
+        if path_glob_decoy:
+            path_entries.append(str(glob_path_entry))
+        path_entries.extend([str(real_dir), env.get("PATH", "/usr/bin:/bin")])
+        env["PATH"] = os.pathsep.join(path_entries)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
         env["CMUX_AMP_WRAPPER_SHIM"] = str(shim)
         env["CMUX_AMP_WRAPPER_SHIM_ROOT"] = str(shim_dir)
@@ -294,6 +306,16 @@ def test_stalled_installer_is_bounded(failures: list[str]) -> None:
            f"stalled installer: argv changed: {result.real_argv}", failures)
 
 
+def test_path_globs_do_not_redirect_amp_resolution(failures: list[str]) -> None:
+    result = run_wrapper(["--mode", "smart"], path_glob_decoy=True)
+    expect(result.returncode == 0, f"glob PATH: wrapper exited {result.returncode}: {result.stderr}", failures)
+    expect(
+        result.real_environment.get("CMUX_AGENT_LAUNCH_EXECUTABLE") == result.real_path,
+        f"glob PATH entry redirected Amp resolution: {result.real_environment}",
+        failures,
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     if not SOURCE_WRAPPER.is_file():
@@ -303,6 +325,7 @@ def main() -> int:
         test_bypass_paths(failures)
         test_installer_failures_never_block_amp(failures)
         test_stalled_installer_is_bounded(failures)
+        test_path_globs_do_not_redirect_amp_resolution(failures)
 
     if failures:
         print("FAIL: Amp launches do not reliably activate the cmux session extension")
