@@ -556,6 +556,9 @@ export default function (amp: PluginAPI) {
     sessionId: string | null;
     cwd: string;
   };
+  type SettledTurn = PendingTurnEnd & {
+    turnId: string;
+  };
   type NativeAttentionEpisodeIdentity = {
     scopeId: string;
     observationId: string;
@@ -582,6 +585,11 @@ export default function (amp: PluginAPI) {
   // concurrently. Tool liveness and provisional completion therefore belong
   // to a thread/turn, never to one process-global counter.
   const turnStates = new Map<string, AmpTurnState>();
+  // One latest settlement per thread is sufficient: a later agent.start for
+  // that thread publishes newer turn identity, making an older unsent boundary
+  // stale. Coalescing on the stable thread id keeps a long-lived sibling from
+  // accumulating every prior turn while still preserving every exact session.
+  const deferredSettledTurns = new Map<string, SettledTurn>();
   let turnSequence = 0;
   let nativeAttentionEpisodeSequence = 0;
 
@@ -823,19 +831,18 @@ export default function (amp: PluginAPI) {
       // settled boundary. Retire our observer and turn ownership without
       // publishing a false completion; a later agent event starts fresh.
       discardTurnState(threadId, state);
+      flushSettledTurnsIfIdle();
     }, retentionMilliseconds);
     state.nativeStateObservationLease.unref?.();
   };
 
-  const publishSettledTurn = (
-    threadId: string,
-    state: AmpTurnState,
-    pendingEnd: PendingTurnEnd,
-  ): void => {
-    discardTurnState(threadId, state);
-    const activeSiblingTurnCount = turnStates.size;
-    if (activeSiblingTurnCount === 0) {
-      switch (pendingEnd.event.status) {
+  const flushSettledTurnsIfIdle = (): void => {
+    if (turnStates.size > 0 || deferredSettledTurns.size === 0) return;
+    const settledTurns = Array.from(deferredSettledTurns.values());
+    deferredSettledTurns.clear();
+    const finalSettlement = settledTurns.at(-1);
+    if (finalSettlement) {
+      switch (finalSettlement.event.status) {
         case "done":
           setStatus("done", "checkmark.circle", COLOR.done);
           wsLog("turn complete", "success");
@@ -855,17 +862,35 @@ export default function (amp: PluginAPI) {
             COLOR.interrupted,
           );
           wsLog(
-            `turn ended with unexpected status: ${pendingEnd.event.status}`,
+            `turn ended with unexpected status: ${finalSettlement.event.status}`,
             "warning",
           );
           break;
       }
     }
-    sendHook("stop", pendingEnd.sessionId, pendingEnd.cwd, {
-      turn_id: state.turnId,
-      cmux_turn_boundary: "settled",
-      cmux_active_background_work_count: 0,
+    for (const settlement of settledTurns) {
+      sendHook("stop", settlement.sessionId, settlement.cwd, {
+        turn_id: settlement.turnId,
+        cmux_turn_boundary: "settled",
+        cmux_active_background_work_count: 0,
+      });
+    }
+  };
+
+  const publishSettledTurn = (
+    threadId: string,
+    state: AmpTurnState,
+    pendingEnd: PendingTurnEnd,
+  ): void => {
+    discardTurnState(threadId, state);
+    // Re-insertion preserves settlement order when a newer turn supersedes an
+    // older deferred boundary for the same Amp thread.
+    deferredSettledTurns.delete(threadId);
+    deferredSettledTurns.set(threadId, {
+      ...pendingEnd,
+      turnId: state.turnId,
     });
+    flushSettledTurnsIfIdle();
   };
 
   const tryPublishSettledTurn = (
@@ -898,6 +923,19 @@ export default function (amp: PluginAPI) {
     ) {
       // Older Amp runtimes do not expose PluginThread.state. Their fallback
       // boundary is the structured active-tool set becoming empty.
+      tryPublishSettledTurn(threadId, state);
+      return;
+    }
+
+    if (
+      state.nativeStateObservable === observable
+      && state.nativeStateSubscription
+    ) {
+      renewNativeStateObservationLease(
+        threadId,
+        state,
+        state.nativeStateObservationEpoch,
+      );
       tryPublishSettledTurn(threadId, state);
       return;
     }
@@ -1021,10 +1059,13 @@ export default function (amp: PluginAPI) {
   });
 
   amp.on("session.start", async (event: SessionStartEvent, ctx) => {
-    setStatus("idle", "circle", COLOR.idle);
     const sessionId = threadIdFrom(event, ctx);
+    if (sessionId) {
+      discardTurnState(sessionId, turnStates.get(sessionId));
+      flushSettledTurnsIfIdle();
+    }
+    setStatus("idle", "circle", COLOR.idle);
     if (!sessionId) return;
-    discardTurnState(sessionId, turnStates.get(sessionId));
     sendHook("session-start", sessionId, cwdFromEnv());
   });
 

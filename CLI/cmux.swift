@@ -32147,27 +32147,27 @@ export default CMUXSessionRestore;
                 print("{}")
                 return
             }
-            if let pid, !suppressVisibleMutations {
-                _ = try? sendV1Command(
-                    "set_agent_pid \(pidKey) \(pid) "
-                        + "--tab=\(workspaceId)"
-                        + "\(socketPanelOption(surfaceId))"
-                        + agentProcessGenerationSocketOptions(
-                            processPID: pid
-                        ),
-                    client: client
-                )
-            }
-            setAgentLifecycle(
-                client: client,
-                key: def.statusKey,
-                lifecycle: .unknown,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                processPID: pid,
-                processKey: pidKey
-            )
             if !suppressVisibleMutations {
+                if let pid {
+                    _ = try? sendV1Command(
+                        "set_agent_pid \(pidKey) \(pid) "
+                            + "--tab=\(workspaceId)"
+                            + "\(socketPanelOption(surfaceId))"
+                            + agentProcessGenerationSocketOptions(
+                                processPID: pid
+                            ),
+                        client: client
+                    )
+                }
+                setAgentLifecycle(
+                    client: client,
+                    key: def.statusKey,
+                    lifecycle: .unknown,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    processPID: pid,
+                    processKey: pidKey
+                )
                 if let owner = try? store.lookup(sessionId: sessionId) {
                     clearSupersededAgentHookSessions(
                         supersededOMPRecords,

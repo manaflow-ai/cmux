@@ -838,10 +838,11 @@ extension FeedCoordinator {
     ) {
         guard lifecycle == .idle, let processGeneration else { return }
         let matchingRecords = observedAttentionRegistry.remove { record in
-            record.target.workspaceId == workspaceId
-                && record.target.panelId == panelId
+            record.target.panelId == panelId
                 && record.target.statusKey == statusKey
                 && record.key.processGeneration == processGeneration
+                && pendingAttentionStates[record.target]?.statusOwnerId
+                    == workspaceId
         }
         retireObservedAgentAttentionRecords(
             matchingRecords,
@@ -855,8 +856,9 @@ extension FeedCoordinator {
     @MainActor
     func retireAgentAttention(workspaceId: UUID, panelId: UUID) {
         let observed = observedAttentionRegistry.remove { record in
-            record.target.workspaceId == workspaceId
-                && record.target.panelId == panelId
+            record.target.panelId == panelId
+                && pendingAttentionStates[record.target]?.statusOwnerId
+                    == workspaceId
         }
         retireObservedAgentAttentionRecords(
             observed,
@@ -864,10 +866,74 @@ extension FeedCoordinator {
         )
 
         let remainingTargets = pendingAttentionStates.keys.filter {
-            $0.workspaceId == workspaceId && $0.panelId == panelId
+            $0.panelId == panelId
+                && pendingAttentionStates[$0]?.statusOwnerId == workspaceId
         }
         for target in remainingTargets {
             concludeBlockingDecisionAttention(target)
+        }
+    }
+
+    /// Retargets live attention bookkeeping after a panel changes container.
+    ///
+    /// Tokens and waiter callbacks keep their original stable target value;
+    /// only the mutable ownership scope changes. A Workspace shares one status
+    /// entry across its panels, while a Dock owns one entry per panel, so every
+    /// pending state in the destination scope adopts the destination's current
+    /// entry before any individual decision can conclude it.
+    @MainActor
+    func retargetAgentAttention(
+        panelId: UUID,
+        to owner: ControlSidebarPanelOwner
+    ) {
+        let movedTargets = pendingAttentionStates.keys.filter {
+            $0.panelId == panelId
+        }
+        guard !movedTargets.isEmpty else { return }
+
+        let (statusIsPanelScoped, fallbackWorkspace): (Bool, Workspace?) =
+            switch owner {
+            case .dock: (true, nil)
+            case .workspace(let workspace): (false, workspace)
+        }
+        let movedStatusKeys = Set(movedTargets.map(\.statusKey))
+        for target in movedTargets {
+            guard var state = pendingAttentionStates[target] else { continue }
+            state.statusOwnerId = owner.id
+            state.statusIsPanelScoped = statusIsPanelScoped
+            state.fallbackWorkspace = fallbackWorkspace
+            pendingAttentionStates[target] = state
+        }
+
+        for statusKey in movedStatusKeys {
+            let movedEntry = movedTargets.lazy.compactMap {
+                pendingAttentionStates[$0]?.statusEntry
+            }.first
+            guard let statusEntry = owner.statusEntry(
+                key: statusKey,
+                panelId: panelId
+            ) ?? movedEntry else {
+                continue
+            }
+            if owner.statusEntry(key: statusKey, panelId: panelId) == nil {
+                owner.setStatusEntry(
+                    statusEntry,
+                    key: statusKey,
+                    panelId: panelId
+                )
+            }
+            let scopedTargets = pendingAttentionStates.keys.filter {
+                target in
+                guard target.statusKey == statusKey,
+                      let state = pendingAttentionStates[target],
+                      state.statusOwnerId == owner.id else {
+                    return false
+                }
+                return !statusIsPanelScoped || target.panelId == panelId
+            }
+            for target in scopedTargets {
+                pendingAttentionStates[target]?.statusEntry = statusEntry
+            }
         }
     }
 
@@ -882,10 +948,11 @@ extension FeedCoordinator {
         processGeneration: AgentPIDProcessIdentity
     ) {
         let matchingRecords = observedAttentionRegistry.remove { record in
-            record.target.workspaceId == workspaceId
-                && record.target.panelId == panelId
+            record.target.panelId == panelId
                 && record.target.statusKey == statusKey
                 && record.key.processGeneration == processGeneration
+                && pendingAttentionStates[record.target]?.statusOwnerId
+                    == workspaceId
         }
         retireObservedAgentAttentionRecords(
             matchingRecords,
@@ -1106,7 +1173,10 @@ extension FeedCoordinator {
                 target: .workspace(target.workspaceId),
                 panelID: target.panelId
             )
-        let resolvedOwner = owner ?? .workspace(fallbackWorkspace)
+        guard let resolvedOwner = owner
+            ?? fallbackWorkspace.map(ControlSidebarPanelOwner.workspace) else {
+            return
+        }
         if let processExitGeneration {
             _ = resolvedOwner.recordAgentProcessExit(
                 key: target.statusKey,
@@ -1154,9 +1224,10 @@ extension FeedCoordinator {
                 key: target.statusKey,
                 panelId: target.panelId
             )
-        } else if fallbackWorkspace
-            .agentLifecycleStatesByPanelId[target.panelId]?[target.statusKey]
-                != .needsInput {
+        } else if let fallbackWorkspace,
+                  fallbackWorkspace.agentLifecycleStatesByPanelId[
+                    target.panelId
+                  ]?[target.statusKey] != .needsInput {
             ControlSidebarPanelOwner.workspace(fallbackWorkspace)
                 .clearStatusEntry(
                     key: target.statusKey,
