@@ -365,6 +365,39 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func hierarchyMutationClassificationDoesNotFanOutPerCache() {
+        let rootView = NSView(frame: .zero)
+        var callbackCount = 0
+        let invalidators = (0..<128).map { _ in
+            let invalidator = PortalSplitDividerCacheInvalidator()
+            invalidator.observe(
+                rootView: rootView,
+                geometryViews: [],
+                structureViews: []
+            ) {
+                callbackCount += 1
+            }
+            return invalidator
+        }
+
+        let insertedSubtree = SubviewReadCountingView(frame: .zero)
+        for _ in 0..<1_000 {
+            insertedSubtree.addSubview(NSView(frame: .zero))
+        }
+        insertedSubtree.addSubview(NSSplitView(frame: .zero))
+        let readsBeforeInsertion = insertedSubtree.subviewReadCount
+
+        rootView.addSubview(insertedSubtree)
+
+        #expect(callbackCount == invalidators.count)
+        #expect(
+            insertedSubtree.subviewReadCount - readsBeforeInsertion <= 2,
+            "A relevant subtree should be classified once per root, not once per active cache."
+        )
+        withExtendedLifetime(invalidators) {}
+    }
+
+    @Test
     func terminalSplitDividerCacheInvalidatesWhenContentRootIsReplaced() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),

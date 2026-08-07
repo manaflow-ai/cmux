@@ -1,25 +1,64 @@
 import AppKit
 import ObjectiveC
 
-private extension Notification.Name {
-    static let portalViewHierarchyDidMutate = Notification.Name("cmux.portalViewHierarchyDidMutate")
+@MainActor
+private final class PortalViewHierarchyMutationRegistration {
+    let onChange: @MainActor () -> Void
+
+    init(onChange: @escaping @MainActor () -> Void) {
+        self.onChange = onChange
+    }
+}
+
+@MainActor
+private final class WeakPortalViewHierarchyMutationRegistration {
+    weak var value: PortalViewHierarchyMutationRegistration?
+
+    init(_ value: PortalViewHierarchyMutationRegistration) {
+        self.value = value
+    }
+}
+
+@MainActor
+private final class PortalViewHierarchyMutationHub: NSObject {
+    private var registrations: [WeakPortalViewHierarchyMutationRegistration] = []
+
+    func add(_ registration: PortalViewHierarchyMutationRegistration) {
+        registrations.removeAll { $0.value == nil }
+        registrations.append(WeakPortalViewHierarchyMutationRegistration(registration))
+    }
+
+    func notify() {
+        registrations.removeAll { $0.value == nil }
+        for registration in registrations {
+            registration.value?.onChange()
+        }
+    }
 }
 
 private extension NSView {
     @objc func cmux_portalDidAddSubview(_ subview: NSView) {
         cmux_portalDidAddSubview(subview)
-        NotificationCenter.default.post(name: .portalViewHierarchyDidMutate, object: subview)
+        PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
+            parentView: self,
+            changedSubview: subview
+        )
     }
 
     @objc func cmux_portalWillRemoveSubview(_ subview: NSView) {
         // Notify while the child still identifies the hierarchy it is leaving.
-        NotificationCenter.default.post(name: .portalViewHierarchyDidMutate, object: subview)
+        PortalSplitDividerCacheInvalidator.viewHierarchyDidMutate(
+            parentView: self,
+            changedSubview: subview
+        )
         cmux_portalWillRemoveSubview(subview)
     }
 }
 
 @MainActor
 final class PortalSplitDividerCacheInvalidator {
+    private static let hierarchyMutationHubAssociationKey = NSObject()
+
     /// AppKit does not document `subviews` as KVO-compliant, but it does provide
     /// these callbacks for every hierarchy insertion and removal. Hook the base
     /// implementations once so active portal caches can invalidate at mutation
@@ -51,6 +90,7 @@ final class PortalSplitDividerCacheInvalidator {
     // after all main-thread use has ceased.
     private nonisolated(unsafe) var observations: [NSKeyValueObservation] = []
     private nonisolated(unsafe) var notificationObservers: [NSObjectProtocol] = []
+    private var hierarchyMutationRegistration: PortalViewHierarchyMutationRegistration?
 
     init() {
         _ = Self.installViewHierarchyMutationHooks
@@ -69,6 +109,9 @@ final class PortalSplitDividerCacheInvalidator {
         invalidate()
         let geometryViews = Self.uniqueViews(geometryViews)
         let subviewObservedViews = Self.uniqueViews(geometryViews + structureViews)
+        let hierarchyMutationRegistration = PortalViewHierarchyMutationRegistration(onChange: onChange)
+        self.hierarchyMutationRegistration = hierarchyMutationRegistration
+        Self.hierarchyMutationHub(for: rootView, createIfNeeded: true)?.add(hierarchyMutationRegistration)
 
         for view in geometryViews {
             // These NSView flags are shared; do not restore them per observer or
@@ -86,22 +129,6 @@ final class PortalSplitDividerCacheInvalidator {
                 },
             ]
         }
-        notificationObservers.append(NotificationCenter.default.addObserver(
-            forName: .portalViewHierarchyDidMutate,
-            object: nil,
-            queue: nil
-        ) { [weak rootView] notification in
-            MainActor.assumeIsolated {
-                guard let rootView,
-                      let changedSubview = notification.object as? NSView,
-                      let parent = changedSubview.superview,
-                      parent === rootView || parent.isDescendant(of: rootView),
-                      parent is NSSplitView || PortalSplitDividerRegion.containsSplitView(in: changedSubview) else {
-                    return
-                }
-                onChange()
-            }
-        })
         observations = geometryViews.map { view in
             view.observe(\.isHidden, options: [.new]) { _, _ in
                 MainActor.assumeIsolated { onChange() }
@@ -127,7 +154,45 @@ final class PortalSplitDividerCacheInvalidator {
     }
 
     func invalidate() {
+        hierarchyMutationRegistration = nil
         invalidateObservations()
+    }
+
+    /// Routes a hierarchy mutation only to cache owners whose roots contain the
+    /// changed parent. Relevance is classified once even when several portals
+    /// share a root, avoiding process-wide observer fanout and repeated scans.
+    fileprivate static func viewHierarchyDidMutate(parentView: NSView, changedSubview: NSView) {
+        var hubs: [PortalViewHierarchyMutationHub] = []
+        var ancestor: NSView? = parentView
+        while let view = ancestor {
+            if let hub = hierarchyMutationHub(for: view, createIfNeeded: false) {
+                hubs.append(hub)
+            }
+            ancestor = view.superview
+        }
+
+        guard !hubs.isEmpty,
+              parentView is NSSplitView || PortalSplitDividerRegion.containsSplitView(in: changedSubview) else {
+            return
+        }
+        for hub in hubs {
+            hub.notify()
+        }
+    }
+
+    private static func hierarchyMutationHub(
+        for rootView: NSView,
+        createIfNeeded: Bool
+    ) -> PortalViewHierarchyMutationHub? {
+        let key = Unmanaged.passUnretained(hierarchyMutationHubAssociationKey).toOpaque()
+        if let hub = objc_getAssociatedObject(rootView, key) as? PortalViewHierarchyMutationHub {
+            return hub
+        }
+        guard createIfNeeded else { return nil }
+
+        let hub = PortalViewHierarchyMutationHub()
+        objc_setAssociatedObject(rootView, key, hub, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return hub
     }
 
     private nonisolated func invalidateObservations() {
