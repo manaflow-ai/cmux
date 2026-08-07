@@ -34,6 +34,22 @@ extension SSHForegroundAuthenticationRetryPolicy {
           return 0
         }
 
+        cmux_ssh_auth_reset_stop_budget() {
+          # Rollback must attempt CONT for every write-ahead STOP record even
+          # after the termination deadline. Cap each transaction so draining
+          # either journal remains finite without sharing that deadline.
+          cmux_ssh_auth_stop_budget=1024
+        }
+
+        cmux_ssh_auth_stop_budget_allows_signal() {
+          case "${cmux_ssh_auth_stop_budget:-}" in
+            ''|*[!0-9]*) return 1 ;;
+          esac
+          if [ "$cmux_ssh_auth_stop_budget" -le 0 ]; then return 1; fi
+          cmux_ssh_auth_stop_budget=$((cmux_ssh_auth_stop_budget - 1))
+          return 0
+        }
+
         cmux_ssh_auth_take_process_snapshot() {
           cmux_ssh_auth_snapshot_now="$(cmux_ssh_auth_now_millis)" || return 1
           case "$cmux_ssh_auth_snapshot_now:$cmux_ssh_auth_deadline_millis" in
@@ -266,16 +282,19 @@ extension SSHForegroundAuthenticationRetryPolicy {
         cmux_ssh_auth_freeze_owned_processes() {
           cmux_ssh_auth_deadline_allows_work || return 1
           cmux_ssh_auth_select_exclusive_groups || return 1
+          case "${cmux_ssh_auth_stop_budget:-}" in
+            ''|*[!0-9]*) cmux_ssh_auth_reset_stop_budget ;;
+          esac
 
           while IFS= read -r cmux_ssh_auth_group; do
             cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-            if kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1; then
-              if ! printf '%s\n' "$cmux_ssh_auth_group" >> "$cmux_ssh_auth_signaled_groups"; then
-                kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
-                return 1
-              fi
-            fi
+            cmux_ssh_auth_stop_budget_allows_signal || return 1
+            # Publish recovery state first so interruption at STOP cannot
+            # strand the group without a compensating CONT record.
+            printf '%s\n' "$cmux_ssh_auth_group" \
+              >> "$cmux_ssh_auth_signaled_groups" || return 1
+            kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
           done < "$cmux_ssh_auth_owned_groups"
 
           /usr/bin/awk '
@@ -294,6 +313,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) continue ;;
             esac
+            cmux_ssh_auth_stop_budget_allows_signal || return 1
             cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
             # Publish the exact resume identity before STOP so an interrupted
             # cleanup can safely recover a process frozen at the next line.
@@ -373,9 +393,6 @@ extension SSHForegroundAuthenticationRetryPolicy {
         cmux_ssh_auth_resume_signaled_processes() {
           if [ -s "$cmux_ssh_auth_signaled_groups" ]; then
             while IFS= read -r cmux_ssh_auth_group; do
-              if [ -n "${cmux_ssh_auth_deadline_millis:-}" ]; then
-                cmux_ssh_auth_deadline_allows_signal || return 1
-              fi
               case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
               kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
             done < "$cmux_ssh_auth_signaled_groups"
@@ -383,9 +400,6 @@ extension SSHForegroundAuthenticationRetryPolicy {
           if [ -s "$cmux_ssh_auth_signaled_processes" ]; then
             while read -r cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
               cmux_ssh_auth_started cmux_ssh_auth_extra; do
-              if [ -n "${cmux_ssh_auth_deadline_millis:-}" ]; then
-                cmux_ssh_auth_deadline_allows_signal || return 1
-              fi
               case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
               if [ -z "$cmux_ssh_auth_parent" ] && \
                 [ -n "${cmux_ssh_auth_frozen_processes:-}" ] && \
@@ -481,6 +495,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
           cmux_ssh_auth_transaction_attempt=0
           while [ "$cmux_ssh_auth_transaction_attempt" -lt 4 ]; do
             cmux_ssh_auth_deadline_allows_work || return 1
+            cmux_ssh_auth_reset_stop_budget
             : > "$cmux_ssh_auth_frozen_processes" || return 1
             : > "$cmux_ssh_auth_signaled_groups" || return 1
             : > "$cmux_ssh_auth_signaled_processes" || return 1
