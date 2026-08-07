@@ -364,8 +364,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             container.tableView.view(atColumn: 0, row: 1, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        cell.isEditing = true
-        cell.renameField.stringValue = "Atomic reload rename"
+        cell.beginInlineRename()
+        try Self.setInlineRenameText(in: cell, to: "Atomic reload rename")
 
         let resizedFirstRow = makeRowConfiguration(
             workspaceId: firstId,
@@ -391,8 +391,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
                 as? SidebarWorkspaceRowTableCellView
         )
-        reloadedCell.isEditing = true
-        reloadedCell.renameField.stringValue = "Detached rename"
+        reloadedCell.beginInlineRename()
+        try Self.setInlineRenameText(in: reloadedCell, to: "Detached rename")
 
         controller.dismantleContainerView(container)
 
@@ -452,10 +452,11 @@ struct SidebarWorkspaceTableSuspensionTests {
         replacementRoot.addSubview(firstRoot)
 
         cell.beginInlineRename()
-        let field = try #require(
-            Self.descendants(of: cell).compactMap { $0 as? SidebarRowInlineRenameField }.first
+        try Self.setInlineRenameText(in: cell, to: "Reparented rename")
+        let editor = try #require(
+            Self.inlineRenameField(in: cell).currentEditor() as? NSTextView
         )
-        field.onCommit?("Reparented rename")
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
         #expect(
             committedTitle == "Reparented rename",
             "A transient content-view reparent must not detach live row actions."
@@ -674,6 +675,35 @@ struct SidebarWorkspaceTableSuspensionTests {
 
     private static func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+
+    /// The active inline-rename field hosted in `cell`.
+    private static func inlineRenameField(
+        in cell: SidebarWorkspaceRowTableCellView,
+        _ sourceLocation: SourceLocation = #_sourceLocation
+    ) throws -> SidebarInlineRenameTextField {
+        try #require(
+            descendants(of: cell)
+                .compactMap { $0 as? SidebarInlineRenameTextField }.first,
+            "An inline-rename session must be hosting its field",
+            sourceLocation: sourceLocation
+        )
+    }
+
+    /// Types `text` into the cell's active rename session through the live
+    /// field editor when one is attached (window-hosted cells), falling back
+    /// to the field value for windowless cells.
+    private static func setInlineRenameText(
+        in cell: SidebarWorkspaceRowTableCellView,
+        to text: String,
+        _ sourceLocation: SourceLocation = #_sourceLocation
+    ) throws {
+        let field = try inlineRenameField(in: cell, sourceLocation)
+        if let editor = field.currentEditor() {
+            editor.string = text
+        } else {
+            field.stringValue = text
+        }
     }
 
     private struct TestRowContent: View, Equatable {
