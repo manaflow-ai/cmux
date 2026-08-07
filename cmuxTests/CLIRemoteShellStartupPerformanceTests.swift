@@ -37,9 +37,12 @@ struct CLIRemoteShellStartupPerformanceTests {
 
     @Test
     func generatedSSHStartupDoesNotBlockOnRelayRPCWarmup() throws {
-        let startupCommand = try generatedSSHStartupCommandForShellPerformance()
         let root = try makeFakeRemoteShellRoot()
         defer { try? FileManager.default.removeItem(at: root.url) }
+        let startupCommand = try replacingPinnedSSH(
+            in: generatedSSHStartupCommandForShellPerformance(),
+            with: root.bin.appendingPathComponent("ssh").path
+        )
         let shellMarker = root.url.appendingPathComponent("remote-shell-started")
         let relayRPCGate = root.url.appendingPathComponent("relay-rpc-gate")
 
@@ -120,6 +123,29 @@ struct CLIRemoteShellStartupPerformanceTests {
         let configure = try #require(requests.first { ($0["method"] as? String) == "workspace.remote.configure" })
         let params = try #require(configure["params"] as? [String: Any])
         return try #require(params["terminal_startup_command"] as? String)
+    }
+
+    private func replacingPinnedSSH(in command: String, with sshPath: String) throws -> String {
+        let encodedPrefix = "(printf %s "
+        let encodedSuffix = " | base64"
+        let prefixRange = try #require(command.range(of: encodedPrefix))
+        let suffixRange = try #require(
+            command.range(
+                of: encodedSuffix,
+                range: prefixRange.upperBound..<command.endIndex
+            )
+        )
+        let encodedRange = prefixRange.upperBound..<suffixRange.lowerBound
+        let encodedScript = String(command[encodedRange])
+        let scriptData = try #require(Data(base64Encoded: encodedScript))
+        let script = try #require(String(data: scriptData, encoding: .utf8))
+        _ = try #require(script.range(of: "/usr/bin/ssh"))
+
+        let rewrittenScript = script.replacingOccurrences(of: "/usr/bin/ssh", with: sshPath)
+        return command.replacingOccurrences(
+            of: encodedScript,
+            with: Data(rewrittenScript.utf8).base64EncodedString()
+        )
     }
 
     private func startMockServer(listenerFD: Int32, state: MockSocketServerState) -> DispatchSemaphore {

@@ -9325,7 +9325,7 @@ struct CMUXCLI {
         let sharingOptions = SSHConnectionSharingOptions()
         let usesImplicitManagedInteractiveShell =
             !sshOptions.skipDaemonBootstrap &&
-            sshOptions.extraArguments.isEmpty &&
+            sshOptions.remoteCommand.arguments.isEmpty &&
             sshOptions.initialCommand == nil &&
             sshOptions.terminalProfile.kind == .shell
         // This lookup determines which program the user expects to run, but it
@@ -9389,6 +9389,8 @@ struct CMUXCLI {
             sshOptions.sshOptions,
             remoteRelayPort: sshOptions.remoteRelayPort
         )
+        let persistedRemoteSSHOptions = sshOptions.remoteCommand
+            .sshOptionsPersistingTTYRequest(in: remoteSSHOptions)
         let controlPathPreflightShellFunction = sshControlPathPreflightShellFunction(options: sshOptions)
         let initialSSHCommand = buildSSHCommandText(sshOptions)
         // For VM workspaces (Freestyle), skip the interactive bootstrap script: the russh
@@ -9399,7 +9401,7 @@ struct CMUXCLI {
         if sshOptions.skipDaemonBootstrap || fallsBackToOpenSSHInteractiveSession {
             remoteTerminalBootstrapScript = nil
         } else {
-            remoteTerminalBootstrapScript = sshOptions.extraArguments.isEmpty
+            remoteTerminalBootstrapScript = sshOptions.remoteCommand.arguments.isEmpty
                 ? buildInteractiveRemoteShellScript(
                     remoteRelayPort: sshOptions.remoteRelayPort,
                     shellFeatures: shellFeaturesValue,
@@ -9433,7 +9435,8 @@ struct CMUXCLI {
         let usesPersistentSSHPTY =
             !sshOptions.skipDaemonBootstrap &&
             effectiveTerminalTransport == .ssh &&
-            sshOptions.extraArguments.isEmpty &&
+            !sshOptions.remoteCommand.disablesTTY(in: remoteSSHOptions) &&
+            sshOptions.remoteCommand.arguments.isEmpty &&
             remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
             deferredRemoteReconnectCommandScript != nil
         let persistentDaemonSlot = usesPersistentSSHPTY
@@ -9448,7 +9451,7 @@ struct CMUXCLI {
             remoteBootstrapScript: remoteTerminalBootstrapScript,
             localCommandScript: combinedLocalCommandScript
         )
-        let rawRemoteCommandSnippet = sshOptions.extraArguments.isEmpty
+        let rawRemoteCommandSnippet = sshOptions.remoteCommand.arguments.isEmpty
             ? nil
             : buildSSHRawRemoteCommandSnippet(
                 options: sshOptions,
@@ -9573,7 +9576,7 @@ struct CMUXCLI {
             "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
             "workspaceName=\(sshOptions.workspaceName?.replacingOccurrences(of: " ", with: "_") ?? "nil") " +
             "terminalTransport=\(effectiveTerminalTransport.rawValue) " +
-            "extraArgs=\(sshOptions.extraArguments.count)"
+            "extraArgs=\(sshOptions.remoteCommand.arguments.count)"
         )
 
         let normalizedWorkspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -9686,8 +9689,8 @@ struct CMUXCLI {
             if let identityFile = normalizedSSHIdentityPath(sshOptions.identityFile) {
                 configureParams["identity_file"] = identityFile
             }
-            if !remoteSSHOptions.isEmpty {
-                configureParams["ssh_options"] = remoteSSHOptions
+            if !persistedRemoteSSHOptions.isEmpty {
+                configureParams["ssh_options"] = persistedRemoteSSHOptions
             }
             if let agentSocketPath = sshOptions.agentSocketPath {
                 configureParams["ssh_auth_sock"] = agentSocketPath
@@ -9723,7 +9726,7 @@ struct CMUXCLI {
                 "target=\(sshOptions.displayDestination) relayPort=\(sshOptions.remoteRelayPort) " +
                 "controlPath=\(sshOptionValue(named: "ControlPath", in: remoteSSHOptions) ?? "nil") " +
                 "deferredReconnect=\(deferredRemoteReconnectCommandScript == nil ? 0 : 1) " +
-                "sshOptions=\(remoteSSHOptions.joined(separator: "|"))"
+                "sshOptions=\(persistedRemoteSSHOptions.joined(separator: "|"))"
             )
             let configureStartedAt = Date()
             configuredPayload = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
@@ -9900,7 +9903,8 @@ struct CMUXCLI {
         var windowRaw: String?
         var noFocus = false
         var sshOptions: [String] = []
-        var extraArguments: [String] = []
+        var undelimitedRemoteCommandArguments: [String] = []
+        var delimitedRemoteCommandArguments: [String]?
         var terminalTransport = defaultTerminalTransport
         var terminalProfile = defaultTerminalProfile
         var forwardAgentOverride: Bool?
@@ -9910,7 +9914,7 @@ struct CMUXCLI {
         while index < commandArgs.count {
             let arg = commandArgs[index]
             if passthrough {
-                extraArguments.append(arg)
+                delimitedRemoteCommandArguments?.append(arg)
                 index += 1
                 continue
             }
@@ -9918,6 +9922,7 @@ struct CMUXCLI {
             switch arg {
             case "--":
                 passthrough = true
+                delimitedRemoteCommandArguments = []
                 index += 1
             case "--port":
                 guard index + 1 < commandArgs.count else {
@@ -10009,7 +10014,7 @@ struct CMUXCLI {
                     }
                     destination = arg
                 } else {
-                    extraArguments.append(arg)
+                    undelimitedRemoteCommandArguments.append(arg)
                 }
                 index += 1
             }
@@ -10018,13 +10023,17 @@ struct CMUXCLI {
         guard let destination else {
             throw CLIError(message: "ssh requires a destination (example: cmux ssh user@host)")
         }
-        guard terminalProfile.kind == .shell || extraArguments.isEmpty else {
+        let remoteCommand = SSHRemoteCommand(
+            undelimitedArguments: undelimitedRemoteCommandArguments,
+            delimitedArguments: delimitedRemoteCommandArguments
+        )
+        guard terminalProfile.kind == .shell || remoteCommand.arguments.isEmpty else {
             throw CLIError(message: String(
                 localized: "cli.moshTmux.arguments.invalid",
                 defaultValue: "mosh-tmux accepts a destination and --session, not a separate remote command"
             ))
         }
-        if initialCommand != nil, !extraArguments.isEmpty {
+        if initialCommand != nil, !remoteCommand.arguments.isEmpty {
             throw CLIError(message: String(localized: "cli.ssh.error.commandConflict", defaultValue: "ssh: --command cannot be combined with trailing remote command arguments"))
         }
         let agentForwarding = resolvedSSHAgentForwarding(
@@ -10040,7 +10049,7 @@ struct CMUXCLI {
             windowRaw: windowRaw ?? windowOverride,
             noFocus: noFocus,
             sshOptions: agentForwarding.sshOptions,
-            extraArguments: extraArguments,
+            remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
             agentSocketPath: agentForwarding.agentSocketPath,
@@ -10114,7 +10123,7 @@ struct CMUXCLI {
         let trimmedRemoteBootstrap = remoteBootstrapScript?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let suppliesRemoteCommand =
-            !options.extraArguments.isEmpty ||
+            !options.remoteCommand.arguments.isEmpty ||
             trimmedRemoteBootstrap?.isEmpty == false
         let invocationOptions = suppliesRemoteCommand
             ? sshCommandOptionsWithoutRemoteCommand(options)
@@ -10124,7 +10133,7 @@ struct CMUXCLI {
             localCommandScript: localCommandScript
         )
 
-        if options.extraArguments.isEmpty {
+        if options.remoteCommand.arguments.isEmpty {
             if let trimmedRemoteBootstrap, !trimmedRemoteBootstrap.isEmpty {
                 let remoteCommand = openSSHRemoteCommandValue(
                     shellScript: encodedRemoteBootstrapCommand(
@@ -10134,13 +10143,16 @@ struct CMUXCLI {
                 )
                 parts += ["-o", "RemoteCommand=\(remoteCommand)"]
             }
-            if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
-                parts.append("-tt")
-            }
+            parts.append(contentsOf: options.effectiveTTYRequestArguments)
             parts.append(options.destination)
         } else {
-            parts = sshArgumentsOverridingHostRemoteCommand(parts) + [options.destination]
-            parts.append(contentsOf: options.extraArguments)
+            parts = sshArgumentsOverridingHostRemoteCommand(parts)
+            parts.append(contentsOf: options.remoteCommand.ttyRequestArguments)
+            parts.append(options.destination)
+            if options.remoteCommand.usesArgumentSeparator {
+                parts.append("--")
+            }
+            parts.append(contentsOf: options.remoteCommand.arguments)
         }
         return parts
     }
@@ -10232,8 +10244,8 @@ struct CMUXCLI {
         ]
 
         var sshInvocation = "command \(sessionSSHPrefix) -o \"RemoteCommand=$cmux_remote_command\""
-        if !hasSSHOptionKey(options.sshOptions, key: "RequestTTY") {
-            sshInvocation += " -tt"
+        if !options.effectiveTTYRequestArguments.isEmpty {
+            sshInvocation += " " + options.effectiveTTYRequestArguments.map(shellQuote).joined(separator: " ")
         }
         sshInvocation += " " + shellQuote(options.destination)
         lines.append(sshInvocation)
@@ -10248,8 +10260,10 @@ struct CMUXCLI {
         options: SSHCommandOptions,
         localCommandScript: String?
     ) -> String {
-        let sshPrefix = sshArgumentsOverridingHostRemoteCommand(
-            baseSSHArguments(options, localCommandScript: localCommandScript)
+        let sshPrefix = (
+            sshArgumentsOverridingHostRemoteCommand(
+                baseSSHArguments(options, localCommandScript: localCommandScript)
+            ) + options.remoteCommand.ttyRequestArguments
         )
         .map(shellQuote)
         .joined(separator: " ")
@@ -10270,7 +10284,7 @@ struct CMUXCLI {
                 )
             ).joined(separator: "\n")
         )
-        let originalRemoteCommand = options.extraArguments.joined(separator: " ")
+        let originalRemoteCommand = options.remoteCommand.arguments.joined(separator: " ")
         let remoteCommandPrefix = [
             "cmux_remote_readiness_pid=",
             "cmux_remote_readiness_cleanup() {",
@@ -10305,7 +10319,9 @@ struct CMUXCLI {
             "cmux_remote_readiness=\"$(printf '%s' \"$cmux_remote_readiness_template\" | sed \"s/__CMUX_WORKSPACE_ID__/$cmux_workspace_id/g; s/__CMUX_SURFACE_ID__/$cmux_surface_id/g; s/__CMUX_TERMINAL_LIFECYCLE_ID__/$cmux_terminal_lifecycle_id/g; s/__CMUX_SSH_ATTEMPT_ID__/$cmux_ssh_attempt_id/g\")\"",
             "cmux_user_remote_command=\(shellQuote(originalRemoteCommand))",
             "cmux_remote_command=\(shellQuote(remoteCommandPrefix))\"$cmux_remote_readiness\"\(shellQuote(remoteCommandBetween))\"$cmux_user_remote_command\"\(shellQuote(remoteCommandSuffix))",
-            "command \(sshPrefix) \(shellQuote(options.destination)) \"$cmux_remote_command\"",
+            "command \(sshPrefix) \(shellQuote(options.destination))" +
+                (options.remoteCommand.usesArgumentSeparator ? " --" : "") +
+                " \"$cmux_remote_command\"",
         ]
         return lines.joined(separator: "\n")
     }
@@ -11067,7 +11083,7 @@ struct CMUXCLI {
             windowRaw: windowRaw,
             noFocus: false,
             sshOptions: sshOptionStrings,
-            extraArguments: [],
+            remoteCommand: SSHRemoteCommand(undelimitedArguments: []),
             passwordCredential: token,
             localSocketPath: client.socketPath,
             remoteRelayPort: remoteRelayPort,
