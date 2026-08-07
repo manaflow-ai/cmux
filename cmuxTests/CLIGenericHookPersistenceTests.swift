@@ -451,6 +451,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Antigravity stop to leave the session idle, saw \(stopCommands)"
         )
 
+        let stopLifecycleIndex = try XCTUnwrap(
+            stopCommands.firstIndex { $0.hasPrefix("set_agent_lifecycle antigravity idle ") }
+        )
+        let stopDeliveryIndex = try XCTUnwrap(
+            stopCommands.firstIndex { $0.hasPrefix("notify_target_async ") }
+        )
+        XCTAssertLessThan(
+            stopLifecycleIndex,
+            stopDeliveryIndex,
+            "A stop hook must establish lifecycle ownership before its guarded notification is queued: \(stopCommands)"
+        )
+
         let sessionEndCommandStart = state.commands.count
         let sessionEnd = runAntigravityHook(
             "session-end",
@@ -1432,6 +1444,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             notificationCommands.contains { $0.contains("set_status grok Idle") },
             "Expected completion notification to leave Grok idle, saw \(notificationCommands)"
+        )
+
+        let notificationLifecycleIndex = try XCTUnwrap(
+            notificationCommands.firstIndex { $0.hasPrefix("set_agent_lifecycle grok idle ") }
+        )
+        let notificationDeliveryIndex = try XCTUnwrap(
+            notificationCommands.firstIndex { $0.hasPrefix("notify_target_async ") }
+        )
+        XCTAssertLessThan(
+            notificationLifecycleIndex,
+            notificationDeliveryIndex,
+            "A completion hook must establish lifecycle ownership before its guarded notification is queued: \(notificationCommands)"
         )
 
         let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
