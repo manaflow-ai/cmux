@@ -24,7 +24,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_KEY:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
-  config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
+  config_home="${CMUX_MOCK_REPORTED_CONFIG_HOME:-${TEST_RUNNER_HOME:-${HOME:-/tmp}}}"
   config_category=default
   config_message="reading configuration file"
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
@@ -56,6 +56,9 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   esac
   if [ "$emit_config_evidence" = "1" ]; then
     echo "cmux DEV [$config_category] $config_message path=$config_home/$config_suffix"
+    if [ -n "${CMUX_MOCK_ADDITIONAL_REPORTED_CONFIG_HOME:-}" ]; then
+      echo "cmux DEV [$config_category] $config_message path=$CMUX_MOCK_ADDITIONAL_REPORTED_CONFIG_HOME/$config_suffix"
+    fi
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
@@ -293,6 +296,67 @@ isolated_runner_count="$(awk -F '|' \
 if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-home-env.log"
   echo "FAIL: every xcodebuild invocation must pass isolated homes through TEST_RUNNER_ variables"
+  exit 1
+fi
+
+REPORTED_HOME_ALIAS="$TMP_DIR/reported-home-alias"
+ln -s "$APP_HOST_HOME" "$REPORTED_HOME_ALIAS"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/path-alias-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/path-alias-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/path-alias-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/path-alias-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=success \
+CMUX_MOCK_REPORTED_CONFIG_HOME="$APP_HOST_HOME" \
+CMUX_MOCK_ADDITIONAL_REPORTED_CONFIG_HOME="$REPORTED_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/path-alias-output.log" 2>&1
+path_alias_status=$?
+set -e
+
+if [ "$path_alias_status" -ne 0 ]; then
+  cat "$TMP_DIR/path-alias-output.log"
+  echo "FAIL: wrapper must accept a Ghostty config path through an equivalent filesystem alias"
+  exit 1
+fi
+
+OUTSIDE_CONFIG_HOME="$TMP_DIR/outside-config-home"
+IN_HOME_ESCAPE_ALIAS="$RESOLVED_APP_HOST_HOME/escaped-home"
+mkdir -p "$OUTSIDE_CONFIG_HOME"
+ln -s "$OUTSIDE_CONFIG_HOME" "$IN_HOME_ESCAPE_ALIAS"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/symlink-leak-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/symlink-leak-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/symlink-leak-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/symlink-leak-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=success \
+CMUX_MOCK_REPORTED_CONFIG_HOME="$IN_HOME_ESCAPE_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/symlink-leak-output.log" 2>&1
+symlink_leak_status=$?
+set -e
+
+if [ "$symlink_leak_status" -ne 1 ] || ! grep -Fq \
+  "FAIL: Ghostty accessed configuration outside the isolated app-host home" \
+  "$TMP_DIR/symlink-leak-output.log"; then
+  cat "$TMP_DIR/symlink-leak-output.log"
+  echo "FAIL: wrapper must reject a Ghostty config path through an escaping symlink"
   exit 1
 fi
 
