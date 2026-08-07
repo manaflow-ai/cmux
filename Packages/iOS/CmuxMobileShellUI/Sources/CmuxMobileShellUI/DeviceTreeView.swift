@@ -9,7 +9,8 @@ import SwiftUI
 /// The Computers screen: the Macs signed in to the user's account, each shown
 /// with its name, live/last-seen status, and workspace count. The main workspace
 /// list owns the Mac picker; this screen manages the saved computer set and lets
-/// users inspect or hide one. The data is the durable-object–backed device
+/// users inspect one or choose whether it appears on this iPhone. The data is
+/// the durable-object–backed device
 /// registry (with a paired-Mac fallback) plus live presence.
 ///
 /// Snapshot boundary (see AGENTS.md): every row below the `List` takes an
@@ -33,7 +34,8 @@ struct DeviceTreeView: View {
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
     /// feeds the workspace aggregation, and the one ``CMUXMobileShellStore/hideMac``
     /// filters locally. Each is enriched with presence, live status, and how
-    /// many aggregated workspaces it contributes. Built by the shared
+    /// many aggregated workspaces it contributes. Hidden Macs remain in the
+    /// same section with their switches off. Built by the shared
     /// ``MacComputerSnapshot/snapshots(from:)`` so the disconnected reconnect
     /// list shows exactly the same computer set.
     private var computers: [MacComputerSnapshot] {
@@ -43,28 +45,27 @@ struct DeviceTreeView: View {
     var body: some View {
         NavigationStack {
             List {
-                if computers.isEmpty {
+                if computers.isEmpty && store.hiddenComputers.isEmpty {
                     emptySection
                 } else {
                     Section {
-                        ForEach(computers) { computer in
-                            MacComputerRow(
-                                computer: computer,
-                                hide: { _ in hideComputer(computer) }
-                            )
-                        }
+                        ComputerVisibilityRows(
+                            visibleComputers: computers,
+                            hiddenComputers: store.hiddenComputers,
+                            mutatingComputerIDs: store.computerVisibilityMutationIDs,
+                            hide: hideComputer,
+                            unhide: unhideComputer,
+                            forget: forgetComputer
+                        )
                         if showAddDevice != nil {
                             addComputerRow
                         }
                     } footer: {
                         Text(L10n.string(
                             "mobile.computers.footer",
-                            defaultValue: "The computers signed in to your account. Use the workspace title picker to focus one computer or show All Computers."
+                            defaultValue: "Turn a computer off to hide its workspaces on this iPhone. It stays signed in to your account."
                         ))
                     }
-                }
-                if store.hasHiddenComputers {
-                    hiddenComputersSection
                 }
             }
             .listStyle(.insetGrouped)
@@ -157,28 +158,6 @@ struct DeviceTreeView: View {
     }
 
     @ViewBuilder
-    private var hiddenComputersSection: some View {
-        HiddenComputersSection(
-            computers: store.hiddenComputers,
-            unhide: { computer in
-                await store.unhideMacDeviceID(
-                    computer.macDeviceID,
-                    instanceTag: computer.instanceTag
-                )
-            },
-            forget: { computer in
-                let forgot = await store.forgetHiddenComputer(computer)
-                if !forgot {
-                    forgetFailureMessage = L10n.string(
-                        "mobile.computers.forget.failureMessage",
-                        defaultValue: "It's still signed in. Check your connection and try again."
-                    )
-                }
-            }
-        )
-    }
-
-    @ViewBuilder
     private var emptySection: some View {
         Section {
             Text(L10n.string(
@@ -190,12 +169,26 @@ struct DeviceTreeView: View {
     }
 
     private func hideComputer(_ computer: MacComputerSnapshot) {
-        Task {
-            await store.hideStoredPairedMacEntries(
-                representativeID: computer.id,
-                aliasIDs: computer.aliasIDs
+        store.requestHideStoredPairedMacEntries(
+            representativeID: computer.id,
+            aliasIDs: computer.aliasIDs
+        )
+    }
+
+    private func unhideComputer(_ computer: MobileHiddenComputer) {
+        store.requestUnhideMacDeviceID(
+            computer.macDeviceID,
+            instanceTag: computer.instanceTag
+        )
+    }
+
+    private func forgetComputer(_ computer: MobileHiddenComputer) async {
+        let forgot = await store.forgetHiddenComputer(computer)
+        if !forgot {
+            forgetFailureMessage = L10n.string(
+                "mobile.computers.forget.failureMessage",
+                defaultValue: "It's still signed in. Check your connection and try again."
             )
-            await reload()
         }
     }
 
