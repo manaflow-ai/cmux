@@ -2765,7 +2765,7 @@ fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
         terminate_ghostty_helper_child(child);
         return GhosttyHelperDefaults::Unavailable;
     };
-    let status = match child.wait_timeout(GHOSTTY_CONFIG_PARSE_DEADLINE) {
+    let status = match child.wait_timeout(GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE) {
         Ok(status) => status,
         Err(_) => {
             terminate_ghostty_helper_child(child);
@@ -2845,8 +2845,20 @@ fn parse_ghostty_defaults_from_paths_result(
     config_paths: Vec<PathBuf>,
     theme_dirs: Vec<PathBuf>,
 ) -> GhosttyConfigParseOutcome {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    parse_ghostty_defaults_from_paths_result_until(config_paths, theme_dirs, Some(deadline_at))
+}
+
+fn parse_ghostty_defaults_from_paths_result_until(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+    deadline_at: Option<Instant>,
+) -> GhosttyConfigParseOutcome {
     for path in config_paths {
-        match parse_ghostty_defaults_from_path_result(&path, &theme_dirs) {
+        if ghostty_config_deadline_expired(deadline_at) {
+            return GhosttyConfigParseOutcome::TimedOut;
+        }
+        match parse_ghostty_defaults_from_path_result_until(&path, &theme_dirs, deadline_at) {
             GhosttyConfigParseOutcome::Missing => {}
             outcome => return outcome,
         }
@@ -2859,14 +2871,13 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
     let mut theme_selection = auto_ghostty_theme_selection();
     let mut theme_candidates = Vec::new();
     let parsed = parse_ghostty_config_text(text, None, &mut theme_selection, &mut theme_candidates);
-    let mut defaults = resolve_ghostty_theme_defaults(
-        &theme_candidates,
+    resolve_parsed_ghostty_defaults(
+        theme_candidates,
         theme_dirs,
-        theme_selection,
-        &parsed.overrides,
-    );
-    overlay_ghostty_defaults(&mut defaults, parsed.overrides);
-    defaults
+        parsed.theme_selection,
+        parsed.overrides,
+        None,
+    )
 }
 
 #[cfg(test)]
@@ -2877,21 +2888,38 @@ fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Opti
     }
 }
 
+#[cfg(test)]
 fn parse_ghostty_defaults_from_path_result(
     path: &Path,
     theme_dirs: &[PathBuf],
 ) -> GhosttyConfigParseOutcome {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    parse_ghostty_defaults_from_path_result_until(path, theme_dirs, Some(deadline_at))
+}
+
+fn parse_ghostty_defaults_from_path_result_until(
+    path: &Path,
+    theme_dirs: &[PathBuf],
+    deadline_at: Option<Instant>,
+) -> GhosttyConfigParseOutcome {
     let mut theme_selection = auto_ghostty_theme_selection();
     let mut theme_candidates = Vec::new();
-    let overrides =
-        match parse_ghostty_config_file(path, &mut theme_selection, &mut theme_candidates) {
-            GhosttyConfigParseOutcome::Parsed(overrides) => overrides,
-            outcome => return outcome,
-        };
-    let mut defaults =
-        resolve_ghostty_theme_defaults(&theme_candidates, theme_dirs, theme_selection, &overrides);
-    overlay_ghostty_defaults(&mut defaults, overrides);
-    GhosttyConfigParseOutcome::Parsed(defaults)
+    let overrides = match parse_ghostty_config_file_until(
+        path,
+        &mut theme_selection,
+        &mut theme_candidates,
+        deadline_at,
+    ) {
+        GhosttyConfigParseOutcome::Parsed(overrides) => overrides,
+        outcome => return outcome,
+    };
+    GhosttyConfigParseOutcome::Parsed(resolve_parsed_ghostty_defaults(
+        theme_candidates,
+        theme_dirs,
+        theme_selection,
+        overrides,
+        deadline_at,
+    ))
 }
 
 const GHOSTTY_CONFIG_MAX_FILES: usize = 64;
@@ -2899,32 +2927,37 @@ const GHOSTTY_CONFIG_MAX_DEPTH: usize = 16;
 const GHOSTTY_CONFIG_MAX_BYTES: u64 = 1024 * 1024;
 const GHOSTTY_HELPER_OUTPUT_MAX_BYTES: u64 = 64 * 1024;
 const GHOSTTY_CONFIG_PARSE_DEADLINE: Duration = Duration::from_millis(250);
+#[cfg(not(test))]
+const GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE: Duration = Duration::from_millis(300);
+#[cfg(not(target_os = "macos"))]
+const GHOSTTY_DESKTOP_APPEARANCE_DEADLINE: Duration = Duration::from_millis(75);
 
 struct PendingGhosttyConfig {
     path: PathBuf,
     depth: usize,
 }
 
-fn parse_ghostty_config_file(
-    path: &Path,
-    theme_selection: &mut GhosttyThemeSelection,
-    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
-) -> GhosttyConfigParseOutcome {
-    parse_ghostty_config_file_with_deadline(
-        path,
-        theme_selection,
-        theme_candidates,
-        GHOSTTY_CONFIG_PARSE_DEADLINE,
-    )
-}
-
+#[cfg(test)]
 fn parse_ghostty_config_file_with_deadline(
     path: &Path,
     theme_selection: &mut GhosttyThemeSelection,
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline: Duration,
 ) -> GhosttyConfigParseOutcome {
-    let started_at = Instant::now();
+    parse_ghostty_config_file_until(
+        path,
+        theme_selection,
+        theme_candidates,
+        Some(ghostty_config_deadline_from_now(deadline)),
+    )
+}
+
+fn parse_ghostty_config_file_until(
+    path: &Path,
+    theme_selection: &mut GhosttyThemeSelection,
+    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
+    deadline_at: Option<Instant>,
+) -> GhosttyConfigParseOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
     let mut files_loaded = 0usize;
@@ -2933,7 +2966,7 @@ fn parse_ghostty_config_file_with_deadline(
     let mut overrides = DefaultColors::default();
 
     while let Some(pending) = stack.pop() {
-        if files_loaded > 0 && started_at.elapsed() > deadline {
+        if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
             return GhosttyConfigParseOutcome::TimedOut;
         }
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
@@ -2966,7 +2999,7 @@ fn parse_ghostty_config_file_with_deadline(
         {
             stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
-        if started_at.elapsed() > deadline {
+        if ghostty_config_deadline_expired(deadline_at) {
             return GhosttyConfigParseOutcome::TimedOut;
         }
     }
@@ -2976,6 +3009,21 @@ fn parse_ghostty_config_file_with_deadline(
     } else {
         GhosttyConfigParseOutcome::Missing
     }
+}
+
+fn ghostty_config_deadline_from_now(deadline: Duration) -> Instant {
+    Instant::now().checked_add(deadline).unwrap_or_else(Instant::now)
+}
+
+fn ghostty_config_deadline_expired(deadline_at: Option<Instant>) -> bool {
+    deadline_at.is_some_and(|deadline_at| Instant::now() >= deadline_at)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ghostty_config_deadline_remaining(deadline_at: Option<Instant>) -> Option<Duration> {
+    deadline_at.map_or(Some(Duration::MAX), |deadline_at| {
+        deadline_at.checked_duration_since(Instant::now())
+    })
 }
 
 struct ParsedGhosttyConfig {
@@ -3031,11 +3079,11 @@ enum ResolvedGhosttyThemeSelection {
 }
 
 impl GhosttyThemeSelection {
-    fn resolve_for_parse(self) -> ResolvedGhosttyThemeSelection {
+    fn resolve_for_parse(self, deadline_at: Option<Instant>) -> ResolvedGhosttyThemeSelection {
         match self {
             Self::Mode(mode) => ResolvedGhosttyThemeSelection::Mode(mode),
             Self::System => ResolvedGhosttyThemeSelection::Mode(system_ghostty_theme_mode(
-                platform_appearance_theme_mode(),
+                platform_appearance_theme_mode(deadline_at),
             )),
             Self::Ghostty => ResolvedGhosttyThemeSelection::Ghostty,
         }
@@ -3084,22 +3132,25 @@ fn ghostty_background_theme_mode(background: Option<Rgb>) -> GhosttyThemeMode {
 }
 
 #[cfg(target_os = "macos")]
-fn platform_appearance_theme_mode() -> Option<GhosttyThemeMode> {
+fn platform_appearance_theme_mode(_deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
     macos_appearance_theme_mode()
 }
 
 #[cfg(not(target_os = "macos"))]
-fn platform_appearance_theme_mode() -> Option<GhosttyThemeMode> {
-    non_macos_appearance_theme_mode()
+fn platform_appearance_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    non_macos_appearance_theme_mode(deadline_at)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn non_macos_appearance_theme_mode() -> Option<GhosttyThemeMode> {
-    if let Some(mode) = freedesktop_portal_theme_mode() {
+fn non_macos_appearance_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    if let Some(mode) = freedesktop_portal_theme_mode(deadline_at) {
         return Some(mode);
     }
-    if let Some(mode) = gnome_color_scheme_theme_mode() {
+    if let Some(mode) = gnome_color_scheme_theme_mode(deadline_at) {
         return Some(mode);
+    }
+    if ghostty_config_deadline_expired(deadline_at) {
+        return None;
     }
     if let Some(mode) = std::env::var_os("GTK_THEME")
         .as_deref()
@@ -3110,14 +3161,17 @@ fn non_macos_appearance_theme_mode() -> Option<GhosttyThemeMode> {
     gtk_settings_paths()
         .into_iter()
         .find_map(|path| {
+            if ghostty_config_deadline_expired(deadline_at) {
+                return None;
+            }
             let text = read_ghostty_regular_file(&path, 64 * 1024)?;
             gtk_settings_theme_mode(&text)
         })
-        .or_else(kde_globals_theme_mode)
+        .or_else(|| kde_globals_theme_mode(deadline_at))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn freedesktop_portal_theme_mode() -> Option<GhosttyThemeMode> {
+fn freedesktop_portal_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
     let output = desktop_theme_command_output(
         "gdbus",
         &[
@@ -3132,21 +3186,32 @@ fn freedesktop_portal_theme_mode() -> Option<GhosttyThemeMode> {
             "org.freedesktop.appearance",
             "color-scheme",
         ],
+        deadline_at,
     )?;
     freedesktop_portal_color_scheme_theme_mode(&output)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn gnome_color_scheme_theme_mode() -> Option<GhosttyThemeMode> {
+fn gnome_color_scheme_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
     let output = desktop_theme_command_output(
         "gsettings",
         &["get", "org.gnome.desktop.interface", "color-scheme"],
+        deadline_at,
     )?;
     gnome_color_scheme_output_theme_mode(&output)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn desktop_theme_command_output(program: &str, args: &[&str]) -> Option<String> {
+fn desktop_theme_command_output(
+    program: &str,
+    args: &[&str],
+    deadline_at: Option<Instant>,
+) -> Option<String> {
+    let timeout =
+        ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_DESKTOP_APPEARANCE_DEADLINE);
+    if timeout.is_zero() {
+        return None;
+    }
     let mut child = Command::new(program)
         .args(args)
         .stdin(std::process::Stdio::null())
@@ -3162,7 +3227,7 @@ fn desktop_theme_command_output(program: &str, args: &[&str]) -> Option<String> 
         terminate_ghostty_helper_child(child);
         return None;
     };
-    let status = match child.wait_timeout(Duration::from_millis(75)) {
+    let status = match child.wait_timeout(timeout) {
         Ok(Some(status)) => status,
         Ok(None) | Err(_) => {
             terminate_ghostty_helper_child(child);
@@ -3197,8 +3262,11 @@ fn gnome_color_scheme_output_theme_mode(text: &str) -> Option<GhosttyThemeMode> 
 }
 
 #[cfg(not(target_os = "macos"))]
-fn kde_globals_theme_mode() -> Option<GhosttyThemeMode> {
+fn kde_globals_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
     kde_globals_paths().into_iter().find_map(|path| {
+        if ghostty_config_deadline_expired(deadline_at) {
+            return None;
+        }
         let text = read_ghostty_regular_file(&path, 64 * 1024)?;
         kde_globals_text_theme_mode(&text)
     })
@@ -3404,19 +3472,44 @@ fn resolve_ghostty_theme_defaults(
     theme_dirs: &[PathBuf],
     theme_selection: GhosttyThemeSelection,
     overrides: &DefaultColors,
+    deadline_at: Option<Instant>,
 ) -> DefaultColors {
     if theme_candidates.is_empty() {
         return DefaultColors::default();
     }
-    let resolved_selection = theme_selection.resolve_for_parse();
+    if ghostty_config_deadline_expired(deadline_at) {
+        return DefaultColors::default();
+    }
+    let resolved_selection = theme_selection.resolve_for_parse(deadline_at);
     for candidate in theme_candidates {
+        if ghostty_config_deadline_expired(deadline_at) {
+            return DefaultColors::default();
+        }
         if let Some(defaults) =
-            load_ghostty_theme(candidate, theme_dirs, resolved_selection, overrides)
+            load_ghostty_theme(candidate, theme_dirs, resolved_selection, overrides, deadline_at)
         {
             return defaults;
         }
     }
     DefaultColors::default()
+}
+
+fn resolve_parsed_ghostty_defaults(
+    theme_candidates: Vec<GhosttyThemeCandidate>,
+    theme_dirs: &[PathBuf],
+    theme_selection: GhosttyThemeSelection,
+    overrides: DefaultColors,
+    deadline_at: Option<Instant>,
+) -> DefaultColors {
+    let mut defaults = resolve_ghostty_theme_defaults(
+        &theme_candidates,
+        theme_dirs,
+        theme_selection,
+        &overrides,
+        deadline_at,
+    );
+    overlay_ghostty_defaults(&mut defaults, overrides);
+    defaults
 }
 
 fn parse_ghostty_window_theme(value: &str) -> Option<GhosttyThemeSelection> {
@@ -3555,13 +3648,20 @@ fn load_ghostty_theme(
     theme_dirs: &[PathBuf],
     theme_selection: ResolvedGhosttyThemeSelection,
     overrides: &DefaultColors,
+    deadline_at: Option<Instant>,
 ) -> Option<DefaultColors> {
+    if ghostty_config_deadline_expired(deadline_at) {
+        return None;
+    }
     let value = candidate.value.trim_matches('"');
     let ghostty_background = if theme_selection == ResolvedGhosttyThemeSelection::Ghostty {
-        ghostty_theme_selection_background(value, candidate, theme_dirs, overrides)
+        ghostty_theme_selection_background(value, candidate, theme_dirs, overrides, deadline_at)
     } else {
         None
     };
+    if ghostty_config_deadline_expired(deadline_at) {
+        return None;
+    }
     let theme = selected_ghostty_theme(value, theme_selection, ghostty_background);
     let path = resolve_ghostty_theme_path(theme, candidate.base_dir.as_deref(), theme_dirs)?;
     let text = read_ghostty_regular_file(&path, GHOSTTY_CONFIG_MAX_BYTES)?;
@@ -3573,14 +3673,21 @@ fn ghostty_theme_selection_background(
     candidate: &GhosttyThemeCandidate,
     theme_dirs: &[PathBuf],
     overrides: &DefaultColors,
+    deadline_at: Option<Instant>,
 ) -> Option<Rgb> {
     overrides.bg.or_else(|| {
+        if ghostty_config_deadline_expired(deadline_at) {
+            return None;
+        }
         let light = selected_conditional_ghostty_theme(
             value,
             ResolvedGhosttyThemeSelection::Mode(GhosttyThemeMode::Light),
             None,
         )?;
         let path = resolve_ghostty_theme_path(light, candidate.base_dir.as_deref(), theme_dirs)?;
+        if ghostty_config_deadline_expired(deadline_at) {
+            return None;
+        }
         let text = read_ghostty_regular_file(&path, GHOSTTY_CONFIG_MAX_BYTES)?;
         parse_resolved_ghostty_defaults(&text).bg
     })
@@ -4722,6 +4829,49 @@ mod tests {
         assert!(matches!(outcome, GhosttyConfigParseOutcome::TimedOut));
         assert_eq!(full.bg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
         assert_eq!(full.fg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[test]
+    fn ghostty_theme_deadline_keeps_parsed_overrides() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-deadline-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Dark Budget Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+        let overrides = DefaultColors {
+            fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+            bg: Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }),
+            ..Default::default()
+        };
+
+        let loaded = resolve_parsed_ghostty_defaults(
+            vec![GhosttyThemeCandidate { value: "Dark Budget Theme".to_string(), base_dir: None }],
+            std::slice::from_ref(&dir),
+            GhosttyThemeSelection::Mode(GhosttyThemeMode::Dark),
+            overrides,
+            None,
+        );
+        let expired = resolve_parsed_ghostty_defaults(
+            vec![GhosttyThemeCandidate { value: "Dark Budget Theme".to_string(), base_dir: None }],
+            std::slice::from_ref(&dir),
+            GhosttyThemeSelection::Mode(GhosttyThemeMode::Dark),
+            overrides,
+            Some(Instant::now().checked_sub(Duration::from_millis(1)).unwrap()),
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(loaded.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+        assert_eq!(expired.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(expired.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+        assert_eq!(expired.palette[1], None);
     }
 
     #[test]
