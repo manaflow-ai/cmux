@@ -272,6 +272,17 @@ final class SidebarRowTextView: NSTextField {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Vends the link proxies referenced by the accessibility attributed text.
+    override func accessibilityChildren() -> [Any]? {
+        var children = super.accessibilityChildren() ?? []
+        for link in accessibilityLinks where !children.contains(where: {
+            ($0 as? SidebarRowTextAccessibilityLink) === link
+        }) {
+            children.append(link)
+        }
+        return children
+    }
+
     /// Applies the row palette to rendered Markdown while retaining ownership
     /// of link rendering and activation instead of delegating either to AppKit.
     func configureAttributedText(
@@ -280,22 +291,24 @@ final class SidebarRowTextView: NSTextField {
         color: NSColor,
         linkColor: NSColor
     ) {
-        accessibilityLinks.removeAll(keepingCapacity: true)
+        invalidateAccessibilityLinks()
         let mutable = NSMutableAttributedString(attributedString: NSAttributedString(source))
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.addAttribute(.font, value: font, range: fullRange)
         mutable.addAttribute(.foregroundColor, value: color, range: fullRange)
         applyRowOwnedLinkStyling(to: mutable, linkColor: linkColor)
         attributedStringValue = mutable
+        needsLayout = true
     }
 
     /// Configures non-Markdown fallback text and removes stale link semantics
     /// left by a previous pooled-row configuration.
     func configurePlainText(_ text: String, font: NSFont, color: NSColor) {
-        accessibilityLinks.removeAll(keepingCapacity: true)
+        invalidateAccessibilityLinks()
         stringValue = text
         self.font = font
         textColor = color
+        needsLayout = true
     }
 
     override func layout() {
@@ -450,6 +463,13 @@ final class SidebarRowTextView: NSTextField {
             frame.origin.y += textRect.minY + usedRect.minY
             accessibilityLink.setAccessibilityFrameInParentSpace(frame)
         }
+    }
+
+    private func invalidateAccessibilityLinks() {
+        for link in accessibilityLinks {
+            link.invalidate()
+        }
+        accessibilityLinks.removeAll(keepingCapacity: true)
     }
 
     private func linkHitLayout(textRectSize: NSSize) -> LinkHitLayout {

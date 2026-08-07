@@ -546,6 +546,7 @@ struct SidebarAppKitRowCellTests {
         #expect(textView.attributedStringValue.attribute(.link, at: 0, effectiveRange: nil) == nil)
         #expect(textView.attributedStringValue.attribute(.sidebarRowLink, at: 0, effectiveRange: nil) == nil)
         #expect(textView.attributedStringValue.attribute(.accessibilityLink, at: 0, effectiveRange: nil) == nil)
+        #expect(textView.attributedStringValue.attribute(.underlineStyle, at: 0, effectiveRange: nil) == nil)
         #expect(Self.accessibilityLinks(in: textView).isEmpty)
     }
 

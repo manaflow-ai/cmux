@@ -30,4 +30,11 @@ final class SidebarRowTextAccessibilityLink: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool {
         owner?.openLink(url) ?? false
     }
+
+    /// Detaches a proxy that no longer represents the owner's current text.
+    func invalidate() {
+        owner = nil
+        setAccessibilityParent(nil)
+        setAccessibilityFrameInParentSpace(.zero)
+    }
 }
