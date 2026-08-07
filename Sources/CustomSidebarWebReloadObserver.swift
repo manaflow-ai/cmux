@@ -79,12 +79,13 @@ public final class CustomSidebarWebReloadObserver {
     ///     workspace rail passes `nil`: it is switched away entirely when its sidebar stops
     ///     resolving, so a stale mount there would outlive the selection.
     ///   - resolveFileURL: Maps the name to the file that currently wins. Injected so the resolution
-    ///     order stays owned by one place and a test can drive a changing filesystem. Runs off the
-    ///     main actor, so it must not touch main-actor state.
+    ///     order stays owned by one place and a test can drive a changing filesystem. Its explicit
+    ///     `@concurrent` isolation keeps it off the caller's actor, so it must not touch main-actor
+    ///     state.
     public init(
         sidebarName: String,
         fallbackFileURL: URL? = nil,
-        resolveFileURL: @escaping @Sendable (String) async -> URL?
+        resolveFileURL: @escaping @concurrent @Sendable (String) async -> URL?
     ) {
         self.sidebarName = sidebarName
         // A pane knows its file before anything is resolved, so when that file's kind follows from
@@ -187,14 +188,15 @@ public final class CustomSidebarWebReloadObserver {
     /// the two calls it awaits, and suspending at those awaits is what frees the main thread; the
     /// isolation of this function is not what achieves it.
     ///
-    /// Both callees are responsible for staying off this actor, and both say so explicitly rather
-    /// than relying on inference: ``CustomSidebarSource/classifying(fileURL:)`` — reached through
-    /// ``CustomSidebarMountDecision/deciding(fileURL:)`` — is `@concurrent`, and `resolveFileURL` is
-    /// a `@Sendable` closure the caller supplies, whose own isolation is the caller's to get right.
+    /// Both filesystem boundaries say so explicitly rather than relying on nonisolated-async
+    /// inference: the injected lookup's function type is `@concurrent`, and
+    /// ``CustomSidebarSource/classifying(fileURL:)`` — reached through
+    /// ``CustomSidebarMountDecision/deciding(fileURL:)`` — carries the same annotation for the `.url`
+    /// file read.
     private static func resolve(
         sidebarName: String,
         fallbackFileURL: URL?,
-        resolveFileURL: @Sendable (String) async -> URL?
+        resolveFileURL: @concurrent @Sendable (String) async -> URL?
     ) async -> ResolutionOutcome {
         let resolved = await resolveFileURL(sidebarName)
         let decision = await CustomSidebarMountDecision.deciding(fileURL: resolved ?? fallbackFileURL)

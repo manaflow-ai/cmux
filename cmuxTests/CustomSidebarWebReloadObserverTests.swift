@@ -223,85 +223,40 @@ struct CustomSidebarWebReloadObserverTests {
     /// that put a whole-file read on the main thread on every render pass — roughly once a second,
     /// forever, for as long as the sidebar is open.
     ///
-    /// Asserted as an ordering fact, using the observer's own injected resolver as the seam. The
-    /// resolver parks; the main actor then completes a round trip and only afterwards releases it.
-    /// If any part of the resolution pipeline ran on the main actor, the main thread would be inside
-    /// the parked resolver and the round trip could not complete — which is what the expectation
-    /// catches.
+    /// Asserted at the injected resolver seam itself: `Thread.isMainThread` directly records whether
+    /// the filesystem lookup ran on the UI thread. That is the property, rather than a duration used
+    /// as a proxy for it.
     ///
     /// The previous shape measured how long the main actor went unserviced while a deliberately
     /// enormous `.url` file was parsed, and compared best-of-three runs against a millisecond
     /// budget. That measures the app host's own display-link and layout work as much as this code,
     /// so it needed a fixture big enough to out-shout it and a threshold loose enough to survive a
-    /// loaded CI box. The ordering claim needs neither.
+    /// loaded CI box. The direct thread assertion needs neither.
     @Test("resolving a sidebar leaves the main actor free while the resolution is in flight")
     func resolutionDoesNotStallTheMainActor() async throws {
         let dir = try directory()
         defer { try? FileManager.default.removeItem(at: dir) }
         try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
 
-        let resolverEntered = AsyncSignal()
-        let mayFinishResolving = AsyncSignal()
         let observed = ResolverObservation()
         let observer = CustomSidebarWebReloadObserver(sidebarName: "board") { _ in
-            resolverEntered.signal()
-            // Blocking rather than awaiting: an `await` here would suspend and free the thread,
-            // which is precisely the thing the test must not do for it. A resolution running on the
-            // main actor holds the main thread right here, so the release below never arrives and
-            // the bounded wait reports it instead of hanging the suite.
-            observed.mainActorRanWhileParked = mayFinishResolving.waitBlocking()
+            observed.resolverRanOnMainThread = Thread.isMainThread
             return CmuxExtensionSidebarSelection.customSidebarFileURL(
                 forName: "board",
                 sidebarsDirectory: dir
             )
         }
 
-        await resolverEntered.wait()
-        // A main-actor round trip, completed while the resolver is still parked. Releasing only
-        // afterwards is what makes "the main actor ran first" the recorded fact.
-        await MainActor.run {}
-        mayFinishResolving.signal()
-
         await observer.resolutionSettled()
 
-        #expect(observed.mainActorRanWhileParked, "the main actor was blocked by the resolution")
+        #expect(!observed.resolverRanOnMainThread, "the resolver ran on the main thread")
         // The resolution really happened, so the ordering above is not about a no-op.
         #expect(observer.webSource == .remote(URL(string: "http://127.0.0.1:8787/")!))
     }
 
-    /// What the parked resolver saw, read back once it has finished.
+    /// What thread the resolver used, read back once it has finished.
     private final class ResolverObservation: @unchecked Sendable {
-        var mainActorRanWhileParked = false
-    }
-
-    /// A one-shot signal that can be awaited from a task or blocked on from a thread.
-    ///
-    /// The bounded blocking wait is a safety valve: a main actor that really is stuck reports as a
-    /// failed expectation rather than hanging the suite. Nothing asserts on how long it took.
-    private final class AsyncSignal: @unchecked Sendable {
-        private let semaphore = DispatchSemaphore(value: 0)
-        private let stream: AsyncStream<Void>
-        private let continuation: AsyncStream<Void>.Continuation
-
-        init() {
-            (stream, continuation) = AsyncStream<Void>.makeStream()
-        }
-
-        func signal() {
-            semaphore.signal()
-            continuation.yield(())
-        }
-
-        func wait() async {
-            var iterator = stream.makeAsyncIterator()
-            _ = await iterator.next()
-        }
-
-        /// Blocks until signalled, giving up after long enough that only a real block reaches it.
-        /// Returns whether the signal arrived.
-        func waitBlocking() -> Bool {
-            semaphore.wait(timeout: .now() + 30) == .success
-        }
+        var resolverRanOnMainThread = false
     }
 
     // MARK: - Mount decision
