@@ -173,6 +173,11 @@ public struct CustomSidebarValidator {
                 localized: "sidebar.custom.validation.readFailed",
                 defaultValue: "Failed to read sidebar file."
             )
+        case .tooLarge:
+            return String(
+                localized: "sidebar.custom.validation.urlFileTooLarge",
+                defaultValue: "Sidebar .url file is too large to be a shortcut file."
+            )
         case .noURL:
             return String(
                 localized: "sidebar.custom.validation.urlFileEmpty",
@@ -181,7 +186,7 @@ public struct CustomSidebarValidator {
         case .missingHost:
             return String(
                 localized: "sidebar.custom.validation.urlFileNoHost",
-                defaultValue: "Sidebar .url file names no host to load."
+                defaultValue: "Sidebar .url file's URL has no host to load from."
             )
         case let .unsupportedScheme(scheme):
             guard let scheme else {

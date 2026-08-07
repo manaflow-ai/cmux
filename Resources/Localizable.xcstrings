@@ -217217,13 +217217,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sidebar .url file names no host to load."
+            "value": "Sidebar .url file's URL has no host to load from."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サイドバーの .url ファイルに読み込み先のホストが指定されていません。"
+            "value": "サイドバーの .url ファイルの URL に読み込み先のホストがありません。"
           }
         }
       }
@@ -217258,6 +217258,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイドバーの .url ファイルは http または https である必要があります（「%@」は使用できません）。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.urlFileTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar .url file is too large to be a shortcut file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの .url ファイルが大きすぎます。ショートカットファイルではありません。"
           }
         }
       }

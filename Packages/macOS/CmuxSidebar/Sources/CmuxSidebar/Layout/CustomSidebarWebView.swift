@@ -333,6 +333,13 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             _ userContentController: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            // `viewport-fit=cover` is the *page* declaring it will handle the host's chrome itself,
+            // and honouring it hands the page the strip under the traffic lights. The bootstrap
+            // script is injected main-frame-only, but the handler is registered on the content
+            // controller, which is page-wide — so an embedded frame can post the same body. A
+            // sidebar embedding a third-party iframe is a supported design, and that frame does not
+            // get to relayout the page hosting it.
+            guard message.frameInfo.isMainFrame else { return }
             let body = message.body as? [String: Any]
             let cover = body?["cover"] as? Bool ?? false
             Task { @MainActor [weak self] in

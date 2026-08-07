@@ -55,14 +55,16 @@ public enum CustomSidebarSource: Equatable, Sendable {
     ///
     /// Same answer as ``classify(fileURL:)``, reached without holding up the caller: the `.url`
     /// branch is the only one that touches the filesystem, and this runs it off the caller's
-    /// executor. `static func … async` on a non-actor type is nonisolated, so awaiting it from the
-    /// main actor moves the read to the global executor (SE-0338) rather than onto the main thread.
+    /// executor.
     ///
-    /// - Important: If this module ever adopts the `NonisolatedNonsendingByDefault` upcoming
-    ///   feature, this flips to running on the *caller's* actor and must be annotated `@concurrent`
-    ///   to keep the read off the main thread.
+    /// `@concurrent` is what states that, rather than leaving it to inference. A nonisolated
+    /// `async` function runs on the global executor today, but under the
+    /// `NonisolatedNonsendingByDefault` upcoming feature it would instead inherit the caller's
+    /// actor — so a main-actor caller would get the read back on the main thread, silently, on the
+    /// day this module adopts that feature. The annotation pins the behaviour the callers depend on.
     ///
     /// - Parameter fileURL: The file the sidebar name resolved to.
+    @concurrent
     public static func classifying(fileURL: URL) async -> CustomSidebarSource? {
         classify(fileURL: fileURL)
     }

@@ -9,6 +9,11 @@ public import Foundation
 public enum CustomSidebarWebSourceProblem: Equatable, Sendable {
     /// The file could not be read as UTF-8 text.
     case unreadable
+    /// The file is larger than a shortcut file has any reason to be, so it was not read.
+    ///
+    /// Its own problem rather than ``unreadable`` because the fix is different and obvious once
+    /// said: the file that landed at this name is not a shortcut file.
+    case tooLarge
     /// The file held no line that parsed as a URL at all.
     case noURL
     /// The file named a URL, but not one this sidebar may load.
@@ -31,19 +36,17 @@ public enum CustomSidebarWebSourceProblem: Equatable, Sendable {
     /// - Parameter fileURL: The `.url` file to diagnose.
     /// - Returns: The problem, or `nil` when the file is usable.
     public static func diagnose(urlFile fileURL: URL) -> CustomSidebarWebSourceProblem? {
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else {
-            return .unreadable
+        let lines: [String]
+        switch CustomSidebarURLFileReader.read(fileURL: fileURL) {
+        case .unreadable: return .unreadable
+        case .tooLarge: return .tooLarge
+        case let .lines(read): lines = read
         }
         var rejectedScheme: String?
         var sawHostlessWebURL = false
         var sawCandidate = false
-        for rawLine in contents.split(whereSeparator: \.isNewline) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty || line.hasPrefix("[") || line.hasPrefix("#") { continue }
-            let candidate = line.hasPrefix("URL=") ? String(line.dropFirst(4)) : line
-            guard let url = URL(string: candidate.trimmingCharacters(in: .whitespaces)) else {
-                continue
-            }
+        for candidate in lines {
+            guard let url = URL(string: candidate) else { continue }
             sawCandidate = true
             if CustomSidebarWebSource.isLoadable(url) { return nil }
             guard let scheme = url.scheme?.lowercased() else { continue }

@@ -184,13 +184,13 @@ public final class CustomSidebarWebReloadObserver {
     ///
     /// This function is itself main-actor isolated: it is a static member of a `@MainActor` type, so
     /// its own body runs on the main thread. Nothing it does there blocks. The I/O lives entirely in
-    /// the two calls it awaits, both of which are nonisolated `async` and therefore run on the global
-    /// executor (SE-0338) rather than on the caller's actor. Suspending at those awaits is what frees
-    /// the main thread; the isolation of this function is not what achieves it.
+    /// the two calls it awaits, and suspending at those awaits is what frees the main thread; the
+    /// isolation of this function is not what achieves it.
     ///
-    /// - Important: If the callees' modules ever adopt the `NonisolatedNonsendingByDefault` upcoming
-    ///   feature, they flip to running on the caller's actor — the main thread, from here — and must
-    ///   be annotated `@concurrent` to keep the reads off it.
+    /// Both callees are responsible for staying off this actor, and both say so explicitly rather
+    /// than relying on inference: ``CustomSidebarSource/classifying(fileURL:)`` — reached through
+    /// ``CustomSidebarMountDecision/deciding(fileURL:)`` — is `@concurrent`, and `resolveFileURL` is
+    /// a `@Sendable` closure the caller supplies, whose own isolation is the caller's to get right.
     private static func resolve(
         sidebarName: String,
         fallbackFileURL: URL?,

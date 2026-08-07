@@ -175,10 +175,17 @@ public final class CustomSidebarModel {
             if watchTask != nil || watchedPath != nil { startWatcher() }
         }
         fileURL = preferredFileURL()
-        // Matched exactly, in lowercase, agreeing with `CustomSidebarSource.classify` and the
-        // resolver: a folded `board.SWIFT` is a file no other path can open.
-        switch fileURL.pathExtension {
-        case "swift":
+        // Classified through the shared kind, which matches the extension exactly and in lowercase,
+        // agreeing with `CustomSidebarSource.classify` and the resolver: a folded `board.SWIFT` is a
+        // file no other path can open. Sharing the classifier is what keeps "which files are
+        // interpreted" one answer rather than a list repeated here.
+        //
+        // `.html`, `.url`, and an unrecognised extension all land in the same place: `.missing`
+        // rather than `.failed`, because there is no interpreted sidebar at this name — exactly what
+        // the empty state says — and a web sidebar reaching here is a mount-site bug the user should
+        // not be shown a parse error for.
+        switch CustomSidebarFileKind(fileURL: fileURL) {
+        case .swift:
             guard CustomSidebarFileLookup(fileManager: fileManager).exists(fileURL) else {
                 state = .missing
                 return
@@ -188,7 +195,7 @@ public final class CustomSidebarModel {
             } catch {
                 state = .failed(CustomSidebarValidator().describe(error))
             }
-        case "json":
+        case .json:
             guard CustomSidebarFileLookup(fileManager: fileManager).exists(fileURL) else {
                 state = .missing
                 return
@@ -200,10 +207,7 @@ public final class CustomSidebarModel {
             } catch {
                 state = .failed(CustomSidebarValidator().describe(error))
             }
-        default:
-            // Not an interpreted sidebar. `.missing` rather than `.failed`: there is no interpreted
-            // sidebar at this name, which is exactly what the empty state says, and a web sidebar
-            // reaching here is a mount-site bug the user should not be shown a parse error for.
+        case .html, .url, nil:
             state = .missing
         }
     }

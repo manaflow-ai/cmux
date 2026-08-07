@@ -25,9 +25,9 @@ public enum CustomSidebarMountDecision: Equatable, Sendable {
 
     /// Decides how to mount an already-resolved sidebar file, without blocking the caller.
     ///
-    /// The `.url` branch reads the file; every other answer follows from the extension. Awaiting
-    /// this from the main actor runs the read on the global executor, so no filesystem work happens
-    /// on the main thread.
+    /// The `.url` branch reads the file; every other answer follows from the extension. The read
+    /// itself lives in ``CustomSidebarSource/classifying(fileURL:)``, which is `@concurrent`, so
+    /// awaiting this from the main actor puts no filesystem work on the main thread.
     ///
     /// - Parameter fileURL: The file the sidebar name currently resolves to, or `nil` when it
     ///   resolves to nothing.

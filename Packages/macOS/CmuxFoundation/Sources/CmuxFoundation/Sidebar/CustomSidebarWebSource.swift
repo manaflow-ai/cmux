@@ -20,15 +20,15 @@ public enum CustomSidebarWebSource: Equatable, Sendable {
     /// The target must also name a host. `http:` and `http:///path` parse cleanly and report the
     /// right scheme, so a scheme-only check accepts them — and then there is nothing to fetch, so
     /// the sidebar mounts and renders blank with no error anywhere for the author to find.
+    ///
+    /// The file is read through ``CustomSidebarURLFileReader``, which bounds it: a `.url` file past
+    /// the limit names nothing, however good its first line is.
     public static func remoteURL(fromURLFile fileURL: URL) -> URL? {
-        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return nil }
-        for rawLine in contents.split(whereSeparator: \.isNewline) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty || line.hasPrefix("[") || line.hasPrefix("#") { continue }
-            let candidate = line.hasPrefix("URL=") ? String(line.dropFirst(4)) : line
-            guard let url = URL(string: candidate.trimmingCharacters(in: .whitespaces)),
-                  isLoadable(url)
-            else { continue }
+        guard case let .lines(lines) = CustomSidebarURLFileReader.read(fileURL: fileURL) else {
+            return nil
+        }
+        for candidate in lines {
+            guard let url = URL(string: candidate), isLoadable(url) else { continue }
             return url
         }
         return nil
