@@ -42,6 +42,58 @@ struct AgentChatTranscriptTailerBoundedReadTests {
         #expect(page.hasMore)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func incrementalGrowthDiscardsOversizedLineAndResynchronizes() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-transcript-growth-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transcript = root.appendingPathComponent("session.jsonl")
+        try Data().write(to: transcript)
+        let batches = AsyncStream<AgentChatTranscriptTailer.Batch>.makeStream(
+            bufferingPolicy: .bufferingNewest(8)
+        )
+        defer { batches.continuation.finish() }
+        let tailer = AgentChatTranscriptTailer(
+            sessionID: "session",
+            agentKind: .claude,
+            path: transcript.path
+        ) { batch in
+            batches.continuation.yield(batch)
+        }
+        await tailer.start()
+
+        let oversized = try claudeUserLine(
+            id: 0,
+            content: String(
+                repeating: "x",
+                count: AgentChatTranscriptInitialTailReader.defaultMaximumBytes + 1_024
+            )
+        )
+        let survivor = try claudeUserLine(id: 1, content: "survivor")
+        let handle = try FileHandle(forWritingTo: transcript)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("\(oversized)\n\(survivor)\n".utf8))
+
+        var iterator = batches.stream.makeAsyncIterator()
+        var observedSurvivor = false
+        while let batch = await iterator.next() {
+            observedSurvivor = batch.appended.contains { message in
+                guard case .prose(let prose) = message.kind else { return false }
+                return prose.text == "survivor"
+            }
+            if observedSurvivor { break }
+        }
+        let page = await tailer.history(beforeSeq: nil, limit: 20)
+        await tailer.stop()
+
+        #expect(observedSurvivor)
+        #expect(page.messages.count == 1)
+        #expect(page.messages.first?.seq == 1)
+        #expect(page.hasMore)
+    }
+
     private func claudeUserLine(id: Int, content: String) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: [
             "type": "user",
