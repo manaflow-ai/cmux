@@ -30,6 +30,9 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   config_suffix='Library/Application Support/com.mitchellh.ghostty/config.ghostty'
   emit_config_evidence=1
   case "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" in
+    aliased-config-home)
+      config_home="${CMUX_MOCK_XCODEBUILD_CONFIG_HOME:?}"
+      ;;
     leak) config_home=/Users/runner ;;
     sibling-leak) config_home="${TEST_RUNNER_HOME}-other" ;;
     xdg-config-leak)
@@ -59,6 +62,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   fi
   [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" != "leak" ] || exit 0
   if [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "success" ] \
+    || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "aliased-config-home" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-config-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "xdg-default-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "unrelated-config-token" ] \
@@ -293,6 +297,34 @@ isolated_runner_count="$(awk -F '|' \
 if [ "$isolated_runner_count" -ne "$invocation_count" ]; then
   cat "$TMP_DIR/test-runner-home-env.log"
   echo "FAIL: every xcodebuild invocation must pass isolated homes through TEST_RUNNER_ variables"
+  exit 1
+fi
+
+CONFIG_HOME_ALIAS="$TMP_DIR/app-host-home-alias"
+ln -s "$RESOLVED_APP_HOST_HOME" "$CONFIG_HOME_ALIAS"
+set +e
+PATH="$TMP_DIR:$PATH" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/aliased-config-home-xcodebuild-args.log" \
+CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/aliased-config-home-test-runner-env.log" \
+CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/aliased-config-home-parent-env.log" \
+CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/aliased-config-home-runner-home-env.log" \
+CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+CMUX_MOCK_XCODEBUILD_MODE=aliased-config-home \
+CMUX_MOCK_XCODEBUILD_CONFIG_HOME="$CONFIG_HOME_ALIAS" \
+CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
+CMUX_APP_HOST_HOME="$APP_HOST_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$APP_HOST_XDG_CONFIG_HOME" \
+  bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+    >"$TMP_DIR/aliased-config-home-output.log" 2>&1
+aliased_config_home_status=$?
+set -e
+
+if [ "$aliased_config_home_status" -ne 0 ]; then
+  cat "$TMP_DIR/aliased-config-home-output.log"
+  echo "FAIL: wrapper must accept a physical alias of the isolated app-host home"
   exit 1
 fi
 
