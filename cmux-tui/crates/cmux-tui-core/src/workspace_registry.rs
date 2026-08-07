@@ -98,7 +98,8 @@ use session_persistence_store::{
 // Version 15 adds canonical journal-derived agent state beside the
 // terminal-current compatibility projection. Version 16 adds journal-derived
 // session persistence state machines and the default-off hibernation policy.
-const SCHEMA_VERSION: i64 = 16;
+// Version 17 adds the journal-derived session effect workflow state.
+const SCHEMA_VERSION: i64 = 17;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
@@ -528,7 +529,7 @@ impl WorkspaceRegistry {
                 require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
                 tx.commit()?;
             }
-            Some(9..=15) => {
+            Some(9..=16) => {
                 let tx = connection.unchecked_transaction()?;
                 create_workspace_schema(&tx)?;
                 create_terminal_schema(&tx)?;

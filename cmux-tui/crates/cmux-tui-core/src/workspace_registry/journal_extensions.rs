@@ -3,9 +3,9 @@ use super::session_persistence_store::apply_session_persistence_journal_record;
 use super::*;
 use crate::resource::WireDecimal;
 use crate::workspace_registry::session_journal::{
-    JournalAppend, MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES, append_journal_record,
-    expand_topology_subjects, query_session_journal_sequences, terminal_topology_subjects_batch,
-    unix_epoch_ms,
+    append_journal_record, expand_topology_subjects, query_session_journal_sequences,
+    terminal_topology_subjects_batch, unix_epoch_ms, JournalAppend,
+    MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
 };
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -17,6 +17,10 @@ const MAX_EVENT_PAYLOAD_BYTES: usize = 1024 * 1024;
 const MAX_CAUSATION_DEPTH: u16 = 32;
 const JOURNAL_SEGMENT_RECORD_LIMIT: usize = 1_024;
 const MAX_CHECKPOINT_CONTENT_UNCOMPRESSED_BYTES: usize = 256 * 1024 * 1024;
+#[allow(dead_code)]
+const SESSION_EFFECT_INTENT_OPERATION: &str = "session.effect.intent.record";
+#[allow(dead_code)]
+const SESSION_EFFECT_OUTCOME_OPERATION: &str = "session.effect.outcome.record";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1177,6 +1181,269 @@ impl WorkspaceRegistry {
             append_journal_ingress_transaction(&tx, ingress, validated, origin, idempotency_key)?;
         tx.commit()?;
         Ok(commit)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_session_effect_intent(
+        &mut self,
+        origin: &str,
+        idempotency_key: &str,
+        workflow_id: &str,
+        operation: &str,
+        attempt_generation: u64,
+        target_session_id: &SessionPublicId,
+        terminal_id: Option<&TerminalPublicId>,
+        agent_tree_id: Option<&str>,
+        agent_node_id: Option<&str>,
+        requires_complete_history: bool,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_identifier("session effect origin", origin)?;
+        validate_identifier("session effect idempotency key", idempotency_key)?;
+        validate_identifier("session effect workflow id", workflow_id)?;
+        anyhow::ensure!(
+            session_effect_operation_is_supported_for_append(operation),
+            "session effect operation is unsupported"
+        );
+        anyhow::ensure!(
+            attempt_generation > 0,
+            "session effect attempt generation must be positive"
+        );
+        anyhow::ensure!(
+            requires_complete_history,
+            "session effect requires complete history in this journal slice"
+        );
+        if let Some(agent_tree_id) = agent_tree_id {
+            validate_identifier("session effect agent tree id", agent_tree_id)?;
+        }
+        if let Some(agent_node_id) = agent_node_id {
+            validate_identifier("session effect agent node id", agent_node_id)?;
+        }
+        let payload = json!({
+            "format":"cmux.session-effect-intent.v1",
+            "workflow_id":workflow_id,
+            "operation":operation,
+            "attempt_generation":attempt_generation.to_string(),
+            "target_session_id":target_session_id,
+            "terminal_id":terminal_id.map(TerminalPublicId::as_str),
+            "agent_tree_id":agent_tree_id,
+            "agent_node_id":agent_node_id,
+            "requires_complete_history":requires_complete_history,
+        });
+        let fingerprint = Sha256::digest(
+            canonical_json(&json!({
+                "kind":"session.effect.intent.recorded",
+                "payload":&payload,
+            }))?
+            .as_bytes(),
+        );
+        let tx = self.connection.transaction()?;
+        if let Some(commit) = operation_receipt(
+            &tx,
+            SESSION_EFFECT_INTENT_OPERATION,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            return Ok(commit);
+        }
+        let session_id = transaction_session_id(&tx)?;
+        anyhow::ensure!(
+            session_id == self.session_id.as_str(),
+            "session effect target does not match registry session"
+        );
+        if operation == "session.hibernate" {
+            let hibernation_enabled = tx
+                .query_row(
+                    "SELECT enabled FROM journal_session_hibernation_policy WHERE session_id = ?1",
+                    [target_session_id.as_str()],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?
+                .unwrap_or(0);
+            anyhow::ensure!(
+                hibernation_enabled == 1,
+                "hibernation policy is disabled; enable it through the journal policy authority before requesting hibernation"
+            );
+        }
+        let mut subjects = BTreeSet::from([
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "effect_workflow".into(), id: workflow_id.into() },
+        ]);
+        if let Some(terminal_id) = terminal_id {
+            subjects
+                .insert(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
+        }
+        let subjects = subjects.into_iter().collect::<Vec<_>>();
+        let producer =
+            JournalProducer { kind: "trusted_local_authority".into(), id: "cmux_tui".into() };
+        let authority = JournalAuthority {
+            principal_id: origin.into(),
+            lease_id: "session-persistence".into(),
+            generation: self.generation.clone(),
+            role: "session.persistence".into(),
+        };
+        let event_id = random_event_id("session_effect");
+        let occurred_at_ms = unix_epoch_ms()?;
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "session.effect.intent.recorded",
+                class: JournalClass::Effect,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms,
+                producer: &producer,
+                authority: Some(&authority),
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        apply_session_persistence_journal_record(
+            &tx,
+            sequence,
+            "session.effect.intent.recorded",
+            occurred_at_ms,
+            &producer,
+            Some(&authority),
+            &subjects,
+            &payload,
+        )?;
+        let result = json!({
+            "workflow_id":workflow_id,
+            "operation":operation,
+            "attempt_generation":attempt_generation.to_string(),
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            SESSION_EFFECT_INTENT_OPERATION,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_session_effect_outcome(
+        &mut self,
+        origin: &str,
+        idempotency_key: &str,
+        workflow_id: &str,
+        attempt_generation: u64,
+        outcome: &str,
+    ) -> anyhow::Result<JournalAppendCommit> {
+        validate_identifier("session effect origin", origin)?;
+        validate_identifier("session effect idempotency key", idempotency_key)?;
+        validate_identifier("session effect workflow id", workflow_id)?;
+        anyhow::ensure!(
+            attempt_generation > 0,
+            "session effect attempt generation must be positive"
+        );
+        anyhow::ensure!(
+            matches!(outcome, "succeeded" | "failed" | "indeterminate"),
+            "session effect outcome is unsupported"
+        );
+        let payload = json!({
+            "format":"cmux.session-effect-outcome.v1",
+            "workflow_id":workflow_id,
+            "attempt_generation":attempt_generation.to_string(),
+            "outcome":outcome,
+        });
+        let fingerprint = Sha256::digest(
+            canonical_json(&json!({
+                "kind":"session.effect.outcome.recorded",
+                "payload":&payload,
+            }))?
+            .as_bytes(),
+        );
+        let tx = self.connection.transaction()?;
+        if let Some(commit) = operation_receipt(
+            &tx,
+            SESSION_EFFECT_OUTCOME_OPERATION,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+        )? {
+            return Ok(commit);
+        }
+        let session_id = transaction_session_id(&tx)?;
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id },
+            JournalSubject { kind: "effect_workflow".into(), id: workflow_id.into() },
+        ];
+        let producer =
+            JournalProducer { kind: "trusted_local_authority".into(), id: "cmux_tui".into() };
+        let authority = JournalAuthority {
+            principal_id: origin.into(),
+            lease_id: "session-persistence".into(),
+            generation: self.generation.clone(),
+            role: "session.persistence".into(),
+        };
+        let event_id = random_event_id("session_effect");
+        let occurred_at_ms = unix_epoch_ms()?;
+        let sequence = append_journal_record(
+            &tx,
+            &JournalAppend {
+                event_id: &event_id,
+                schema_version: 1,
+                kind: "session.effect.outcome.recorded",
+                class: JournalClass::Effect,
+                replay: JournalReplayPolicy::Required,
+                occurred_at_ms,
+                producer: &producer,
+                authority: Some(&authority),
+                causation_id: None,
+                correlation_id: Some(idempotency_key),
+                causation_depth: 0,
+                subjects: &subjects,
+                sensitivity: JournalSensitivity::Metadata,
+                payload: &payload,
+                content: None,
+                resource_revision: None,
+                previous_resource_revision: None,
+            },
+        )?;
+        apply_session_persistence_journal_record(
+            &tx,
+            sequence,
+            "session.effect.outcome.recorded",
+            occurred_at_ms,
+            &producer,
+            Some(&authority),
+            &subjects,
+            &payload,
+        )?;
+        let result = json!({
+            "workflow_id":workflow_id,
+            "attempt_generation":attempt_generation.to_string(),
+            "outcome":outcome,
+            "sequence":sequence.to_string(),
+            "event_id":event_id,
+        });
+        insert_operation_receipt(
+            &tx,
+            SESSION_EFFECT_OUTCOME_OPERATION,
+            origin,
+            idempotency_key,
+            fingerprint.as_slice(),
+            sequence,
+            &result,
+        )?;
+        tx.commit()?;
+        Ok(JournalAppendCommit { sequence, event_id, replayed: false })
     }
 }
 
@@ -2700,6 +2967,14 @@ fn validate_dotted_kind(value: &str) -> anyhow::Result<()> {
         "journal event kind must be a dotted lowercase ASCII name"
     );
     Ok(())
+}
+
+#[allow(dead_code)]
+fn session_effect_operation_is_supported_for_append(operation: &str) -> bool {
+    matches!(
+        operation,
+        "session.hibernate" | "session.recover" | "session.restore" | "session.fork"
+    )
 }
 
 fn sensitivity_rank(value: JournalSensitivity) -> u8 {

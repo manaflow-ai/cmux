@@ -4013,6 +4013,139 @@ fn session_effect_workflow_rejects_missing_corrupt_and_secret_shaped_payloads() 
 }
 
 #[test]
+fn session_effect_workflow_recorders_are_receipt_gated_and_live_projected() {
+    let root = temp_root("effect-workflow-receipts");
+    let mut registry = WorkspaceRegistry::open(&root, "effect-workflow-receipts").unwrap();
+    commit_terminal_topology(&mut registry, "effect-workflow-receipts-seed");
+    let target_session_id = registry.session_id().clone();
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let first_intent = registry
+        .record_session_effect_intent(
+            "test",
+            "effect-intent-idempotency",
+            "effect-receipt-1",
+            "session.recover",
+            1,
+            &target_session_id,
+            Some(&terminal_id),
+            Some("agent-tree-1"),
+            Some("agent-node-1"),
+            true,
+        )
+        .unwrap();
+    assert!(!first_intent.replayed);
+    let retry_intent = registry
+        .record_session_effect_intent(
+            "test",
+            "effect-intent-idempotency",
+            "effect-receipt-1",
+            "session.recover",
+            1,
+            &target_session_id,
+            Some(&terminal_id),
+            Some("agent-tree-1"),
+            Some("agent-node-1"),
+            true,
+        )
+        .unwrap();
+    assert!(retry_intent.replayed);
+    assert_eq!(retry_intent.sequence, first_intent.sequence);
+    assert!(registry
+        .record_session_effect_intent(
+            "test",
+            "effect-intent-idempotency",
+            "effect-receipt-1",
+            "session.recover",
+            2,
+            &target_session_id,
+            Some(&terminal_id),
+            Some("agent-tree-1"),
+            Some("agent-node-1"),
+            true,
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("different payload"));
+
+    let first_outcome = registry
+        .record_session_effect_outcome(
+            "test",
+            "effect-outcome-idempotency",
+            "effect-receipt-1",
+            1,
+            "succeeded",
+        )
+        .unwrap();
+    assert!(!first_outcome.replayed);
+    let retry_outcome = registry
+        .record_session_effect_outcome(
+            "test",
+            "effect-outcome-idempotency",
+            "effect-receipt-1",
+            1,
+            "succeeded",
+        )
+        .unwrap();
+    assert!(retry_outcome.replayed);
+    assert_eq!(retry_outcome.sequence, first_outcome.sequence);
+
+    let rows = session_effect_workflow_rows(&registry);
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].contains("effect-receipt-1:succeeded:1:session.recover:"));
+    assert!(rows[0].contains(r#""agent_tree_id":"agent-tree-1""#));
+    let intent_events: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM session_journal
+             WHERE kind = 'session.effect.intent.recorded'
+               AND json_extract(payload_json, '$.workflow_id') = 'effect-receipt-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(intent_events, 1);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn session_effect_hibernate_disabled_request_is_non_mutating() {
+    let root = temp_root("effect-hibernate-disabled");
+    let mut registry = WorkspaceRegistry::open(&root, "effect-hibernate-disabled").unwrap();
+    let target_session_id = registry.session_id().clone();
+    let error = registry
+        .record_session_effect_intent(
+            "test",
+            "hibernate-disabled-idempotency",
+            "effect-hibernate-disabled",
+            "session.hibernate",
+            1,
+            &target_session_id,
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("hibernation policy is disabled"));
+    let hibernate_events: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM session_journal
+             WHERE kind = 'session.effect.intent.recorded'
+               AND json_extract(payload_json, '$.operation') = 'session.hibernate'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(hibernate_events, 0);
+    assert!(session_effect_workflow_rows(&registry).is_empty());
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity() {
     let root = temp_root("agent-pi-journal-projection");
     let terminal_id = terminal_resource(TERMINAL_ONE);
