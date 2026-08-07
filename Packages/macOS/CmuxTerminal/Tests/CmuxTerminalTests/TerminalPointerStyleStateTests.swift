@@ -17,16 +17,127 @@ struct TerminalPointerStyleStateTests {
         #expect(state.effectiveCursor == NSCursor.pointingHand)
     }
 
-    @Test("unsupported shapes preserve the current pointer")
-    func unsupportedShapeKeepsCurrentPointer() {
-        var state = TerminalPointerStyleState()
-        state.apply(.focusChanged(true))
-        state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
+    @Test("OSC 22 shapes map to their closest public AppKit cursor")
+    func mapsSupportedGhosttyPointerShapes() {
+        var mappings: [(ghostty_action_mouse_shape_e, NSCursor)] = [
+            (GHOSTTY_MOUSE_SHAPE_DEFAULT, .arrow),
+            (GHOSTTY_MOUSE_SHAPE_CONTEXT_MENU, .contextualMenu),
+            (GHOSTTY_MOUSE_SHAPE_POINTER, .pointingHand),
+            (GHOSTTY_MOUSE_SHAPE_CELL, .crosshair),
+            (GHOSTTY_MOUSE_SHAPE_CROSSHAIR, .crosshair),
+            (GHOSTTY_MOUSE_SHAPE_TEXT, .iBeam),
+            (GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT, .iBeamCursorForVerticalLayout),
+            (GHOSTTY_MOUSE_SHAPE_ALIAS, .dragLink),
+            (GHOSTTY_MOUSE_SHAPE_COPY, .dragCopy),
+            (GHOSTTY_MOUSE_SHAPE_MOVE, .openHand),
+            (GHOSTTY_MOUSE_SHAPE_ALL_SCROLL, .openHand),
+            (GHOSTTY_MOUSE_SHAPE_GRAB, .openHand),
+            (GHOSTTY_MOUSE_SHAPE_GRABBING, .closedHand),
+            (GHOSTTY_MOUSE_SHAPE_NO_DROP, .operationNotAllowed),
+            (GHOSTTY_MOUSE_SHAPE_NOT_ALLOWED, .operationNotAllowed),
+        ]
 
-        let changed = state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_WAIT))
+        if #available(macOS 15.0, *) {
+            mappings += [
+                (GHOSTTY_MOUSE_SHAPE_COL_RESIZE, .columnResize),
+                (GHOSTTY_MOUSE_SHAPE_EW_RESIZE, .columnResize),
+                (GHOSTTY_MOUSE_SHAPE_ROW_RESIZE, .rowResize),
+                (GHOSTTY_MOUSE_SHAPE_NS_RESIZE, .rowResize),
+                (
+                    GHOSTTY_MOUSE_SHAPE_N_RESIZE,
+                    .rowResize(directions: .up)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_E_RESIZE,
+                    .columnResize(directions: .right)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_S_RESIZE,
+                    .rowResize(directions: .down)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_W_RESIZE,
+                    .columnResize(directions: .left)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_NE_RESIZE,
+                    .frameResize(position: .topRight, directions: .all)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_NESW_RESIZE,
+                    .frameResize(position: .topRight, directions: .all)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_NW_RESIZE,
+                    .frameResize(position: .topLeft, directions: .all)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE,
+                    .frameResize(position: .topLeft, directions: .all)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_SE_RESIZE,
+                    .frameResize(position: .bottomRight, directions: .all)
+                ),
+                (
+                    GHOSTTY_MOUSE_SHAPE_SW_RESIZE,
+                    .frameResize(position: .bottomLeft, directions: .all)
+                ),
+                (GHOSTTY_MOUSE_SHAPE_ZOOM_IN, .zoomIn),
+                (GHOSTTY_MOUSE_SHAPE_ZOOM_OUT, .zoomOut),
+            ]
+        } else {
+            mappings += [
+                (GHOSTTY_MOUSE_SHAPE_COL_RESIZE, .resizeLeftRight),
+                (GHOSTTY_MOUSE_SHAPE_EW_RESIZE, .resizeLeftRight),
+                (GHOSTTY_MOUSE_SHAPE_ROW_RESIZE, .resizeUpDown),
+                (GHOSTTY_MOUSE_SHAPE_NS_RESIZE, .resizeUpDown),
+                (GHOSTTY_MOUSE_SHAPE_N_RESIZE, .resizeUp),
+                (GHOSTTY_MOUSE_SHAPE_E_RESIZE, .resizeRight),
+                (GHOSTTY_MOUSE_SHAPE_S_RESIZE, .resizeDown),
+                (GHOSTTY_MOUSE_SHAPE_W_RESIZE, .resizeLeft),
+            ]
+        }
 
-        #expect(!changed)
-        #expect(state.effectiveCursor == NSCursor.crosshair)
+        for (shape, expected) in mappings {
+            var state = TerminalPointerStyleState()
+            state.apply(.focusChanged(true))
+            state.apply(.ghosttyShape(shape))
+
+            #expect(state.effectiveCursor.isEqual(expected))
+        }
+    }
+
+    @Test("shapes without a public AppKit equivalent preserve the current pointer")
+    func unsupportedGhosttyPointerShapesPreserveCurrentPointer() {
+        var shapes = [
+            GHOSTTY_MOUSE_SHAPE_HELP,
+            GHOSTTY_MOUSE_SHAPE_PROGRESS,
+            GHOSTTY_MOUSE_SHAPE_WAIT,
+        ]
+        if #unavailable(macOS 15.0) {
+            shapes += [
+                GHOSTTY_MOUSE_SHAPE_NE_RESIZE,
+                GHOSTTY_MOUSE_SHAPE_NW_RESIZE,
+                GHOSTTY_MOUSE_SHAPE_SE_RESIZE,
+                GHOSTTY_MOUSE_SHAPE_SW_RESIZE,
+                GHOSTTY_MOUSE_SHAPE_NESW_RESIZE,
+                GHOSTTY_MOUSE_SHAPE_NWSE_RESIZE,
+                GHOSTTY_MOUSE_SHAPE_ZOOM_IN,
+                GHOSTTY_MOUSE_SHAPE_ZOOM_OUT,
+            ]
+        }
+
+        for shape in shapes {
+            var state = TerminalPointerStyleState()
+            state.apply(.focusChanged(true))
+            state.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_CROSSHAIR))
+
+            let changed = state.apply(.ghosttyShape(shape))
+
+            #expect(!changed)
+            #expect(state.effectiveCursor == NSCursor.crosshair)
+        }
     }
 
     @Test("focus loss temporarily restores the terminal default")
@@ -69,18 +180,5 @@ struct TerminalPointerStyleStateTests {
         state.apply(.focusChanged(false))
         state.apply(.focusChanged(true))
         #expect(state.effectiveCursor == NSCursor.crosshair)
-    }
-
-    @Test("pointer state is isolated between terminal surfaces")
-    func stateDoesNotLeakBetweenSurfaces() {
-        var firstSurface = TerminalPointerStyleState()
-        var secondSurface = TerminalPointerStyleState()
-        firstSurface.apply(.focusChanged(true))
-        secondSurface.apply(.focusChanged(true))
-
-        firstSurface.apply(.ghosttyShape(GHOSTTY_MOUSE_SHAPE_COPY))
-
-        #expect(firstSurface.effectiveCursor == NSCursor.dragCopy)
-        #expect(secondSurface.effectiveCursor == NSCursor.iBeam)
     }
 }
