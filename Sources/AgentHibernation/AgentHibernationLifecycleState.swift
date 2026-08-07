@@ -25,6 +25,23 @@ enum AgentHibernationLifecycleState: String, Codable, Sendable, Equatable, CaseI
         parse(rawValue)
     }
 
+    static func aggregate(
+        statusKeyedStates: [String: AgentHibernationLifecycleState],
+        fallback: AgentHibernationLifecycleState?
+    ) -> AgentHibernationLifecycleState {
+        let states = statusKeyedStates
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .map(\.value)
+        guard !states.isEmpty else {
+            return fallback ?? .unknown
+        }
+        if states.contains(.running) { return .running }
+        if states.contains(.needsInput) { return .needsInput }
+        if states.contains(.unknown) { return .unknown }
+        if states.contains(.idle) { return .idle }
+        return fallback ?? .unknown
+    }
+
     private static func parse(_ rawValue: String) -> AgentHibernationLifecycleState? {
         let normalized = rawValue
             .trimmingCharacters(in: .whitespacesAndNewlines)
