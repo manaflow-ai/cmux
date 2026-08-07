@@ -15,6 +15,7 @@ public enum PanelType: String, Codable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case notifications
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
@@ -44,6 +45,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
             self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {
+            self = .notifications
             return
         }
         if rawValue.lowercased() == Self.cloudVMLoading.rawValue.lowercased() {
