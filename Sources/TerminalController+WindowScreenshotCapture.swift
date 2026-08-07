@@ -1,5 +1,4 @@
 import AppKit
-import CmuxFoundation
 import Foundation
 import ScreenCaptureKit
 import WebKit
@@ -30,66 +29,58 @@ extension TerminalController {
         let outputPath = outputDir.appendingPathComponent(filename)
 
         let captureCoordinator = windowScreenshotCaptureCoordinator
-        guard let admission = captureCoordinator.claim() else {
+        guard let captureLease = captureCoordinator.claim() else {
             return "ERROR: screenshot capture already in progress"
         }
 
-        defer {
-            captureCoordinator.finish(admission)
-        }
-
-        let captureTarget: CGWindowID? = v2MainSync {
-            let candidateWindows = NSApp.windows.filter { window in
-                window.isVisible &&
-                !window.isMiniaturized &&
-                window.contentView != nil &&
-                !window.frame.isEmpty
-            }
-            let window = WindowScreenshotWindowSelector.select(
-                eligibleWindows: candidateWindows,
-                keyWindow: NSApp.keyWindow,
-                mainWindow: NSApp.mainWindow,
-                terminalWindow: self.tabManager?.window
+        // The operation owns admission. A socket timeout cancels it but cannot
+        // admit another capture until both structured backend tasks retire.
+        let captureTask = Task {
+            defer { captureLease.retire() }
+            return await self.performWindowScreenshotCapture(
+                screenshotID: screenshotId,
+                outputPath: outputPath
             )
-
-            guard let window,
-                  let windowID = WindowScreenshotTarget(
-                    windowNumber: window.windowNumber
-                  )?.windowID else {
-                return nil
-            }
-            return windowID
         }
+        let response: String? = socketAwaitCallback(timeout: 10) { completion in
+            Task {
+                completion(await captureTask.value)
+            }
+        }
+        guard let response else {
+            captureTask.cancel()
+            return "ERROR: screenshot capture timed out"
+        }
+        return response
+    }
 
-        guard let captureTarget else {
+    private nonisolated func performWindowScreenshotCapture(
+        screenshotID: String,
+        outputPath: URL
+    ) async -> String {
+        guard !Task.isCancelled else {
+            return "ERROR: screenshot capture timed out"
+        }
+        guard let captureTarget = await self.windowScreenshotCaptureTarget() else {
             return "ERROR: No window available"
         }
 
-        // AppKit does not include every layer-backed child in cacheDisplay.
-        // The permission-free capture above fills those gaps from cmux's own
-        // Ghostty IOSurfaces and WKWebView snapshots. Only ask the system
-        // compositor when one of those own-process snapshots was unavailable,
-        // and retain the AppKit result as the no-permission fallback.
-        let appKitCapture = captureAppKitWindowPNGData(captureTarget)
-        let pngData: Data
-        if let appKitCapture, appKitCapture.capturedAllExternalContent {
-            pngData = appKitCapture.pngData
-        } else {
-            let screenCaptureKitAttempt = captureScreenCaptureKitWindowPNGData(
-                captureTarget,
-                isAllowed: admission.allowsScreenCaptureKit
-            )
-            switch screenCaptureKitAttempt {
-            case .captured(let data):
-                pngData = data
-            case .unavailable:
-                guard let appKitCapture else {
-                    return "ERROR: Failed to create PNG data"
-                }
-                pngData = appKitCapture.pngData
-            case .timedOut:
-                return "ERROR: screenshot capture timed out"
-            }
+        // AppKit is the permission-free fallback. ScreenCaptureKit is always
+        // attempted because arbitrary AppKit view trees can host compositor-
+        // backed content whose cacheDisplay completeness cannot be proven.
+        async let appKitCapture = self.captureAppKitWindowPNGData(captureTarget)
+        async let screenCaptureKitData =
+            Self.captureScreenCaptureKitWindowPNGDataAsync(captureTarget)
+        let (appKitResult, screenCaptureKitResult) = await (
+            appKitCapture,
+            screenCaptureKitData
+        )
+
+        guard !Task.isCancelled else {
+            return "ERROR: screenshot capture timed out"
+        }
+        guard let pngData = screenCaptureKitResult ?? appKitResult?.pngData else {
+            return "ERROR: Failed to create PNG data"
         }
 
         do {
@@ -99,40 +90,26 @@ extension TerminalController {
         }
 
         // Return OK with screenshot ID and path for easy reference
-        return "OK \(screenshotId) \(outputPath.path)"
+        return "OK \(screenshotID) \(outputPath.path)"
     }
 
-    private nonisolated func captureScreenCaptureKitWindowPNGData(
-        _ windowID: CGWindowID,
-        isAllowed: Bool
-    ) -> WindowScreenshotCaptureAttempt {
-        guard isAllowed else {
-            return .timedOut
+    @MainActor
+    private func windowScreenshotCaptureTarget() -> CGWindowID? {
+        let candidateWindows = NSApp.windows.filter { window in
+            window.isVisible &&
+                !window.isMiniaturized &&
+                window.contentView != nil &&
+                !window.frame.isEmpty
         }
+        let window = WindowScreenshotWindowSelector.select(
+            eligibleWindows: candidateWindows,
+            keyWindow: NSApp.keyWindow,
+            mainWindow: NSApp.mainWindow,
+            terminalWindow: tabManager?.window
+        )
 
-        let captureTask = Task {
-            return await Self.captureScreenCaptureKitWindowPNGDataAsync(windowID)
-        }
-        let captured: Data?? = socketAwaitCallback(timeout: 5) { completion in
-            Task {
-                completion(await captureTask.value)
-            }
-        }
-        guard let captured else {
-            windowScreenshotCaptureCoordinator
-                .disableScreenCaptureKitUntilAttemptRetires()
-            captureTask.cancel()
-            let captureCoordinator = windowScreenshotCaptureCoordinator
-            Task {
-                _ = await captureTask.value
-                captureCoordinator.screenCaptureKitAttemptDidRetire()
-            }
-            return .timedOut
-        }
-        guard let captured else {
-            return .unavailable
-        }
-        return .captured(captured)
+        guard let window else { return nil }
+        return WindowScreenshotTarget(windowNumber: window.windowNumber)?.windowID
     }
 
     private nonisolated static func captureScreenCaptureKitWindowPNGDataAsync(
@@ -182,46 +159,23 @@ extension TerminalController {
         }
     }
 
-    private nonisolated func captureAppKitWindowPNGData(
+    @MainActor
+    private func captureAppKitWindowPNGData(
         _ windowID: CGWindowID
-    ) -> WindowAppKitCapture? {
-        let deliveryIsOpen = AtomicBooleanGate(true)
-        var captureTask: Task<Void, Never>?
-        let capture: WindowAppKitCapture?? = socketAwaitCallback(timeout: 5) { completion in
-            captureTask = Task { @MainActor in
-                guard !Task.isCancelled else { return }
-                guard let window = NSApp.windows.first(where: {
-                    guard let candidateID = WindowScreenshotTarget(
-                        windowNumber: $0.windowNumber
-                    )?.windowID else {
-                        return false
-                    }
-                    return candidateID == windowID
-                }) else {
-                    if deliveryIsOpen.compareExchange(expected: true, desired: false) {
-                        completion(nil)
-                    }
-                    return
-                }
-                let result = await self.captureAppKitWindowPNGData(window)
-                guard !Task.isCancelled else { return }
-                if deliveryIsOpen.compareExchange(expected: true, desired: false) {
-                    completion(result)
-                }
-            }
+    ) async -> WindowAppKitCapture? {
+        guard let window = NSApp.windows.first(where: {
+            WindowScreenshotTarget(windowNumber: $0.windowNumber)?.windowID
+                == windowID
+        }) else {
+            return nil
         }
-        if capture == nil {
-            _ = deliveryIsOpen.compareExchange(expected: true, desired: false)
-            captureTask?.cancel()
-        }
-        return capture ?? nil
+        return await captureAppKitWindowPNGData(window)
     }
 
     private func captureAppKitWindowPNGData(_ window: NSWindow) async -> WindowAppKitCapture? {
         guard !Task.isCancelled else { return nil }
-        // Leave enough time for drawing, PNG encoding, and delivery before the
-        // worker's five-second waiter expires. Every WebKit request consumes
-        // from this one aggregate budget instead of receiving two fresh seconds.
+        // Every WebKit request consumes from one aggregate fallback budget so
+        // this structured child responds promptly to cancellation.
         let captureDeadline = ProcessInfo.processInfo.systemUptime + 4
         guard let captureRoot = WindowAppKitCapture.rootView(for: window) else {
             return nil
@@ -238,15 +192,8 @@ extension TerminalController {
         captureRoot.cacheDisplay(in: bounds, to: bitmap)
         guard !Task.isCancelled else { return nil }
 
-        var overlays: [(
-            image: CGImage,
-            rect: NSRect,
-            clipRect: NSRect,
-            alpha: CGFloat,
-            zOrder: [Int]
-        )] = []
+        var overlays: [WindowScreenshotOverlay] = []
         var capturedOccludingViews = Set<ObjectIdentifier>()
-        var capturedAllExternalContent = true
 
         for terminalView in visibleDescendants(of: captureRoot, as: GhosttySurfaceScrollView.self) {
             guard !Task.isCancelled else { return nil }
@@ -257,33 +204,38 @@ extension TerminalController {
                 continue
             }
             guard let image = terminalView.debugCopyIOSurfaceCGImage() else {
-                capturedAllExternalContent = false
                 continue
             }
             let rect = terminalView.surfaceView.convert(
                 terminalView.surfaceView.bounds,
                 to: captureRoot
             )
-            guard !rect.isEmpty else {
-                capturedAllExternalContent = false
-                continue
-            }
+            guard !rect.isEmpty else { continue }
             let alpha = effectiveAlpha(of: terminalView.surfaceView, through: captureRoot)
             guard alpha > 0 else { continue }
             guard let zOrder = hierarchyZOrder(of: terminalView.surfaceView, through: captureRoot) else {
-                capturedAllExternalContent = false
                 continue
             }
-            overlays.append((image, rect, clipRect, alpha, zOrder))
-            if !appendNativeOccluderOverlays(
+            overlays.append(WindowScreenshotOverlay(
+                image: image,
+                rect: rect,
+                clipRect: clipRect,
+                alpha: alpha,
+                zOrder: zOrder
+            ))
+            appendNativeDescendantOverlays(
+                inside: terminalView.surfaceView,
+                through: captureRoot,
+                capturedViews: &capturedOccludingViews,
+                to: &overlays
+            )
+            appendNativeOccluderOverlays(
                 above: terminalView.surfaceView,
                 through: captureRoot,
                 overlapping: rect,
                 capturedViews: &capturedOccludingViews,
                 to: &overlays
-            ) {
-                capturedAllExternalContent = false
-            }
+            )
         }
 
         for webView in visibleDescendants(of: captureRoot, as: WKWebView.self) {
@@ -296,10 +248,7 @@ extension TerminalController {
             }
             let remainingBudget =
                 captureDeadline - ProcessInfo.processInfo.systemUptime
-            guard remainingBudget > 0 else {
-                capturedAllExternalContent = false
-                break
-            }
+            guard remainingBudget > 0 else { break }
             do {
                 let image = try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(
                     from: webView,
@@ -312,34 +261,33 @@ extension TerminalController {
                     context: nil,
                     hints: nil
                 ) else {
-                    capturedAllExternalContent = false
                     continue
                 }
                 let rect = webView.convert(webView.bounds, to: captureRoot)
-                guard !rect.isEmpty else {
-                    capturedAllExternalContent = false
-                    continue
-                }
+                guard !rect.isEmpty else { continue }
                 let alpha = effectiveAlpha(of: webView, through: captureRoot)
                 guard alpha > 0 else { continue }
                 guard let zOrder = hierarchyZOrder(of: webView, through: captureRoot) else {
-                    capturedAllExternalContent = false
                     continue
                 }
-                overlays.append((cgImage, rect, clipRect, alpha, zOrder))
-                if !appendNativeOccluderOverlays(
+                overlays.append(WindowScreenshotOverlay(
+                    image: cgImage,
+                    rect: rect,
+                    clipRect: clipRect,
+                    alpha: alpha,
+                    zOrder: zOrder
+                ))
+                appendNativeOccluderOverlays(
                     above: webView,
                     through: captureRoot,
                     overlapping: rect,
                     capturedViews: &capturedOccludingViews,
                     to: &overlays
-                ) {
-                    capturedAllExternalContent = false
-                }
+                )
             } catch is CancellationError {
                 return nil
             } catch {
-                capturedAllExternalContent = false
+                continue
             }
         }
 
@@ -382,10 +330,7 @@ extension TerminalController {
         guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
             return nil
         }
-        return WindowAppKitCapture(
-            pngData: pngData,
-            capturedAllExternalContent: capturedAllExternalContent
-        )
+        return WindowAppKitCapture(pngData: pngData)
     }
 
     private func visibleDescendants<T: NSView>(
@@ -407,68 +352,88 @@ extension TerminalController {
         return matches
     }
 
+    private func appendNativeDescendantOverlays(
+        inside externalView: NSView,
+        through root: NSView,
+        capturedViews: inout Set<ObjectIdentifier>,
+        to overlays: inout [WindowScreenshotOverlay]
+    ) {
+        for subview in WindowAppKitCapture.nativeOverlayCandidates(
+            inside: externalView
+        ) {
+            appendNativeOverlay(
+                subview,
+                through: root,
+                capturedViews: &capturedViews,
+                to: &overlays
+            )
+        }
+    }
+
     private func appendNativeOccluderOverlays(
         above externalView: NSView,
         through root: NSView,
         overlapping externalRect: NSRect,
         capturedViews: inout Set<ObjectIdentifier>,
-        to overlays: inout [(
-            image: CGImage,
-            rect: NSRect,
-            clipRect: NSRect,
-            alpha: CGFloat,
-            zOrder: [Int]
-        )]
-    ) -> Bool {
-        var capturedEveryOccluder = true
+        to overlays: inout [WindowScreenshotOverlay]
+    ) {
         var current = externalView
 
         while current !== root {
             guard let parent = current.superview,
                   let index = parent.subviews.firstIndex(where: { $0 === current }) else {
-                return false
+                return
             }
 
             for sibling in parent.subviews.dropFirst(index + 1) {
-                guard !sibling.isHiddenOrHasHiddenAncestor,
-                      sibling.alphaValue > 0,
-                      !viewHierarchyContainsExternalContent(sibling) else {
-                    continue
-                }
                 let rect = sibling.convert(sibling.bounds, to: root)
                 guard !rect.isEmpty, rect.intersects(externalRect) else { continue }
-                guard let clipRect = WindowAppKitCapture.visibleRect(
-                    of: sibling,
-                    through: root
-                ) else {
-                    continue
-                }
-
-                let identifier = ObjectIdentifier(sibling)
-                guard capturedViews.insert(identifier).inserted else { continue }
-                guard let bitmap = sibling.bitmapImageRepForCachingDisplay(in: sibling.bounds) else {
-                    capturedEveryOccluder = false
-                    continue
-                }
-                bitmap.size = sibling.bounds.size
-                sibling.displayIfNeeded()
-                sibling.cacheDisplay(in: sibling.bounds, to: bitmap)
-                guard let image = bitmap.cgImage else {
-                    capturedEveryOccluder = false
-                    continue
-                }
-                let alpha = effectiveAlpha(of: sibling, through: root)
-                guard alpha > 0 else { continue }
-                guard let zOrder = hierarchyZOrder(of: sibling, through: root) else {
-                    capturedEveryOccluder = false
-                    continue
-                }
-                overlays.append((image, rect, clipRect, alpha, zOrder))
+                appendNativeOverlay(
+                    sibling,
+                    through: root,
+                    capturedViews: &capturedViews,
+                    to: &overlays
+                )
             }
             current = parent
         }
+    }
 
-        return capturedEveryOccluder
+    private func appendNativeOverlay(
+        _ view: NSView,
+        through root: NSView,
+        capturedViews: inout Set<ObjectIdentifier>,
+        to overlays: inout [WindowScreenshotOverlay]
+    ) {
+        guard !view.isHiddenOrHasHiddenAncestor,
+              view.alphaValue > 0,
+              !WindowAppKitCapture.containsSystemCompositorContent(in: view),
+              let clipRect = WindowAppKitCapture.visibleRect(of: view, through: root) else {
+            return
+        }
+        let identifier = ObjectIdentifier(view)
+        guard capturedViews.insert(identifier).inserted,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            return
+        }
+        bitmap.size = view.bounds.size
+        view.displayIfNeeded()
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let image = bitmap.cgImage else { return }
+        let rect = view.convert(view.bounds, to: root)
+        let alpha = effectiveAlpha(of: view, through: root)
+        guard !rect.isEmpty,
+              alpha > 0,
+              let zOrder = hierarchyZOrder(of: view, through: root) else {
+            return
+        }
+        overlays.append(WindowScreenshotOverlay(
+            image: image,
+            rect: rect,
+            clipRect: clipRect,
+            alpha: alpha,
+            zOrder: zOrder
+        ))
     }
 
     private func windowScreenshotBitmapRect(
@@ -490,13 +455,6 @@ extension TerminalController {
             width: rect.width,
             height: rect.height
         )
-    }
-
-    private func viewHierarchyContainsExternalContent(_ view: NSView) -> Bool {
-        if view is GhosttyNSView || view is WKWebView {
-            return true
-        }
-        return view.subviews.contains(where: viewHierarchyContainsExternalContent)
     }
 
     private func hierarchyZOrder(of view: NSView, through root: NSView) -> [Int]? {

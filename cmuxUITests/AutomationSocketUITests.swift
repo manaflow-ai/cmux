@@ -299,9 +299,9 @@ final class AutomationSocketUITests: XCTestCase {
                 label: "issue-9065-terminal-only",
                 minimumMarkerPixels: 100,
                 minimumBrowserPixels: 0,
-                timeout: 20.0
+                timeout: 30.0
             ),
-            "Expected the AppKit path to capture terminal-only window content"
+            "Expected the screenshot command to capture terminal-only window content"
         )
         XCTAssertGreaterThan(
             terminalOnlyCapture.stats.markerPixels,
@@ -362,7 +362,7 @@ final class AutomationSocketUITests: XCTestCase {
                 label: "issue-9065-window",
                 minimumMarkerPixels: 100,
                 minimumBrowserPixels: 1_000,
-                timeout: 20.0
+                timeout: 30.0
             ),
             "Expected debug.window.screenshot to capture terminal and browser content"
         )
@@ -440,9 +440,9 @@ final class AutomationSocketUITests: XCTestCase {
                 guard let screenshot = self.socketResult(
                     method: "debug.window.screenshot",
                     params: ["label": label],
-                    // The server may spend five seconds in AppKit and then
-                    // five more in ScreenCaptureKit before replying.
-                    responseTimeout: 12.0,
+                    // The server gives its concurrent capture backends ten
+                    // seconds; the outer wait leaves room for another poll.
+                    responseTimeout: 11.0,
                     allowsReplayFallback: false
                 ),
                     let path = screenshot["path"] as? String else {

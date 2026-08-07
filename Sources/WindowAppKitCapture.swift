@@ -1,11 +1,14 @@
 #if DEBUG
 import AppKit
+import AVKit
 import Foundation
+import PDFKit
+import Quartz
+import WebKit
 
-/// Holds an AppKit-rendered PNG and whether every external child layer was composited.
+/// Holds the permission-free AppKit fallback for one window screenshot.
 struct WindowAppKitCapture: Sendable {
     let pngData: Data
-    let capturedAllExternalContent: Bool
 
     /// Uses AppKit's frame view so native titlebars, toolbars, and accessories
     /// remain in the image alongside the window's content view.
@@ -25,6 +28,31 @@ struct WindowAppKitCapture: Sendable {
         let visibleInRoot = view.convert(visibleBounds, to: root)
             .intersection(root.bounds)
         return visibleInRoot.isEmpty ? nil : visibleInRoot
+    }
+
+    /// Identifies view hierarchies whose pixels are owned by a system or GPU
+    /// compositor rather than ordinary AppKit drawing.
+    @MainActor
+    static func containsSystemCompositorContent(in view: NSView) -> Bool {
+        if view is GhosttyNSView ||
+            view is WKWebView ||
+            view is AVPlayerView ||
+            view is QLPreviewView ||
+            view is PDFView {
+            return true
+        }
+        return view.subviews.contains(where: containsSystemCompositorContent)
+    }
+
+    /// Returns native children that must be redrawn after a raw external
+    /// surface image is composited over AppKit's initial cache.
+    @MainActor
+    static func nativeOverlayCandidates(inside externalView: NSView) -> [NSView] {
+        externalView.subviews.filter { view in
+            !view.isHiddenOrHasHiddenAncestor &&
+                view.alphaValue > 0 &&
+                !containsSystemCompositorContent(in: view)
+        }
     }
 }
 #endif

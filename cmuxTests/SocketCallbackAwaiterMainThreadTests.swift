@@ -1,4 +1,5 @@
 import AppKit
+import AVKit
 import Foundation
 import Testing
 
@@ -97,42 +98,19 @@ import Testing
         #expect(WindowScreenshotTarget(windowNumber: Int(UInt32.max) + 1) == nil)
     }
 
-    @Test func coordinatorRecoversTimedOutCompositorAfterRetirement() throws {
+    @Test func coordinatorRetainsAdmissionUntilLeaseRetires() throws {
         let coordinator = WindowScreenshotCaptureCoordinator()
-
-        let firstClaim = coordinator.claim()
-        let first = try #require(firstClaim)
-        #expect(first.allowsScreenCaptureKit)
-        let contendedClaim = coordinator.claim()
-        #expect(contendedClaim == nil)
-
-        coordinator.disableScreenCaptureKitUntilAttemptRetires()
-        coordinator.finish(first)
-
-        let secondClaim = coordinator.claim()
-        let second = try #require(secondClaim)
-        #expect(!second.allowsScreenCaptureKit)
-        coordinator.finish(second)
-        coordinator.screenCaptureKitAttemptDidRetire()
-        let third = coordinator.claim()
-        let recovered = try #require(third)
-        #expect(recovered.allowsScreenCaptureKit)
-        coordinator.finish(recovered)
-    }
-
-    @Test func coordinatorReleasesAdmissionBeforeFinishReturns() throws {
-        let coordinator = WindowScreenshotCaptureCoordinator()
-        let first = try #require(coordinator.claim())
-
-        coordinator.finish(first)
-
-        let replacement = try #require(coordinator.claim())
-        #expect(replacement.id != first.id)
-        coordinator.finish(first)
+        let firstLease = try #require(coordinator.claim())
         #expect(coordinator.claim() == nil)
-        coordinator.finish(replacement)
-        let final = try #require(coordinator.claim())
-        coordinator.finish(final)
+
+        firstLease.retire()
+        let replacementLease = try #require(coordinator.claim())
+        firstLease.retire()
+        #expect(coordinator.claim() == nil)
+
+        replacementLease.retire()
+        let finalLease = try #require(coordinator.claim())
+        finalLease.retire()
     }
 
     @MainActor
@@ -193,6 +171,33 @@ import Testing
         )
 
         #expect(visibleRect == NSRect(x: 10, y: 20, width: 40, height: 30))
+    }
+
+    @MainActor
+    @Test func detectsSystemCompositorBackedPanelContent() {
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let playerView = AVPlayerView(frame: root.bounds)
+        root.addSubview(playerView)
+
+        #expect(WindowAppKitCapture.containsSystemCompositorContent(in: root))
+    }
+
+    @MainActor
+    @Test func preservesNativeChildrenAboveExternalSurfaceImages() {
+        let externalSurface = NSView(
+            frame: NSRect(x: 0, y: 0, width: 100, height: 100)
+        )
+        let nativeCursorOverlay = NSView(
+            frame: NSRect(x: 10, y: 20, width: 2, height: 18)
+        )
+        externalSurface.addSubview(nativeCursorOverlay)
+
+        let candidates = WindowAppKitCapture.nativeOverlayCandidates(
+            inside: externalSurface
+        )
+
+        #expect(candidates.count == 1)
+        #expect(candidates.first === nativeCursorOverlay)
     }
 
     @Test func screenshotLabelsCannotCreatePathComponents() {
