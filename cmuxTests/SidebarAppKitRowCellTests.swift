@@ -690,6 +690,101 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func workspaceIdentityChangeAndReuseInvalidateMatchingLinkProxy() throws {
+        let firstWorkspaceID = UUID()
+        let secondWorkspaceID = UUID()
+        let url = try #require(URL(string: "https://cmux.com"))
+        let initialModel = Self.makeModel(
+            workspaceId: firstWorkspaceID,
+            customDescription: url.absoluteString
+        )
+        var openedURL: URL?
+        let cell = Self.configuredCell(
+            model: initialModel,
+            onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+        )
+        let window = Self.layoutCell(cell, model: initialModel)
+        let textView = try #require(
+            Self.descriptionTextView(in: cell, showing: url.absoluteString)
+        )
+        let firstWorkspaceLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+
+        let secondModel = Self.makeModel(
+            workspaceId: secondWorkspaceID,
+            settings: initialModel.settings,
+            customDescription: url.absoluteString
+        )
+        cell.configure(
+            model: secondModel,
+            actions: Self.makeActions(
+                model: secondModel,
+                onOpenWorkspaceDescriptionURL: { openedURL = $0 }
+            ),
+            isPointerHovering: false,
+            contextMenuDidOpen: {},
+            contextMenuDidClose: {}
+        )
+        cell.layoutSubtreeIfNeeded()
+
+        let secondWorkspaceLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        #expect(secondWorkspaceLink !== firstWorkspaceLink)
+        #expect(!firstWorkspaceLink.accessibilityPerformPress())
+        #expect(secondWorkspaceLink.accessibilityPerformPress())
+        #expect(openedURL == url)
+
+        cell.prepareForReuse()
+        #expect(Self.accessibilityLinks(in: textView).isEmpty)
+        #expect(!secondWorkspaceLink.accessibilityPerformPress())
+        _ = window
+    }
+
+    @Test
+    func rightAlignedAccessibilityLinkFrameMatchesPointerHitRegion() throws {
+        let url = try #require(URL(string: "https://cmux.com"))
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .right
+        let source = NSAttributedString(
+            string: "cmux",
+            attributes: [
+                .link: url,
+                .paragraphStyle: paragraph,
+            ]
+        )
+        let attributed = try AttributedString(
+            source,
+            including: AttributeScopes.AppKitAttributes.self
+        )
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let textView = SidebarRowTextView(lines: 1)
+        textView.frame = host.bounds
+        textView.onOpenLink = { _ in }
+        host.addSubview(textView)
+        textView.configureAttributedText(
+            attributed,
+            font: .systemFont(ofSize: 12),
+            color: .labelColor,
+            linkColor: .linkColor
+        )
+        host.layoutSubtreeIfNeeded()
+
+        let accessibilityLink = try #require(
+            Self.accessibilityLinks(in: textView).first { $0.accessibilityURL() == url }
+        )
+        let linkFrame = accessibilityLink.accessibilityFrameInParentSpace()
+        #expect(textView.bounds.contains(linkFrame))
+        #expect(linkFrame.midX > textView.bounds.midX)
+        let linkPointInHost = textView.convert(
+            NSPoint(x: linkFrame.midX, y: linkFrame.midY),
+            to: host
+        )
+        #expect(textView.hitTest(linkPointInHost) === textView)
+    }
+
+    @Test
     func changedThenClearedAccessibilityLinkReplacesAndInvalidatesProxy() throws {
         let workspaceID = UUID()
         let initialURL = try #require(URL(string: "https://one.example"))
