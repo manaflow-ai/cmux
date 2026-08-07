@@ -59,6 +59,7 @@ struct SidebarAppKitRowCellTests {
         customDescription: String? = nil,
         isPinned: Bool = false,
         metadataEntries: [SidebarStatusEntry] = [],
+        progress: SidebarProgressState? = nil,
         checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let completedCount = checklistItems.count { $0.state == .completed }
@@ -81,7 +82,7 @@ struct SidebarAppKitRowCellTests {
             metadataEntries: metadataEntries,
             metadataBlocks: [],
             latestLog: nil,
-            progress: nil,
+            progress: progress,
             activeCodingAgentCount: 0,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
@@ -110,6 +111,7 @@ struct SidebarAppKitRowCellTests {
         settings: SidebarTabItemSettingsSnapshot? = nil,
         customDescription: String? = nil,
         metadataEntries: [SidebarStatusEntry] = [],
+        progress: SidebarProgressState? = nil,
         shortcutHintText: String? = nil,
         checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceRowModel {
@@ -122,6 +124,7 @@ struct SidebarAppKitRowCellTests {
                 customDescription: customDescription,
                 isPinned: isPinned,
                 metadataEntries: metadataEntries,
+                progress: progress,
                 checklistItems: checklistItems
             ),
             settings: resolvedSettings,
@@ -1232,6 +1235,73 @@ struct SidebarAppKitRowCellTests {
         #expect(expectedStandard != expectedIncreased)
         #expect(standardColor == expectedStandard)
         #expect(increasedColor == expectedIncreased)
+    }
+
+    @Test
+    func inactiveSecondaryOpacityMultipliesResolvedSemanticAlpha() throws {
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(
+                colorScheme: .dark,
+                colorSchemeContrast: .increased
+            ),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let description = "Contrast-aware description"
+        let metadataEntries = (0..<4).map {
+            SidebarStatusEntry(key: "key-\($0)", value: "value-\($0)")
+        }
+        let model = Self.makeModel(
+            customDescription: description,
+            metadataEntries: metadataEntries,
+            progress: SidebarProgressState(value: 0.5, label: "Halfway")
+        )
+        let cell = Self.configuredCell(
+            model: model,
+            environment: tableEnvironment
+        )
+        let semanticSecondary = try #require(
+            tableEnvironment.secondaryTextColor.usingColorSpace(.sRGB)
+        )
+
+        let descriptionField = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == description }
+        )
+        let descriptionColor = try #require(
+            descriptionField.attributedStringValue.attribute(
+                .foregroundColor,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+
+        let metadataToggle = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowLinkButton }
+                .first { !$0.isHidden && !$0.attributedTitle.string.isEmpty }
+        )
+        let metadataToggleColor = try #require(
+            metadataToggle.attributedTitle.attribute(
+                .foregroundColor,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSColor
+        )
+
+        let progressView = try #require(
+            Self.descendants(of: cell)
+                .compactMap { $0 as? SidebarRowProgressView }
+                .first { !$0.isHidden }
+        )
+        let progressTrack = try #require(progressView.subviews.first)
+        let progressTrackCGColor = try #require(progressTrack.layer?.backgroundColor)
+        let progressTrackColor = try #require(NSColor(cgColor: progressTrackCGColor))
+
+        #expect(abs(descriptionColor.alphaComponent - semanticSecondary.alphaComponent * 0.95) < 0.001)
+        #expect(abs(metadataToggleColor.alphaComponent - semanticSecondary.alphaComponent * 0.9) < 0.001)
+        #expect(abs(progressTrackColor.alphaComponent - semanticSecondary.alphaComponent * 0.2) < 0.001)
     }
 
     @Test
