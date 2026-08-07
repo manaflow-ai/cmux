@@ -307,10 +307,18 @@ APP_HOST_FIXTURE_BINARY="$TMP_DIR/app-host-lease-watcher"
 LEASE_FIXTURE_SEQUENCE=0
 build_app_host_fixture() {
   [ -x "$APP_HOST_FIXTURE_BINARY" ] && return 0
-  xcrun swiftc \
-    "$ROOT_DIR/Sources/AppHostProcessReceipt.swift" \
-    "$ROOT_DIR/tests/fixtures/AppHostLeaseWatcherMain.swift" \
-    -o "$APP_HOST_FIXTURE_BINARY"
+  if [ "${CMUX_APP_HOST_FORCE_PORTABLE_FIXTURE:-0}" != "1" ] \
+    && command -v xcrun >/dev/null 2>&1; then
+    xcrun swiftc \
+      "$ROOT_DIR/Sources/AppHostProcessReceipt.swift" \
+      "$ROOT_DIR/tests/fixtures/AppHostLeaseWatcherMain.swift" \
+      -o "$APP_HOST_FIXTURE_BINARY"
+  else
+    cp \
+      "$ROOT_DIR/tests/fixtures/app_host_lease_watcher.py" \
+      "$APP_HOST_FIXTURE_BINARY"
+    chmod 700 "$APP_HOST_FIXTURE_BINARY"
+  fi
 }
 
 spawn_lease_watched_app_host() {

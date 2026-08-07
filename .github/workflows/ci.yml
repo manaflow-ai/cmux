@@ -531,6 +531,10 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Validate production app-host lease watcher
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: bash tests/test_ci_app_host_processes.sh
+
       - name: Capture Ghostty revision
         id: ghostty-revision
         run: |
