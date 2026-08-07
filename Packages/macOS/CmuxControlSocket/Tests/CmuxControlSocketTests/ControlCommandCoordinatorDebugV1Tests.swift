@@ -64,6 +64,18 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let (coordinator, _) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "ping", args: "") == nil)
         #expect(coordinator.handleDebugV1(command: "simulate_type", args: "hi") == nil)
+        #expect(coordinator.handleDebugV1(command: "screenshot", args: "") == nil)
+
+        let screenshotRequest = ControlRequest(
+            id: .int(1),
+            method: "debug.window.screenshot",
+            params: [:]
+        )
+        #expect(coordinator.handle(screenshotRequest) == nil)
+        #expect(
+            ControlCommandExecutionPolicy(forMethod: screenshotRequest.method)
+                == .socketWorker(mainThreadCallable: false)
+        )
     }
 
     @Test func remoteTmuxSizingSettlementUsesMainActorDebugSeam() {

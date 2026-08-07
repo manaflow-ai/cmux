@@ -159,6 +159,10 @@ import Testing
             .reachabilityChanged: "Network reachability changed",
             .transportCloseAttribution: "Transport close attributed",
             .transportPathEvent: "Transport path changed",
+            .browserStreamLifecycle: "Browser stream lifecycle",
+            .browserInputReplayed: "Browser input replayed",
+            .browserEditableFocus: "Browser editable focus",
+            .browserPanelCreateResolved: "Browser panel create resolved",
         ]
 
         #expect(Set(expected.keys) == Set(DiagnosticEventCode.allCases))
@@ -233,6 +237,54 @@ import Testing
             .init(key: "surface", value: "7"),
             .init(key: "local_sequence", value: "10"),
             .init(key: "remote_sequence", value: "20"),
+        ])
+
+        let browserLifecycle = englishPresentation.describe(DiagnosticEvent(
+            code: .browserStreamLifecycle,
+            tNanos: 1,
+            a: 4,
+            c: 987
+        ))
+        #expect(browserLifecycle.fields == [
+            .init(key: "stage", value: "First frame delivered"),
+            .init(key: "panel", value: "987"),
+        ])
+
+        let browserInput = englishPresentation.describe(DiagnosticEvent(
+            code: .browserInputReplayed,
+            tNanos: 1,
+            a: 4,
+            b: 1,
+            c: 987
+        ))
+        #expect(browserInput.fields == [
+            .init(key: "input", value: "Key suppressed"),
+            .init(key: "count", value: "1"),
+            .init(key: "panel", value: "987"),
+        ])
+
+        let browserFocus = englishPresentation.describe(DiagnosticEvent(
+            code: .browserEditableFocus,
+            tNanos: 1,
+            a: 1,
+            b: 2,
+            c: 987
+        ))
+        #expect(browserFocus.fields == [
+            .init(key: "editable_focused", value: "Yes"),
+            .init(key: "outcome", value: "Already focused"),
+            .init(key: "panel", value: "987"),
+        ])
+
+        let browserCreate = englishPresentation.describe(DiagnosticEvent(
+            code: .browserPanelCreateResolved,
+            tNanos: 1,
+            a: 1,
+            c: 987
+        ))
+        #expect(browserCreate.fields == [
+            .init(key: "created", value: "Yes"),
+            .init(key: "panel", value: "987"),
         ])
 
         for described in [recovery, endpoint, session, composer, input] {
