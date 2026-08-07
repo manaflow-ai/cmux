@@ -5,11 +5,6 @@ import SwiftUI
 /// Legacy SwiftUI renderer for a workspace description in the sidebar.
 @MainActor
 struct SidebarWorkspaceDescriptionText: View {
-    struct RenderedContent {
-        let displayMarkdown: String
-        let renderedMarkdown: AttributedString?
-    }
-
     let markdown: String
     let isActive: Bool
     let activeForegroundColor: Color
@@ -17,18 +12,18 @@ struct SidebarWorkspaceDescriptionText: View {
     private static let maxDisplayedLines = 12
     private static let maxDisplayedCharacters = 4096
 
-    var renderedContent: RenderedContent {
+    var renderedContent: (displayMarkdown: String, renderedMarkdown: AttributedString?) {
         let displayMarkdown = markdown.sidebarBoundedDisplayString(
             maxDisplayedLines: Self.maxDisplayedLines,
             maxDisplayedCharacters: Self.maxDisplayedCharacters
         )
         guard let renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription else {
-            return RenderedContent(displayMarkdown: displayMarkdown, renderedMarkdown: nil)
+            return (displayMarkdown: displayMarkdown, renderedMarkdown: nil)
         }
         let styledMarkdown = renderedMarkdown.applyingSidebarRowLinkPolicy(
             activeForegroundColor: isActive ? activeForegroundColor : nil
         )
-        return RenderedContent(displayMarkdown: displayMarkdown, renderedMarkdown: styledMarkdown)
+        return (displayMarkdown: displayMarkdown, renderedMarkdown: styledMarkdown)
     }
 
     var body: some View {
