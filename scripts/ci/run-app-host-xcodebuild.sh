@@ -157,6 +157,8 @@ validate_app_host_config_paths() {
       resolved_reported_directory=""
       if [ -z "$reported_directory" ] \
         || [ -z "$reported_basename" ] \
+        || [ "$reported_basename" = "." ] \
+        || [ "$reported_basename" = ".." ] \
         || [ -L "$reported_path" ] \
         || ! resolved_reported_directory="$(cd "$reported_directory" 2>/dev/null && pwd -P)"; then
         echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2

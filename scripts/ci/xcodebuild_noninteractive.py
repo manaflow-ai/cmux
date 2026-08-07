@@ -16,6 +16,7 @@ from typing import BinaryIO
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
+EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 SWIFT_TESTING_STARTED_MARKER = b"Test run started."
 SWIFT_TESTING_DONE_RE = re.compile(
@@ -281,12 +282,12 @@ def main() -> int:
             log_file.write(f"{message}\n".encode())
             log_file.close()
         terminate_child(pid)
-        if saw_passing_terminal_summary:
-            return 0
         if "failed" in (selected_tests_result, swift_testing_result):
             return POST_TEST_FAILED_EXIT_CODE
         if swift_testing_expected and swift_testing_result is None:
-            return TIMEOUT_EXIT_CODE
+            return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+        if saw_passing_terminal_summary:
+            return 0
         if "passed" in (selected_tests_result, swift_testing_result):
             return 0
         return TIMEOUT_EXIT_CODE
@@ -294,7 +295,13 @@ def main() -> int:
     _, status = os.waitpid(pid, 0)
     if log_file is not None:
         log_file.close()
-    return child_exit_code(status)
+    exit_code = child_exit_code(status)
+    if exit_code == 0:
+        if "failed" in (selected_tests_result, swift_testing_result):
+            return POST_TEST_FAILED_EXIT_CODE
+        if swift_testing_expected and swift_testing_result is None:
+            return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    return exit_code
 
 
 if __name__ == "__main__":
