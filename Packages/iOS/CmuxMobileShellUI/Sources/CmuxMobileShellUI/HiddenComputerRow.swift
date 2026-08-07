@@ -3,21 +3,53 @@ import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
-/// Immutable hidden-computer row with an offline visibility switch and a
-/// destructive "Forget" action.
+private enum ComputerVisibilityRowItem: Identifiable {
+    case visible(MacComputerSnapshot)
+    case hidden(MobileHiddenComputer)
+
+    var id: String {
+        switch self {
+        case .visible(let computer): computer.id
+        case .hidden(let computer): computer.id
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .visible(let computer): computer.title
+        case .hidden(let computer): computer.displayName
+        }
+    }
+
+    var isVisible: Bool {
+        if case .visible = self { return true }
+        return false
+    }
+
+    var visibleComputer: MacComputerSnapshot? {
+        guard case .visible(let computer) = self else { return nil }
+        return computer
+    }
+
+    var hiddenComputer: MobileHiddenComputer? {
+        guard case .hidden(let computer) = self else { return nil }
+        return computer
+    }
+}
+
+/// A stable computer row whose trailing visibility switch survives transitions
+/// between visible and hidden content.
 ///
-/// Showing the Mac is the primary, reversible action (it only clears this
-/// iPhone's local hide marker), so it stays as the inline trailing switch.
-/// Forget is destructive: it revokes the Mac's iroh binding for the whole
-/// account, so it lives behind a swipe/context-menu plus a confirmation dialog.
-/// No first tap commits the revoke; the dialog's `.destructive` button does.
-struct HiddenComputerRow: View {
-    let computer: MobileHiddenComputer
+/// Keeping one row identity and one `Toggle` instance lets SwiftUI carry the
+/// native switch transaction through the model update. Forget remains available
+/// only while the computer is hidden.
+private struct ComputerVisibilityRow: View {
+    let item: ComputerVisibilityRowItem
     let setVisible: (Bool) -> Void
     let isVisibilityMutating: Bool
-    /// Revokes this Mac's binding for the account (via the store, which resolves
-    /// the binding id from a fresh discovery). Presenting any failure feedback is
-    /// the caller's job so the row stays a pure snapshot.
+    var style: MacComputerRow.Style
+    let connect: @MainActor (MacComputerSnapshot) -> Void
+    let isConnecting: Bool
     let forget: (@MainActor () async -> Void)?
 
     @State private var forgetTask: Task<Void, Never>?
@@ -26,37 +58,24 @@ struct HiddenComputerRow: View {
     private var isBusy: Bool { forgetTask != nil || isVisibilityMutating }
 
     var body: some View {
-        HStack(spacing: 12) {
-            avatar
-            HStack(spacing: 6) {
-                Text(computer.displayName)
-                    .font(.headline)
-                    .lineLimit(1)
-                if computer.instanceTag != nil,
-                   let buildLabel = MacBuildChannel().label(
-                       bundleID: nil,
-                       tag: computer.instanceTag
-                   ) {
-                    ComputerBuildBadge(label: buildLabel)
-                }
-            }
-            Spacer(minLength: 8)
+        HStack(spacing: item.isVisible ? 8 : 12) {
+            leadingContent
             ComputerVisibilityToggle(
-                computerID: computer.id,
-                computerName: computer.displayName,
-                isVisible: false,
+                computerID: item.id,
+                computerName: item.name,
+                isVisible: item.isVisible,
                 isDisabled: isBusy,
                 setVisible: setVisible
             )
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, item.isVisible ? 0 : 4)
         .contextMenu {
-            if forget != nil {
+            if item.hiddenComputer != nil, forget != nil {
                 forgetMenuButton
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if forget != nil {
+            if item.hiddenComputer != nil, forget != nil {
                 forgetSwipeButton
             }
         }
@@ -73,7 +92,7 @@ struct HiddenComputerRow: View {
                 role: .destructive,
                 action: performForget
             )
-            .accessibilityIdentifier("MobileComputerForgetConfirmButton-\(computer.id)")
+            .accessibilityIdentifier("MobileComputerForgetConfirmButton-\(item.id)")
             Button(
                 L10n.string("mobile.common.cancel", defaultValue: "Cancel"),
                 role: .cancel
@@ -90,7 +109,40 @@ struct HiddenComputerRow: View {
         }
     }
 
-    private var avatar: some View {
+    @ViewBuilder
+    private var leadingContent: some View {
+        if let computer = item.visibleComputer {
+            MacComputerRow(
+                computer: computer,
+                style: style,
+                connect: { _ in connect(computer) },
+                isConnecting: isConnecting
+            )
+        } else if let computer = item.hiddenComputer {
+            hiddenLabel(computer)
+        }
+    }
+
+    private func hiddenLabel(_ computer: MobileHiddenComputer) -> some View {
+        HStack(spacing: 12) {
+            hiddenAvatar(computer)
+            HStack(spacing: 6) {
+                Text(computer.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+                if computer.instanceTag != nil,
+                   let buildLabel = MacBuildChannel().label(
+                       bundleID: nil,
+                       tag: computer.instanceTag
+                   ) {
+                    ComputerBuildBadge(label: buildLabel)
+                }
+            }
+            Spacer(minLength: 8)
+        }
+    }
+
+    private func hiddenAvatar(_ computer: MobileHiddenComputer) -> some View {
         ZStack {
             Circle()
                 .fill(MachineAvatarColors.gradient(
@@ -133,7 +185,7 @@ struct HiddenComputerRow: View {
         }
         .tint(.red)
         .disabled(isBusy)
-        .accessibilityIdentifier("MobileComputerForgetSwipeButton-\(computer.id)")
+        .accessibilityIdentifier("MobileComputerForgetSwipeButton-\(item.id)")
     }
 
     private var forgetMenuButton: some View {
@@ -146,7 +198,7 @@ struct HiddenComputerRow: View {
             )
         }
         .disabled(isBusy)
-        .accessibilityIdentifier("MobileComputerForgetMenuButton-\(computer.id)")
+        .accessibilityIdentifier("MobileComputerForgetMenuButton-\(item.id)")
     }
 
     private func performForget() {
@@ -158,9 +210,7 @@ struct HiddenComputerRow: View {
     }
 }
 
-/// Shared row wiring for the visible and hidden computers in one section.
-/// Takes immutable snapshots plus closures only; the store stays at the
-/// caller's list boundary.
+/// Shared row wiring for visible and hidden computers in one stable `ForEach`.
 struct ComputerVisibilityRows: View {
     let visibleComputers: [MacComputerSnapshot]
     let hiddenComputers: [MobileHiddenComputer]
@@ -172,37 +222,40 @@ struct ComputerVisibilityRows: View {
     let unhide: @MainActor (MobileHiddenComputer) -> Void
     var forget: (@MainActor (MobileHiddenComputer) async -> Void)? = nil
 
+    private var items: [ComputerVisibilityRowItem] {
+        visibleComputers.map(ComputerVisibilityRowItem.visible)
+            + hiddenComputers.map(ComputerVisibilityRowItem.hidden)
+    }
+
     var body: some View {
-        ForEach(visibleComputers) { computer in
-            MacComputerRow(
-                computer: computer,
-                setVisible: { visible in
-                    guard !visible else { return }
-                    hide(computer)
-                },
-                isVisibilityMutating: mutatingComputerIDs.contains(computer.id),
+        ForEach(items) { item in
+            ComputerVisibilityRow(
+                item: item,
+                setVisible: { visible in setVisibility(visible, for: item) },
+                isVisibilityMutating: mutatingComputerIDs.contains(item.id),
                 style: style,
-                connect: { _ in connect(computer) },
-                isConnecting: connectingComputerID == computer.id
-            )
-        }
-        ForEach(hiddenComputers) { computer in
-            HiddenComputerRow(
-                computer: computer,
-                setVisible: { visible in
-                    guard visible else { return }
-                    unhide(computer)
-                },
-                isVisibilityMutating: mutatingComputerIDs.contains(computer.id),
-                forget: forgetAction(for: computer)
+                connect: connect,
+                isConnecting: connectingComputerID == item.id,
+                forget: forgetAction(for: item.hiddenComputer)
             )
         }
     }
 
+    private func setVisibility(_ visible: Bool, for item: ComputerVisibilityRowItem) {
+        switch item {
+        case .visible(let computer):
+            guard !visible else { return }
+            hide(computer)
+        case .hidden(let computer):
+            guard visible else { return }
+            unhide(computer)
+        }
+    }
+
     private func forgetAction(
-        for computer: MobileHiddenComputer
+        for computer: MobileHiddenComputer?
     ) -> (@MainActor () async -> Void)? {
-        guard let forget else { return nil }
+        guard let computer, let forget else { return nil }
         return { await forget(computer) }
     }
 }

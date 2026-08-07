@@ -21,7 +21,11 @@ struct ComputerVisibilityToggle: View {
             ),
             isOn: Binding(
                 get: { isVisible },
-                set: { newValue in setVisible(newValue) }
+                set: { newValue, transaction in
+                    withTransaction(transaction) {
+                        setVisible(newValue)
+                    }
+                }
             )
         )
         .labelsHidden()
