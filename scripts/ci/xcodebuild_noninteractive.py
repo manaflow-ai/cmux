@@ -20,7 +20,7 @@ EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 SELECTED_TESTS_DONE_RE = re.compile(rb"Test Suite 'Selected tests' (passed|failed) at ")
 SWIFT_TESTING_STARTED_MARKER = b"Test run started."
 SWIFT_TESTING_DONE_RE = re.compile(
-    rb"Test run with [0-9]+ tests? (passed|failed) after "
+    rb"Test run with [0-9]+ tests?(?: in [0-9]+ suites?)? (passed|failed) after "
 )
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
 TEST_OUTPUT_TAIL_BYTES = 4096
@@ -296,11 +296,18 @@ def main() -> int:
     if log_file is not None:
         log_file.close()
     exit_code = child_exit_code(status)
-    if exit_code == 0:
-        if "failed" in (selected_tests_result, swift_testing_result):
-            return POST_TEST_FAILED_EXIT_CODE
-        if swift_testing_expected and swift_testing_result is None:
-            return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    if "failed" in (selected_tests_result, swift_testing_result):
+        return POST_TEST_FAILED_EXIT_CODE
+    if (
+        swift_testing_expected
+        and swift_testing_result is None
+        and (
+            exit_code == 0
+            or selected_tests_result is not None
+            or swift_testing_active
+        )
+    ):
+        return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
     return exit_code
 
 
