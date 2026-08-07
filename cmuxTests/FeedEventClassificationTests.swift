@@ -312,11 +312,16 @@ struct FeedEventClassificationTests {
     }
 
     /// Tool names are payload-controlled input: pipes are the payload
-    /// delimiter and must be neutralized.
-    @Test func attentionCommandSanitizesPipeInToolName() {
+    /// delimiter and newlines would split the single socket command line,
+    /// so both must be neutralized.
+    @Test func attentionCommandSanitizesPipeAndNewlineInToolName() {
         #expect(
             attentionCommand("codex", "PermissionRequest", tool: "a|b")
                 == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a¦b needs approval|c=needs-permission;p=0"
+        )
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "a\nb")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a b needs approval|c=needs-permission;p=0"
         )
     }
 
@@ -347,6 +352,7 @@ struct FeedEventClassificationTests {
     /// semantics never produce a command at all.
     @Test func attentionCommandRequiresUUIDTargetsAndAttentionSemantics() {
         #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: nil) == nil)
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", surfaceId: nil) == nil)
         #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", surfaceId: "surface:1") == nil)
         #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: "workspace:1") == nil)
         #expect(attentionCommand("codex", "PreToolUse", tool: "shell") == nil)
