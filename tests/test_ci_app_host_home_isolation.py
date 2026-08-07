@@ -19,6 +19,17 @@ APP_HOST_WRAPPER = (ROOT / "scripts/ci/run-app-host-xcodebuild.sh").read_text(
 APP_HOST_ISOLATION = (ROOT / "scripts/ci/app-host-isolation.sh").read_text(
     encoding="utf-8"
 )
+APP_HOST_PROCESSES_PATH = ROOT / "scripts/ci/app-host-processes.sh"
+APP_HOST_PROCESSES = (
+    APP_HOST_PROCESSES_PATH.read_text(encoding="utf-8")
+    if APP_HOST_PROCESSES_PATH.is_file()
+    else ""
+)
+PREPARE_APP_HOST_PATH = ROOT / "scripts/ci/prepare-app-host-home.sh"
+APP_HOST_RECEIPT_CONSTRUCTOR = (
+    ROOT / "cmuxTests/CmuxTestWindowReleaseGuard.m"
+).read_text(encoding="utf-8")
+APP_ENTRYPOINT = (ROOT / "Sources/cmuxApp.swift").read_text(encoding="utf-8")
 UNIT_SCHEME = (
     ROOT / "cmux.xcodeproj/xcshareddata/xcschemes/cmux-unit.xcscheme"
 ).read_text(encoding="utf-8")
@@ -34,6 +45,8 @@ TEST_RUNNER_ENVIRONMENT_KEYS = (
     "CMUX_APP_HOST_ISOLATION_REQUIRED",
     "CMUX_APP_HOST_EXPECTED_HOME",
     "CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME",
+    "CMUX_APP_HOST_KEY",
+    "CMUX_APP_HOST_RECEIPT_DIR",
 )
 FORBIDDEN_SCHEME_ENVIRONMENT_KEYS = {
     f"TEST_RUNNER_{key}" for key in TEST_RUNNER_ENVIRONMENT_KEYS
@@ -119,60 +132,29 @@ def main() -> int:
     setup_step = require_step(
         "app-host-unit-tests", "Prepare isolated app-host home"
     )
-    setup_run = setup_step.get("run")
-    if not isinstance(setup_run, str):
-        raise SystemExit("FAIL: isolated app-host setup step has no run script")
-
-    requirements = {
-        "fixed-width app-host key": (
-            "APP_HOST_KEY=\"$(printf '%s' "
-            "\"${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${{ matrix.shard }}\" "
-            "| shasum -a 256 | cut -c1-12)\""
-        ),
-        "short per-shard app-host home": (
-            'APP_HOST_HOME="/tmp/cmux-ah-${APP_HOST_KEY}"'
-        ),
-        "neutral app-host home": (
-            'echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
-        ),
-        "structured Ghostty config sentinel path": (
-            'APP_HOST_CONFIG_SENTINEL="$APP_HOST_HOME/Library/Application Support/'
-            'com.mitchellh.ghostty/config.ghostty"'
-        ),
-        "structured Ghostty config sentinel contents": (
-            "cmux CI app-host isolation sentinel"
-        ),
-        "owner-only app-host access": (
-            'chmod -R u+rwX,go-rwx "$APP_HOST_HOME"'
-        ),
-        "real Cargo toolchain home": 'echo "CARGO_HOME=${HOME}/.cargo" >> "$GITHUB_ENV"',
-        "real rustup toolchain home": 'echo "RUSTUP_HOME=${HOME}/.rustup" >> "$GITHUB_ENV"',
-    }
-    for context, needle in requirements.items():
-        require(setup_run, needle, context)
-
-    home_publish = setup_run.index(
-        'echo "CMUX_APP_HOST_HOME=$APP_HOST_HOME" >> "$GITHUB_ENV"'
-    )
-    first_home_mutation = setup_run.index('rm -rf "$APP_HOST_HOME"')
-    if home_publish > first_home_mutation:
+    if setup_step.get("run") != "scripts/ci/prepare-app-host-home.sh":
         raise SystemExit(
-            "FAIL: cleanup target must be published before app-host home creation"
+            "FAIL: workflow must delegate app-host identity and setup to one script"
         )
-    if 'echo "CMUX_APP_HOST_XDG_CONFIG_HOME=' in setup_run:
+    if not PREPARE_APP_HOST_PATH.is_file():
+        raise SystemExit("FAIL: app-host preparation script is missing")
+    prepare_app_host = PREPARE_APP_HOST_PATH.read_text(encoding="utf-8")
+    for context, needle in {
+        "shared identity derivation": "cmux_resolve_app_host_identity",
+        "published run-derived key": "CMUX_APP_HOST_KEY",
+        "external process receipt directory": "CMUX_APP_HOST_RECEIPT_DIR",
+        "target-bound cleanup confirmation": "CMUX_APP_HOST_CLEANUP_CONFIRMATION",
+        "external confirmation record": "CMUX_APP_HOST_CONFIRMATION_FILE",
+        "structured Ghostty config sentinel": "cmux CI app-host isolation sentinel",
+        "owner-only app-host access": 'chmod -R u+rwX,go-rwx "$app_host_home"',
+    }.items():
+        require(prepare_app_host, needle, context)
+    publish = prepare_app_host.index('>> "$GITHUB_ENV"')
+    first_home_mutation = prepare_app_host.index('rm -rf -- "$app_host_home"')
+    if publish > first_home_mutation:
         raise SystemExit(
-            "FAIL: workflow must derive XDG from the single published cleanup target"
+            "FAIL: identity and cleanup target must be published before mutation"
         )
-
-    for leaked_redirect in (
-        'echo "CFFIXED_USER_HOME=',
-        'echo "XDG_CONFIG_HOME=',
-    ):
-        if leaked_redirect in setup_run:
-            raise SystemExit(
-                "FAIL: isolated app-host setup must not export runtime redirect "
-                f"{leaked_redirect!r} to intervening workflow steps"
-            )
 
     app_host_job = require_job("app-host-unit-tests")
     app_host_job_environment = app_host_job.get("env")
@@ -182,6 +164,10 @@ def main() -> int:
         raise SystemExit(
             "FAIL: app-host job must independently require user configuration "
             "isolation"
+        )
+    if app_host_job_environment.get("CMUX_APP_HOST_SHARD") != "${{ matrix.shard }}":
+        raise SystemExit(
+            "FAIL: app-host job must publish the shard as independent identity input"
         )
 
     cleanup_step = require_step(
@@ -215,12 +201,24 @@ def main() -> int:
     )
     if guard_step.get("run") != "python3 tests/test_ci_app_host_home_isolation.py":
         raise SystemExit("FAIL: workflow-guard-tests does not run this guard")
+    identity_guard_step = require_step(
+        "workflow-guard-tests", "Validate app-host identity and cleanup confirmation"
+    )
+    if identity_guard_step.get("run") != "bash tests/test_ci_app_host_identity.sh":
+        raise SystemExit("FAIL: workflow-guard-tests does not run the identity guard")
+    process_guard_step = require_step(
+        "workflow-guard-tests", "Validate app-host process receipts"
+    )
+    if process_guard_step.get("run") != "bash tests/test_ci_app_host_processes.sh":
+        raise SystemExit("FAIL: workflow-guard-tests does not run the process receipt guard")
 
     require(
         CONSOLE_WRAPPER,
-        "CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_HOME "
-        "CMUX_APP_HOST_XDG_CONFIG_HOME CFFIXED_USER_HOME XDG_CONFIG_HOME "
-        "CARGO_HOME RUSTUP_HOME",
+        "GITHUB_RUN_ID GITHUB_RUN_ATTEMPT CMUX_APP_HOST_SHARD "
+        "CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_KEY "
+        "CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME "
+        "CMUX_APP_HOST_RECEIPT_DIR CMUX_APP_HOST_CLEANUP_CONFIRMATION "
+        "CMUX_APP_HOST_CONFIRMATION_FILE",
         "console-session environment forwarding",
     )
     require(
@@ -235,8 +233,8 @@ def main() -> int:
     )
     require(
         CONSOLE_WRAPPER,
-        'system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)"',
-        "console-session app-host path boundary",
+        "cmux_validate_published_app_host_identity",
+        "console-session run-derived path boundary",
     )
     require(
         CONSOLE_WRAPPER,
@@ -247,6 +245,11 @@ def main() -> int:
         CONSOLE_WRAPPER,
         'sudo -n chmod -R u+rwX,go-rwx "$app_host_home"',
         "console-user app-host permissions",
+    )
+    require(
+        CONSOLE_WRAPPER,
+        'sudo -n chown -R "$console_user" "$app_host_receipt_dir"',
+        "console-user process receipt ownership",
     )
     require(
         CONSOLE_WRAPPER,
@@ -296,8 +299,13 @@ def main() -> int:
     )
     require(
         APP_HOST_ISOLATION,
-        'expected_xdg_config_home="${resolved_home%/}/.config"',
-        "canonical XDG isolation boundary",
+        '"${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${CMUX_APP_HOST_SHARD}"',
+        "independent run identity derivation",
+    )
+    require(
+        APP_HOST_ISOLATION,
+        "cmux_validate_app_host_cleanup_confirmation",
+        "target-bound cleanup confirmation validation",
     )
 
     require_no_test_runner_scheme_overrides(UNIT_SCHEME)
@@ -319,6 +327,12 @@ def main() -> int:
         "app-host expected XDG marker": (
             '"TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME=$app_host_xdg_config_home"'
         ),
+        "app-host process receipt directory": (
+            '"TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR=$app_host_receipt_dir"'
+        ),
+        "app-host run-derived key": (
+            '"TEST_RUNNER_CMUX_APP_HOST_KEY=$app_host_key"'
+        ),
         "Ghostty app-support path validation": (
             "validate_app_host_config_paths"
         ),
@@ -329,25 +343,69 @@ def main() -> int:
     if not cleanup_path.is_file():
         raise SystemExit("FAIL: isolated app-host cleanup script is missing")
     cleanup_script = cleanup_path.read_text(encoding="utf-8")
+    if not APP_HOST_PROCESSES_PATH.is_file():
+        raise SystemExit("FAIL: app-host process receipt helper is missing")
     for context, needle in {
         "cleanup isolation requirement": "CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
         "cleanup canonical path validation": (
             'source "$ci_script_dir/app-host-isolation.sh"'
         ),
-        "cleanup fixed short root": (
-            'system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)"'
+        "cleanup run-derived identity": "cmux_validate_published_app_host_identity",
+        "cleanup target-bound confirmation": (
+            "cmux_validate_app_host_cleanup_confirmation"
         ),
         "cleanup root symlink refusal": (
             "FAIL: refusing app-host cleanup through a home symlink"
         ),
-        "cleanup runner boundary": '"$runner_temp"/*',
-        "cleanup scoped process termination": "CMUX_DERIVED_DATA_PATH",
-        "cleanup unlimited-width process discovery": (
-            "ps -axww -o pid=,command="
-        ),
+        "cleanup external process receipts": "CMUX_RESOLVED_APP_HOST_RECEIPT_DIR",
         "cleanup exact target removal": 'rm -rf -- "$app_host_home"',
     }.items():
         require(cleanup_script, needle, context)
+    require(APP_HOST_PROCESSES, "/usr/sbin/lsof", "cleanup executable-vnode identity")
+    require(
+        APP_HOST_ISOLATION,
+        "Confirmed app-host cleanup target:",
+        "cleanup target preview",
+    )
+    require(
+        APP_HOST_PROCESSES,
+        "has no verified receipt",
+        "unreceipted live app-host refusal",
+    )
+
+    for forbidden_process_authority in (
+        "ps -axww -o pid=,command=",
+        "pkill -f",
+    ):
+        if forbidden_process_authority in cleanup_script or (
+            forbidden_process_authority in APP_HOST_WRAPPER
+        ) or forbidden_process_authority in APP_HOST_PROCESSES:
+            raise SystemExit(
+                "FAIL: destructive app-host cleanup must not trust process argv: "
+                f"{forbidden_process_authority}"
+            )
+
+    for context, needle in {
+        "test-bundle process receipt hook": "CmuxWriteAppHostProcessReceipt",
+        "receipt isolation marker": "CMUX_APP_HOST_ISOLATION_REQUIRED",
+        "receipt external directory": "CMUX_APP_HOST_RECEIPT_DIR",
+        "receipt run-derived key": "CMUX_APP_HOST_KEY",
+        "receipt atomic write": "NSDataWritingAtomic",
+    }.items():
+        require(APP_HOST_RECEIPT_CONSTRUCTOR, needle, context)
+
+    for context, needle in {
+        "pre-XCTest app-host receipt hook": "AppHostProcessReceipt.writeIfRequired()",
+        "early receipt isolation marker": "CMUX_APP_HOST_ISOLATION_REQUIRED",
+        "early receipt external directory": "CMUX_APP_HOST_RECEIPT_DIR",
+        "early receipt run-derived key": "CMUX_APP_HOST_KEY",
+        "early receipt atomic write": "options: .atomic",
+    }.items():
+        require(APP_ENTRYPOINT, needle, context)
+    if APP_ENTRYPOINT.index("AppHostProcessReceipt.writeIfRequired()") > APP_ENTRYPOINT.index(
+        "CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()"
+    ):
+        raise SystemExit("FAIL: app-host receipt must be written before worker dispatch")
 
     require(
         CONSOLE_WRAPPER,

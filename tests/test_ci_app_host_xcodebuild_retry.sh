@@ -9,7 +9,7 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${CFFIXED_USER_HOME:-<unset>}" \
     "${XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_XCODEBUILD_PARENT_ENV"
-  printf '%s|%s|%s|%s|%s|%s|%s\n' \
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
     "${TEST_RUNNER_HOME:-<unset>}" \
     "${TEST_RUNNER_CFFIXED_USER_HOME:-<unset>}" \
     "${TEST_RUNNER_XDG_CONFIG_HOME:-<unset>}" \
@@ -17,6 +17,8 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_ISOLATION_REQUIRED:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_HOME:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
+    "${TEST_RUNNER_CMUX_APP_HOST_KEY:-<unset>}" \
+    "${TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR:-<unset>}" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
   config_category=default
@@ -66,15 +68,39 @@ fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+APP_HOST_HOME=""
+APP_HOST_RECEIPT_DIR=""
+APP_HOST_CONFIRMATION_FILE=""
+cleanup() {
+  [ -z "$APP_HOST_HOME" ] || rm -rf -- "$APP_HOST_HOME"
+  [ -z "$APP_HOST_RECEIPT_DIR" ] || rm -rf -- "$APP_HOST_RECEIPT_DIR"
+  [ -z "$APP_HOST_CONFIRMATION_FILE" ] || rm -f -- "$APP_HOST_CONFIRMATION_FILE"
+  rm -rf -- "$TMP_DIR"
+}
+trap cleanup EXIT
 
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcodebuild"
 BASH32_BIN_DIR="$TMP_DIR/bash32-bin"
 mkdir -p "$BASH32_BIN_DIR"
 ln -s /bin/bash "$BASH32_BIN_DIR/bash"
 
-APP_HOST_HOME="$TMP_DIR/app-host-home"
-APP_HOST_XDG_CONFIG_HOME="$APP_HOST_HOME/.config"
+RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
+export RUNNER_TEMP="$RUNNER_TEMP_DIR"
+export GITHUB_ENV="$TMP_DIR/github-env"
+export GITHUB_RUN_ID="910000$$"
+export GITHUB_RUN_ATTEMPT="2"
+export CMUX_APP_HOST_SHARD="4"
+mkdir -p "$RUNNER_TEMP_DIR"
+: > "$GITHUB_ENV"
+bash "$ROOT_DIR/scripts/ci/prepare-app-host-home.sh"
+set -a
+# shellcheck disable=SC1090
+source "$GITHUB_ENV"
+set +a
+APP_HOST_HOME="$CMUX_APP_HOST_HOME"
+APP_HOST_XDG_CONFIG_HOME="$CMUX_APP_HOST_XDG_CONFIG_HOME"
+APP_HOST_RECEIPT_DIR="$CMUX_APP_HOST_RECEIPT_DIR"
+APP_HOST_CONFIRMATION_FILE="$CMUX_APP_HOST_CONFIRMATION_FILE"
 XCODE_PARENT_FIXED_HOME="$TMP_DIR/xcode-parent-fixed-home"
 XCODE_PARENT_XDG_CONFIG_HOME="$TMP_DIR/xcode-parent-xdg"
 mkdir -p \
@@ -88,7 +114,7 @@ set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
   PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
-  RUNNER_TEMP="$TMP_DIR" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/non-isolated-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/non-isolated-test-runner-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/non-isolated-parent-env.log" \
@@ -115,7 +141,7 @@ set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME \
   PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
-  RUNNER_TEMP="$TMP_DIR" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   XDG_CONFIG_HOME="$AMBIENT_XDG_CONFIG_HOME" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/ambient-xdg-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/ambient-xdg-test-runner-env.log" \
@@ -146,7 +172,7 @@ set +e
 /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
   -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
   PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
-  RUNNER_TEMP="$TMP_DIR" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/missing-isolation-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/missing-isolation-test-runner-env.log" \
@@ -173,7 +199,7 @@ fi
 
 set +e
 PATH="$TMP_DIR:$PATH" \
-RUNNER_TEMP="$TMP_DIR" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
 CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/test-runner-env.log" \
 CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/xcodebuild-parent-env.log" \
@@ -245,8 +271,10 @@ fi
 
 isolated_runner_count="$(awk -F '|' \
   -v home="$RESOLVED_APP_HOST_HOME" \
-  -v xdg="$RESOLVED_APP_HOST_XDG_CONFIG_HOME" '
-  $1 == home && $2 == home && $3 == xdg && $4 == "" && $5 == "1" && $6 == home && $7 == xdg {
+  -v xdg="$RESOLVED_APP_HOST_XDG_CONFIG_HOME" \
+  -v key="$CMUX_APP_HOST_KEY" \
+  -v receipts="$CMUX_APP_HOST_RECEIPT_DIR" '
+  $1 == home && $2 == home && $3 == xdg && $4 == "" && $5 == "1" && $6 == home && $7 == xdg && $8 == key && $9 == receipts {
     count += 1
   }
   END { print count + 0 }
@@ -260,7 +288,7 @@ fi
 for evidence_regression in no-config-evidence unrelated-config-token; do
   set +e
   PATH="$TMP_DIR:$PATH" \
-  RUNNER_TEMP="$TMP_DIR" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$evidence_regression-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$evidence_regression-test-runner-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$evidence_regression-parent-env.log" \
@@ -290,7 +318,7 @@ EXTERNAL_XDG_CONFIG_HOME="$TMP_DIR/external-xdg"
 mkdir -p "$EXTERNAL_XDG_CONFIG_HOME"
 set +e
 PATH="$TMP_DIR:$PATH" \
-RUNNER_TEMP="$TMP_DIR" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
 CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/external-xdg-xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/external-xdg-test-runner-env.log" \
 CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/external-xdg-parent-env.log" \
@@ -309,7 +337,7 @@ set -e
 
 if [ "$external_xdg_status" -ne 1 ] \
   || ! grep -Fq \
-    "FAIL: app-host XDG configuration must be the isolated home .config directory" \
+    "FAIL: published CMUX_APP_HOST_XDG_CONFIG_HOME does not match the run identity" \
     "$TMP_DIR/external-xdg-output.log" \
   || [ -s "$TMP_DIR/external-xdg-xcodebuild-args.log" ]; then
   cat "$TMP_DIR/external-xdg-output.log"
@@ -319,7 +347,7 @@ fi
 
 set +e
 PATH="$TMP_DIR:$PATH" \
-RUNNER_TEMP="$TMP_DIR" \
+RUNNER_TEMP="$RUNNER_TEMP_DIR" \
 CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/leak-xcodebuild-args.log" \
 CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/leak-test-runner-env.log" \
 CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/leak-xcodebuild-parent-env.log" \
@@ -346,7 +374,7 @@ fi
 for xdg_leak in xdg-config-leak xdg-default-leak; do
   set +e
   PATH="$TMP_DIR:$PATH" \
-  RUNNER_TEMP="$TMP_DIR" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$xdg_leak-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$xdg_leak-test-runner-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$xdg_leak-parent-env.log" \
@@ -384,7 +412,7 @@ for regression in sibling-leak missing-log; do
 
   set +e
   PATH="$TMP_DIR:$PATH" \
-  RUNNER_TEMP="$TMP_DIR" \
+  RUNNER_TEMP="$RUNNER_TEMP_DIR" \
   CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$regression-xcodebuild-args.log" \
   CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$regression-test-runner-env.log" \
   CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$regression-xcodebuild-parent-env.log" \

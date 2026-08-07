@@ -154,6 +154,12 @@ jobs:
       - name: Validate app-host user configuration isolation
         run: python3 tests/test_ci_app_host_home_isolation.py
 
+      - name: Validate app-host identity and cleanup confirmation
+        run: bash tests/test_ci_app_host_identity.sh
+
+      - name: Validate app-host process receipts
+        run: bash tests/test_ci_app_host_processes.sh
+
       - name: Validate isolated app-host home cleanup
         run: bash tests/test_ci_app_host_home_cleanup.sh
 
