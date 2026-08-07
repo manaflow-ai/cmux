@@ -41,6 +41,7 @@ pub fn agent_hook_journal_ingress(
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
+    let native = redact_sensitive_native(native);
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -130,6 +131,51 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
         "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
     );
     Ok(())
+}
+
+fn redact_sensitive_native(value: Value) -> Value {
+    match value {
+        Value::Object(values) => Value::Object(
+            values
+                .into_iter()
+                .map(|(key, value)| {
+                    let value = if is_sensitive_native_key(&key) {
+                        Value::String("[redacted]".into())
+                    } else {
+                        redact_sensitive_native(value)
+                    };
+                    (key, value)
+                })
+                .collect(),
+        ),
+        Value::Array(values) => {
+            Value::Array(values.into_iter().map(redact_sensitive_native).collect())
+        }
+        value => value,
+    }
+}
+
+fn is_sensitive_native_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    [
+        "apikey",
+        "authorization",
+        "capability",
+        "cookie",
+        "credential",
+        "password",
+        "privatekey",
+        "secret",
+        "socket",
+        "ssh",
+        "token",
+    ]
+    .into_iter()
+    .any(|needle| normalized.contains(needle))
 }
 
 fn validate_native_event(native_event: &str) -> anyhow::Result<()> {

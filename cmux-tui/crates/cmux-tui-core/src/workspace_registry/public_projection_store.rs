@@ -120,6 +120,7 @@ enum StoredAgentState {
     Blocked,
     Idle,
     Done,
+    Interrupted,
     Unknown,
 }
 
@@ -130,6 +131,7 @@ impl StoredAgentState {
             Self::Blocked => "blocked",
             Self::Idle => "idle",
             Self::Done => "done",
+            Self::Interrupted => "interrupted",
             Self::Unknown => "unknown",
         }
     }

@@ -3558,10 +3558,33 @@ fn agent_projection_is_derived_from_pi_journal_and_rebuildable() {
     let rebuilt = reopened.public_projections().unwrap().agents;
     assert_eq!(rebuilt.len(), 1);
     assert_eq!(rebuilt[0].terminal_id, terminal_id);
-    assert_eq!(rebuilt[0].state, "working");
+    assert_eq!(rebuilt[0].state, "interrupted");
     assert_eq!(rebuilt[0].source, "hook");
     assert_eq!(rebuilt[0].source_session.as_deref(), Some("pi-real-session-1"));
+    let interrupted = reopened
+        .session_journal_after(0, 1024)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| record.kind == "agent.session.interrupted")
+        .collect::<Vec<_>>();
+    assert_eq!(interrupted.len(), 1);
+    assert_eq!(interrupted[0].payload["provider"], "pi");
+    assert_eq!(interrupted[0].payload["source_session"], "pi-real-session-1");
+    assert_eq!(interrupted[0].payload["policy"], "classify_only");
+    assert_eq!(interrupted[0].payload["outcome"], "classified_interrupted");
     drop(reopened);
+
+    let reopened_again = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
+    let interrupted_again = reopened_again
+        .session_journal_after(0, 1024)
+        .unwrap()
+        .records
+        .into_iter()
+        .filter(|record| record.kind == "agent.session.interrupted")
+        .count();
+    assert_eq!(interrupted_again, 1);
+    drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
 
