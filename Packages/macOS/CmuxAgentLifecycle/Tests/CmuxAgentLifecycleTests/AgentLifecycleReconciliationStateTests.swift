@@ -19,45 +19,41 @@ struct AgentLifecycleReconciliationStateTests {
         )
         var state = AgentLifecycleReconciliationState()
 
-        #expect(
-            state.recordProcessGeneration(
-                key: BuiltInAgentIntegration.codex.statusKey,
-                panelId: panelId,
-                generation: newer,
-                isBuiltIn: true
-            )
+        let acceptedNewerGeneration = state.recordProcessGeneration(
+            key: BuiltInAgentIntegration.codex.statusKey,
+            panelId: panelId,
+            generation: newer,
+            isBuiltIn: true
         )
-        #expect(
-            state.setHookLifecycle(
-                key: BuiltInAgentIntegration.codex.statusKey,
-                panelId: panelId,
-                lifecycle: .running,
-                isBuiltIn: true,
-                processGeneration: newer
-            )
+        #expect(acceptedNewerGeneration)
+        let acceptedRunningLifecycle = state.setHookLifecycle(
+            key: BuiltInAgentIntegration.codex.statusKey,
+            panelId: panelId,
+            lifecycle: .running,
+            isBuiltIn: true,
+            processGeneration: newer
         )
+        #expect(acceptedRunningLifecycle)
 
-        #expect(
-            !state.recordProcessGeneration(
-                key: BuiltInAgentIntegration.codex.statusKey,
-                panelId: panelId,
-                generation: older,
-                isBuiltIn: true
-            )
+        let acceptedOlderGeneration = state.recordProcessGeneration(
+            key: BuiltInAgentIntegration.codex.statusKey,
+            panelId: panelId,
+            generation: older,
+            isBuiltIn: true
         )
+        #expect(!acceptedOlderGeneration)
         #expect(
             state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.codex.statusKey]
                 == .running
         )
-        #expect(
-            !state.setHookLifecycle(
-                key: BuiltInAgentIntegration.codex.statusKey,
-                panelId: panelId,
-                lifecycle: .idle,
-                isBuiltIn: true,
-                processGeneration: older
-            )
+        let acceptedOlderLifecycle = state.setHookLifecycle(
+            key: BuiltInAgentIntegration.codex.statusKey,
+            panelId: panelId,
+            lifecycle: .idle,
+            isBuiltIn: true,
+            processGeneration: older
         )
+        #expect(!acceptedOlderLifecycle)
     }
 
     @Test("A dead generation cannot be resurrected")
@@ -70,28 +66,25 @@ struct AgentLifecycleReconciliationStateTests {
         )
         var state = AgentLifecycleReconciliationState()
 
-        #expect(
-            state.recordProcessGeneration(
-                key: BuiltInAgentIntegration.amp.statusKey,
-                panelId: panelId,
-                generation: generation,
-                isBuiltIn: true
-            )
+        let acceptedGeneration = state.recordProcessGeneration(
+            key: BuiltInAgentIntegration.amp.statusKey,
+            panelId: panelId,
+            generation: generation,
+            isBuiltIn: true
         )
-        #expect(
-            state.recordProcessExit(
-                key: BuiltInAgentIntegration.amp.statusKey,
-                panelId: panelId,
-                generation: generation
-            )
+        #expect(acceptedGeneration)
+        let acceptedExit = state.recordProcessExit(
+            key: BuiltInAgentIntegration.amp.statusKey,
+            panelId: panelId,
+            generation: generation
         )
-        #expect(
-            !state.recordProcessGeneration(
-                key: BuiltInAgentIntegration.amp.statusKey,
-                panelId: panelId,
-                generation: generation,
-                isBuiltIn: true
-            )
+        #expect(acceptedExit)
+        let acceptedResurrection = state.recordProcessGeneration(
+            key: BuiltInAgentIntegration.amp.statusKey,
+            panelId: panelId,
+            generation: generation,
+            isBuiltIn: true
         )
+        #expect(!acceptedResurrection)
     }
 }
