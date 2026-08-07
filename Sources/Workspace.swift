@@ -2203,6 +2203,7 @@ final class Workspace: Identifiable, ObservableObject {
     let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
     private let settings: any SettingsReading
     private var sidebarPortVisibilityPolicy: SidebarPortVisibilityPolicy
+    private var sidebarVisibleSurfacePorts: [UUID: [Int]] = [:]
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -2526,7 +2527,11 @@ final class Workspace: Identifiable, ObservableObject {
         get { sidebarMetadata.panelPullRequests }
         set { sidebarMetadata.panelPullRequests = newValue }
     }
-    @Published var surfaceListeningPorts: [UUID: [Int]] = [:]
+    @Published var surfaceListeningPorts: [UUID: [Int]] = [:] {
+        didSet {
+            refreshSidebarVisibleSurfacePorts(using: sidebarPortVisibilityPolicy)
+        }
+    }
     var agentListeningPorts: [Int] = []
     @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
@@ -5338,6 +5343,7 @@ final class Workspace: Identifiable, ObservableObject {
         pullRequest = nil
         panelPullRequests.removeAll()
         surfaceListeningPorts.removeAll()
+        sidebarVisibleSurfacePorts.removeAll()
         listeningPorts.removeAll()
         metadataBlocks.removeAll()
         resetBrowserPanelsForContextChange(reason: reason)
@@ -5685,6 +5691,18 @@ final class Workspace: Identifiable, ObservableObject {
     /// Returns the indexed sidebar projection policy shared by every port-badge surface.
     func currentSidebarPortVisibilityPolicy() -> SidebarPortVisibilityPolicy {
         sidebarPortVisibilityPolicy
+    }
+
+    /// Rebuilds the per-surface sidebar projection outside SwiftUI render paths.
+    func refreshSidebarVisibleSurfacePorts(using policy: SidebarPortVisibilityPolicy) {
+        let next = surfaceListeningPorts.mapValues { policy.visiblePorts(from: $0) }
+        guard next != sidebarVisibleSurfacePorts else { return }
+        sidebarVisibleSurfacePorts = next
+    }
+
+    /// Returns the cached sidebar projection for one surface.
+    func sidebarVisiblePorts(for panelId: UUID) -> [Int] {
+        sidebarVisibleSurfacePorts[panelId] ?? []
     }
 
     /// Rebuilds and applies the policy only when ignored-port behavior changes.

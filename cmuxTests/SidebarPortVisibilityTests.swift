@@ -39,7 +39,8 @@ struct SidebarPortVisibilityTests {
 
         let manager = TabManager(settings: settings)
         let workspace = try #require(manager.selectedWorkspace)
-        workspace.agentListeningPorts = [3_000, 49_152, 65_535]
+        let panelID = try #require(workspace.focusedPanelId)
+        workspace.surfaceListeningPorts[panelID] = [3_000, 49_152, 65_535]
         workspace.recomputeListeningPorts()
 
         #expect(workspace.listeningPorts == [3_000])
@@ -51,6 +52,13 @@ struct SidebarPortVisibilityTests {
         )
 
         #expect(workspace.listeningPorts == [3_000, 49_152, 65_535])
+        let snapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: workspace.id,
+            unreadCount: 0
+        )
+        let surface = try #require(snapshot.surfaces.first { $0.panelId == panelID })
+        #expect(surface.listeningPorts == [3_000, 49_152, 65_535])
     }
 
     @Test("Custom-sidebar surface snapshots apply the policy without discarding observations")
@@ -73,6 +81,28 @@ struct SidebarPortVisibilityTests {
 
         #expect(surface.listeningPorts == [49_151])
         #expect(workspace.surfaceListeningPorts[panelID] == observedPorts)
+
+        workspace.surfaceListeningPorts[panelID] = [3_000, 49_152]
+        let updatedSnapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: workspace.id,
+            unreadCount: 0
+        )
+        let updatedSurface = try #require(
+            updatedSnapshot.surfaces.first { $0.panelId == panelID }
+        )
+        #expect(updatedSurface.listeningPorts == [3_000])
+
+        workspace.resetSidebarContext(reason: "test")
+        let resetSnapshot = workspace.customSidebarWorkspaceSnapshot(
+            index: 0,
+            selectedId: workspace.id,
+            unreadCount: 0
+        )
+        let resetSurface = try #require(
+            resetSnapshot.surfaces.first { $0.panelId == panelID }
+        )
+        #expect(resetSurface.listeningPorts.isEmpty)
     }
 
     @Test("cmux.json parses exact ports and inclusive ignored ranges")
