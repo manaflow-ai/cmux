@@ -23,7 +23,8 @@ extension GhosttySurfaceCallbackContext {
         guard registerRuntimeClipboardRequest(
             id: id,
             reserveAdmission: {
-                inputSequencer?.reserveRequestAdmission(
+                guard let inputSequencer else { return false }
+                return inputSequencer.reserveRequestAdmission(
                     id: id,
                     onOverflow: overflowHandler
                 )

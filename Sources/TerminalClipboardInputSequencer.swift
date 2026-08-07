@@ -8,6 +8,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
 
     private struct ReservedAdmissionState: Sendable {
         var overflowHandlersByID: [RequestID: ReservedOverflowHandler] = [:]
+        var overflowCancellationDepth = 0
     }
 
     private struct BufferedEvent {
@@ -52,12 +53,15 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     }
 
     /// Marks a callback-issued request before its main-actor admission can run.
+    @discardableResult
     nonisolated func reserveRequestAdmission(
         id: RequestID,
         onOverflow: @escaping ReservedOverflowHandler
-    ) {
+    ) -> Bool {
         reservedAdmissions.withLock { state in
+            guard state.overflowCancellationDepth == 0 else { return false }
             state.overflowHandlersByID[id] = onOverflow
+            return true
         }
     }
 
@@ -111,15 +115,17 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
             ].firstIndex(where: \.discardWhenFull) {
                 buffer.events.remove(at: discardableIndex)
             } else {
+                let reservedOverflowHandlers = beginReservedOverflowCancellation()
                 let activeOverflowHandlers = activeRequests.values
                     .filter { $0.epoch == epoch }
                     .map(\.onOverflow)
-                let reservedOverflowHandlers = takeReservedOverflowHandlers()
                 withOverflowCancellationBatch {
                     activeOverflowHandlers.forEach { $0() }
                     reservedOverflowHandlers.forEach { $0() }
                 }
-                return hasRequestInFlight(for: epoch)
+                let shouldContinueDeferring = hasRequestInFlight(for: epoch)
+                endReservedOverflowCancellation()
+                return shouldContinueDeferring
             }
         }
         buffer.events.append(
@@ -188,11 +194,19 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         }
     }
 
-    private func takeReservedOverflowHandlers() -> [ReservedOverflowHandler] {
+    private func beginReservedOverflowCancellation() -> [ReservedOverflowHandler] {
         reservedAdmissions.withLock { state in
+            state.overflowCancellationDepth += 1
             let handlers = Array(state.overflowHandlersByID.values)
             state.overflowHandlersByID.removeAll(keepingCapacity: false)
             return handlers
+        }
+    }
+
+    private func endReservedOverflowCancellation() {
+        reservedAdmissions.withLock { state in
+            precondition(state.overflowCancellationDepth > 0)
+            state.overflowCancellationDepth -= 1
         }
     }
 

@@ -10,6 +10,10 @@ actor TerminalImageTransferPreparationService {
     ) async throws -> TerminalPastePreparationResult
     typealias Cleanup = @Sendable (TerminalPastePreparationResult) -> Void
     typealias DeadlineSleep = @Sendable (Duration) async throws -> Void
+    /// Observes requests only after the actor has accepted them into its lane.
+    typealias AdmissionSignal = @Sendable (
+        TerminalPastePreparationRequest
+    ) -> Void
     typealias FailureSignal = @MainActor @Sendable (
         TerminalPastePreparationFailure
     ) -> Void
@@ -20,6 +24,7 @@ actor TerminalImageTransferPreparationService {
     private let deadline: Duration
     private let maximumQueuedJobs: Int
     private let deadlineSleep: DeadlineSleep
+    private let admissionSignal: AdmissionSignal
     private let operation: Operation
     private let cleanup: Cleanup
     private let failureSignal: FailureSignal
@@ -35,6 +40,7 @@ actor TerminalImageTransferPreparationService {
             // Genuine request deadline; cancellation tears down the sleeper.
             try await ContinuousClock().sleep(for: duration)
         },
+        admissionSignal: @escaping AdmissionSignal = { _ in },
         operation: @escaping Operation,
         cleanup: @escaping Cleanup = { result in
             result.cleanupTransferredTemporaryFiles()
@@ -44,6 +50,7 @@ actor TerminalImageTransferPreparationService {
         self.deadline = deadline
         self.maximumQueuedJobs = max(0, maximumQueuedJobs)
         self.deadlineSleep = deadlineSleep
+        self.admissionSignal = admissionSignal
         self.operation = operation
         self.cleanup = cleanup
         self.failureSignal = failureSignal
@@ -123,6 +130,7 @@ actor TerminalImageTransferPreparationService {
                 } else {
                     queuedJobs.append(job)
                 }
+                admissionSignal(request)
             }
         } onCancel: {
             Task {

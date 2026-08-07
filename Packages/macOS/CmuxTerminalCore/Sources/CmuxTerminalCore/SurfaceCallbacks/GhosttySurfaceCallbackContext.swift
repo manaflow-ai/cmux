@@ -56,6 +56,9 @@ public final class GhosttySurfaceCallbackContext {
         initialState: RuntimeClipboardState()
     )
 
+    /// Bounds native request state before any task or input reservation exists.
+    private let maximumRuntimeClipboardRequests: Int
+
     /// Creates the callback userdata for one runtime surface.
     ///
     /// - Parameters:
@@ -63,15 +66,22 @@ public final class GhosttySurfaceCallbackContext {
     ///   - surfaceController: The surface model owning the runtime surface.
     ///   - rendererMailboxDidDrain: Called with only the stable surface id after
     ///     an armed repair observes renderer activity following a mailbox drain.
+    ///   - maximumRuntimeClipboardRequests: Maximum simultaneous native
+    ///     clipboard requests accepted for this surface.
     public init(
         surfaceHost: any TerminalSurfaceHosting,
         surfaceController: any TerminalSurfaceControlling,
-        rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in }
+        rendererMailboxDidDrain: @escaping @Sendable (UUID) -> Void = { _ in },
+        maximumRuntimeClipboardRequests: Int = 32
     ) {
         self.surfaceHost = surfaceHost
         self.surfaceController = surfaceController
         self.surfaceId = surfaceController.surfaceId
         self.rendererMailboxDidDrainHandler = rendererMailboxDidDrain
+        self.maximumRuntimeClipboardRequests = max(
+            0,
+            maximumRuntimeClipboardRequests
+        )
     }
 
     /// Arms one presentation repair for the next renderer mailbox-drain signal.
@@ -131,26 +141,28 @@ public final class GhosttySurfaceCallbackContext {
     ///
     /// - Parameters:
     ///   - id: The bit pattern of libghostty's opaque request state.
-    ///   - reserveAdmission: A bounded synchronous reservation published under
+    ///   - reserveAdmission: Attempts a bounded synchronous reservation under
     ///     the same lock as the request so teardown cannot overtake it.
     ///   - onInvalidation: Main-actor cleanup that completes or abandons the
     ///     native request and releases the matching input reservation.
     /// - Returns: Whether this live runtime context accepted the request.
     public func registerRuntimeClipboardRequest(
         id: UInt,
-        reserveAdmission: @Sendable () -> Void = {},
+        reserveAdmission: @Sendable () -> Bool = { true },
         onInvalidation: @escaping @MainActor @Sendable (
             _ wasAdmitted: Bool,
             _ completesNativeRequest: Bool
         ) -> Void
     ) -> Bool {
-        runtimeClipboardState.withLock { state in
+        let requestLimit = maximumRuntimeClipboardRequests
+        return runtimeClipboardState.withLock { state in
             guard state.acceptsRequests,
                   state.surfaceAddress != nil,
+                  state.requests.count < requestLimit,
                   state.requests[id] == nil else {
                 return false
             }
-            reserveAdmission()
+            guard reserveAdmission() else { return false }
             state.requests[id] = RuntimeClipboardRequest(
                 task: nil,
                 onInvalidation: onInvalidation

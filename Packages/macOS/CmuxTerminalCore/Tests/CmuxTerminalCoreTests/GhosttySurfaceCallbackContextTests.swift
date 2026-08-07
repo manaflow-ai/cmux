@@ -249,6 +249,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             id: 37,
             reserveAdmission: {
                 _ = reservedAdmissionCount.advanceRelaxed()
+                return true
             },
             onInvalidation: { _, _ in
                 invalidatedSurfaceAddress = boundSurfaceAddress
@@ -281,10 +282,69 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             id: 41,
             reserveAdmission: {
                 _ = reservedAdmissionCount.advanceRelaxed()
+                return true
             },
             onInvalidation: { _, _ in }
         ))
 
         #expect(reservedAdmissionCount.loadRelaxed() == 0)
+    }
+
+    @Test @MainActor
+    func runtimeClipboardRegistrationIsBoundedBeforeReservation() throws {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller,
+            maximumRuntimeClipboardRequests: 2
+        )
+        let surface = try #require(ghostty_surface_t(bitPattern: 0x2b))
+        #expect(context.bindRuntimeClipboardSurface(surface))
+        let reservedAdmissionCount = AtomicUInt64Generation()
+
+        for id in 1...3 {
+            let accepted = context.registerRuntimeClipboardRequest(
+                id: UInt(id),
+                reserveAdmission: {
+                    _ = reservedAdmissionCount.advanceRelaxed()
+                    return true
+                },
+                onInvalidation: { _, _ in }
+            )
+            #expect(accepted == (id <= 2))
+        }
+
+        #expect(reservedAdmissionCount.loadRelaxed() == 2)
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: false
+        )
+    }
+
+    @Test @MainActor
+    func failedRuntimeClipboardReservationDoesNotConsumeCapacity() throws {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller,
+            maximumRuntimeClipboardRequests: 1
+        )
+        let surface = try #require(ghostty_surface_t(bitPattern: 0x35))
+        #expect(context.bindRuntimeClipboardSurface(surface))
+
+        #expect(!context.registerRuntimeClipboardRequest(
+            id: 1,
+            reserveAdmission: { false },
+            onInvalidation: { _, _ in }
+        ))
+        #expect(context.registerRuntimeClipboardRequest(
+            id: 2,
+            onInvalidation: { _, _ in }
+        ))
+
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: false
+        )
     }
 }

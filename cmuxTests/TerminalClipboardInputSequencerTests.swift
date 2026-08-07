@@ -126,11 +126,16 @@ struct TerminalClipboardInputSequencerTests {
             maximumBufferedEvents: 2
         )
         var delivered: [String] = []
+        var racingAdmissionAccepted = true
 
         sequencer.beginRequest(
             id: 1,
             onOverflow: {
                 delivered.append("active-cancelled")
+                racingAdmissionAccepted = sequencer.reserveRequestAdmission(
+                    id: 3,
+                    onOverflow: {}
+                )
                 sequencer.completeRequest(id: 1, confirmed: false) {
                     delivered.append($0)
                 }
@@ -157,6 +162,7 @@ struct TerminalClipboardInputSequencerTests {
         #expect(!sequencer.shouldDefer("current"))
         delivered.append("current")
 
+        #expect(!racingAdmissionAccepted)
         #expect(
             delivered == [
                 "active-cancelled",
