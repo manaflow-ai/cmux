@@ -396,6 +396,7 @@ enum AgentResumeCommandBuilder {
             sessionId: sessionId,
             launchCommand: launchCommand,
             resolvedWorkingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            discardRecordedCwdOptions: false,
             registrationOverride: registrationOverride,
             includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
             observedPermissionMode: observedPermissionMode
@@ -408,6 +409,7 @@ enum AgentResumeCommandBuilder {
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
         resolvedWorkingDirectory: String?,
+        discardRecordedCwdOptions: Bool,
         registrationOverride: CmuxVaultAgentRegistration? = nil,
         includeWorkingDirectoryPrefix: Bool = true,
         observedPermissionMode: String? = nil
@@ -432,7 +434,8 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            discardRecordedCwdOptions: discardRecordedCwdOptions
         )
     }
 
@@ -466,7 +469,8 @@ enum AgentResumeCommandBuilder {
             launchCommand: launchCommand,
             workingDirectory: resolvedWorkingDirectory,
             customRegistration: customRegistration,
-            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix
+            includeWorkingDirectoryPrefix: includeWorkingDirectoryPrefix,
+            discardRecordedCwdOptions: false
         )
     }
 
@@ -476,7 +480,8 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?,
         customRegistration: CmuxVaultAgentRegistration?,
-        includeWorkingDirectoryPrefix: Bool
+        includeWorkingDirectoryPrefix: Bool,
+        discardRecordedCwdOptions: Bool
     ) -> String {
         var commandParts: [String] = []
         let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
@@ -497,14 +502,25 @@ enum AgentResumeCommandBuilder {
         // non-Vault kinds; only user-authored templates own their cwd flags.
         let usesStructuredResumeArguments = customRegistration == nil ||
             customRegistration?.registeredResumeKind != nil
-        let sanitizedCommandParts = usesStructuredResumeArguments
-            ? workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
+        let sanitizedCommandParts: [String]
+        if !usesStructuredResumeArguments {
+            sanitizedCommandParts = commandParts
+        } else if discardRecordedCwdOptions {
+            // Exact remote selections trust no captured cwd value, including one
+            // that differs from the process working directory saved at launch.
+            sanitizedCommandParts = AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: commandParts,
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            )
+        } else {
+            sanitizedCommandParts = workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
                     workingDirectory: directory
                 )
             }
-            : commandParts
+        }
         // Render the claude/codex executable as the wrapper shim token so the
         // executed command routes through cmux's `claude`/`codex` wrapper
         // (re-injecting the agent hooks) even when an `env`-prefixed invocation

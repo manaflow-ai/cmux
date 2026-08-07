@@ -647,4 +647,22 @@ struct AgentLaunchSanitizerTests {
             ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
         )
     }
+
+    @Test("Removes every cwd option while preserving arguments after the boundary")
+    func removesWorkingDirectoryOptions() {
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "--work-dir", "/local/repo", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "-r", "session", "--cwd=/local/repo", "--", "--cwd", "prompt text"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["grok", "-r", "session", "--", "--cwd", "prompt text"]
+        )
+    }
 }
