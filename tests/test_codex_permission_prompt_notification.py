@@ -62,6 +62,8 @@ def run_feed_hook_capture(
     raw_response_delay: float = 0,
     socket_password: str | None = None,
     surface_delivery_target: tuple[str, str] | None = None,
+    method_delays: dict[str, float] | None = None,
+    settle_seconds: float = 0,
 ) -> tuple[dict, list, float]:
     """Runs `cmux hooks feed --source codex` and returns (stdout JSON,
     ordered received frames, elapsed seconds)."""
@@ -77,6 +79,7 @@ def run_feed_hook_capture(
         None,
         raw_response_delay=raw_response_delay,
         surface_delivery_target=surface_delivery_target,
+        method_delays=method_delays,
     ) as fake:
         started = time.monotonic()
         result = subprocess.run(
@@ -111,6 +114,8 @@ def run_feed_hook_capture(
             if any(frame.get("method") == "feed.push" for frame in fake.frames):
                 break
             time.sleep(0.05)
+        if settle_seconds > 0:
+            time.sleep(settle_seconds)
         stdout = json.loads(result.stdout.strip() or "{}")
         return stdout, list(fake.frames), elapsed
 
@@ -284,6 +289,30 @@ def test_permission_notification_targets_rehomed_pane(cli_path: str, root: Path)
         raise AssertionError(f"notification used stale ambient identities: {stale!r}")
 
 
+def test_stalled_live_target_probe_does_not_starve_notification(
+    cli_path: str, root: Path
+) -> None:
+    """The optional live-target probe shares the attention deadline with the
+    essential send. With the fake stalling `agent.resolve_delivery_target`
+    for 3s (past the whole deadline), the probe must give up within its
+    capped budget and the notification must still be WRITTEN — addressed to
+    the ambient identities. The fake's stalled handler drains it only after
+    waking, hence the settle window before snapshotting."""
+    stdout, frames, _ = run_feed_hook_capture(
+        cli_path,
+        root / "cmux-stall.sock",
+        "PermissionRequest",
+        method_delays={"agent.resolve_delivery_target": 3.0},
+        settle_seconds=3.0,
+    )
+    if stdout != {}:
+        raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
+    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+        raise AssertionError(
+            f"a stalled live-target probe starved the notification: {frames!r}"
+        )
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -302,6 +331,7 @@ def main() -> int:
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)
             test_permission_notification_survives_slow_authentication(cli_path, root)
             test_permission_notification_targets_rehomed_pane(cli_path, root)
+            test_stalled_live_target_probe_does_not_starve_notification(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1

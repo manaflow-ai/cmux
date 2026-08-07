@@ -32695,6 +32695,16 @@ export default CMUXSessionRestore;
     /// acknowledged send) before the feed hook gives up and returns.
     static let feedAttentionAcknowledgeTimeoutSeconds: TimeInterval = 2
 
+    /// Portion of the attention deadline reserved for the essential
+    /// notify/clear send. The optional live-target probe may never consume
+    /// this: a stalled probe that ate the whole budget would starve the very
+    /// notification the attention lane exists to deliver.
+    static let feedAttentionSendReserveSeconds: TimeInterval = 0.75
+
+    /// Upper bound on the optional live-target probe, independent of the
+    /// remaining deadline.
+    static let feedAttentionProbeTimeoutCapSeconds: TimeInterval = 1.0
+
     private func sendFeedTelemetry(
         client: SocketClient,
         source: String,
@@ -34755,7 +34765,10 @@ export default CMUXSessionRestore;
     /// The `{surface_id}` live-pane probe backing
     /// ``deliverNativeApprovalPromptAttention``. Only a `source == "surface"`
     /// answer with a live workspace UUID counts; anything else falls back to
-    /// the ambient identities.
+    /// the ambient identities. The probe's timeout is capped and always
+    /// leaves ``feedAttentionSendReserveSeconds`` of the shared deadline for
+    /// the essential send — a stalled probe degrades to ambient addressing,
+    /// never to a starved notification.
     private func resolvedAttentionDeliveryTarget(
         workspaceId: String?,
         surfaceId: String?,
@@ -34766,6 +34779,11 @@ export default CMUXSessionRestore;
               UUID(uuidString: surfaceRaw) != nil else {
             return nil
         }
+        let probeTimeout = min(
+            deadline.timeIntervalSinceNow - Self.feedAttentionSendReserveSeconds,
+            Self.feedAttentionProbeTimeoutCapSeconds
+        )
+        guard probeTimeout > 0.05 else { return nil }
         var params: [String: Any] = ["surface_id": surfaceRaw]
         if let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
            UUID(uuidString: workspaceRaw) != nil {
@@ -34774,7 +34792,7 @@ export default CMUXSessionRestore;
         guard let payload = try? client.sendV2(
                 method: "agent.resolve_delivery_target",
                 params: params,
-                responseTimeout: max(deadline.timeIntervalSinceNow, 0.05)
+                responseTimeout: probeTimeout
               ),
               (payload["source"] as? String) == "surface",
               let liveWorkspaceId = (payload["workspace_id"] as? String)?
