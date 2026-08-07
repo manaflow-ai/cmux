@@ -3763,6 +3763,170 @@ fn default_off_hibernation_policy_and_terminal_close_do_not_hibernate() {
 }
 
 #[test]
+fn runtime_attachment_rejects_unknown_extensions_and_direct_interruption() {
+    let root = temp_root("runtime-attachment-rejects-extensions");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let valid_sequence;
+    {
+        let mut registry =
+            WorkspaceRegistry::open(&root, "runtime-attachment-rejects-extensions").unwrap();
+        let session_id = registry.session_id().to_string();
+        let subjects = vec![
+            JournalSubject { kind: "session".into(), id: session_id.clone() },
+            JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+        ];
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-attachment-unknown-extension",
+            "runtime.attachment.updated",
+            subjects.clone(),
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-extension-a",
+                "state":"attached",
+                "host_epoch":"host-epoch-extension",
+                "lease_generation":"lease-extension",
+                "env":{"TOKEN":"secret"},
+                "url":"ssh://user:password@example.test"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-attachment-direct-interrupted",
+            "runtime.attachment.updated",
+            subjects.clone(),
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-extension-a",
+                "state":"interrupted",
+                "host_epoch":"host-epoch-extension",
+                "lease_generation":"lease-extension"
+            }),
+            true,
+        );
+        valid_sequence = append_persistence_state_record(
+            &mut registry,
+            "runtime-attachment-valid",
+            "runtime.attachment.updated",
+            subjects,
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-extension-a",
+                "state":"attached",
+                "host_epoch":"host-epoch-extension",
+                "lease_generation":"lease-extension"
+            }),
+            true,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "runtime-attachment-rejects-extensions").unwrap();
+    let rows = persistence_state_rows(&reopened);
+    assert_eq!(runtime_attachment_committed_sequence(&reopened, &terminal_id), valid_sequence);
+    assert!(
+        rows.iter()
+            .any(|row| { row.starts_with("runtime:") && row.contains(r#""state":"attached""#) })
+    );
+    assert!(!rows.iter().any(|row| row.contains("secret") || row.contains("ssh://")));
+    assert!(!rows.iter().any(|row| row.contains(r#""state":"interrupted""#)));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn runtime_attachment_recorder_is_receipt_gated_and_stale_safe() {
+    let root = temp_root("runtime-attachment-recorder");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let mut registry = WorkspaceRegistry::open(&root, "runtime-attachment-recorder").unwrap();
+    let first = registry
+        .record_runtime_attachment_update(
+            "test",
+            "runtime-attachment-idempotency",
+            &terminal_id,
+            "runtime-recorder-a",
+            "attached",
+            "host-epoch-recorder",
+            "lease-recorder",
+        )
+        .unwrap();
+    assert!(!first.replayed);
+    let retry = registry
+        .record_runtime_attachment_update(
+            "test",
+            "runtime-attachment-idempotency",
+            &terminal_id,
+            "runtime-recorder-a",
+            "attached",
+            "host-epoch-recorder",
+            "lease-recorder",
+        )
+        .unwrap();
+    assert!(retry.replayed);
+    assert_eq!(retry.sequence, first.sequence);
+    assert!(
+        registry
+            .record_runtime_attachment_update(
+                "test",
+                "runtime-attachment-idempotency",
+                &terminal_id,
+                "runtime-recorder-a",
+                "detached",
+                "host-epoch-recorder",
+                "lease-recorder",
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("different payload")
+    );
+
+    let detached = registry
+        .record_runtime_attachment_update(
+            "test",
+            "runtime-attachment-detached",
+            &terminal_id,
+            "runtime-recorder-a",
+            "detached",
+            "host-epoch-recorder",
+            "lease-recorder",
+        )
+        .unwrap();
+    assert!(!detached.replayed);
+    assert_eq!(runtime_attachment_committed_sequence(&registry, &terminal_id), detached.sequence);
+    assert!(
+        registry
+            .record_runtime_attachment_update(
+                "test",
+                "runtime-attachment-stale-runtime",
+                &terminal_id,
+                "runtime-recorder-b",
+                "attached",
+                "host-epoch-recorder",
+                "lease-recorder",
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("stale")
+    );
+    let attachment_events: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM session_journal
+             WHERE kind = 'runtime.attachment.updated'
+               AND json_extract(payload_json, '$.terminal_id') = ?1",
+            [terminal_id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(attachment_events, 2);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn runtime_host_loss_proof_marks_interrupted_only_with_matching_epoch_and_lease() {
     let root = temp_root("runtime-host-loss-proof");
     let terminal_id = terminal_resource(TERMINAL_ONE);
@@ -3844,9 +4008,11 @@ fn runtime_host_loss_proof_marks_interrupted_only_with_matching_epoch_and_lease(
             && row.contains(r#""host_epoch":"host-epoch-a""#)
             && row.contains(r#""lease_generation":"lease-a""#)
     }));
-    assert!(rows.iter().any(|row| {
-        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
-    }));
+    assert!(
+        rows.iter().any(|row| {
+            row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+        })
+    );
     assert_eq!(
         runtime_attachment_committed_sequence(&reopened, &terminal_id),
         matching_loss_sequence
@@ -3885,12 +4051,16 @@ fn runtime_host_loss_reopen_clean_stop_and_live_restart_do_not_interrupt() {
 
     let reopened = WorkspaceRegistry::open(&root, "runtime-host-loss-non-events").unwrap();
     let live_rows = persistence_state_rows(&reopened);
-    assert!(live_rows.iter().any(|row| {
-        row.starts_with("runtime:") && row.contains(r#""state":"attached""#)
-    }));
-    assert!(!live_rows.iter().any(|row| {
-        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
-    }));
+    assert!(
+        live_rows
+            .iter()
+            .any(|row| { row.starts_with("runtime:") && row.contains(r#""state":"attached""#) })
+    );
+    assert!(
+        !live_rows.iter().any(|row| {
+            row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+        })
+    );
     drop(reopened);
 
     {
@@ -3919,12 +4089,16 @@ fn runtime_host_loss_reopen_clean_stop_and_live_restart_do_not_interrupt() {
     let reopened_after_clean_stop =
         WorkspaceRegistry::open(&root, "runtime-host-loss-non-events").unwrap();
     let clean_rows = persistence_state_rows(&reopened_after_clean_stop);
-    assert!(clean_rows.iter().any(|row| {
-        row.starts_with("runtime:") && row.contains(r#""state":"detached""#)
-    }));
-    assert!(!clean_rows.iter().any(|row| {
-        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
-    }));
+    assert!(
+        clean_rows
+            .iter()
+            .any(|row| { row.starts_with("runtime:") && row.contains(r#""state":"detached""#) })
+    );
+    assert!(
+        !clean_rows.iter().any(|row| {
+            row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+        })
+    );
     drop(reopened_after_clean_stop);
     fs::remove_dir_all(root).unwrap();
 }
@@ -3977,12 +4151,15 @@ fn runtime_host_loss_rejects_pid_and_unknown_extensions() {
 
     let reopened = WorkspaceRegistry::open(&root, "runtime-host-loss-rejects").unwrap();
     let rows = persistence_state_rows(&reopened);
-    assert!(rows.iter().any(|row| {
-        row.starts_with("runtime:") && row.contains(r#""state":"attached""#)
-    }));
-    assert!(!rows.iter().any(|row| {
-        row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
-    }));
+    assert!(
+        rows.iter()
+            .any(|row| { row.starts_with("runtime:") && row.contains(r#""state":"attached""#) })
+    );
+    assert!(
+        !rows.iter().any(|row| {
+            row.starts_with("lifecycle:") && row.contains(r#""state":"interrupted""#)
+        })
+    );
     drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
@@ -4040,32 +4217,36 @@ fn runtime_host_loss_recorder_is_receipt_gated_and_stale_safe() {
         .unwrap();
     assert!(retry.replayed);
     assert_eq!(retry.sequence, first.sequence);
-    assert!(registry
-        .record_runtime_host_loss_proof(
-            "test",
-            "runtime-loss-idempotency",
-            &terminal_id,
-            "runtime-recorder-a",
-            "host-epoch-recorder",
-            "lease-other",
-            "machine_epoch_advanced",
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("different payload"));
-    assert!(registry
-        .record_runtime_host_loss_proof(
-            "test",
-            "runtime-loss-new-idempotency",
-            &terminal_id,
-            "runtime-recorder-a",
-            "host-epoch-recorder",
-            "lease-recorder",
-            "machine_epoch_advanced",
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("stale"));
+    assert!(
+        registry
+            .record_runtime_host_loss_proof(
+                "test",
+                "runtime-loss-idempotency",
+                &terminal_id,
+                "runtime-recorder-a",
+                "host-epoch-recorder",
+                "lease-other",
+                "machine_epoch_advanced",
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("different payload")
+    );
+    assert!(
+        registry
+            .record_runtime_host_loss_proof(
+                "test",
+                "runtime-loss-new-idempotency",
+                &terminal_id,
+                "runtime-recorder-a",
+                "host-epoch-recorder",
+                "lease-recorder",
+                "machine_epoch_advanced",
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("stale")
+    );
 
     let rows = persistence_state_rows(&registry);
     assert!(rows.iter().any(|row| {
@@ -4398,22 +4579,24 @@ fn session_effect_workflow_recorders_are_receipt_gated_and_live_projected() {
         .unwrap();
     assert!(retry_intent.replayed);
     assert_eq!(retry_intent.sequence, first_intent.sequence);
-    assert!(registry
-        .record_session_effect_intent(
-            "test",
-            "effect-intent-idempotency",
-            "effect-receipt-1",
-            "session.recover",
-            2,
-            &target_session_id,
-            Some(&terminal_id),
-            Some("agent-tree-1"),
-            Some("agent-node-1"),
-            true,
-        )
-        .unwrap_err()
-        .to_string()
-        .contains("different payload"));
+    assert!(
+        registry
+            .record_session_effect_intent(
+                "test",
+                "effect-intent-idempotency",
+                "effect-receipt-1",
+                "session.recover",
+                2,
+                &target_session_id,
+                Some(&terminal_id),
+                Some("agent-tree-1"),
+                Some("agent-node-1"),
+                true,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("different payload")
+    );
 
     let first_outcome = registry
         .record_session_effect_outcome(

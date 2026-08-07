@@ -2812,6 +2812,8 @@ impl Mux {
         };
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
+        drop(registry);
+        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached");
         Ok(())
     }
 
@@ -7025,6 +7027,7 @@ impl Mux {
         drop(state);
         drop(registry);
         self.commit_ordinary_full_resource_projection("test.terminal.seed", serde_json::json!({}))?;
+        self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "attached");
         Ok(surface.id)
     }
 
@@ -8542,6 +8545,36 @@ impl Mux {
             let runtime = surface.terminal_runtime_id()?;
             self.reserved_in_process_terminals.lock().unwrap().get(&runtime).cloned()
         })
+    }
+
+    fn record_terminal_runtime_attachment_source(
+        &self,
+        terminal_id: &str,
+        incarnation: &str,
+        state: &'static str,
+    ) {
+        let result = (|| -> anyhow::Result<()> {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
+                return Ok(());
+            };
+            let idempotency_key = format!("runtime-attachment-{state}-{terminal_id}-{incarnation}");
+            registry.record_runtime_attachment_update(
+                "cmux-tui-runtime",
+                &idempotency_key,
+                &public_id,
+                incarnation,
+                state,
+                incarnation,
+                incarnation,
+            )?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            self.emit(MuxEvent::Status(format!(
+                "could not persist terminal {terminal_id} runtime {state} state: {error}"
+            )));
+        }
     }
 
     fn catalog_terminal_by_host(
@@ -10447,7 +10480,7 @@ impl Mux {
         if let Some(name) = name {
             surface.set_name(Some(name));
         }
-        if surface.terminal_host_identity().is_some() {
+        if let Some(identity) = surface.terminal_host_identity() {
             // Launch/Ready intentionally releases the registry lock around
             // process startup. Re-read canonical placement after Ready and
             // hold registry -> state through the binding so a move committed
@@ -10468,6 +10501,11 @@ impl Mux {
             if changed {
                 self.emit(MuxEvent::TreeChanged);
             }
+            self.record_terminal_runtime_attachment_source(
+                &identity.terminal_id,
+                &identity.incarnation,
+                "attached",
+            );
             drop(pending_surface);
             drop(workspace_lifecycle);
             return Ok((placement, surface, created_path));
@@ -12292,6 +12330,9 @@ impl Mux {
         incarnation: Option<&str>,
         exit: &TerminalExit,
     ) -> anyhow::Result<bool> {
+        if let Some(incarnation) = incarnation {
+            self.record_terminal_runtime_attachment_source(terminal_id, incarnation, "detached");
+        }
         let mut registry = self.workspace_registry.lock().unwrap();
         let terminal = registry
             .terminal_record(terminal_id)?
