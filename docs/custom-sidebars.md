@@ -103,13 +103,11 @@ exists, and works across windows.
 
 A qualifying sidebar (see the next section) can select a workspace directly:
 
-```js
-const reply = await window.webkit.messageHandlers
-    .cmuxSidebarFocusWorkspace
-    .postMessage({ v: 1, workspaceId: id })
+    const reply = await window.webkit.messageHandlers
+        .cmuxSidebarFocusWorkspace
+        .postMessage({ v: 1, workspaceId: id })
 
-// reply === { v: 1, status: 'focused' | 'not-found' | 'unavailable' }
-```
+    // reply === { v: 1, status: 'focused' | 'not-found' | 'unavailable' }
 
 The request must be exactly `{ v: 1, workspaceId: "<uuid>" }` — both keys, no
 others, `v` the number `1`, and `workspaceId` a UUID string. Anything else
@@ -128,15 +126,13 @@ The three statuses mean different things and are worth handling separately:
 Feature-detect rather than assuming: on a sidebar that does not qualify, and in a
 Dock pane, the handler does not exist at all.
 
-```js
-const focus = window.webkit?.messageHandlers?.cmuxSidebarFocusWorkspace
-if (focus) {
-  await focus.postMessage({ v: 1, workspaceId: id })
-} else {
-  // Not a qualifying source. Fall back to the CLI, or render the rows
-  // non-interactive rather than showing a button that silently does nothing.
-}
-```
+    const focus = window.webkit?.messageHandlers?.cmuxSidebarFocusWorkspace
+    if (focus) {
+      await focus.postMessage({ v: 1, workspaceId: id })
+    } else {
+      // Not a qualifying source. Fall back to the CLI, or render the rows
+      // non-interactive rather than showing a button that silently does nothing.
+    }
 
 This is the only native call an HTML sidebar gets. There is no general command
 bridge, and there is deliberately no way to pass a method name and parameters:
@@ -190,17 +186,13 @@ If you want rows to scroll *underneath* the translucent chrome, the way the
 built-in workspace list does, opt into the full sidebar rect and pad the content
 yourself:
 
-```html
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-```
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
 cmux then publishes the chrome heights as CSS custom properties on `:root`,
 updated in place when the window changes:
 
-```css
-.toolbar { padding-top: var(--cmux-sidebar-inset-top); }
-.list    { padding-bottom: var(--cmux-sidebar-inset-bottom); }
-```
+    .toolbar { padding-top: var(--cmux-sidebar-inset-top); }
+    .list    { padding-bottom: var(--cmux-sidebar-inset-bottom); }
 
 These are custom properties rather than the usual `env(safe-area-inset-*)`
 because macOS `WKWebView` does not forward the view's safe-area insets to CSS —
