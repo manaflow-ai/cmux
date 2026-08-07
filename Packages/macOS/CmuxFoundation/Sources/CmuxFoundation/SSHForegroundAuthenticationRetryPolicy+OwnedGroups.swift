@@ -36,8 +36,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
         cmux_ssh_auth_reset_stop_budget() {
           # Rollback must attempt CONT for every write-ahead STOP record even
-          # after the termination deadline. Cap each transaction so draining
-          # either journal remains finite without sharing that deadline.
+          # after the termination deadline. Cap each transaction's durable
+          # identities so draining either journal remains finite without
+          # sharing that deadline.
           cmux_ssh_auth_stop_budget=1024
         }
 
@@ -233,6 +234,21 @@ extension SSHForegroundAuthenticationRetryPolicy {
             > "$cmux_ssh_auth_filter_output"
         }
 
+        cmux_ssh_auth_stop_record_identity_is_current() {
+          cmux_ssh_auth_stop_record_pid="$1"
+          cmux_ssh_auth_stop_record_parent="$2"
+          cmux_ssh_auth_stop_record_group="$3"
+          cmux_ssh_auth_stop_record_started="$4"
+          case "$cmux_ssh_auth_stop_record_pid:$cmux_ssh_auth_stop_record_parent:$cmux_ssh_auth_stop_record_group:$cmux_ssh_auth_stop_record_started" in
+            *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
+          esac
+          cmux_ssh_auth_stop_record_expected="$cmux_ssh_auth_stop_record_parent|$cmux_ssh_auth_stop_record_group|$cmux_ssh_auth_stop_record_started"
+          cmux_ssh_auth_stop_record_current=$(cmux_ssh_auth_identity \
+            "$cmux_ssh_auth_stop_record_pid")
+          [ "$cmux_ssh_auth_stop_record_current" = \
+            "$cmux_ssh_auth_stop_record_expected" ]
+        }
+
         cmux_ssh_auth_revalidate_stopped_groups() {
           /usr/bin/awk '
             FILENAME == ARGV[1] {
@@ -286,14 +302,45 @@ extension SSHForegroundAuthenticationRetryPolicy {
             ''|*[!0-9]*) cmux_ssh_auth_reset_stop_budget ;;
           esac
 
+          # Stage every exact member before issuing any group STOP. If the
+          # complete witness set exceeds the transaction budget, publish
+          # nothing and let the caller retry without changing process state.
+          /usr/bin/awk -v cmux_max="$cmux_ssh_auth_stop_budget" '
+            FILENAME == ARGV[1] { cmux_group[$1] = 1; next }
+            FILENAME == ARGV[2] && NF >= 5 {
+              cmux_total_count += 1
+              if ($3 in cmux_group) {
+                cmux_seen[$3] = 1
+                cmux_count += 1
+                if (cmux_count <= cmux_max) {
+                  cmux_record[cmux_count] = $3 " " $1 " " $2 " " $4
+                }
+              }
+              next
+            }
+            END {
+              for (cmux_candidate in cmux_group) {
+                if (!(cmux_candidate in cmux_seen)) exit 1
+              }
+              if (cmux_total_count > cmux_max) exit 1
+              for (cmux_index = 1; cmux_index <= cmux_count; cmux_index++) {
+                print cmux_record[cmux_index]
+              }
+            }
+          ' "$cmux_ssh_auth_owned_groups" "$cmux_ssh_auth_owned_processes" \
+            > "$cmux_ssh_auth_signaled_groups" || return 1
+          cmux_ssh_auth_group_witness_count=$(/usr/bin/awk \
+            'END { print NR + 0 }' "$cmux_ssh_auth_signaled_groups") || return 1
+          case "$cmux_ssh_auth_group_witness_count" in
+            ''|*[!0-9]*) return 1 ;;
+          esac
+          cmux_ssh_auth_stop_budget=$((
+            cmux_ssh_auth_stop_budget - cmux_ssh_auth_group_witness_count
+          ))
+
           while IFS= read -r cmux_ssh_auth_group; do
             cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-            cmux_ssh_auth_stop_budget_allows_signal || return 1
-            # Publish recovery state first so interruption at STOP cannot
-            # strand the group without a compensating CONT record.
-            printf '%s\n' "$cmux_ssh_auth_group" \
-              >> "$cmux_ssh_auth_signaled_groups" || return 1
             kill -STOP -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
           done < "$cmux_ssh_auth_owned_groups"
 
@@ -392,9 +439,39 @@ extension SSHForegroundAuthenticationRetryPolicy {
 
         cmux_ssh_auth_resume_signaled_processes() {
           if [ -s "$cmux_ssh_auth_signaled_groups" ]; then
-            while IFS= read -r cmux_ssh_auth_group; do
-              case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
-              kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
+            while read -r cmux_ssh_auth_resume_group \
+              cmux_ssh_auth_resume_pid cmux_ssh_auth_resume_parent \
+              cmux_ssh_auth_resume_started cmux_ssh_auth_resume_extra; do
+              case "$cmux_ssh_auth_resume_group" in ''|0|*[!0-9]*) continue ;; esac
+              if [ -n "$cmux_ssh_auth_resume_pid" ]; then
+                if [ -n "$cmux_ssh_auth_resume_extra" ]; then continue; fi
+                if cmux_ssh_auth_stop_record_identity_is_current \
+                  "$cmux_ssh_auth_resume_pid" "$cmux_ssh_auth_resume_parent" \
+                  "$cmux_ssh_auth_resume_group" "$cmux_ssh_auth_resume_started"; then
+                  kill -CONT -- "-$cmux_ssh_auth_resume_group" \
+                    >/dev/null 2>&1 || true
+                fi
+                continue
+              fi
+              # Compatibility with numeric-only group journals. A durable
+              # frozen member is required; without one the PGID may be reused.
+              if [ -z "${cmux_ssh_auth_frozen_processes:-}" ] || \
+                [ ! -s "$cmux_ssh_auth_frozen_processes" ]; then continue; fi
+              while read -r cmux_ssh_auth_legacy_pid \
+                cmux_ssh_auth_legacy_parent cmux_ssh_auth_legacy_group \
+                cmux_ssh_auth_legacy_started cmux_ssh_auth_legacy_state \
+                cmux_ssh_auth_legacy_extra; do
+                if [ "$cmux_ssh_auth_legacy_group" != \
+                  "$cmux_ssh_auth_resume_group" ] || \
+                  [ -n "$cmux_ssh_auth_legacy_extra" ]; then continue; fi
+                if cmux_ssh_auth_stop_record_identity_is_current \
+                  "$cmux_ssh_auth_legacy_pid" "$cmux_ssh_auth_legacy_parent" \
+                  "$cmux_ssh_auth_legacy_group" "$cmux_ssh_auth_legacy_started"; then
+                  kill -CONT -- "-$cmux_ssh_auth_resume_group" \
+                    >/dev/null 2>&1 || true
+                  break
+                fi
+              done < "$cmux_ssh_auth_frozen_processes"
             done < "$cmux_ssh_auth_signaled_groups"
           fi
           if [ -s "$cmux_ssh_auth_signaled_processes" ]; then
@@ -485,6 +562,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
         }
 
         cmux_ssh_auth_freeze_and_force_owned_processes() {
+          # Refresh membership immediately before selecting whole groups. The
+          # resulting journal is both the STOP witness and the recovery witness
+          # for the exact snapshot this transaction acts on.
           cmux_ssh_auth_take_process_snapshot "$cmux_ssh_auth_process_snapshot" || return 1
           cmux_ssh_auth_expand_owned_processes || return 1
           cmux_ssh_auth_freeze_owned_processes || return 1
