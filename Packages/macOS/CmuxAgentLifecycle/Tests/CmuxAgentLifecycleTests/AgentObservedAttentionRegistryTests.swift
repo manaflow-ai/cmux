@@ -11,9 +11,12 @@ struct AgentObservedAttentionRegistryTests {
         let second = record(index: 2)
         let third = record(index: 3)
 
-        #expect(registry.insert(first)?.isEmpty == true)
-        #expect(registry.insert(second)?.isEmpty == true)
-        let evicted = try #require(registry.insert(third))
+        let firstInsertion = registry.insert(first)
+        #expect(firstInsertion?.isEmpty == true)
+        let secondInsertion = registry.insert(second)
+        #expect(secondInsertion?.isEmpty == true)
+        let thirdInsertion = registry.insert(third)
+        let evicted = try #require(thirdInsertion)
 
         #expect(evicted.map(\.key) == [first.key])
         #expect(registry.count == 2)
@@ -48,7 +51,8 @@ struct AgentObservedAttentionRegistryTests {
             target: "replacement"
         )
 
-        #expect(registry.insert(duplicate) == nil)
+        let duplicateInsertion = registry.insert(duplicate)
+        #expect(duplicateInsertion == nil)
         #expect(registry.record(for: first.key)?.target == first.target)
     }
 
