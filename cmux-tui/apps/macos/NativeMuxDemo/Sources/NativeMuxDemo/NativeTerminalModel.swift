@@ -64,7 +64,7 @@ final class NativeTerminalModel {
   ) {
     self.terminalID = terminalID
     self.service = service
-    let input = AsyncStream<TerminalInput>.makeStream()
+    let input = AsyncStream<TerminalInput>.makeStream(bufferingPolicy: .bufferingNewest(256))
     inputStream = input.stream
     inputContinuation = input.continuation
     let inputRelay = GhosttyTerminalInputRelay(continuation: input.continuation)

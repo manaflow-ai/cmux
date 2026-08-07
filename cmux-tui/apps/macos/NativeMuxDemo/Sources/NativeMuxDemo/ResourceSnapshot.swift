@@ -111,6 +111,18 @@ struct ResourceSnapshot: Decodable, Sendable {
         case machine, session, workspaces, screens, panes, tabs, terminals, browsers, cursor
     }
 
+    private static func index<T>(_ values: [T], by key: (T) -> String, decoder: Decoder) throws -> [String: T] {
+        var result: [String: T] = [:]
+        result.reserveCapacity(values.count)
+        for value in values {
+            let id = key(value)
+            guard result.updateValue(value, forKey: id) == nil else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "duplicate resource id: \(id)"))
+            }
+        }
+        return result
+    }
+
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         machine = try container.decode(ResourceIdentity.self, forKey: .machine)
@@ -124,11 +136,11 @@ struct ResourceSnapshot: Decodable, Sendable {
         cursor = try container.decode(ResourceCursor.self, forKey: .cursor)
         screensByWorkspaceID = Dictionary(grouping: screens, by: \.workspaceID)
             .mapValues { $0.sorted { $0.index < $1.index } }
-        panesByID = Dictionary(uniqueKeysWithValues: panes.map { ($0.id, $0) })
+        panesByID = try Self.index(panes, by: \.id, decoder: decoder)
         tabsByPaneID = Dictionary(grouping: tabs, by: \.paneID)
             .mapValues { $0.sorted { $0.index < $1.index } }
-        terminalsByID = Dictionary(uniqueKeysWithValues: terminals.map { ($0.id, $0) })
-        browsersByID = Dictionary(uniqueKeysWithValues: browsers.map { ($0.id, $0) })
+        terminalsByID = try Self.index(terminals, by: \.id, decoder: decoder)
+        browsersByID = try Self.index(browsers, by: \.id, decoder: decoder)
     }
 
     func screens(in workspaceID: String) -> [ScreenSnapshot] {

@@ -59,6 +59,8 @@ private func decodeError(_ buffer: [CChar]) -> String {
   )
 }
 
+// Safe because the queue is the sole executor for each handle's blocking C
+// calls; callers never access the raw handle outside this serialized path.
 final class SerialFFIExecutor: @unchecked Sendable {
   private let queue: DispatchQueue
 
@@ -329,7 +331,8 @@ actor TerminalHandle {
     return await enqueue {
       let raw = OpaquePointer(bitPattern: rawAddress)!
       var result: [TerminalRenderEvent] = []
-      while true {
+      result.reserveCapacity(64)
+      while result.count < 64 {
         var descriptor = CmuxFrontendRenderEvent()
         guard cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, nil, 0) else { break }
         guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else {
