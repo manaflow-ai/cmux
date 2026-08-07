@@ -2604,7 +2604,21 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        cmux_ssh_auth_identity() { printf '1|777777|Thu_Jan_1_00:00:00_1970\n'; }
+        cmux_test_real_identity() {
+          /usr/bin/env LC_ALL=C LANG=C /bin/ps \
+            -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
+            /usr/bin/awk 'NF >= 8 && $3 !~ /Z/ {
+              started = $4 "_" $5 "_" $6 "_" $7 "_" $8
+              print $1 "|" $2 "|" started
+            }'
+        }
+        cmux_ssh_auth_identity() {
+          if [ "$1" = 101 ]; then
+            printf '1|777777|Thu_Jan_1_00:00:00_1970\n'
+          else
+            cmux_test_real_identity "$1"
+          fi
+        }
         cmux_ssh_auth_now_millis() { printf '1000\n'; }
         cmux_ssh_auth_run_cleanup_transactions() {
           if /bin/mkdir "$CMUX_TEST_TRANSACTION_GUARD" 2>/dev/null; then
