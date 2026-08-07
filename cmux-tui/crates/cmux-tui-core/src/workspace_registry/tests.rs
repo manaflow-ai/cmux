@@ -500,6 +500,59 @@ fn terminal_host_reset_refuses_busy_live_marker() {
 
 #[cfg(unix)]
 #[test]
+fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let root = temp_root("terminal-host-reset-legacy-marker");
+    fs::create_dir_all(&root).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let uid = fs::metadata(&root).unwrap().uid();
+    let terminal_id = TERMINAL_ONE;
+    let record = crate::terminal_host_runtime::TerminalHostRecord {
+        record_version: 1,
+        terminal_id: terminal_id.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
+        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        owner_token: "01".repeat(32),
+        host_pid: 0,
+        host_start_nonce: String::new(),
+        workspace_key: String::new(),
+        supports_set_defaults: false,
+        supports_clear_history: false,
+    };
+    let record_path = record.record_path(&root);
+    let live_path = terminal_host_live_marker_path(&record_path, &record);
+    let live_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&live_path)
+        .unwrap();
+    // SAFETY: flock only changes the advisory lock on this valid test file descriptor.
+    assert_eq!(unsafe { libc::flock(live_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let mut record_file =
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record_path).unwrap();
+    record_file.write_all(&serde_json::to_vec(&record).unwrap()).unwrap();
+    record_file.sync_all().unwrap();
+    *RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap() = Some(record_path.clone());
+
+    let error = match prepare_terminal_host_root_for_reset(&root) {
+        Ok(_) => panic!("reset ignored a busy legacy live marker"),
+        Err(error) => error,
+    };
+    *RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap() = None;
+
+    assert!(error.to_string().contains("live or unverified hosts"), "{error:#}");
+    assert!(record_path.exists(), "reset reached the liveness hook before checking the marker");
+    assert!(live_path.exists(), "reset removed a busy legacy live marker");
+    drop(live_file);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_rejects_unpublished_terminal_host_publication() {
     let root = temp_root("reset-rejects-unpublished-terminal-host");
     let session = "reset-rejects-unpublished-terminal-host";
@@ -624,6 +677,28 @@ fn reset_preview_rejects_confirmation_manifest_byte_budget() {
 
     assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
     assert!(error.to_string().contains("bytes"), "{error:#}");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_preview_rejects_confirmation_manifest_string_budget() {
+    let root = temp_root("reset-manifest-string-budget");
+    let session = "reset-manifest-string-budget";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let mut nested = session_dir.clone();
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    for index in 0..16 {
+        nested = nested.join(format!("long-reset-manifest-component-{index:02}"));
+        fs::create_dir_all(&nested).unwrap();
+        fs::write(nested.join(format!("long-reset-manifest-leaf-{index:02}")), b"x").unwrap();
+    }
+
+    let error = resetter.preview(session).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation scan exceeds"), "{error:#}");
+    assert!(error.to_string().contains("manifest bytes"), "{error:#}");
     fs::remove_dir_all(root).unwrap();
 }
 

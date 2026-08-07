@@ -74,6 +74,10 @@ const MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES: usize = 64;
 const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 512 * 1024 * 1024;
 #[cfg(test)]
 const MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES: u64 = 1024 * 1024;
+#[cfg(not(test))]
+const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 16 * 1024 * 1024;
+#[cfg(test)]
+const MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES: usize = 1024;
 const RESOURCE_EFFECT_PEPPER_BYTES: usize = 32;
 const RESOURCE_EFFECT_PEPPER_FILE: &str = "resource-effect-pepper";
 const RESOURCE_EFFECT_PEPPER_LOCK_FILE: &str = "resource-effect-pepper.lock";
@@ -898,6 +902,7 @@ fn reset_dir_manifest(
 struct ResetFingerprintBudget {
     entries: usize,
     bytes: u64,
+    manifest_bytes: usize,
 }
 
 impl ResetFingerprintBudget {
@@ -905,6 +910,14 @@ impl ResetFingerprintBudget {
         self.entries = self.entries.saturating_add(1);
         if self.entries > MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
             return Err(reset_confirmation_scan_limit_error("paths", path));
+        }
+        Ok(())
+    }
+
+    fn add_manifest_bytes(&mut self, path: &Path, bytes: usize) -> anyhow::Result<()> {
+        self.manifest_bytes = self.manifest_bytes.saturating_add(bytes);
+        if self.manifest_bytes > MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES {
+            return Err(reset_confirmation_scan_limit_error("manifest bytes", path));
         }
         Ok(())
     }
@@ -931,6 +944,7 @@ fn reset_confirmation_scan_limit_error(unit: &str, path: &Path) -> anyhow::Error
     let limit = match unit {
         "paths" => MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES.to_string(),
         "bytes" => MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES.to_string(),
+        "manifest bytes" => MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES.to_string(),
         _ => "configured".to_string(),
     };
     anyhow::anyhow!(
@@ -950,7 +964,12 @@ fn collect_reset_path_fingerprints(
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            entries.push(format!("{}=missing", relative_path.display()));
+            push_reset_manifest_entry(
+                entries,
+                format!("{}=missing", relative_path.display()),
+                budget,
+                path,
+            )?;
             return Ok(());
         }
         Err(error) => {
@@ -961,7 +980,7 @@ fn collect_reset_path_fingerprints(
     let root_device = root_device.or(current_device);
     ensure_reset_device_boundary(path, root_device, current_device)?;
     budget.add_entry(path)?;
-    entries.push(format!(
+    let entry = format!(
         "{}={}",
         relative_path.display(),
         reset_path_fingerprint(
@@ -970,7 +989,8 @@ fn collect_reset_path_fingerprints(
             budget,
             ignore_terminal_host_publication_lock && relative_path == Path::new("."),
         )?
-    ));
+    );
+    push_reset_manifest_entry(entries, entry, budget, path)?;
     if !metadata.file_type().is_dir() {
         return Ok(());
     }
@@ -1005,6 +1025,17 @@ fn collect_reset_path_fingerprints(
             entries,
         )?;
     }
+    Ok(())
+}
+
+fn push_reset_manifest_entry(
+    entries: &mut Vec<String>,
+    entry: String,
+    budget: &mut ResetFingerprintBudget,
+    path: &Path,
+) -> anyhow::Result<()> {
+    budget.add_manifest_bytes(path, entry.len())?;
+    entries.push(entry);
     Ok(())
 }
 
@@ -4225,6 +4256,10 @@ static RESET_DELETE_AFTER_MANIFEST_FILE: std::sync::Mutex<Option<(PathBuf, PathB
 static RESET_DELETE_AFTER_CHILD_VERIFY_FILE: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
 
+#[cfg(test)]
+static RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS: std::sync::Mutex<Option<PathBuf>> =
+    std::sync::Mutex::new(None);
+
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
     acquire_existing_session_guard(root, session_name)
@@ -4323,6 +4358,7 @@ fn prepare_terminal_host_root_for_reset(
     let mut live_marker_leases = Vec::new();
     let expected_live_markers = records
         .iter()
+        .filter(|(_, record)| record.record_version >= 2)
         .map(|(record_path, record)| terminal_host_live_marker_path(record_path, record))
         .collect::<HashSet<_>>();
     for entry in fs::read_dir(root)
@@ -4341,6 +4377,8 @@ fn prepare_terminal_host_root_for_reset(
             }
         }
     }
+    #[cfg(test)]
+    inject_legacy_terminal_host_record_removal_before_liveness()?;
     for (record_path, record) in &records {
         match crate::terminal_host_runtime::terminal_host_record_liveness(&record_path, &record)? {
             TerminalHostLiveness::Dead => {
@@ -4361,6 +4399,17 @@ fn prepare_terminal_host_root_for_reset(
         }
     }
     Ok(live_marker_leases)
+}
+
+#[cfg(all(unix, test))]
+fn inject_legacy_terminal_host_record_removal_before_liveness() -> anyhow::Result<()> {
+    let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap();
+    let Some(path) = record.take() else {
+        return Ok(());
+    };
+    fs::remove_file(&path)
+        .with_context(|| format!("remove injected terminal-host record {}", path.display()))?;
+    Ok(())
 }
 
 #[cfg(unix)]
