@@ -2209,6 +2209,7 @@
 		8430A0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8430B0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift */; };
 		EDA24082C65B4E2A2A03F276 /* SidebarWorkspaceChecklistPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAC8DE2AF74EC2C272681A75 /* SidebarWorkspaceChecklistPopover.swift */; };
 		B290FAD92C810ACB2D9CD9C6 /* SidebarWorkspaceChecklistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9E7BB6EF7C9F8D2C681999D /* SidebarWorkspaceChecklistView.swift */; };
+		9658B0010000000000000001 /* SidebarWorkspaceContextMenuResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9658B0020000000000000002 /* SidebarWorkspaceContextMenuResolver.swift */; };
 		9658A0010000000000000001 /* SidebarWorkspaceContextMenuRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9658A0020000000000000002 /* SidebarWorkspaceContextMenuRoutingTests.swift */; };
 		6707F0036707F0036707F003 /* SidebarWorkspaceContextMenuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F0046707F0046707F004 /* SidebarWorkspaceContextMenuSnapshot.swift */; };
 		6707F0196707F0196707F019 /* SidebarWorkspaceContextMenuTargetAggregate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6707F0206707F0206707F020 /* SidebarWorkspaceContextMenuTargetAggregate.swift */; };
@@ -5203,6 +5204,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		8430B0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceBranchDirectorySettings.swift; sourceTree = "<group>"; };
 		BAC8DE2AF74EC2C272681A75 /* SidebarWorkspaceChecklistPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SidebarWorkspaceChecklistPopover.swift"; sourceTree = "<group>"; };
 		E9E7BB6EF7C9F8D2C681999D /* SidebarWorkspaceChecklistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceChecklistView.swift; sourceTree = "<group>"; };
+		9658B0020000000000000002 /* SidebarWorkspaceContextMenuResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/AppKitList/SidebarWorkspaceContextMenuResolver.swift; sourceTree = "<group>"; };
 		9658A0020000000000000002 /* SidebarWorkspaceContextMenuRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceContextMenuRoutingTests.swift; sourceTree = "<group>"; };
 		6707F0046707F0046707F004 /* SidebarWorkspaceContextMenuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceContextMenuSnapshot.swift; sourceTree = "<group>"; };
 		6707F0206707F0206707F020 /* SidebarWorkspaceContextMenuTargetAggregate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarWorkspaceContextMenuTargetAggregate.swift; sourceTree = "<group>"; };
@@ -6721,6 +6723,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B804B0030000000000000003 /* SidebarWorkspaceTableContainerView.swift */,
 				B804B00C000000000000000C /* SidebarWorkspaceTableEmptyDropIndicatorView.swift */,
 				B804B0040000000000000004 /* SidebarWorkspaceTableController.swift */,
+				9658B0020000000000000002 /* SidebarWorkspaceContextMenuResolver.swift */,
 				B804B0180000000000000018 /* SidebarWorkspaceDragPasteboardWriter.swift */,
 				B804B0130000000000000013 /* SidebarWorkspaceTableApplyInput.swift */,
 				B804B0160000000000000016 /* SidebarWorkspaceTableMutationScheduler.swift */,
@@ -10996,6 +10999,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				8430A0010000000000000001 /* SidebarWorkspaceBranchDirectorySettings.swift in Sources */,
 				EDA24082C65B4E2A2A03F276 /* SidebarWorkspaceChecklistPopover.swift in Sources */,
 				B290FAD92C810ACB2D9CD9C6 /* SidebarWorkspaceChecklistView.swift in Sources */,
+				9658B0010000000000000001 /* SidebarWorkspaceContextMenuResolver.swift in Sources */,
 				6707F0036707F0036707F003 /* SidebarWorkspaceContextMenuSnapshot.swift in Sources */,
 				6707F0196707F0196707F019 /* SidebarWorkspaceContextMenuTargetAggregate.swift in Sources */,
 				961300000000000000000001 /* SidebarWorkspaceDescriptionText.swift in Sources */,
