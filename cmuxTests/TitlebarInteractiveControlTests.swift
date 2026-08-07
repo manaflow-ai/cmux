@@ -296,9 +296,11 @@ struct SidebarEmptyAreaWindowDragTests {
         return window
     }
 
-    /// Feeds a fixed script of events in place of the real tracking pump so the
-    /// loop is exercised without a run loop.
-    private static func pump(_ events: [NSEvent]) -> @MainActor (NSWindow) -> NSEvent? {
+    /// Feeds a fixed script in place of the real tracking pump so the loop is
+    /// exercised without a run loop.
+    private static func pump(
+        _ events: [SidebarEmptyAreaWindowDragController.TrackingEvent]
+    ) -> @MainActor (NSWindow) -> SidebarEmptyAreaWindowDragController.TrackingEvent? {
         var remaining = events
         return { _ in remaining.isEmpty ? nil : remaining.removeFirst() }
     }
@@ -337,10 +339,12 @@ struct SidebarEmptyAreaWindowDragTests {
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 40, y: 80), window: window)
         let dragged = Self.makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 60, y: 100), window: window)
 
-        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([dragged]))
-        let handled = controller.perform(with: down, in: view)
+        let controller = SidebarEmptyAreaWindowDragController(
+            nextEvent: Self.pump([.dragged(location: dragged.locationInWindow)])
+        )
+        let outcome = controller.perform(with: down, in: view)
 
-        #expect(handled)
+        #expect(outcome == .dragged)
         #expect(window.performDragCallCount == 1)
         #expect(window.isMovableDuringPerformDrag == true)
         #expect(!window.isMovable)
@@ -355,10 +359,10 @@ struct SidebarEmptyAreaWindowDragTests {
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 40, y: 80), window: window)
         let up = Self.makeMouseEvent(type: .leftMouseUp, location: NSPoint(x: 40, y: 80), window: window)
 
-        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([up]))
-        let handled = controller.perform(with: down, in: view)
+        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([.mouseUp(up)]))
+        let outcome = controller.perform(with: down, in: view)
 
-        #expect(!handled)
+        #expect(outcome == .passThrough)
         #expect(window.performDragCallCount == 0)
         try Self.expectReplayedMouseUp(in: window, matches: up)
     }
@@ -373,10 +377,15 @@ struct SidebarEmptyAreaWindowDragTests {
         let jitter = Self.makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 41, y: 81), window: window)
         let up = Self.makeMouseEvent(type: .leftMouseUp, location: NSPoint(x: 41, y: 81), window: window)
 
-        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([jitter, up]))
-        let handled = controller.perform(with: down, in: view)
+        let controller = SidebarEmptyAreaWindowDragController(
+            nextEvent: Self.pump([
+                .dragged(location: jitter.locationInWindow),
+                .mouseUp(up),
+            ])
+        )
+        let outcome = controller.perform(with: down, in: view)
 
-        #expect(!handled)
+        #expect(outcome == .passThrough)
         #expect(window.performDragCallCount == 0)
         try Self.expectReplayedMouseUp(in: window, matches: up)
     }
@@ -391,10 +400,40 @@ struct SidebarEmptyAreaWindowDragTests {
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 4, y: 4), window: window)
         let dragged = Self.makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 40, y: 40), window: window)
 
-        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([dragged]))
-        let handled = controller.perform(with: down, in: detached)
+        let controller = SidebarEmptyAreaWindowDragController(
+            nextEvent: Self.pump([.dragged(location: dragged.locationInWindow)])
+        )
+        let outcome = controller.perform(with: down, in: detached)
 
-        #expect(!handled)
+        #expect(outcome == .passThrough)
         #expect(window.performDragCallCount == 0)
+    }
+
+    /// A system cancellation consumes the sequence without starting a drag.
+    @Test func cancelledSequenceDoesNotFallThrough() throws {
+        let window = Self.makeWindow()
+        defer { window.orderOut(nil) }
+        let view = try #require(window.contentView)
+
+        let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 40, y: 80), window: window)
+        let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([.cancelled]))
+
+        let outcome = controller.perform(with: down, in: view)
+
+        #expect(outcome == .cancelled)
+        #expect(window.performDragCallCount == 0)
+    }
+
+    /// Both native empty-area owners receive the initial press in an inactive window.
+    @Test func nativeEmptyAreaOwnersAcceptFirstMouse() {
+        _ = NSApplication.shared
+
+        let clipView = SidebarWorkspaceTableClipView()
+        let tableView = SidebarWorkspaceTableViewImpl()
+
+        #expect(clipView.acceptsFirstMouse(for: nil))
+        // NSTableView already accepts click-through via NSControl; retain that
+        // policy for rows while the clip view opts in for empty viewport space.
+        #expect(tableView.acceptsFirstMouse(for: nil))
     }
 }

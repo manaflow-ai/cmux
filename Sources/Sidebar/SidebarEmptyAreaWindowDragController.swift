@@ -11,8 +11,28 @@ import AppKit
 /// stops recognizing for the rest of the window's life.
 @MainActor
 struct SidebarEmptyAreaWindowDragController {
+    /// Result of tracking one empty-area mouse-down sequence.
+    enum Outcome: Equatable {
+        /// The caller should continue its normal `mouseDown` handling.
+        case passThrough
+        /// AppKit took ownership of the sequence to move the window.
+        case dragged
+        /// AppKit ended the sequence without a mouse-up to replay.
+        case cancelled
+    }
+
+    /// Event-source values consumed by the synchronous tracking loop.
+    enum TrackingEvent {
+        /// Pointer movement that may cross the drag threshold.
+        case dragged(location: NSPoint)
+        /// The terminating event that normal click handling still needs.
+        case mouseUp(NSEvent)
+        /// A system cancellation that terminates the sequence without mouse-up.
+        case cancelled
+    }
+
     private let dragThreshold: CGFloat
-    private let nextEvent: @MainActor (NSWindow) -> NSEvent?
+    private let nextEvent: @MainActor (NSWindow) -> TrackingEvent?
 
     /// Creates a controller with its pointer threshold and event source.
     ///
@@ -20,13 +40,25 @@ struct SidebarEmptyAreaWindowDragController {
     /// resolves into either movement or a mouse-up.
     init(
         dragThreshold: CGFloat = 4,
-        nextEvent: @escaping @MainActor (NSWindow) -> NSEvent? = { window in
-            window.nextEvent(
-                matching: [.leftMouseDragged, .leftMouseUp],
+        nextEvent: @escaping @MainActor (NSWindow) -> TrackingEvent? = { window in
+            var eventMask: NSEvent.EventTypeMask = [.leftMouseDragged, .leftMouseUp]
+            if #available(macOS 26.0, *) {
+                eventMask.insert(.mouseCancelled)
+            }
+            guard let event = window.nextEvent(
+                matching: eventMask,
                 until: .distantFuture,
                 inMode: .eventTracking,
                 dequeue: true
-            )
+            ) else { return nil }
+
+            if #available(macOS 26.0, *), event.type == .mouseCancelled {
+                return .cancelled
+            }
+            if event.type == .leftMouseUp {
+                return .mouseUp(event)
+            }
+            return .dragged(location: event.locationInWindow)
         }
     ) {
         self.dragThreshold = dragThreshold
@@ -35,37 +67,42 @@ struct SidebarEmptyAreaWindowDragController {
 
     /// Consumes `event` as a window drag when the press turns into one.
     ///
-    /// Returns `true` when the window was dragged and the caller must not run
-    /// its normal `mouseDown` handling. Returns `false` for a press that never
-    /// passed the configured drag threshold, having pushed the terminating
-    /// mouse-up back onto the queue first — `NSTableView`'s own `mouseDown`
-    /// tracking loop waits for that event, and swallowing it would hang the
-    /// click.
+    /// Returns `.dragged` when AppKit moved the window and `.cancelled` when
+    /// the system ended the sequence without a mouse-up; callers consume both.
+    /// Returns `.passThrough` for a press that never passed the configured drag
+    /// threshold, having pushed the terminating mouse-up back onto the queue
+    /// first — `NSTableView`'s own `mouseDown` tracking loop waits for that
+    /// event, and swallowing it would hang the click.
     func perform(
         with event: NSEvent,
         in view: NSView
-    ) -> Bool {
-        guard let window = view.window else { return false }
-        guard !isWindowDragSuppressed(window: window) else { return false }
+    ) -> Outcome {
+        guard let window = view.window else { return .passThrough }
+        guard !isWindowDragSuppressed(window: window) else { return .passThrough }
 
         let start = event.locationInWindow
 
         while let next = nextEvent(window) {
-            if next.type == .leftMouseUp {
-                window.postEvent(next, atStart: true)
-                return false
-            }
+            switch next {
+            case let .mouseUp(mouseUp):
+                window.postEvent(mouseUp, atStart: true)
+                return .passThrough
+            case .cancelled:
+                return .cancelled
+            case let .dragged(location):
+                let distance = hypot(location.x - start.x, location.y - start.y)
+                guard distance >= dragThreshold else { continue }
 
-            let location = next.locationInWindow
-            let distance = hypot(location.x - start.x, location.y - start.y)
-            guard distance >= dragThreshold else { continue }
-
-            withTemporaryWindowMovableEnabled(window: window) {
-                window.performDrag(with: event)
+                withTemporaryWindowMovableEnabled(window: window) {
+                    window.performDrag(with: event)
+                }
+                return .dragged
             }
-            return true
         }
 
-        return false
+        // A source that ends without mouse-up cannot safely fall through to
+        // AppKit's tracking loop, which would wait for an event that may never
+        // arrive. Treat it as a consumed cancellation.
+        return .cancelled
     }
 }

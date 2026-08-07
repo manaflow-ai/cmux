@@ -55,7 +55,7 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         // Below the last row the press is window-drag territory. Single clicks
         // only: a double-click still belongs to doubleClickEmptyArea().
         if clickedRow < 0, event.clickCount == 1,
-           emptyAreaWindowDragController.perform(with: event, in: self) {
+           emptyAreaWindowDragController.perform(with: event, in: self) != .passThrough {
             return
         }
         // No selection paint on press: the highlight applies on down-then-up
