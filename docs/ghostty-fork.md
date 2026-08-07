@@ -33,7 +33,7 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
 
 ### Font resolution and rasterization query API
 
-- Commit: `c6ebe030a` (font: expose surface font resolution and
+- Commit: `93ef76df0` (font: expose surface font resolution and
   rasterization query API), on branch `feat-font-resolution-api`
   (https://github.com/manaflow-ai/ghostty/pull/186), based on `11aa609d7`
   plus a merge of fork main `1d111a072`

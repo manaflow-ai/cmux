@@ -90,12 +90,16 @@ def main() -> int:
     check("emoji: fallback source",
           run_e.get("source") in ("embedded", "discovered", "asset"), str(run_e))
 
-    # --- resolve: CJK resolves through fallback with a real face name ---
+    # --- resolve: CJK resolves via a non-primary path with a real face name.
+    # On a cmux app with auto-injected CJK mappings this is "codepoint-map"
+    # (cmux's font-codepoint-map config decides the face, e.g. PingFang);
+    # without mappings it comes from dynamic fallback discovery.
     doc_c = one(c.font_resolve(panel, [{"cluster": "一", "constraint_width": 2}]))
     run_c = first_run(doc_c)
     check("cjk: ps_name non-empty", bool(run_c.get("ps_name")), str(run_c))
-    check("cjk: fallback source",
-          run_c.get("source") in ("embedded", "discovered", "asset"), str(run_c))
+    check("cjk: non-primary source",
+          run_c.get("source") in ("codepoint-map", "embedded", "discovered", "asset"),
+          str(run_c))
 
     # --- resolve: batch answers preserve order ---
     batch = c.font_resolve(panel, [{"cluster": "x"}, {"cluster": "y"}, {"cluster": "z"}])
