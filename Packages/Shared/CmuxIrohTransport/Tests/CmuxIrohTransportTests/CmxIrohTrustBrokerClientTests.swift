@@ -854,6 +854,42 @@ struct CmxIrohTrustBrokerClientTests {
         #expect(object["discovery_scope"] != nil)
     }
 
+    @Test(arguments: [Bool?.none, false])
+    func connectivityV3RejectsChangedSnapshotWithoutScopedCompleteness(
+        completeness: Bool?
+    ) async throws {
+        let scope = try iosDiscoveryScope()
+        let snapshot = try Self.discoveryObject(revision: 2)
+        var responseObject: [String: Any] = [
+            "protocol_version": 3,
+            "revision": 2,
+            "changed": true,
+            "reset": false,
+            "discovery_scope": try scopeObject(scope),
+            "snapshot": snapshot,
+        ]
+        if let completeness {
+            responseObject["snapshot_scope_complete"] = completeness
+        }
+        let transport = RecordingBrokerTransport(responses: [
+            .json(
+                status: 200,
+                body: try Self.jsonString(responseObject)
+            ),
+        ])
+        let client = try makeClient(
+            transport: transport,
+            discoveryScope: scope
+        )
+
+        await #expect(throws: CmxIrohTrustBrokerClientError.invalidResponse) {
+            _ = try await client.syncConnectivity(knownRevision: nil)
+        }
+        #expect(await transport.requests().compactMap { $0.url?.path } == [
+            "/api/connectivity/v3/sync",
+        ])
+    }
+
     @Test
     func scopedDiscoveryRejectsIncompleteV3WithoutFetchingGlobalBindings() async throws {
         let scope = try iosDiscoveryScope()

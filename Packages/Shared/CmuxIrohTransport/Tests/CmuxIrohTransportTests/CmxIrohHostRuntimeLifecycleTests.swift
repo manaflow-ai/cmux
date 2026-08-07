@@ -50,6 +50,20 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
+    func stalePrivatePortFreshnessDoesNotScheduleImmediateRenewal() throws {
+        let bindingTime = Date(timeIntervalSince1970: 1_800_000_000)
+        let fixture = try HostRuntimeFixture(now: bindingTime)
+        let staleNow = bindingTime.addingTimeInterval(
+            CmxIrohPathHint.maximumPrivateHintTTL + 1
+        )
+
+        #expect(CmxIrohHostRuntime.registrationRenewalDeadline(
+            binding: fixture.binding,
+            now: staleNow
+        ) == nil)
+    }
+
+    @Test
     func unchangedReachabilityRenewsRegistrationBeforeHintExpiry() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
