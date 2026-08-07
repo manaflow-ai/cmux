@@ -49,7 +49,6 @@ final class DockSplitStore: BonsplitDelegate {
     weak var terminalFontSizeOwningWorkspace: Workspace?
     @ObservationIgnored private var activeTerminalFontSizeChangeInheritanceContext:
         TerminalFontSizeChangeInheritanceContext?
-    @ObservationIgnored private var terminalTitleChangeSubscription: GhosttyTitleChangeSubscription?
     var panelCancellables: [UUID: AnyCancellable] = [:]
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
@@ -894,7 +893,6 @@ final class DockSplitStore: BonsplitDelegate {
 
     func installSubscription(for panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
-            ensureTerminalTitleChangeSubscription()
             configureAgentHibernationResume(for: terminal)
         }
         installAttentionFlashRouting(for: panel)
@@ -956,18 +954,23 @@ final class DockSplitStore: BonsplitDelegate {
         }
     }
 
-    private func ensureTerminalTitleChangeSubscription() {
-        guard terminalTitleChangeSubscription == nil else { return }
-        terminalTitleChangeSubscription = GhosttyTitleChangeSubscription { [weak self] change in
-            self?.applyTerminalTitleChange(change)
-        }
-    }
-
-    private func applyTerminalTitleChange(_ change: GhosttyTitleChange) {
+    @discardableResult
+    func applyTerminalTitleChange(_ change: GhosttyTitleChange) -> Bool {
         guard change.tabId == workspaceId,
               let terminal = panels[change.surfaceId] as? TerminalPanel,
-              change.matches(sourceSurface: terminal.surface) else { return }
-        terminal.updateTitle(change.title)
+              change.matches(sourceSurface: terminal.surface) else {
+            return false
+        }
+        let title = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return true }
+        guard shouldApplyRestoredPanelTitle(
+            panelId: change.surfaceId,
+            rawTitle: title
+        ) else {
+            return true
+        }
+        terminal.updateTitle(title)
+        return true
     }
 
     // MARK: - BonsplitDelegate

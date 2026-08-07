@@ -339,7 +339,8 @@ extension DockSplitStore {
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         let restoredIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
-            title: detached.title,
+            title: detached.customTitle ?? detached.title,
+            hasCustomTitle: detached.customTitle != nil,
             icon: detached.icon,
             iconImageData: restoredIconImageData,
             kind: kind,
@@ -421,7 +422,8 @@ extension DockSplitStore {
 
         let kind = detached.kind ?? ((panel.panelType == .browser) ? "browser" : "terminal")
         let tab = Bonsplit.Tab(
-            title: detached.title,
+            title: detached.customTitle ?? detached.title,
+            hasCustomTitle: detached.customTitle != nil,
             icon: detached.icon,
             iconImageData: panel is TerminalPanel ? nil : detached.iconImageData,
             kind: kind,

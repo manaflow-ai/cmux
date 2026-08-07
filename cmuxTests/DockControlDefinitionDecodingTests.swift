@@ -163,11 +163,27 @@ struct DockControlDefinitionDecodingTests {
         #expect(file.controls[1].url == "https://example.com")
     }
 
-    @Test("Configured Dock terminal follows live titles without replacing a custom name")
+    @Test(
+        "Configured Dock terminal follows live titles without replacing a custom name",
+        arguments: [DockScope.workspace, DockScope.global]
+    )
     @MainActor
-    func configuredTerminalFollowsLiveTitlesWithoutReplacingCustomName() async throws {
-        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
-        defer { store.closeAllPanels() }
+    func configuredTerminalFollowsLiveTitlesWithoutReplacingCustomName(
+        scope: DockScope
+    ) async throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let store: DockSplitStore
+        switch scope {
+        case .workspace:
+            store = workspace.dockSplit
+        case .global:
+            store = manager.makeWindowDockStore(windowId: UUID())
+        }
+        defer {
+            store.closeAllPanels()
+            workspace.teardownAllPanels()
+        }
 
         let resolution = DockConfigResolution(
             controls: [
@@ -256,6 +272,72 @@ struct DockControlDefinitionDecodingTests {
         }
         #expect(terminal.displayTitle == "claude · issue 9337")
         #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+    }
+
+    @Test(
+        "Transferred custom Dock title survives later live terminal titles",
+        arguments: [false, true]
+    )
+    @MainActor
+    func transferredCustomTitleSurvivesLiveTerminalTitle(
+        attachesBySplitting: Bool
+    ) async throws {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let panelID = try #require(source.focusedPanelId)
+        #expect(source.setPanelCustomTitle(panelId: panelID, title: "Pinned agent"))
+        let detached = try #require(source.detachSurface(panelId: panelID))
+        #expect(detached.customTitle == "Pinned agent")
+
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let store = workspace.dockSplit
+        defer {
+            store.closeAllPanels()
+            workspace.teardownAllPanels()
+        }
+        let rootPane = try #require(store.bonsplitController.allPaneIds.first)
+        let attachedPanelID: UUID?
+        if attachesBySplitting {
+            attachedPanelID = store.attachDetachedSurface(
+                detached,
+                bySplitting: rootPane,
+                orientation: .horizontal,
+                insertFirst: false,
+                focus: false
+            )
+        } else {
+            attachedPanelID = store.attachDetachedSurface(
+                detached,
+                inPane: rootPane,
+                focus: false
+            )
+        }
+        #expect(attachedPanelID == panelID)
+
+        let tabID = try #require(store.surfaceId(forPanelId: panelID))
+        let terminal = try #require(store.panel(for: tabID) as? TerminalPanel)
+        #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+        #expect(store.bonsplitController.tab(tabID)?.hasCustomTitle == true)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: store.workspaceId,
+                surfaceId: terminal.id,
+                title: "codex · transferred",
+                sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
+            ).userInfo
+        )
+
+        for _ in 0..<10 {
+            await Task.yield()
+            if terminal.displayTitle == "codex · transferred" { break }
+        }
+        #expect(terminal.displayTitle == "codex · transferred")
+        #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+        #expect(store.bonsplitController.tab(tabID)?.hasCustomTitle == true)
     }
 
     @Test("Project config identity follows the resolved dock file, not child cwd")

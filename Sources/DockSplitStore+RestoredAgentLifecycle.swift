@@ -67,6 +67,19 @@ extension DockSplitStore {
         return pendingTitle
     }
 
+    /// Returns whether a normalized raw PTY title has crossed a transferred
+    /// restored-panel boundary while the terminal belongs to this Dock.
+    func shouldApplyRestoredPanelTitle(panelId: UUID, rawTitle: String) -> Bool {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              var boundary = transfer.restoredPanelTitleBoundary else {
+            return true
+        }
+        let shouldApply = boundary.shouldApply(rawTitle: rawTitle)
+        transfer.restoredPanelTitleBoundary = boundary.isReleased ? nil : boundary
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        return shouldApply
+    }
+
     func adoptSessionRestoreState(from detached: Workspace.DetachedSurfaceTransfer) {
         invalidatedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
