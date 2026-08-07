@@ -144,19 +144,19 @@ final class TerminalOSCBackgroundUITests: XCTestCase {
                 return nil
             }
 
-            width = image.width
-            height = image.height
+            let imageWidth = image.width
+            let imageHeight = image.height
             let bytesPerPixel = 4
-            let bytesPerRow = width * bytesPerPixel
-            var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+            let bytesPerRow = imageWidth * bytesPerPixel
+            var pixels = [UInt8](repeating: 0, count: imageHeight * bytesPerRow)
             let decoded = pixels.withUnsafeMutableBytes { raw -> Bool in
                 guard let baseAddress = raw.baseAddress else { return false }
                 let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue |
                     CGImageAlphaInfo.premultipliedLast.rawValue
                 guard let context = CGContext(
                     data: baseAddress,
-                    width: width,
-                    height: height,
+                    width: imageWidth,
+                    height: imageHeight,
                     bitsPerComponent: 8,
                     bytesPerRow: bytesPerRow,
                     space: CGColorSpaceCreateDeviceRGB(),
@@ -166,11 +166,13 @@ final class TerminalOSCBackgroundUITests: XCTestCase {
                 }
                 context.draw(
                     image,
-                    in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+                    in: CGRect(x: 0, y: 0, width: CGFloat(imageWidth), height: CGFloat(imageHeight))
                 )
                 return true
             }
             guard decoded else { return nil }
+            width = imageWidth
+            height = imageHeight
             self.pixels = pixels
         }
 
