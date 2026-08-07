@@ -3281,12 +3281,27 @@ final class cmuxUITests: XCTestCase {
         let initialOffset = try XCTUnwrap(Double(initial["nativeScrollRawOffset"] ?? ""))
         let initialHistoryOffset = try XCTUnwrap(Int(initial["scrollOffset"] ?? ""))
 
+        surface.swipeUp(velocity: .slow)
+
+        let bounced = waitForDock(in: app, timeout: 2, describe: "native terminal bottom rubber band engaged") {
+            guard let translation = Double($0["nativeScrollTranslation"] ?? "") else { return false }
+            return translation < -0.5
+        }
+        XCTAssertEqual(bounced["nativeScrollScreen"], "primary")
+
+        _ = waitForDock(in: app, timeout: 3, describe: "native terminal bottom rubber band settled") {
+            guard let translation = Double($0["nativeScrollTranslation"] ?? "") else { return false }
+            return abs(translation) < 0.5
+        }
+
         surface.swipeDown(velocity: .fast)
 
         let moved = waitForDock(in: app, timeout: 3, describe: "native terminal fling moved into history") {
             guard let rawOffset = Double($0["nativeScrollRawOffset"] ?? ""),
                   let historyOffset = Int($0["scrollOffset"] ?? "") else { return false }
-            return rawOffset < initialOffset - 20 && historyOffset < initialHistoryOffset
+            return rawOffset < initialOffset - 20
+                && historyOffset < initialHistoryOffset
+                && $0["nativeScrollDecelerating"] == "1"
         }
         XCTAssertEqual(moved["nativeScrollScreen"], "primary")
 
