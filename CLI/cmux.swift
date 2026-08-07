@@ -23120,19 +23120,10 @@ struct CMUXCLI {
             ))
         }
 
-        if launcherEnvironment["CMUX_WORKSPACE_ID"] == nil || launcherEnvironment["CMUX_SURFACE_ID"] == nil,
-           let focusedContext = try tmuxCompatFocusedContext(
-               processEnvironment: launcherEnvironment,
-               explicitPassword: explicitPassword
-           ) {
-            launcherEnvironment["CMUX_WORKSPACE_ID"] = focusedContext.workspaceId
-            setenv("CMUX_WORKSPACE_ID", focusedContext.workspaceId, 1)
-            if let surfaceId = focusedContext.surfaceId {
-                launcherEnvironment["CMUX_SURFACE_ID"] = surfaceId
-                setenv("CMUX_SURFACE_ID", surfaceId, 1)
-            }
-        }
-
+        // Native OMO Slim must inherit CMUX_WORKSPACE_ID / CMUX_SURFACE_ID from the
+        // caller terminal. Do not borrow system-wide focus (tmuxCompatFocusedContext
+        // was removed in the inherited-identity redesign; tmuxCompatLaunchContext also
+        // fails closed without an inherited surface).
         let openCodePort = omoResolvedPort(
             commandArgs: commandArgs,
             processEnvironment: launcherEnvironment

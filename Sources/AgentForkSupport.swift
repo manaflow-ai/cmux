@@ -685,7 +685,7 @@ enum AgentForkSupport {
             return true
         }
         return snapshot.kind == .opencode
-            && snapshot.launchCommand?.launcher != "omo"
+            && !AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(snapshot.launchCommand?.launcher)
             && AgentResumeCommandBuilder.openCodeVersionProbe(launchCommand: snapshot.launchCommand) != nil
     }
 
@@ -756,7 +756,7 @@ enum AgentForkSupport {
             )
             useDefaultDirectoryWhenWorkingDirectoryIsMissing = true
         } else if snapshot.kind == .opencode,
-                  snapshot.launchCommand?.launcher != "omo",
+                  !AgentLaunchCaptureTrust.launcherIsOpenCodeSessionWrapper(snapshot.launchCommand?.launcher),
                   let openCodeProbe = AgentResumeCommandBuilder.openCodeVersionProbe(
                     launchCommand: snapshot.launchCommand
                   ) {

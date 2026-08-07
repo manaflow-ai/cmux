@@ -170,6 +170,10 @@ func runOMOSlimRelay(commandName, socketPath string, args []string, refreshAddr 
 
 	os.Setenv("CMUX_SOCKET_PATH", socketPath)
 	os.Unsetenv("CMUX_SOCKET")
+	// Drop any ambient identity before applying the resolved launch context so a
+	// missing/partial context cannot leave a stale workspace or surface pair.
+	os.Unsetenv("CMUX_WORKSPACE_ID")
+	os.Unsetenv("CMUX_SURFACE_ID")
 	if launchContext != nil {
 		os.Setenv("CMUX_WORKSPACE_ID", launchContext.workspaceId)
 		if launchContext.surfaceId != "" {
@@ -185,7 +189,7 @@ func runOMOSlimRelay(commandName, socketPath string, args []string, refreshAddr 
 	launchArgs := openCodeNativeLaunchArgs(args, port)
 	launchPath, launchArgv := resolveNodeScriptExec(opencodePath, launchArgs, originalPath, "")
 	if err := syscall.Exec(launchPath, launchArgv, os.Environ()); err != nil {
-		fmt.Fprintf(os.Stderr, "cmux %s: exec failed: %v\n", commandName, err)
+		fmt.Fprintf(os.Stderr, "cmux %s: failed to launch opencode\n", commandName)
 	}
 	return 1
 }
