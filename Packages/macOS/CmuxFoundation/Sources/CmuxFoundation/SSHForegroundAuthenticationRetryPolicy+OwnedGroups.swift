@@ -500,8 +500,11 @@ extension SSHForegroundAuthenticationRetryPolicy {
               case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
               case "$cmux_ssh_auth_started" in ''|*[!A-Za-z0-9_:]*) continue ;; esac
               if [ -n "$cmux_ssh_auth_extra" ]; then continue; fi
-              cmux_ssh_auth_expected_identity="$cmux_ssh_auth_parent|$cmux_ssh_auth_group|$cmux_ssh_auth_started"
-              cmux_ssh_auth_current_identity=$(cmux_ssh_auth_identity "$cmux_ssh_auth_pid")
+              # The stopped child can be reparented while its durable PID,
+              # process-group, and start-time identity remains unchanged.
+              cmux_ssh_auth_expected_identity="$cmux_ssh_auth_group|$cmux_ssh_auth_started"
+              cmux_ssh_auth_current_identity=$(cmux_ssh_auth_stable_identity \
+                "$cmux_ssh_auth_pid")
               if [ "$cmux_ssh_auth_current_identity" != \
                 "$cmux_ssh_auth_expected_identity" ]; then continue; fi
               kill -CONT "$cmux_ssh_auth_pid" >/dev/null 2>&1 || true
