@@ -166,7 +166,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
                 pointSize: GlobalFontMagnification.scaledSize(metrics.pinnedIconFontSize, percent: percent),
                 weight: .semibold
             )
-            pinImageView.contentTintColor = environment.secondaryTextColor.withAlphaComponent(0.8)
+            pinImageView.contentTintColor = environment.secondaryTextColor
             pinImageView.toolTip = String(localized: "workspaceGroup.pinned.tooltip", defaultValue: "Pinned group")
         }
 

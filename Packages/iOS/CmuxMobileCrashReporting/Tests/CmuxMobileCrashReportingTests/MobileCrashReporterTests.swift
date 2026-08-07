@@ -1,7 +1,7 @@
 import Sentry
 import Testing
 
-import CmuxMobileAnalytics
+import CMUXMobileCore
 @testable import CmuxMobileCrashReporting
 
 private struct FixedConsent: AnalyticsConsentProviding {

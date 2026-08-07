@@ -32,7 +32,6 @@
     "title": "cmux for {platform}",
     "tagline": "A Chromium browser and agent workspace, built together.",
     "logoAlt": "cmux app icon",
-    "portableCta": "Portable ZIP",
     "featuresTitle": "Built for agentic work",
     "features": {
       "chromium": {
@@ -54,7 +53,7 @@
     },
     "installTitle": "Install",
     "releaseTitle": "Releases and updates",
-    "releaseBody": "These links always point to the latest stable release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
+    "releaseBody": "These links always point to the latest nightly release on <github>GitHub Releases</github>. cmux verifies signed update manifests before installing an update.",
     "sourceLink": "View source on GitHub",
     "otherPlatform": "cmux for {platform}",
     "macLink": "cmux terminal for Mac",
@@ -64,6 +63,7 @@
       "metaDescription": "Download cmux for Windows x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
       "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and familiar Windows keyboard conventions.",
       "primaryCta": "Download installer (.exe)",
+      "secondaryCta": "Portable ZIP",
       "requirements": "Windows 10 or later · x64",
       "installBody": "Run the installer and follow the Windows prompts. Choose the portable ZIP if you prefer to keep cmux in a folder without a system-wide install."
     },
@@ -72,9 +72,10 @@
       "metaTitle": "Download cmux for Linux",
       "metaDescription": "Download cmux for Linux x64: a free, open-source Chromium browser and agent workspace with task-shaped tabs and terminal surfaces.",
       "subtitle": "A native x64 build with Chromium tabs, cmux workspaces, and integrated terminal surfaces.",
-      "primaryCta": "Download .deb",
-      "requirements": "Debian or Ubuntu · x64",
-      "installBody": "Download the Debian package and install it with your package manager. Choose the portable ZIP for a per-user install and in-app updates."
+      "primaryCta": "Download auto-updating installer (.run)",
+      "secondaryCta": "Debian package (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Run the per-user installer once. It installs under ~/.local without root and enables signed in-app updates. Choose the Debian package instead if you want updates managed by your package manager."
     }
   },
   "meta": {
@@ -99,7 +100,6 @@
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
-      "vaultCliSetup": "cli setup",
       "subrouterGroup": "subrouter",
       "subrouterOverview": "overview",
       "accountGroup": "account",
@@ -237,6 +237,8 @@
       "teamSwitcherLabel": "Team",
       "notConfiguredTitle": "AI account management isn't available yet",
       "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
+      "migrationPendingTitle": "Account migration in progress",
+      "migrationPendingBody": "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
       "loadErrorTitle": "Accounts could not load",
       "loadErrorBody": "The account service could not be reached. Try again shortly.",
       "accountsTitle": "Connected accounts",
@@ -2458,7 +2460,16 @@
     "changelog": {
       "title": "Changelog",
       "metaTitle": "Changelog",
-      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal."
+      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
+      "versionTitle": "cmux {version} · Changelog",
+      "releaseNavLabel": "Releases near cmux {version}",
+      "sections": {
+        "added": "Added",
+        "changed": "Changed",
+        "fixed": "Fixed",
+        "removed": "Removed",
+        "contributors": "Contributors"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",

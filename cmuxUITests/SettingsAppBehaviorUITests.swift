@@ -102,6 +102,9 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
         "menuBarOnly",                        // Menu Bar Only (default false)
         "showMenuBarExtra",                   // Show in Menu Bar (gated row)
         "commandPalette.switcherSearchAllSurfaces", // Palette all surfaces (default false)
+        "forwardNotificationsToPhone",
+        "forwardNotificationsToPhoneMode",
+        "forwardNotificationsHideContent",
     ]
 
     override func setUp() {
@@ -143,6 +146,56 @@ final class SettingsAppBehaviorUITests: SettingsUITestCase {
     /// A static-text whose visible string equals `text`.
     private func subtitleText(_ window: XCUIElement, _ text: String) -> XCUIElement {
         window.staticTexts[text]
+    }
+
+    func testMobilePushForwardingIsVisibleAndDefaultsToAlways() {
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchArguments += settingsLaunchArguments
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SHOW_SETTINGS"] = "1"
+        // Headless CI leaves the app running in the background. Keep XCTest
+        // alive through that known launch failure, then restore fail-fast so
+        // every Settings assertion below remains a real regression failure.
+        continueAfterFailure = true
+        let launchOptions = XCTExpectedFailure.Options()
+        launchOptions.isStrict = false
+        XCTExpectFailure(
+            "Headless CI may launch the app without foreground activation",
+            options: launchOptions
+        ) {
+            app.launch()
+        }
+        continueAfterFailure = false
+        XCTAssertTrue(
+            poll(timeout: 10.0) {
+                app.state == .runningForeground || app.state == .runningBackground
+            },
+            "App failed to launch. state=\(app.state.rawValue)"
+        )
+        let window = app.windows["Settings"]
+        XCTAssertTrue(
+            poll(timeout: 8.0) { window.exists },
+            "Settings window did not open"
+        )
+        navigate(window, to: "Mobile")
+
+        let forwarding = toggle(
+            window,
+            id: "SettingsMobilePhonePushForwardingToggle"
+        )
+        XCTAssertEqual(forwarding.value as? String, "1")
+
+        let mode = requireElement(
+            candidates: [
+                window.popUpButtons["SettingsMobilePhonePushModePicker"],
+                window.menuButtons["SettingsMobilePhonePushModePicker"],
+                window.descendants(matching: .any)["SettingsMobilePhonePushModePicker"],
+            ],
+            timeout: 4,
+            description: "phone push forwarding mode picker"
+        )
+        XCTAssertTrue(mode.label.contains("Always") || mode.value as? String == "Always")
+        _ = toggle(window, id: "SettingsMobilePhonePushHideContentToggle")
     }
 
     // MARK: - TIER 1: Minimal Mode subtitle swap

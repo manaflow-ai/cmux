@@ -539,17 +539,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
-name = "cmux-sdk"
-version = "1.0.0"
-dependencies = [
- "base64",
- "getrandom 0.3.4",
- "libc",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
@@ -632,6 +621,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sdk"
+version = "1.0.0"
+dependencies = [
+ "base64",
+ "getrandom 0.3.4",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sidebar"
 version = "1.0.0"
 dependencies = [
@@ -649,6 +650,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64",
+ "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",

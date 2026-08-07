@@ -105,6 +105,20 @@ import UIKit
         }
     }
 
+    @Test @MainActor func deviceFrameUsesFullResolutionProductArtwork() async throws {
+        for appearance in OnboardingScreenshotAppearance.allCases {
+            let frame = await OnboardingScreenshot.deviceFrameImage(appearance: appearance)
+            let framePixels = try #require(frame.cgImage)
+            #expect(framePixels.width == 1_470)
+            #expect(framePixels.height == 3_000)
+        }
+        let mask = await OnboardingScreenshot.screenMaskImage()
+        let maskPixels = try #require(mask.cgImage)
+
+        #expect(maskPixels.width == 1_320)
+        #expect(maskPixels.height == 2_868)
+    }
+
     @Test func screenshotAppearanceMatchesTheSystemColorScheme() {
         #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .light) == .light)
         #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .dark) == .dark)
