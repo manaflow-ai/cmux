@@ -281,7 +281,8 @@ _SHELL_CALL_LAUNCHER = re.compile(
     r"""(?x)
     \bos\.(?:system|popen)\s*\(
   | \bsubprocess\.get(?:status)?output\s*\(
-  | \b(?:eval|exec|execSync|execaCommand|execaCommandSync)\s*\(
+  | (?<![A-Za-z0-9_.])(?:eval|exec|execSync|execaCommand|execaCommandSync)\s*\(
+  | \b(?:childProcess|child_process)\.(?:exec|execSync)\s*\(
     """
 )
 
@@ -290,9 +291,13 @@ _SHELL_CALL_LAUNCHER = re.compile(
 _ARGV_CALL_LAUNCHER = re.compile(
     r"""(?x)
     \bsubprocess\.(?:run|call|check_call|check_output|Popen)\s*\(
-  | \b(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(
+  | (?<![A-Za-z0-9_.])(?:execFile|execFileSync|spawn|spawnSync|execa)\s*\(
+  | \b(?:childProcess|child_process)\.(?:execFile|execFileSync|spawn|spawnSync)\s*\(
+  | \bBun\.spawn(?:Sync)?\s*\(
     """
 )
+
+_ARGV_COMMAND_LABELS = frozenset({"args"})
 
 _EXPLICIT_SHELL_MODE = re.compile(
     r"\bshell\s*(?:=|:)\s*(?:True|true)\b"
@@ -864,6 +869,25 @@ def _call_arguments(
     return arguments
 
 
+def _select_call_argument(
+    arguments: list[_CallArgument],
+    labels: frozenset[str],
+    positional_index: int,
+) -> Optional[_CallArgument]:
+    for argument in arguments:
+        if argument.label is not None and argument.label.lower() in labels:
+            return argument
+
+    positional_arguments = [
+        argument
+        for argument in arguments
+        if argument.label is None
+    ]
+    if positional_index >= len(positional_arguments):
+        return None
+    return positional_arguments[positional_index]
+
+
 def _argv_source_ranges(
     line: str,
     opening_paren: int,
@@ -874,13 +898,29 @@ def _argv_source_ranges(
     if not arguments:
         return []
 
-    first = arguments[0].value_bounds
+    command_argument = _select_call_argument(
+        arguments,
+        _ARGV_COMMAND_LABELS,
+        positional_index=0,
+    )
+    if command_argument is None:
+        return []
+
+    first = command_argument.value_bounds
     ranges = [first]
-    if line[first[0] : first[0] + 1] in ("(", "["):
+    if (
+        command_argument.label is not None
+        or line[first[0] : first[0] + 1] in ("(", "[")
+    ):
         return ranges
 
-    if len(arguments) > 1:
-        second = arguments[1].value_bounds
+    positional_arguments = [
+        argument
+        for argument in arguments
+        if argument.label is None
+    ]
+    if len(positional_arguments) > 1:
+        second = positional_arguments[1].value_bounds
         if line[second[0] : second[0] + 1] in ("(", "["):
             ranges.append(second)
     return ranges
@@ -1206,24 +1246,6 @@ def _network_target_spec(matched_verb: str) -> _NetworkTargetSpec:
     )
 
 
-def _call_target_bounds(
-    arguments: list[_CallArgument],
-    spec: _NetworkTargetSpec,
-) -> Optional[tuple[int, int]]:
-    for argument in arguments:
-        if argument.label is not None and argument.label.lower() in spec.labels:
-            return argument.value_bounds
-
-    positional_arguments = [
-        argument
-        for argument in arguments
-        if argument.label is None
-    ]
-    if spec.positional_index >= len(positional_arguments):
-        return None
-    return positional_arguments[spec.positional_index].value_bounds
-
-
 def _direct_network_target_ranges(
     line: str,
     match: re.Match[str],
@@ -1249,8 +1271,13 @@ def _direct_network_target_ranges(
         return []
 
     arguments = _call_arguments(line, opening_paren, path_suffix)
-    target = _call_target_bounds(arguments, _network_target_spec(matched_verb))
-    return [target] if target is not None else []
+    spec = _network_target_spec(matched_verb)
+    target = _select_call_argument(
+        arguments,
+        spec.labels,
+        spec.positional_index,
+    )
+    return [target.value_bounds] if target is not None else []
 
 
 def _network_target_ranges(
@@ -1699,8 +1726,32 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/subprocess_keyword_args_curl.py",
+            (
+                "subprocess.run(\n"
+                "    check=True,\n"
+                '    args=["curl", "https://api.openai.com/v1/items"],\n'
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/exec_curl.ts",
             'execSync("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_exec_curl.ts",
+            'child_process.exec("curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/child_process_spawn_curl.ts",
+            (
+                'child_process.spawn("curl", [\n'
+                '  "https://api.openai.com/v1/items",\n'
+                "]);\n"
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2021,6 +2072,23 @@ def _self_test() -> int:
         (
             "web/tests/n18d.ts",
             "expect(help).toContain('execSync(\\\"curl https://cmux.com/status\\\")')\n",
+        ),
+        # Unrelated object methods named exec/eval/spawn do not launch processes.
+        (
+            "web/tests/n18d_regex_exec.ts",
+            'pattern.exec("curl https://api.openai.com/v1/items")\n',
+        ),
+        (
+            "web/tests/n18d_schema_eval.ts",
+            'schema.eval("fetch(\\\"https://api.openai.com/v1/items\\\")")\n',
+        ),
+        (
+            "web/tests/n18d_pool_spawn.ts",
+            (
+                'pool.spawn("curl", [\n'
+                '  "https://api.openai.com/v1/items",\n'
+                "]);\n"
+            ),
         ),
         # Plain template text is still fixture data; only `${...}` regions are
         # executable JavaScript.
