@@ -226,15 +226,20 @@ extension CmxIrohClientRuntimeTests {
         )
         try await runtime.start()
 
-        for _ in 0..<100 {
+        for _ in 0..<1_000 {
             await endpoint.emit(.networkChanged)
         }
-        // A requested live discovery is the processing barrier and accounts
-        // for the only discovery after startup.
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<100 {
+                group.addTask { await endpoint.emit(.networkChanged) }
+            }
+        }
+        // A requested live discovery is the processing barrier. If it races
+        // the event refresh, the coalescer permits one successor read.
         #expect(try await runtime.refreshLiveDiscoveryThrowing())
 
         #expect(await broker.observedRegistrations().count == 1)
-        #expect(await broker.observedDiscoveryCount() == 2)
+        #expect(await broker.observedDiscoveryCount() <= 3)
         await runtime.stop()
     }
 
