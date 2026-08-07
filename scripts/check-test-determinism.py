@@ -262,6 +262,9 @@ _EXPLICIT_SHELL_MODE = re.compile(
     r"\bshell\s*(?:=|:)\s*(?:True|true)\b"
 )
 
+_SHELL_EXECUTABLES = frozenset({"bash", "dash", "fish", "ksh", "sh", "zsh"})
+_SHELL_COMMAND_FLAG = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|--command)$")
+
 # Shell -c/-lc evaluates its following argument as source. Keep this separate
 # from function-call launchers because there is no parenthesis range to follow.
 _SHELL_COMMAND_LAUNCHER = re.compile(
@@ -522,6 +525,31 @@ def _quoted_argument_bounds(
     return content_start, len(line)
 
 
+def _quoted_literals_in_range(line: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Return quoted literal content ranges without descending into a literal."""
+    bounds: list[tuple[int, int]] = []
+    index = start
+    while index < end:
+        if line[index] not in ("'", '"', "`"):
+            index += 1
+            continue
+        delimiter = "`" if line[index] == "`" else _quote_delimiter_at(line, index)
+        content_start = index + len(delimiter)
+        index = content_start
+        while index < end:
+            if line[index] == "\\":
+                index += 2
+                continue
+            if line.startswith(delimiter, index):
+                bounds.append((content_start, index))
+                index += len(delimiter)
+                break
+            index += 1
+        else:
+            bounds.append((content_start, end))
+    return bounds
+
+
 def _quoted_argument_contains_offset(line: str, argument_start: int, offset: int) -> bool:
     """Whether ``offset`` remains inside the first quoted shell argument."""
     bounds = _quoted_argument_bounds(line, argument_start)
@@ -538,6 +566,41 @@ def _call_uses_explicit_shell(line: str, opening_paren: int) -> bool:
             call_end,
         )
     )
+
+
+def _argv_shell_source_contains_offset(
+    line: str,
+    opening_paren: int,
+    offset: int,
+) -> bool:
+    """Whether argv launches a shell whose command-source argument owns offset."""
+    literals = _quoted_literals_in_range(
+        line,
+        opening_paren + 1,
+        _call_end(line, opening_paren),
+    )
+    if len(literals) < 3:
+        return False
+
+    token_index = 0
+    executable = line[literals[token_index][0] : literals[token_index][1]]
+    if executable.rsplit("/", 1)[-1] == "env":
+        token_index += 1
+        if token_index >= len(literals):
+            return False
+        executable = line[literals[token_index][0] : literals[token_index][1]]
+    if executable.rsplit("/", 1)[-1] not in _SHELL_EXECUTABLES:
+        return False
+
+    for flag_index in range(token_index + 1, len(literals) - 1):
+        flag_bounds = literals[flag_index]
+        flag = line[flag_bounds[0] : flag_bounds[1]]
+        if _SHELL_COMMAND_FLAG.fullmatch(flag):
+            command_bounds = literals[flag_index + 1]
+            return command_bounds[0] <= offset < command_bounds[1]
+        if not flag.startswith("-"):
+            return False
+    return False
 
 
 def _is_executable_network_verb(line: str, verb_start: int) -> bool:
@@ -564,6 +627,8 @@ def _is_executable_network_verb(line: str, verb_start: int) -> bool:
         opening_paren = line.find("(", launcher.start(), launcher.end())
         if opening_paren == -1:
             continue
+        if _argv_shell_source_contains_offset(line, opening_paren, verb_start):
+            return True
         bounds = _quoted_argument_bounds(
             line,
             opening_paren + 1,
