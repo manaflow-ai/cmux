@@ -107,8 +107,17 @@ pub(crate) struct TerminalMessages {
     pub pty_input_too_large: &'static str,
     pub pty_input_queue_full: &'static str,
     pub pty_input_unavailable: &'static str,
+    pub pty_input_exited: &'static str,
     pub attach_outcome_unknown: &'static str,
     pub operation_failed: &'static str,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct SessionMessages {
+    pub creation_reconciling: &'static str,
+    pub operation_reconciling: &'static str,
+    pub operation_failed: &'static str,
+    pub operation_canceled: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -298,6 +307,7 @@ pub(crate) struct RuntimeMessages {
     pub unknown_panic: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    signal_handlers_failed: &'static str,
     terminal_restore_also_failed: &'static str,
 }
 
@@ -308,6 +318,10 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn signal_handlers_failed(&self, error: &str) -> String {
+        self.signal_handlers_failed.replace("{error}", error)
     }
 
     pub(crate) fn terminal_restore_also_failed(&self, error: &str, restore_error: &str) -> String {
@@ -844,6 +858,7 @@ pub(crate) struct Catalog {
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
+    pub session: SessionMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
@@ -920,8 +935,15 @@ static ENGLISH: Catalog = Catalog {
         pty_input_too_large: "Input exceeds the 4 MiB PTY buffer limit",
         pty_input_queue_full: "PTY input queue is full; input was not sent",
         pty_input_unavailable: "PTY input is unavailable after a transport failure",
+        pty_input_exited: "Terminal exited; input was not sent",
         attach_outcome_unknown: "Surface attach outcome is unknown. Detach and reconnect before sending more input",
         operation_failed: "Terminal input failed",
+    },
+    session: SessionMessages {
+        creation_reconciling: "Session creation may have completed; checking its receipt",
+        operation_reconciling: "Session operation may have completed; refreshing the layout",
+        operation_failed: "Session operation failed",
+        operation_canceled: "Session operation was canceled",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -1025,6 +1047,7 @@ edits shell files. Authenticate with the configured host before retrying.
         unknown_panic: "unknown panic",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
     remote_client: RemoteClientMessages {
@@ -1400,8 +1423,15 @@ static JAPANESE: Catalog = Catalog {
         pty_input_too_large: "入力が 4 MiB の PTY バッファ上限を超えています",
         pty_input_queue_full: "PTY 入力キューがいっぱいのため、入力は送信されませんでした",
         pty_input_unavailable: "転送エラー後のため PTY 入力を使用できません",
+        pty_input_exited: "ターミナルが終了したため、入力は送信されませんでした",
         attach_outcome_unknown: "サーフェスの接続結果を確認できません。入力を再開する前に切断して再接続してください",
         operation_failed: "ターミナル入力に失敗しました",
+    },
+    session: SessionMessages {
+        creation_reconciling: "セッションの作成が完了している可能性があります。結果を確認しています",
+        operation_reconciling: "セッション操作が完了している可能性があります。レイアウトを更新しています",
+        operation_failed: "セッション操作に失敗しました",
+        operation_canceled: "セッション操作はキャンセルされました",
     },
     machine_agent: MachineAgentMessages {
         help: "\
@@ -1505,6 +1535,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         unknown_panic: "不明なパニック",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
     remote_client: RemoteClientMessages {
@@ -1896,6 +1927,13 @@ mod tests {
             JAPANESE.terminal.deferred_input_queue_full,
             "セッション変更の保留中に入力キューのバイト上限に達しました"
         );
+        assert_eq!(ENGLISH.terminal.pty_input_exited, "Terminal exited; input was not sent");
+        assert_eq!(
+            JAPANESE.terminal.pty_input_exited,
+            "ターミナルが終了したため、入力は送信されませんでした"
+        );
+        assert_eq!(ENGLISH.session.operation_failed, "Session operation failed");
+        assert_eq!(JAPANESE.session.operation_failed, "セッション操作に失敗しました");
         assert_eq!(
             JAPANESE.attach.filtered_subscription_unavailable,
             "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください"
@@ -2126,6 +2164,10 @@ mod tests {
         assert_eq!(
             catalog_for_locale("ja_JP.UTF-8").runtime.host_input_failed("切断"),
             "ホストターミナルの入力に失敗しました: 切断"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").runtime.signal_handlers_failed("権限がありません"),
+            "シグナルハンドラーの設定に失敗しました: 権限がありません"
         );
         assert_eq!(
             catalog_for_locale("en_US.UTF-8")

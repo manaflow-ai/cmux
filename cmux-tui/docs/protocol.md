@@ -1,12 +1,12 @@
-# Raw control protocol v10
+# Raw control protocol v11
 
 This is the private implementation interface for cmux frontends and
 compatibility adapters. New applications should use
-[`cmux.protocol/1`](../spec/resource-api-v1.md), the
+[`cmux.protocol/2`](../spec/resource-api-v2.md), the
 [noun-first CLI](../spec/cli.md), or a [handwritten SDK](../spec/bindings.md).
-High-level packages expose protocol v10 only through their `raw` namespace.
+High-level packages expose protocol v11 only through their `raw` namespace.
 
-As of protocol v10, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
+As of protocol v11, every server speaks JSON Lines over a Unix domain socket. Send one JSON object per line. Every request receives one response line. `subscribe` and `attach-surface` also push event lines on the same connection.
 
 Remote clients can carry the same JSON-lines stream through `cmux relay --session <name>`. The relay copies stdio to an existing local session socket and is commonly launched with `ssh -T`; it performs no authentication or command decoding itself. Client internals consume complete JSON messages, so WebSocket text frames and future framed transports can reuse the same remote-session implementation. See the [transport contract](../spec/transports.md#relay-stdio).
 
@@ -23,7 +23,7 @@ $TMPDIR/cmux-tui-<uid>/<session>.sock
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":10,"capabilities":["attach-initial-size","workspace-registry-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"...","protocol":11,"capabilities":["attach-initial-size","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","surface-subscribe-filter","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2","clear-history-key-v1"],"session":"main","pid":12345}}
 ```
 
 Responses have this shape. The second example is a failed `clear-history` request:
@@ -124,6 +124,12 @@ The server first sends:
 {"event":"vt-state","surface":4,"cols":120,"rows":40,"data":"<base64-vt-replay>"}
 ```
 
+If this connection negotiated `view-attachment-lease-v1`, the later command
+response contains `data.lease`. The lease addresses this exact attach stream.
+Use it with `resize-attached-view` and `release-attached-view-size`. With
+`view-attachment-detach-v1`, `detach-attached-view` closes only that stream and
+releases its size contribution.
+
 Then it sends ordered stream frames:
 
 ```json
@@ -143,21 +149,21 @@ When the stream ends, it sends:
 
 ## Client Compatibility
 
-The remote TUI requires protocol v10. It rejects protocol-v9 servers because v9 client-sizing requests do not identify the terminal surface they affect. Protocol-v10 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
+The remote TUI requires protocol v11. It rejects protocol-v10 servers because v11 changes terminal placement nullability, terminal identity nullability, lifecycle typing, typed terminal exit records, and renderer minting responses. Protocol-v11 servers without `browser-pointer-frame-guard-v1` remain compatible for PTY surfaces, but the remote TUI rejects browser attachment because it cannot route browser pointer input safely. Every bundled client that opens a long-lived `attach-surface` socket sends `set-client-info` with `browser-pointer-frame-guard-v1` on that same connection before attaching a browser surface, because capability state and guarded-client pointer captures are scoped to the connection. Legacy one-shot pointer commands retain owner zero so a down/move/up sequence can remain compatible across short-lived sockets.
 
 Existing `set-ratio` clients remain source-compatible and the server keeps the pane-and-direction command unchanged. Protocol-v8 and newer frontends should read `layout.split` and send `set-split-ratio` so nested same-direction dividers are addressed exactly. Protocol v9 adds stack layout nodes and `new-pane`; clients must not send `new-pane` to a protocol-v8 server. Protocol v10 requires `surface` on every `set-client-sizing` request and moves `size_participating` into each `list-clients.sizes` entry.
 
-Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field.
+Attach clients mirror PTY surfaces locally. After `identify` advertises `attach-initial-size`, a client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state. Older servers that omit the capability must receive neither field. Bundled long-lived clients echo `view-attachment-lease-v1` and `view-attachment-detach-v1` through `set-client-info`; against older servers, they close the transport when a raced attach must be abandoned because transport teardown is the only cleanup fence.
 
-When several clients display the same surface, the authoritative grid uses the
-smallest reported columns and the smallest reported rows across visible
-viewers. A client reports after the surface becomes visible and whenever its
-local viewport changes, then sends `release-surface-size` when the surface is
-hidden. Input and mux-driven redraws do not claim sizing ownership or cause a
-passive client to reassert its viewport. See the canonical
-[`Sizing`](../spec/commands.md#sizing) contract.
-
-When several attach clients render the same surface at different sizes, the surface uses the smallest participating width and height. A protocol-v10 sizing action changes participation only on its requested surface, so choosing “Use only this client size” on one terminal leaves every other terminal's policy unchanged. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
+When several clients display one terminal, their size reports are passive
+viewport hints until one exact client and terminal view claim geometry
+authority. Only that owner can resize the canonical PTY grid; every other view
+crops, pans, or scales it locally. Releasing or disconnecting the owner freezes
+the current grid until another explicit claim. Browser surfaces retain the
+legacy smallest-participating-size reducer because each browser has one live
+tab. A client releases its report when that view becomes hidden. Input and
+mux-driven redraws never claim geometry or reassert an idle viewport. See the
+canonical [`Sizing`](../spec/commands.md#sizing) contract.
 
 Provider-aware clients require `provider-managed-workspace-authority-v2` before exposing provider-owned workspace lifecycle controls. The server starts with provider ownership fixed for that mux generation, including during temporary provider descriptor gaps, so an older or stale client cannot reopen ordinary rename or close paths.
 

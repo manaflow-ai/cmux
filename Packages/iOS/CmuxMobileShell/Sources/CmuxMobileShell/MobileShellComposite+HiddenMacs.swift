@@ -404,10 +404,45 @@ extension MobileShellComposite {
         }
     }
 
-    /// Unhides one stored pairing immediately without requiring network access.
+    /// Unhides one stored pairing without requiring network access.
     public func unhideMacDeviceID(
         _ macDeviceID: String,
         instanceTag: String? = nil
+    ) async {
+        await enqueueUnhideMacDeviceID(
+            macDeviceID,
+            instanceTag: instanceTag
+        ).value
+    }
+
+    /// Starts an owned unhide operation for a row visibility switch.
+    public func requestUnhideMacDeviceID(
+        _ macDeviceID: String,
+        instanceTag: String? = nil
+    ) {
+        _ = enqueueUnhideMacDeviceID(macDeviceID, instanceTag: instanceTag)
+    }
+
+    private func enqueueUnhideMacDeviceID(
+        _ macDeviceID: String,
+        instanceTag: String?
+    ) -> Task<Void, Never> {
+        enqueueComputerVisibilityMutation(
+            computerID: MobilePairedMac.pairingID(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        ) { store in
+            await store.performUnhideMacDeviceID(
+                macDeviceID,
+                instanceTag: instanceTag
+            )
+        }
+    }
+
+    private func performUnhideMacDeviceID(
+        _ macDeviceID: String,
+        instanceTag: String?
     ) async {
         guard let scope = await currentScopeSnapshot() else { return }
         await clearHiddenMacDeviceID(
@@ -415,8 +450,11 @@ extension MobileShellComposite {
             instanceTag: instanceTag,
             scope: scope
         )
-        guard await isScopeCurrent(scope) else { return }
+        guard !Task.isCancelled,
+              await isScopeCurrent(scope),
+              !Task.isCancelled else { return }
         await loadPairedMacs()
+        guard !Task.isCancelled else { return }
         await loadRegistryDevices()
     }
 
@@ -458,6 +496,45 @@ extension MobileShellComposite {
         representativeID: String,
         aliasIDs: [String]
     ) async {
+        await enqueueHideStoredPairedMacEntries(
+            representativeID: representativeID,
+            aliasIDs: aliasIDs,
+            refreshRegistry: false
+        ).value
+    }
+
+    /// Starts an owned hide operation for a row visibility switch.
+    public func requestHideStoredPairedMacEntries(
+        representativeID: String,
+        aliasIDs: [String]
+    ) {
+        _ = enqueueHideStoredPairedMacEntries(
+            representativeID: representativeID,
+            aliasIDs: aliasIDs,
+            refreshRegistry: true
+        )
+    }
+
+    private func enqueueHideStoredPairedMacEntries(
+        representativeID: String,
+        aliasIDs: [String],
+        refreshRegistry: Bool
+    ) -> Task<Void, Never> {
+        enqueueComputerVisibilityMutation(computerID: representativeID) { store in
+            await store.performHideStoredPairedMacEntries(
+                representativeID: representativeID,
+                aliasIDs: aliasIDs
+            )
+            if refreshRegistry, !Task.isCancelled {
+                await store.loadRegistryDevices()
+            }
+        }
+    }
+
+    private func performHideStoredPairedMacEntries(
+        representativeID: String,
+        aliasIDs: [String]
+    ) async {
         guard !representativeID.isEmpty,
               let scope = await currentScopeSnapshot() else { return }
         let representative = MobilePairedMac.pairingIdentity(from: representativeID)
@@ -476,6 +553,54 @@ extension MobileShellComposite {
         }
         guard !targets.isEmpty else { return }
         await hideStoredPairedMacs(targets, scope: scope)
+    }
+
+    private func enqueueComputerVisibilityMutation(
+        computerID: String,
+        operation: @escaping @MainActor (MobileShellComposite) async -> Void
+    ) -> Task<Void, Never> {
+        let previousTask = computerVisibilityMutationTasksByID[computerID]
+        let operationID = UUID()
+        computerVisibilityMutationOperationIDsByID[computerID] = operationID
+        computerVisibilityMutationIDs.insert(computerID)
+
+        let task = Task { @MainActor [weak self] in
+            await previousTask?.value
+            guard let self else { return }
+            defer {
+                self.finishComputerVisibilityMutation(
+                    computerID: computerID,
+                    operationID: operationID
+                )
+            }
+            guard !Task.isCancelled else { return }
+            await operation(self)
+        }
+        computerVisibilityMutationTasksByID[computerID] = task
+        return task
+    }
+
+    func cancelComputerVisibilityMutations() {
+        let tasks = Array(computerVisibilityMutationTasksByID.values)
+        computerVisibilityMutationIDs = []
+        for task in tasks {
+            task.cancel()
+        }
+        // Keep each cancelled task as the serial tail until its rollback ends.
+        // A request in the next account/team scope must await that cleanup before
+        // writing a newer durable visibility preference for the same computer.
+    }
+
+    private func finishComputerVisibilityMutation(
+        computerID: String,
+        operationID: UUID
+    ) {
+        guard computerVisibilityMutationOperationIDsByID[computerID] == operationID else {
+            return
+        }
+        computerVisibilityMutationTasksByID[computerID] = nil
+        computerVisibilityMutationOperationIDsByID[computerID] = nil
+        computerVisibilityMutationIDs.remove(computerID)
     }
 
     /// Hides exactly one stored paired-Mac row.
@@ -514,7 +639,9 @@ extension MobileShellComposite {
                 includeUserWideScope: teamlessLegacyIDs.contains(mac.id)
             )
         }
-        guard await isScopeCurrent(scope) else {
+        guard !Task.isCancelled,
+              await isScopeCurrent(scope),
+              !Task.isCancelled else {
             for pairingID in targetPairingIDs {
                 await clearHiddenMacDeviceID(pairingID, scope: scope)
             }
@@ -571,7 +698,9 @@ extension MobileShellComposite {
             removeNotificationFeedSnapshot(macDeviceID: id)
         }
 
-        guard await isScopeCurrent(scope) else { return }
+        guard !Task.isCancelled,
+              await isScopeCurrent(scope),
+              !Task.isCancelled else { return }
         await loadPairedMacs()
         clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
     }

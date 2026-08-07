@@ -216,6 +216,11 @@ class TerminalLifecycle(str, Enum):
     EXITED = 'exited'
     TOMBSTONED = 'tombstoned'
 
+class ViewAttachmentOutcome(str, Enum):
+    APPLIED = 'applied'
+    PASSIVE = 'passive'
+    SUPERSEDED = 'superseded'
+
 
 @dataclass(frozen=True)
 class AgentRecord:
@@ -239,6 +244,20 @@ class ApplyLayoutResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ApplyLayoutResult'
     screen: Id
     panes: List[AppliedPane]
+
+
+@dataclass(frozen=True)
+class AttachedViewOutcomeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewOutcomeResult'
+    outcome: ViewAttachmentOutcome
+
+
+@dataclass(frozen=True)
+class AttachedViewResizeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewResizeResult'
+    accepted: bool
+    outcome: ViewAttachmentOutcome
+    reservation_id: Union[int, None]
 
 
 @dataclass(frozen=True)
@@ -525,6 +544,7 @@ class MintTerminalRendererResult:
     terminal_id: str
     endpoint: str
     incarnation: str
+    protocol_version: int
     rights: int
     token: str
     ttl_ms: int
@@ -714,7 +734,7 @@ class ResolveTerminalResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ResolveTerminalResult'
     surface: Union[Id, None]
     terminal_id: str
-    exit: Union[JsonValue, None]
+    exit: Union[TerminalExit, None]
     generation: str
     launch_spec: JsonValue
     lifecycle: TerminalLifecycle
@@ -725,14 +745,39 @@ class ResolveTerminalResult:
 
 
 @dataclass(frozen=True)
+class ResourceSelectors:
+    __cmux_schema_path__: ClassVar[str] = 'types/ResourceSelectors'
+    pane: Union[str, None, MissingType] = field(default=MISSING)
+    screen: Union[str, None, MissingType] = field(default=MISSING)
+    workspace: Union[str, None, MissingType] = field(default=MISSING)
+    split: Union[str, None, MissingType] = field(default=MISSING)
+    client: Union[str, None, MissingType] = field(default=MISSING)
+    agent: Union[str, None, MissingType] = field(default=MISSING)
+    browser: Union[str, None, MissingType] = field(default=MISSING)
+    frontend_projection: Union[str, None, MissingType] = field(default=MISSING)
+    machine: Union[str, None, MissingType] = field(default=MISSING)
+    notification: Union[str, None, MissingType] = field(default=MISSING)
+    pairing_request: Union[str, None, MissingType] = field(default=MISSING)
+    session: Union[str, None, MissingType] = field(default=MISSING)
+    sidebar_view: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[str, None, MissingType] = field(default=MISSING)
+    tab: Union[str, None, MissingType] = field(default=MISSING)
+    terminal: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RunResult:
     __cmux_schema_path__: ClassVar[str] = 'types/RunResult'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[TerminalExit, None]
+    lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
+    terminal_revision: int
 
 
 @dataclass(frozen=True)
@@ -830,6 +875,35 @@ class TerminalEventsResult:
 
 
 @dataclass(frozen=True)
+class TerminalExit:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExit'
+    exited_at_ms: int
+    outcome: TerminalExitOutcome
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeExit:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/exit'
+    code: int
+    kind: Literal['exit']
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeSignal:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/signal'
+    core_dumped: bool
+    kind: Literal['signal']
+    signal: int
+
+
+@dataclass(frozen=True)
+class TerminalExitOutcomeUnknown:
+    __cmux_schema_path__: ClassVar[str] = 'types/TerminalExitOutcome/variants/unknown'
+    kind: Literal['unknown']
+    reason: str
+
+
+@dataclass(frozen=True)
 class TerminalKeyInput:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalKeyInput'
     consumed_mods: TerminalModifiers
@@ -858,14 +932,16 @@ class TerminalModifiers:
 @dataclass(frozen=True)
 class TerminalPlacement:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalPlacement'
-    surface: Id
-    pane: Id
-    screen: Id
-    workspace: Id
-    terminal_id: Union[str, None]
+    surface: Union[Id, None]
+    pane: Union[Id, None]
+    screen: Union[Id, None]
+    workspace: Union[Id, None]
+    terminal_id: str
+    already_exited: bool
+    exit: Union[TerminalExit, None]
     generation: str
     key: str
-    lifecycle: Union[Literal['running'], None]
+    lifecycle: TerminalLifecycle
     registry_id: str
     replayed: bool
     terminal_incarnation: Union[str, None]
@@ -876,7 +952,7 @@ class TerminalPlacement:
 class TerminalRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/TerminalRecord'
     terminal_id: str
-    exit: Union[JsonValue, None]
+    exit: Union[TerminalExit, None]
     launch_spec: JsonValue
     lifecycle: TerminalLifecycle
     terminal_incarnation: Union[str, None]
@@ -1156,6 +1232,24 @@ class CopyRequest:
 
 
 @dataclass(frozen=True)
+class CreateSurfaceWithReceiptRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-surface-with-receipt/request'
+    operation: str
+    origin: str
+    receipt: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    argv: Union[List[str], None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    selector_fallbacks: Union[List[ResourceSelectors], MissingType] = field(default=MISSING)
+    selectors: Union[ResourceSelectors, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CreateTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-terminal/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
@@ -1182,6 +1276,13 @@ class CreateWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DetachAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/detach-attached-view/request'
+    surface: Id
+    lease: str
 
 
 @dataclass(frozen=True)
@@ -1270,6 +1371,13 @@ class MarkWorkspacesProviderManagedRequest:
 class MintTerminalRendererRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer/request'
     surface: Id
+    ttl_ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MintTerminalRendererByTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/mint-terminal-renderer-by-terminal/request'
+    terminal: str
     ttl_ms: Union[int, MissingType] = field(default=MISSING)
 
 
@@ -1421,6 +1529,13 @@ class ReadScrollbackRequest:
 
 
 @dataclass(frozen=True)
+class ReleaseAttachedViewSizeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
+    surface: Id
+    lease: str
+
+
+@dataclass(frozen=True)
 class ReleaseSurfaceSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-surface-size/request'
     surface: Id
@@ -1488,6 +1603,15 @@ class ReportAgentRequest:
     state: AgentState
     source: AgentReportSource
     session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ResizeAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/resize-attached-view/request'
+    surface: Id
+    cols: int
+    lease: str
+    rows: int
 
 
 @dataclass(frozen=True)
@@ -2220,6 +2344,7 @@ JsonValue = Any
 Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
+TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
 KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
@@ -2244,9 +2369,12 @@ __all__ = [
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
+    'ViewAttachmentOutcome',
     'AgentRecord',
     'AppliedPane',
     'ApplyLayoutResult',
+    'AttachedViewOutcomeResult',
+    'AttachedViewResizeResult',
     'BrowserFrame',
     'CellPixelFailure',
     'CellPixelResize',
@@ -2298,6 +2426,7 @@ __all__ = [
     'ReportAgentResult',
     'ResizeSurfaceResult',
     'ResolveTerminalResult',
+    'ResourceSelectors',
     'RunResult',
     'Screen',
     'SetCellPixelsResult',
@@ -2308,6 +2437,10 @@ __all__ = [
     'Tab',
     'TerminalColors',
     'TerminalEventsResult',
+    'TerminalExit',
+    'TerminalExitOutcomeExit',
+    'TerminalExitOutcomeSignal',
+    'TerminalExitOutcomeUnknown',
     'TerminalKeyInput',
     'TerminalModifiers',
     'TerminalPlacement',
@@ -2343,8 +2476,10 @@ __all__ = [
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
+    'CreateSurfaceWithReceiptRequest',
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
+    'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
     'FocusDirectionRequest',
@@ -2359,6 +2494,7 @@ __all__ = [
     'ListWorkspacesRequest',
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
+    'MintTerminalRendererByTerminalRequest',
     'MoveTabRequest',
     'MoveTerminalRequest',
     'MoveWorkspaceRequest',
@@ -2376,6 +2512,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
@@ -2385,6 +2522,7 @@ __all__ = [
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
     'ReportAgentRequest',
+    'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
     'RunRequest',
@@ -2465,4 +2603,5 @@ __all__ = [
     'Layout',
     'LayoutUndoResult',
     'Pane',
+    'TerminalExitOutcome',
 ]

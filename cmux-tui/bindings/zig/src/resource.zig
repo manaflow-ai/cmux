@@ -118,6 +118,7 @@ pub const Operation = enum {
     terminal_viewer_release,
     terminal_viewport_scroll,
     terminal_move,
+    terminal_project,
     terminal_attach,
     terminal_close,
     browser_list,
@@ -233,6 +234,7 @@ pub const Operation = enum {
             .terminal_viewer_release => "terminal.viewer.release",
             .terminal_viewport_scroll => "terminal.viewport.scroll",
             .terminal_move => "terminal.move",
+            .terminal_project => "terminal.project",
             .terminal_attach => "terminal.attach",
             .terminal_close => "terminal.close",
             .browser_list => "browser.list",
@@ -440,6 +442,7 @@ pub const Operation = enum {
             .terminal_viewer_release => .{ .owner = .terminal_stream, .method = "releaseTerminalViewer" },
             .terminal_viewport_scroll => .{ .owner = .terminal, .method = "scroll" },
             .terminal_move => .{ .owner = .terminal, .method = "moveTerminal" },
+            .terminal_project => .{ .owner = .terminal, .method = "projectTerminal" },
             .terminal_attach => .{ .owner = .terminal, .method = "attachTerminalWith" },
             .terminal_close => .{ .owner = .terminal, .method = "close" },
             .browser_list => .{ .owner = .session, .method = "listBrowsers" },
@@ -1010,9 +1013,9 @@ pub const RevisionConflictDetails = struct {
 };
 
 pub const SelectorAmbiguousDetails = struct {
-    /// `scope` is optional for compatibility with early protocol-v1 servers.
+    /// `scope` is optional for compatibility with early protocol-v2 servers.
     scope: ?ErrorResourceScope,
-    /// `selector` is optional for compatibility with early protocol-v1 servers.
+    /// `selector` is optional for compatibility with early protocol-v2 servers.
     selector: ?[]const u8,
     candidates: []const ErrorResourceId,
 };
@@ -2347,7 +2350,7 @@ pub const Client = struct {
         }
         try envelope.put(
             "protocol",
-            .{ .string = try allocator.dupe(u8, "cmux.protocol/1") },
+            .{ .string = try allocator.dupe(u8, "cmux.protocol/2") },
         );
         try envelope.put(
             "type",
@@ -2539,7 +2542,7 @@ pub const Client = struct {
                 else => return error.ExpectedObject,
             };
             const protocol = try objectString(object, "protocol");
-            if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+            if (!std.mem.eql(u8, protocol, "cmux.protocol/2")) {
                 return error.InvalidProtocolEnvelope;
             }
             const envelope_type = try objectString(object, "type");
@@ -2669,7 +2672,7 @@ pub const Client = struct {
                     error.InvalidProtocolEnvelope,
                 );
             };
-            if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+            if (!std.mem.eql(u8, protocol, "cmux.protocol/2")) {
                 return self.postDispatchFailure(
                     operation,
                     mutation,
@@ -3374,7 +3377,7 @@ fn parseExactResponse(object: raw.wire.Object) !ExactResponse {
         "error",
     });
     const protocol = try objectString(object, "protocol");
-    if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+    if (!std.mem.eql(u8, protocol, "cmux.protocol/2")) {
         return error.InvalidProtocolEnvelope;
     }
     const envelope_type = try objectString(object, "type");
@@ -3461,7 +3464,9 @@ fn decodeResourceEntitySnapshot(
         },
         .pane => .{ .pane = try decodePaneSnapshot(value) },
         .tab => .{ .tab = try decodeTabSnapshot(value) },
-        .terminal => .{ .terminal = try decodeTerminalSnapshot(value) },
+        .terminal => .{
+            .terminal = try decodeTerminalSnapshot(allocator, value),
+        },
         .browser => .{ .browser = try decodeBrowserSnapshot(value) },
         .client => .{
             .client = try decodeClientSnapshot(allocator, value),
@@ -4326,7 +4331,7 @@ const RawStream = struct {
             };
             const protocol = objectString(object, "protocol") catch
                 return error.InvalidProtocolEnvelope;
-            if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+            if (!std.mem.eql(u8, protocol, "cmux.protocol/2")) {
                 return error.InvalidProtocolEnvelope;
             }
             const envelope_type = objectString(object, "type") catch
@@ -4418,7 +4423,7 @@ const RawStream = struct {
             "item",
         });
         const protocol = try objectString(object, "protocol");
-        if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+        if (!std.mem.eql(u8, protocol, "cmux.protocol/2")) {
             return error.InvalidProtocolEnvelope;
         }
         const envelope_type = try objectString(object, "type");
@@ -4482,7 +4487,7 @@ const RawStream = struct {
             "recovery",
         });
         const protocol = try objectString(object, "protocol");
-        if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+        if (!std.mem.eql(u8, protocol, "cmux.protocol/2")) {
             return error.InvalidProtocolEnvelope;
         }
         const envelope_type = try objectString(object, "type");
@@ -4788,7 +4793,7 @@ const RawStream = struct {
             };
             const protocol = objectString(object, "protocol") catch
                 return error.InvalidProtocolEnvelope;
-            if (!std.mem.eql(u8, protocol, "cmux.protocol/1")) {
+            if (!std.mem.eql(u8, protocol, "cmux.protocol/2")) {
                 return error.InvalidProtocolEnvelope;
             }
             const envelope_type = objectString(object, "type") catch
@@ -5208,6 +5213,11 @@ pub const MoveDestination = struct {
     screen: ScreenId,
     pane: PaneId,
     index: ?u32 = null,
+};
+
+pub const TerminalProjectOptions = struct {
+    destination: MoveDestination,
+    name: ?[]const u8 = null,
 };
 
 pub const TerminalMouseKind = union(enum) {
@@ -6003,7 +6013,8 @@ pub const TerminalLifecycle = union(enum) {
 
 pub const TerminalSnapshot = struct {
     id: TerminalId,
-    tab_id: TabId,
+    tab_id: ?TabId,
+    tab_ids: []const TabId,
     title: []const u8,
     cwd: ?[]const u8,
     cols: u16,
@@ -6687,7 +6698,7 @@ pub const OwnedMachineSnapshot = OwnedValue(MachineSnapshot);
 pub const OwnedSessionSnapshot = OwnedValue(SessionSnapshot);
 pub const OwnedWorkspaceSnapshot = OwnedValue(WorkspaceSnapshot);
 pub const OwnedClientSnapshot = OwnedDecodedValue(ClientSnapshot);
-pub const OwnedTerminalSnapshot = OwnedValue(TerminalSnapshot);
+pub const OwnedTerminalSnapshot = OwnedDecodedValue(TerminalSnapshot);
 pub const OwnedBrowserSnapshot = OwnedValue(BrowserSnapshot);
 pub const OwnedScreenSnapshot = OwnedDecodedValue(ScreenSnapshot);
 pub const OwnedPaneSnapshot = OwnedValue(PaneSnapshot);
@@ -6724,7 +6735,7 @@ pub const WorkspaceList = OwnedList(WorkspaceSnapshot);
 pub const ScreenList = OwnedDecodedList(ScreenSnapshot);
 pub const PaneList = OwnedList(PaneSnapshot);
 pub const TabList = OwnedList(TabSnapshot);
-pub const TerminalList = OwnedList(TerminalSnapshot);
+pub const TerminalList = OwnedDecodedList(TerminalSnapshot);
 pub const BrowserList = OwnedList(BrowserSnapshot);
 pub const ClientList = OwnedDecodedList(ClientSnapshot);
 pub const NotificationList = OwnedList(NotificationSnapshot);
@@ -6732,7 +6743,8 @@ pub const AgentList = OwnedList(AgentSnapshot);
 pub const PairingRequestList = OwnedList(PairingRequestSnapshot);
 pub const SessionMutationResult = TypedMutationResult(SessionSnapshot);
 pub const WorkspaceMutationResult = TypedMutationResult(WorkspaceSnapshot);
-pub const TerminalMutationResult = TypedMutationResult(TerminalSnapshot);
+pub const TerminalMutationResult =
+    TypedDecodedMutationResult(TerminalSnapshot);
 pub const BrowserMutationResult = TypedMutationResult(BrowserSnapshot);
 pub const ScreenMutationResult =
     TypedDecodedMutationResult(ScreenSnapshot);
@@ -8158,13 +8170,17 @@ fn decodeTerminalExit(value: raw.wire.Value) !TerminalExit {
     };
 }
 
-fn decodeTerminalSnapshot(value: raw.wire.Value) !TerminalSnapshot {
+fn decodeTerminalSnapshot(
+    allocator: std.mem.Allocator,
+    value: raw.wire.Value,
+) !TerminalSnapshot {
     const object = try detailObject(value);
     try ensureOnlyFields(
         object,
         &.{
             "id",
             "tab_id",
+            "tab_ids",
             "title",
             "cwd",
             "cols",
@@ -8188,9 +8204,38 @@ fn decodeTerminalSnapshot(value: raw.wire.Value) !TerminalSnapshot {
     {
         return error.InvalidTerminalState;
     }
+    const tab_id = try requiredNullableId(TabId, object, "tab_id");
+    const raw_tab_ids: ?[]const raw.wire.Value = if (object.get("tab_ids")) |raw_value|
+        switch (raw_value) {
+            .array => |items| items.items,
+            else => return error.ExpectedArray,
+        }
+    else
+        null;
+    const tab_ids = try allocator.alloc(
+        TabId,
+        if (raw_tab_ids) |items| items.len else if (tab_id != null) 1 else 0,
+    );
+    errdefer allocator.free(tab_ids);
+    if (raw_tab_ids) |items| {
+        for (items, 0..) |item, index| {
+            tab_ids[index] = switch (item) {
+                .string => |text| try TabId.parse(text),
+                else => return error.ExpectedString,
+            };
+        }
+    } else if (tab_id) |legacy_tab_id| {
+        tab_ids[0] = legacy_tab_id;
+    }
+    if ((tab_id == null) != (tab_ids.len == 0) or
+        (tab_id != null and !std.meta.eql(tab_id.?, tab_ids[0])))
+    {
+        return error.InvalidTerminalPlacement;
+    }
     return .{
         .id = try parseRequiredId(TerminalId, object, "id"),
-        .tab_id = try parseRequiredId(TabId, object, "tab_id"),
+        .tab_id = tab_id,
+        .tab_ids = tab_ids,
         .title = try objectString(object, "title"),
         .cwd = try strictOptionalString(object, "cwd"),
         .cols = try objectUnsigned(u16, object, "cols", 1),
@@ -8473,9 +8518,6 @@ fn decodeTypedSnapshot(
     if (comptime Snapshot == WorkspaceSnapshot) {
         return decodeWorkspaceSnapshot(value);
     }
-    if (comptime Snapshot == TerminalSnapshot) {
-        return decodeTerminalSnapshot(value);
-    }
     if (comptime Snapshot == BrowserSnapshot) {
         return decodeBrowserSnapshot(value);
     }
@@ -8513,6 +8555,9 @@ fn decodeArenaSnapshot(
     }
     if (comptime Snapshot == ClientSnapshot) {
         return decodeClientSnapshot(allocator, value);
+    }
+    if (comptime Snapshot == TerminalSnapshot) {
+        return decodeTerminalSnapshot(allocator, value);
     }
     return decodeTypedSnapshot(Snapshot, value);
 }
@@ -8833,6 +8878,11 @@ fn decodeOwnedAllocatedResult(
             decoded_arena.allocator(),
             owned_result.value,
         )
+    else if (comptime Result == TerminalSnapshot)
+        try decodeTerminalSnapshot(
+            decoded_arena.allocator(),
+            owned_result.value,
+        )
     else if (comptime Result == ResourceSnapshot)
         try decodeResourceSnapshot(
             decoded_arena.allocator(),
@@ -8907,6 +8957,11 @@ fn decodeTypedAllocatedMutation(
     errdefer decoded_arena.deinit();
     const value: Value = if (comptime Value == ScreenSnapshot)
         try decodeScreenSnapshot(
+            decoded_arena.allocator(),
+            raw_result.value,
+        )
+    else if (comptime Value == TerminalSnapshot)
+        try decodeTerminalSnapshot(
             decoded_arena.allocator(),
             raw_result.value,
         )
@@ -9052,7 +9107,11 @@ fn decodeRefreshResult(
         return decodeOwnedTypedSnapshot(TabSnapshot, result);
     }
     if (comptime std.mem.eql(u8, scope, "terminal")) {
-        return decodeOwnedTypedSnapshot(TerminalSnapshot, result);
+        return decodeOwnedAllocatedResult(
+            TerminalSnapshot,
+            allocator,
+            result,
+        );
     }
     if (comptime std.mem.eql(u8, scope, "browser")) {
         return decodeOwnedTypedSnapshot(BrowserSnapshot, result);
@@ -9412,7 +9471,7 @@ fn HandleImpl(
             {
                 return error.UnsupportedHandleOperation;
             }
-            return decodeTypedList(
+            return decodeTypedArenaList(
                 TerminalSnapshot,
                 self.client.allocator,
                 try self.read(.terminal_list, null),
@@ -10946,10 +11005,43 @@ fn HandleImpl(
             );
             defer params.deinit();
             try encodeMoveDestination(Id, &params, destination);
-            return decodeTypedMutation(
+            return decodeTypedAllocatedMutation(
                 TerminalSnapshot,
+                self.client.allocator,
                 try self.client.mutate(
                     .terminal_move,
+                    params.asValue(),
+                    mutation,
+                ),
+            );
+        }
+
+        pub fn projectTerminal(
+            self: Self,
+            options: TerminalProjectOptions,
+            mutation: MutationOptions,
+        ) !TabMutationResult {
+            if (comptime !std.mem.eql(u8, scope, "terminal")) {
+                return error.UnsupportedHandleOperation;
+            }
+            if (options.destination.index == null) {
+                return error.MissingField;
+            }
+            var params = try Params(Id).init(
+                self.client.allocator,
+                scope,
+                &self.target,
+                null,
+            );
+            defer params.deinit();
+            try encodeMoveDestination(Id, &params, options.destination);
+            if (options.name) |name| {
+                try params.putString("name", name);
+            }
+            return decodeTypedMutation(
+                TabSnapshot,
+                try self.client.mutate(
+                    .terminal_project,
                     params.asValue(),
                     mutation,
                 ),
@@ -12719,6 +12811,14 @@ pub const Terminal = struct {
         return self.impl().moveTerminal(destination, mutation);
     }
 
+    pub fn projectTerminal(
+        self: Self,
+        options: TerminalProjectOptions,
+        mutation: MutationOptions,
+    ) !TabMutationResult {
+        return self.impl().projectTerminal(options, mutation);
+    }
+
     pub fn scroll(
         self: Self,
         delta_rows: i32,
@@ -13403,7 +13503,7 @@ const FakeShared = struct {
     ) !void {
         const item = try std.fmt.allocPrint(
             self.allocator,
-            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                 "\"stream_item\",\"stream_id\":\"{s}\"," ++
                 "\"sequence\":\"{d}\",\"cursor\":{{\"generation\":" ++
                 "\"g\",\"revision\":\"{d}\"}},\"item\":{{\"kind\":" ++
@@ -13421,7 +13521,7 @@ const FakeShared = struct {
     ) !void {
         const end = try std.fmt.allocPrint(
             self.allocator,
-            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                 "\"stream_end\",\"stream_id\":\"{s}\"," ++
                 "\"reason\":\"completed\",\"cursor\":{{" ++
                 "\"generation\":\"g\",\"revision\":\"1\"}}}}",
@@ -13456,7 +13556,7 @@ const FakeShared = struct {
             .malformed_item => {
                 const item = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                         "\"stream_item\",\"stream_id\":\"{s}\"," ++
                         "\"sequence\":1,\"item\":{{\"kind\":" ++
                         "\"future.event\"}}}}",
@@ -13485,7 +13585,7 @@ const FakeShared = struct {
     ) !void {
         const item = try std.fmt.allocPrint(
             self.allocator,
-            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                 "\"stream_item\",\"stream_id\":\"{s}\"," ++
                 "\"sequence\":\"2\",\"cursor\":{{\"generation\":" ++
                 "\"g\",\"revision\":\"2\"}},\"item\":{{\"kind\":" ++
@@ -13506,7 +13606,7 @@ const FakeShared = struct {
         if (self.stream_open_ack == .missing_result) {
             const response = try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":true}}",
                 .{request_id},
             );
@@ -13574,7 +13674,7 @@ const FakeShared = struct {
         defer self.allocator.free(result);
         const response = try std.fmt.allocPrint(
             self.allocator,
-            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                 "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                 "\"result\":{s}}}",
             .{ request_id, result },
@@ -13590,14 +13690,14 @@ const FakeShared = struct {
         const response = switch (self.cancel_response) {
             .empty => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                     "\"result\":{{}}}}",
                 .{request_id},
             ),
             .non_empty => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                     "\"result\":{{\"unexpected\":true}}}}",
                 .{request_id},
@@ -13611,7 +13711,7 @@ const FakeShared = struct {
             ),
             .rejected => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":false," ++
                     "\"error\":{{\"code\":\"stream.cancel_rejected\"," ++
                     "\"message\":\"cancel rejected\",\"details\":{{}}," ++
@@ -13620,14 +13720,14 @@ const FakeShared = struct {
             ),
             .extra_field => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                     "\"result\":{{}},\"future\":true}}",
                 .{request_id},
             ),
             .success_with_error => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                     "\"result\":{{}},\"error\":{{\"code\":\"failed\"," ++
                     "\"message\":\"bad\",\"details\":{{}}," ++
@@ -13636,7 +13736,7 @@ const FakeShared = struct {
             ),
             .failure_with_result => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":false," ++
                     "\"result\":{{}},\"error\":{{\"code\":\"failed\"," ++
                     "\"message\":\"bad\",\"details\":{{}}," ++
@@ -13645,7 +13745,7 @@ const FakeShared = struct {
             ),
             .malformed_error => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"response\",\"id\":\"{s}\",\"ok\":false," ++
                     "\"error\":{{\"code\":\"failed\"," ++
                     "\"message\":\"bad\",\"details\":{{}}," ++
@@ -13665,7 +13765,7 @@ const FakeShared = struct {
         const end = switch (self.cancel_end) {
             .matching => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"," ++
                     "\"reason\":\"canceled\",\"cursor\":{{" ++
                     "\"generation\":\"g\",\"revision\":\"3\"}}}}",
@@ -13680,41 +13780,41 @@ const FakeShared = struct {
             ),
             .missing_reason => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"}}",
                 .{stream_id},
             ),
             .wrong_stream_id => try self.allocator.dupe(
                 u8,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":" ++
                     "\"stream_ffffffffffffffffffffffffffffffff\"," ++
                     "\"reason\":\"canceled\"}",
             ),
             .wrong_reason => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"," ++
                     "\"reason\":\"completed\"}}",
                 .{stream_id},
             ),
             .unknown_field => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"," ++
                     "\"reason\":\"canceled\",\"future\":true}}",
                 .{stream_id},
             ),
             .null_cursor => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"," ++
                     "\"reason\":\"canceled\",\"cursor\":null}}",
                 .{stream_id},
             ),
             .malformed_cursor => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"," ++
                     "\"reason\":\"canceled\",\"cursor\":{{" ++
                     "\"generation\":\"g\",\"revision\":3}}}}",
@@ -13722,14 +13822,14 @@ const FakeShared = struct {
             ),
             .null_recovery => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"," ++
                     "\"reason\":\"canceled\",\"recovery\":null}}",
                 .{stream_id},
             ),
             .unexpected_error => try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_end\",\"stream_id\":\"{s}\"," ++
                     "\"reason\":\"canceled\",\"error\":{{" ++
                     "\"code\":\"failed\",\"message\":\"bad\"," ++
@@ -13814,7 +13914,7 @@ const FakeShared = struct {
                     };
                     const response = try std.fmt.allocPrint(
                         self.allocator,
-                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                             "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                             "\"result\":{s}}}",
                         .{ id, result },
@@ -13831,7 +13931,7 @@ const FakeShared = struct {
                             "{\"matched\":true,\"text\":\"raced\"}";
                         const target_response = try std.fmt.allocPrint(
                             self.allocator,
-                            "{{\"protocol\":\"cmux.protocol/1\"," ++
+                            "{{\"protocol\":\"cmux.protocol/2\"," ++
                                 "\"type\":\"response\",\"id\":\"{s}\"," ++
                                 "\"ok\":true,\"result\":{s}}}",
                             .{ self.abandoned_request_id.?, target_result },
@@ -13844,7 +13944,7 @@ const FakeShared = struct {
                 if (std.mem.eql(u8, operation, "session.ping")) {
                     const response = try std.fmt.allocPrint(
                         self.allocator,
-                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                             "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                             "\"result\":{{\"alive\":true,\"cursor\":{{" ++
                             "\"generation\":\"g\",\"revision\":\"1\"}}}}}}",
@@ -13858,7 +13958,7 @@ const FakeShared = struct {
             if (self.mode == .remote_error) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":false," ++ "\"error\":{{\"code\":\"mutation.indeterminate\"," ++ "\"message\":\"external effect may have committed\"," ++ "\"details\":{{\"idempotency_key\":" ++ "\"indeterminate-test-key\",\"operation\":" ++ "\"workspace.rename\",\"recovery\":" ++ "\"inspect_state_then_retry_with_new_key\"}}," ++ "\"retryable\":false}}}}",
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":false," ++ "\"error\":{{\"code\":\"mutation.indeterminate\"," ++ "\"message\":\"external effect may have committed\"," ++ "\"details\":{{\"idempotency_key\":" ++ "\"indeterminate-test-key\",\"operation\":" ++ "\"workspace.rename\",\"recovery\":" ++ "\"inspect_state_then_retry_with_new_key\"}}," ++ "\"retryable\":false}}}}",
                     .{id},
                 );
                 defer self.allocator.free(response);
@@ -13998,7 +14098,7 @@ const FakeShared = struct {
                 if (read_value) |value| {
                     const response = try std.fmt.allocPrint(
                         self.allocator,
-                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                             "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                             "\"result\":{s}}}",
                         .{ id, value },
@@ -14042,7 +14142,7 @@ const FakeShared = struct {
                 if (mutation_value) |value| {
                     const response = try std.fmt.allocPrint(
                         self.allocator,
-                        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                             "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                             "\"result\":{{\"value\":{s}," ++
                             "\"generation\":\"catalog-g\"," ++
@@ -14062,7 +14162,7 @@ const FakeShared = struct {
             )) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                         "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                         "\"result\":{s}}}",
                     .{ id, fake_client_snapshot_json },
@@ -14074,7 +14174,7 @@ const FakeShared = struct {
             if (std.mem.eql(u8, operation, "browser.navigate")) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                         "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                         "\"result\":{{\"value\":{s}," ++
                         "\"generation\":\"g\",\"revision\":\"7\"," ++
@@ -14130,7 +14230,7 @@ const FakeShared = struct {
             if (facade_mutation_value) |value| {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                         "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                         "\"result\":{{\"value\":{s}," ++
                         "\"generation\":\"g\",\"revision\":\"7\"," ++
@@ -14148,7 +14248,7 @@ const FakeShared = struct {
             )) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{\"endpoint\":\"/tmp/renderer.sock\"," ++ "\"terminal_id\":" ++ "\"term_0123456789abcdef0123456789abcdef\"," ++ "\"token\":\"renderer-secret\"," ++ "\"rights\":[\"read\",\"input\"]," ++ "\"ttl_ms\":5000}}}}",
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{\"endpoint\":\"/tmp/renderer.sock\"," ++ "\"terminal_id\":" ++ "\"term_0123456789abcdef0123456789abcdef\"," ++ "\"token\":\"renderer-secret\"," ++ "\"rights\":[\"read\",\"input\"]," ++ "\"ttl_ms\":5000}}}}",
                     .{id},
                 );
                 defer self.allocator.free(response);
@@ -14158,7 +14258,7 @@ const FakeShared = struct {
             if (std.mem.eql(u8, operation, "client.detach")) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                         "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                         "\"result\":{{}}}}",
                     .{id},
@@ -14186,7 +14286,7 @@ const FakeShared = struct {
             )) {
                 const response = try std.fmt.allocPrint(
                     self.allocator,
-                    "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                    "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                         "\"response\",\"id\":\"{s}\",\"ok\":true," ++
                         "\"result\":{{\"value\":{{}}," ++
                         "\"generation\":\"g\",\"revision\":\"7\"," ++
@@ -14252,7 +14352,7 @@ const FakeShared = struct {
                         try self.appendCancelEnd(stream_id);
                         const malformed = try std.fmt.allocPrint(
                             self.allocator,
-                            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                                 "\"stream_item\",\"stream_id\":\"{s}\"," ++
                                 "\"sequence\":\"2\",\"cursor\":{{" ++
                                 "\"generation\":\"g\",\"revision\":\"2\"}}," ++
@@ -14270,7 +14370,7 @@ const FakeShared = struct {
             }
             const response = try std.fmt.allocPrint(
                 self.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{\"value\":{{\"kind\":\"terminal\"," ++ "\"workspace_id\":\"ws_0123456789abcdef0123456789abcdef\"," ++ "\"screen_id\":\"screen_0123456789abcdef0123456789abcdef\"," ++ "\"pane_id\":\"pane_0123456789abcdef0123456789abcdef\"," ++ "\"tab_id\":\"tab_0123456789abcdef0123456789abcdef\"," ++ "\"terminal_id\":\"term_0123456789abcdef0123456789abcdef\"}}," ++ "\"generation\":\"g\",\"revision\":\"7\"," ++ "\"replayed\":false}}}}",
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++ "\"response\",\"id\":\"{s}\",\"ok\":true," ++ "\"result\":{{\"value\":{{\"kind\":\"terminal\"," ++ "\"workspace_id\":\"ws_0123456789abcdef0123456789abcdef\"," ++ "\"screen_id\":\"screen_0123456789abcdef0123456789abcdef\"," ++ "\"pane_id\":\"pane_0123456789abcdef0123456789abcdef\"," ++ "\"tab_id\":\"tab_0123456789abcdef0123456789abcdef\"," ++ "\"terminal_id\":\"term_0123456789abcdef0123456789abcdef\"}}," ++ "\"generation\":\"g\",\"revision\":\"7\"," ++ "\"replayed\":false}}}}",
                 .{id},
             );
             defer self.allocator.free(response);
@@ -14551,7 +14651,7 @@ const SplitBudgetConnection = struct {
         std.Thread.sleep(response_delay_ms * std.time.ns_per_ms);
         if (self.response_sent) return error.ConnectionClosed;
         const response =
-            "{\"protocol\":\"cmux.protocol/1\",\"type\":\"response\"," ++
+            "{\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"," ++
             "\"id\":\"zig-request-1\",\"ok\":true,\"result\":{}}\n";
         const count = @min(buffer.len, response.len);
         @memcpy(buffer[0..count], response[0..count]);
@@ -15078,7 +15178,7 @@ test "layout undo requires and forwards confirmation capability" {
 test "every catalog operation reaches a typed public facade" {
     @setEvalBranchQuota(20_000);
     const operation_fields = std.meta.fields(Operation);
-    try std.testing.expectEqual(@as(usize, 112), operation_fields.len);
+    try std.testing.expectEqual(@as(usize, 113), operation_fields.len);
     inline for (operation_fields, 0..) |field, index| {
         const operation: Operation = @enumFromInt(field.value);
         const binding = comptime operation.facadeBinding();
@@ -15219,6 +15319,7 @@ test "public facades expose only valid resource and stream capabilities" {
         "sendMouse",
         "setInputFocus",
         "moveTerminal",
+        "projectTerminal",
         "scroll",
         "attachTerminal",
         "attachTerminalWith",
@@ -15582,7 +15683,7 @@ test "selector handle construction is offline and nested routes are exact" {
 
     var requests = std.mem.splitScalar(u8, shared.output.items, '\n');
     try std.testing.expectEqualStrings(
-        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+        "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\"," ++
             "\"id\":\"zig-request-1\",\"operation\":" ++
             "\"terminal.input.write\",\"params\":{" ++
             "\"machine\":\"name:builder\",\"session\":\"current\"," ++
@@ -15593,7 +15694,7 @@ test "selector handle construction is offline and nested routes are exact" {
         requests.next().?,
     );
     try std.testing.expectEqualStrings(
-        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+        "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\"," ++
             "\"id\":\"zig-request-2\",\"operation\":" ++
             "\"browser.navigate\",\"params\":{" ++
             "\"machine\":\"name:builder\",\"session\":\"current\"," ++
@@ -15628,7 +15729,7 @@ test "workspace create writes exact route and correlation key bytes" {
     );
     created.deinit();
     try std.testing.expectEqualStrings(
-        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+        "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\"," ++
             "\"id\":\"zig-request-1\",\"operation\":" ++
             "\"workspace.create\",\"params\":{" ++
             "\"machine\":\"current\",\"session\":\"name:release\"," ++
@@ -15669,7 +15770,7 @@ test "session terminal emits only machine session and terminal selectors" {
         .exited => return error.ExpectedPending,
     }
     try std.testing.expectEqualStrings(
-        "{\"protocol\":\"cmux.protocol/1\",\"type\":\"request\"," ++
+        "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\"," ++
             "\"id\":\"zig-request-1\",\"operation\":" ++
             "\"terminal.wait_exit\",\"params\":{" ++
             "\"machine\":\"current\",\"session\":\"name:release\"," ++
@@ -16882,17 +16983,23 @@ test "typed terminal decoders reject malformed and retain future enums" {
 }
 
 test "terminal lifecycle and durable exit constraints are strict" {
+    var decoded_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer decoded_arena.deinit();
     var running = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"shell\",\"cols\":120,\"rows\":40," ++
             "\"running\":true,\"lifecycle\":\"running\"," ++
             "\"extra\":{\"future\":true}}",
         .{},
     );
     defer running.deinit();
-    const running_snapshot = try decodeTerminalSnapshot(running.value);
+    const running_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        running.value,
+    );
     try std.testing.expect(running_snapshot.running);
     try std.testing.expectEqual(
         TerminalLifecycle.running,
@@ -16900,10 +17007,44 @@ test "terminal lifecycle and durable exit constraints are strict" {
     );
     try std.testing.expect(running_snapshot.exit == null);
 
-    var exited = try raw.wire.parse(
+    var legacy_attached = try raw.wire.parse(
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer legacy_attached.deinit();
+    const legacy_attached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_attached.value,
+    );
+    try std.testing.expectEqual(@as(usize, 1), legacy_attached_snapshot.tab_ids.len);
+    try std.testing.expectEqual(
+        legacy_attached_snapshot.tab_id.?,
+        legacy_attached_snapshot.tab_ids[0],
+    );
+
+    var legacy_detached = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":null,\"title\":\"legacy\",\"cols\":80,\"rows\":24," ++
+            "\"running\":true,\"lifecycle\":\"running\"}",
+        .{},
+    );
+    defer legacy_detached.deinit();
+    const legacy_detached_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        legacy_detached.value,
+    );
+    try std.testing.expect(legacy_detached_snapshot.tab_id == null);
+    try std.testing.expectEqual(@as(usize, 0), legacy_detached_snapshot.tab_ids.len);
+
+    var exited = try raw.wire.parse(
+        std.testing.allocator,
+        "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
+            "\"tab_id\":null,\"tab_ids\":[]," ++
             "\"title\":\"done\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"exited\",\"exit\":{" ++
             "\"outcome\":{\"kind\":\"exit\",\"code\":-7}," ++
@@ -16912,7 +17053,12 @@ test "terminal lifecycle and durable exit constraints are strict" {
         .{},
     );
     defer exited.deinit();
-    const exited_snapshot = try decodeTerminalSnapshot(exited.value);
+    const exited_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        exited.value,
+    );
+    try std.testing.expect(exited_snapshot.tab_id == null);
+    try std.testing.expectEqual(@as(usize, 0), exited_snapshot.tab_ids.len);
     try std.testing.expectEqual(
         std.math.maxInt(u64),
         exited_snapshot.exit.?.exited_at,
@@ -16933,12 +17079,16 @@ test "terminal lifecycle and durable exit constraints are strict" {
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"future\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"suspended\"}",
         .{},
     );
     defer future.deinit();
-    const future_snapshot = try decodeTerminalSnapshot(future.value);
+    const future_snapshot = try decodeTerminalSnapshot(
+        decoded_arena.allocator(),
+        future.value,
+    );
     switch (future_snapshot.lifecycle) {
         .unknown => |value| try std.testing.expectEqualStrings(
             "suspended",
@@ -16951,6 +17101,7 @@ test "terminal lifecycle and durable exit constraints are strict" {
         std.testing.allocator,
         "{\"id\":\"term_0123456789abcdef0123456789abcdef\"," ++
             "\"tab_id\":\"tab_77777777777777777777777777777777\"," ++
+            "\"tab_ids\":[\"tab_77777777777777777777777777777777\"]," ++
             "\"title\":\"bad\",\"cols\":80,\"rows\":24," ++
             "\"running\":false,\"lifecycle\":\"running\"}",
         .{},
@@ -16958,7 +17109,7 @@ test "terminal lifecycle and durable exit constraints are strict" {
     defer inconsistent.deinit();
     try std.testing.expectError(
         error.InvalidTerminalState,
-        decodeTerminalSnapshot(inconsistent.value),
+        decodeTerminalSnapshot(decoded_arena.allocator(), inconsistent.value),
     );
 }
 
@@ -18161,7 +18312,7 @@ test "stream items require exact canonical envelopes and known payloads" {
         const encoded = switch (case.case) {
             .unknown_field => try std.fmt.allocPrint(
                 std.testing.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_item\",\"stream_id\":\"{s}\"," ++
                     "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
                     "\"future.event\"}},\"future\":true}}",
@@ -18177,7 +18328,7 @@ test "stream items require exact canonical envelopes and known payloads" {
             ),
             .wrong_type => try std.fmt.allocPrint(
                 std.testing.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"future_item\",\"stream_id\":\"{s}\"," ++
                     "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
                     "\"future.event\"}}}}",
@@ -18185,7 +18336,7 @@ test "stream items require exact canonical envelopes and known payloads" {
             ),
             .wrong_stream_id => try std.testing.allocator.dupe(
                 u8,
-                "{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_item\",\"stream_id\":" ++
                     "\"stream_ffffffffffffffffffffffffffffffff\"," ++
                     "\"sequence\":\"2\",\"item\":{\"kind\":" ++
@@ -18193,7 +18344,7 @@ test "stream items require exact canonical envelopes and known payloads" {
             ),
             .numeric_sequence => try std.fmt.allocPrint(
                 std.testing.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_item\",\"stream_id\":\"{s}\"," ++
                     "\"sequence\":2,\"item\":{{\"kind\":" ++
                     "\"future.event\"}}}}",
@@ -18201,7 +18352,7 @@ test "stream items require exact canonical envelopes and known payloads" {
             ),
             .non_canonical_sequence => try std.fmt.allocPrint(
                 std.testing.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_item\",\"stream_id\":\"{s}\"," ++
                     "\"sequence\":\"02\",\"item\":{{\"kind\":" ++
                     "\"future.event\"}}}}",
@@ -18209,7 +18360,7 @@ test "stream items require exact canonical envelopes and known payloads" {
             ),
             .null_cursor => try std.fmt.allocPrint(
                 std.testing.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_item\",\"stream_id\":\"{s}\"," ++
                     "\"sequence\":\"2\",\"cursor\":null," ++
                     "\"item\":{{\"kind\":\"future.event\"}}}}",
@@ -18217,7 +18368,7 @@ test "stream items require exact canonical envelopes and known payloads" {
             ),
             .cursor_unknown_field => try std.fmt.allocPrint(
                 std.testing.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_item\",\"stream_id\":\"{s}\"," ++
                     "\"sequence\":\"2\",\"cursor\":{{" ++
                     "\"generation\":\"g\",\"revision\":\"2\"," ++
@@ -18227,7 +18378,7 @@ test "stream items require exact canonical envelopes and known payloads" {
             ),
             .malformed_known_item => try std.fmt.allocPrint(
                 std.testing.allocator,
-                "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+                "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                     "\"stream_item\",\"stream_id\":\"{s}\"," ++
                     "\"sequence\":\"2\",\"item\":{{\"kind\":" ++
                     "\"snapshot\",\"future\":true}}}}",
@@ -18471,7 +18622,7 @@ test "known stream ends require exact canonical envelopes" {
         initial.deinit();
         const encoded = try std.fmt.allocPrint(
             std.testing.allocator,
-            "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+            "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
                 "\"stream_end\",\"stream_id\":\"{s}\",{s}}}",
             .{ stream.raw_stream.stream_id.slice(), case.fields },
         );
@@ -18515,7 +18666,7 @@ test "known stream end accepts an exact embedded error" {
     initial.deinit();
     const encoded = try std.fmt.allocPrint(
         std.testing.allocator,
-        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
             "\"stream_end\",\"stream_id\":\"{s}\"," ++
             "\"reason\":\"error\",\"cursor\":{{\"generation\":" ++
             "\"g\",\"revision\":\"4\"}},\"recovery\":" ++
@@ -18623,10 +18774,10 @@ test "acknowledged public stream survives beyond request timeout" {
     try std.testing.expect(
         stream_shared.delayed_stream_open_read_observed,
     );
-    try std.testing.expectEqual(
-        @as(?u32, request_timeout_ms),
-        stream_shared.delayed_stream_open_timeout_ms,
-    );
+    const open_timeout_ms = stream_shared.delayed_stream_open_timeout_ms orelse
+        return error.MissingDelayedStreamOpenTimeout;
+    try std.testing.expect(open_timeout_ms > 0);
+    try std.testing.expect(open_timeout_ms <= request_timeout_ms);
     try std.testing.expect(stream_shared.delayed_stream_read_started);
     try std.testing.expect(
         !stream_shared.delayed_stream_read_had_deadline,
@@ -19354,7 +19505,7 @@ fn fakePendingStreamItem(
 ) !raw.wire.OwnedValue {
     const encoded = try std.fmt.allocPrint(
         allocator,
-        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
             "\"stream_item\",\"stream_id\":\"{s}\"," ++
             "\"sequence\":\"{d}\",\"cursor\":{{\"generation\":" ++
             "\"g\",\"revision\":\"{d}\"}},\"item\":{{\"kind\":" ++
@@ -19468,7 +19619,7 @@ test "overflow protocol failure closes once without later cancellation" {
     defer stream.deinit();
     const malformed_json = try std.fmt.allocPrint(
         std.testing.allocator,
-        "{{\"protocol\":\"cmux.protocol/1\",\"type\":" ++
+        "{{\"protocol\":\"cmux.protocol/2\",\"type\":" ++
             "\"stream_item\",\"stream_id\":\"{s}\"," ++
             "\"sequence\":\"2\",\"cursor\":{{\"generation\":\"g\"," ++
             "\"revision\":2}},\"item\":{{}}}}",

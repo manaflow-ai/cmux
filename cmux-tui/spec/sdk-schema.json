@@ -3,7 +3,7 @@
   "schema_version": 2,
   "protocol": {
     "name": "cmux-tui-mux",
-    "version": 10,
+    "version": 11,
     "id_type": "uint64",
     "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule."
   },
@@ -59,6 +59,108 @@
       "kind": "opaque_json",
       "reason": "The wire field intentionally carries a frontend-authored or runtime-authored arbitrary JSON document."
     },
+    "ResourceSelectors": {
+      "kind": "object",
+      "fields": {
+        "machine": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "session": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "workspace": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "screen": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "pane": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "tab": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "terminal": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "browser": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "client": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "split": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "stream": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "notification": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "agent": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "frontend_projection": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "pairing_request": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        },
+        "sidebar_view": {
+          "type": {"kind": "scalar", "name": "string"},
+          "presence": "optional",
+          "nullable": true,
+          "default": null
+        }
+      },
+      "additional_properties": false
+    },
     "EmptyResult": {
       "kind": "object",
       "fields": {},
@@ -94,6 +196,42 @@
               "maximum": 10000
             }
           ]
+        }
+      },
+      "additional_properties": false
+    },
+    "ViewAttachmentOutcome": {
+      "kind": "enum",
+      "values": ["applied", "passive", "superseded"]
+    },
+    "AttachedViewResizeResult": {
+      "kind": "object",
+      "fields": {
+        "accepted": {
+          "type": {"kind": "scalar", "name": "boolean"},
+          "presence": "required",
+          "nullable": false
+        },
+        "reservation_id": {
+          "type": {"kind": "scalar", "name": "uint64"},
+          "presence": "required",
+          "nullable": true
+        },
+        "outcome": {
+          "type": {"kind": "ref", "name": "ViewAttachmentOutcome"},
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
+    },
+    "AttachedViewOutcomeResult": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "type": {"kind": "ref", "name": "ViewAttachmentOutcome"},
+          "presence": "required",
+          "nullable": false
         }
       },
       "additional_properties": false
@@ -164,6 +302,118 @@
         "exited",
         "tombstoned"
       ]
+    },
+    "TerminalExitOutcome": {
+      "kind": "tagged_union",
+      "tag": "kind",
+      "variants": {
+        "exit": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "exit"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "code": {
+              "type": {
+                "kind": "scalar",
+                "name": "int32"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "signal": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "signal"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "signal": {
+              "type": {
+                "kind": "scalar",
+                "name": "int32"
+              },
+              "presence": "required",
+              "nullable": false,
+              "constraints": [
+                {
+                  "minimum": 1
+                }
+              ]
+            },
+            "core_dumped": {
+              "type": {
+                "kind": "scalar",
+                "name": "boolean"
+              },
+              "presence": "required",
+              "nullable": false
+            }
+          },
+          "additional_properties": false
+        },
+        "unknown": {
+          "kind": "object",
+          "fields": {
+            "kind": {
+              "type": {
+                "kind": "literal",
+                "value": "unknown"
+              },
+              "presence": "required",
+              "nullable": false
+            },
+            "reason": {
+              "type": {
+                "kind": "scalar",
+                "name": "string"
+              },
+              "presence": "required",
+              "nullable": false,
+              "constraints": [
+                {
+                  "min_length": 1
+                }
+              ]
+            }
+          },
+          "additional_properties": false
+        }
+      }
+    },
+    "TerminalExit": {
+      "kind": "object",
+      "fields": {
+        "outcome": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExitOutcome"
+          },
+          "presence": "required",
+          "nullable": false
+        },
+        "exited_at_ms": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false
+        }
+      },
+      "additional_properties": false
     },
     "TerminalKeyAction": {
       "kind": "enum",
@@ -1562,7 +1812,7 @@
         "exit": {
           "type": {
             "kind": "ref",
-            "name": "JsonValue"
+            "name": "TerminalExit"
           },
           "presence": "required",
           "nullable": true
@@ -2673,7 +2923,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -2681,7 +2931,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
         },
         "terminal_incarnation": {
           "type": {
@@ -2697,7 +2947,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -2705,7 +2955,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -2713,7 +2963,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "key": {
           "type": {
@@ -2725,11 +2975,20 @@
         },
         "lifecycle": {
           "type": {
-            "kind": "literal",
-            "value": "running"
+            "kind": "ref",
+            "name": "TerminalLifecycle"
           },
           "presence": "required",
-          "nullable": true
+          "nullable": false
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExit"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 11
         },
         "terminal_revision": {
           "type": {
@@ -2738,6 +2997,15 @@
           },
           "presence": "required",
           "nullable": false
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
         },
         "replayed": {
           "type": {
@@ -3065,6 +3333,15 @@
             }
           ]
         },
+        "protocol_version": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
+        },
         "ttl_ms": {
           "type": {
             "kind": "scalar",
@@ -3130,7 +3407,7 @@
         "exit": {
           "type": {
             "kind": "ref",
-            "name": "JsonValue"
+            "name": "TerminalExit"
           },
           "presence": "required",
           "nullable": true
@@ -3392,7 +3669,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "terminal_id": {
           "type": {
@@ -3400,7 +3677,7 @@
             "name": "string"
           },
           "presence": "required",
-          "nullable": true,
+          "nullable": false,
           "since": 9
         },
         "terminal_incarnation": {
@@ -3418,7 +3695,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "screen": {
           "type": {
@@ -3426,7 +3703,7 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
         },
         "workspace": {
           "type": {
@@ -3434,7 +3711,43 @@
             "name": "Id"
           },
           "presence": "required",
-          "nullable": false
+          "nullable": true
+        },
+        "lifecycle": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalLifecycle"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
+        },
+        "exit": {
+          "type": {
+            "kind": "ref",
+            "name": "TerminalExit"
+          },
+          "presence": "required",
+          "nullable": true,
+          "since": 11
+        },
+        "terminal_revision": {
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
+        },
+        "already_exited": {
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          },
+          "presence": "required",
+          "nullable": false,
+          "since": 11
         }
       },
       "additional_properties": false
@@ -4691,6 +5004,109 @@
       "stream": null,
       "constraints": []
     },
+    "create-surface-with-receipt": {
+      "authority": "control",
+      "since": 10,
+      "capability": "creation-receipts-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "operation": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "origin": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "receipt": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "selectors": {
+            "type": {"kind": "ref", "name": "ResourceSelectors"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "selector_fallbacks": {
+            "type": {
+              "kind": "array",
+              "items": {"kind": "ref", "name": "ResourceSelectors"},
+              "max_items": 7
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": []
+          },
+          "pane": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "workspace": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "argv": {
+            "type": {
+              "kind": "array",
+              "items": {"kind": "scalar", "name": "string"}
+            },
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "cwd": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "url": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "width": {
+            "type": {"kind": "scalar", "name": "float32"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "cols": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          },
+          "rows": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "optional",
+            "nullable": true,
+            "default": null
+          }
+        },
+        "additional_properties": false,
+        "constraints": [
+          "operation is one of new-tab, run-command, new-browser-tab, new-workspace, new-screen, new-pane, new-pane-right, split-right, or split-down.",
+          "Each operation admits only its documented selector and option fields.",
+          "cols and rows must be supplied together."
+        ]
+      },
+      "result": {"kind": "ref", "name": "JsonValue"},
+      "stream": null,
+      "constraints": [
+        "Repeating one origin and receipt with identical fields returns the original creation result."
+      ]
+    },
     "send-key": {
       "authority": "control",
       "since": 6,
@@ -5428,7 +5844,13 @@
             "presence": "optional",
             "nullable": true,
             "default": null,
-            "since": 9
+            "since": 9,
+            "constraints": [
+              {
+                "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+                "format": "32-character lowercase UUIDv4 hex without dashes"
+              }
+            ]
           },
           "origin": {
             "type": {
@@ -5475,7 +5897,8 @@
           "At least one of workspace and key must be supplied; when both are supplied they must identify the same workspace.",
           "argv and command are mutually exclusive and must be nonempty when supplied.",
           "cols and rows must be supplied together.",
-          "origin and mutation_id are either both present or both absent."
+          "origin and mutation_id are either both present or both absent.",
+          "terminal_id may be supplied only when origin and mutation_id are both present."
         ]
       },
       "result": {
@@ -6823,6 +7246,45 @@
       "stream": null,
       "constraints": []
     },
+    "resize-attached-view": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "view-attachment-lease-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "required",
+            "nullable": false
+          },
+          "lease": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          },
+          "cols": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "required",
+            "nullable": false,
+            "constraints": [{"clamped_minimum": 1, "clamped_maximum": 10000}]
+          },
+          "rows": {
+            "type": {"kind": "scalar", "name": "uint16"},
+            "presence": "required",
+            "nullable": false,
+            "constraints": [{"clamped_minimum": 1, "clamped_maximum": 10000}]
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {"kind": "ref", "name": "AttachedViewResizeResult"},
+      "stream": null,
+      "constraints": [
+        "The lease must belong to this connection and surface.",
+        "A retired lease returns outcome:superseded without changing replacement views."
+      ]
+    },
     "release-surface-size": {
       "authority": "control",
       "since": 7,
@@ -6848,6 +7310,59 @@
       "stream": null,
       "constraints": [
         "An absent lease is a successful no-op."
+      ]
+    },
+    "release-attached-view-size": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "view-attachment-lease-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "required",
+            "nullable": false
+          },
+          "lease": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {"kind": "ref", "name": "AttachedViewOutcomeResult"},
+      "stream": null,
+      "constraints": [
+        "The attach stream remains live for cached rendering."
+      ]
+    },
+    "detach-attached-view": {
+      "authority": "frontend",
+      "since": 10,
+      "capability": "view-attachment-detach-v1",
+      "request": {
+        "kind": "object",
+        "fields": {
+          "surface": {
+            "type": {"kind": "ref", "name": "Id"},
+            "presence": "required",
+            "nullable": false
+          },
+          "lease": {
+            "type": {"kind": "scalar", "name": "string"},
+            "presence": "required",
+            "nullable": false
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {"kind": "ref", "name": "AttachedViewOutcomeResult"},
+      "stream": null,
+      "constraints": [
+        "The command closes only the named view stream and releases its size contribution.",
+        "A retired lease returns outcome:superseded."
       ]
     },
     "focus-pane": {
@@ -7132,6 +7647,53 @@
       },
       "stream": null,
       "constraints": []
+    },
+    "mint-terminal-renderer-by-terminal": {
+      "authority": "frontend",
+      "since": 11,
+      "capability": null,
+      "request": {
+        "kind": "object",
+        "fields": {
+          "terminal": {
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "presence": "required",
+            "nullable": false,
+            "constraints": [
+              {
+                "pattern": "^term_[0-9a-f]{32}$"
+              }
+            ]
+          },
+          "ttl_ms": {
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            },
+            "presence": "optional",
+            "nullable": false,
+            "default": 30000,
+            "constraints": [
+              {
+                "minimum": 1,
+                "maximum": 60000
+              }
+            ]
+          }
+        },
+        "additional_properties": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "MintTerminalRendererResult"
+      },
+      "stream": null,
+      "constraints": [
+        "The terminal resource ID is resolved atomically to the live terminal-host-backed PTY before minting a one-use renderer credential."
+      ]
     },
     "set-cell-pixels": {
       "authority": "frontend",
