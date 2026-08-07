@@ -115,7 +115,12 @@ TMP_DIR="$(cd "$TMP_DIR" && pwd -P)"
 APP_HOST_PID=""
 APP_HOST_HOME=""
 OUTSIDE_HOME=""
+LEASE_RELEASE_HELPER_PID=""
 cleanup() {
+  if [ -n "$LEASE_RELEASE_HELPER_PID" ]; then
+    /bin/kill -TERM "$LEASE_RELEASE_HELPER_PID" 2>/dev/null || true
+    wait "$LEASE_RELEASE_HELPER_PID" 2>/dev/null || true
+  fi
   if [ -n "$APP_HOST_PID" ]; then
     /bin/kill -KILL "$APP_HOST_PID" 2>/dev/null || true
     wait "$APP_HOST_PID" 2>/dev/null || true
@@ -151,6 +156,7 @@ export CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH"
 export CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1
 export CMUX_APP_HOST_LSOF="$FAKE_LSOF"
 export CMUX_FAKE_LSOF_STATE="$FAKE_LSOF_STATE"
+export CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS=5
 export GITHUB_WORKSPACE="$ROOT_DIR"
 
 prepare_scope() {
@@ -241,12 +247,22 @@ printf 'version=3\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\nlease=%s\nlease_
   "$CMUX_APP_HOST_KEY" "$APP_HOST_PID" "$APP_HOST_EXECUTABLE" "$APP_HOST_LEASE" \
   > "$CMUX_APP_HOST_RECEIPT_DIR/app-host-$APP_HOST_PID.receipt"
 
+LEASE_RELEASE_READY_FIFO="$TMP_DIR/lease-release-ready.fifo"
+CMUX_FAKE_LSOF_TXT_COUNTER="$TMP_DIR/lease-release-lsof-count"
+mkfifo "$LEASE_RELEASE_READY_FIFO"
+printf '0\n' > "$CMUX_FAKE_LSOF_TXT_COUNTER"
+export LEASE_RELEASE_READY_FIFO
+export CMUX_FAKE_LSOF_TXT_COUNTER
+export CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS=3
+
 # Model the supported split-account runner: the console user owns the exact
 # app-host targets but cannot modify the runner account's RUNNER_TEMP parent.
 chmod 0555 "$RUNNER_TEMP_DIR"
 (
-  /bin/sleep 0.2
-  /bin/kill -TERM "$APP_HOST_PID" 2>/dev/null || true
+  if IFS= read -r readiness < "$LEASE_RELEASE_READY_FIFO" \
+    && [ "$readiness" = "ready" ]; then
+    /bin/kill -TERM "$APP_HOST_PID" 2>/dev/null || true
+  fi
 ) &
 LEASE_RELEASE_HELPER_PID=$!
 if ! PATH="$FAKE_BIN:$PATH" \
@@ -258,6 +274,7 @@ if ! PATH="$FAKE_BIN:$PATH" \
   exit 1
 fi
 wait "$LEASE_RELEASE_HELPER_PID"
+LEASE_RELEASE_HELPER_PID=""
 chmod 0755 "$RUNNER_TEMP_DIR"
 wait "$APP_HOST_PID" 2>/dev/null || true
 APP_HOST_PID=""
