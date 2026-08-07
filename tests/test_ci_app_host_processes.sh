@@ -496,6 +496,37 @@ do
     || fail "owned retry recovery removed another job or waiting scope"
 done
 
+# Once a prior-run owner is older than the grace period, the canonical
+# machine-lock holder must authenticate and terminate it instead of letting one
+# crash orphan wedge every future shard. Young foreign owners above remain a
+# zero-signal failure.
+spawn_process
+old_orphan_pid="$CMUX_TEST_SPAWNED_PID"
+write_receipt \
+  "$old_receipt_dir" "$old_key" "$old_orphan_pid" "$old_executable"
+touch -t 200001010000 "$old_confirmation_file"
+printf '%s|%s\n' "$old_orphan_pid" "$old_executable" \
+  > "$CMUX_FAKE_LSOF_STATE"
+cmux_recover_owned_app_host_attempt \
+  "$current_receipt_dir" "$current_key" \
+  "${current_executable%%/Build/Products/*}" \
+  "$stale_runner_root" "$system_temp_root" 2000000000 86400 \
+  "$old_key" \
+  || fail "authenticated old prior-run app host was not recovered"
+wait "$old_orphan_pid" 2>/dev/null || true
+untrack_pid "$old_orphan_pid"
+for removed_path in "$old_home" "$old_receipt_dir" "$old_confirmation_file"; do
+  [ ! -e "$removed_path" ] \
+    || fail "recovered prior-run app-host scope was not reclaimed"
+done
+for preserved_path in \
+  "$current_home" "$current_receipt_dir" "$current_confirmation_file" \
+  "$waiting_home" "$waiting_receipt_dir" "$waiting_confirmation_file"
+do
+  [ -e "$preserved_path" ] \
+    || fail "prior-run recovery removed a current or waiting scope"
+done
+
 # A later process-free pass reclaims an authenticated old scope, but keeps the
 # current key and every scope newer than the minimum age.
 make_durable_scope abandoned "930006$$" 2 1 \
