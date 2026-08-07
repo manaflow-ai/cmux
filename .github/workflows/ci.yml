@@ -1321,6 +1321,8 @@ jobs:
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
+            CmuxSudoBroker
+            CmuxSudoBrokerUI
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

@@ -9,4 +9,3 @@ public enum SudoResultStatus: String, Codable, Sendable, Equatable {
     /// The broker could not execute or finish the request safely.
     case failed
 }
-

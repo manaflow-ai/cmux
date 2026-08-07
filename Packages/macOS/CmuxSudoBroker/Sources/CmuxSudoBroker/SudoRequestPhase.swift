@@ -9,4 +9,3 @@ public enum SudoRequestPhase: String, Codable, Sendable, Equatable {
     /// An independent runner owns the bounded sudo process tree.
     case executing
 }
-

@@ -265083,6 +265083,342 @@
         }
       }
     },
+    "sudo.error.pam_tid_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo could not authenticate: pam_tid is not enabled (scripts/setup-pam-tid.sh)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo を認証できませんでした：pam_tid が有効ではありません（scripts/setup-pam-tid.sh）" } }
+      }
+    },
+    "sudo.error.approval_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo request expired before approval" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo リクエストは承認前に期限切れになりました" } }
+      }
+    },
+    "sudo.error.execution_interrupted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "approved sudo execution was interrupted before a result was written" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認された sudo の実行は、結果が書き込まれる前に中断されました" } }
+      }
+    },
+    "sudo.error.execution_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "approved sudo execution timed out; the process tree was terminated" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認された sudo の実行がタイムアウトしました。プロセスツリーは終了されました" } }
+      }
+    },
+    "sudo.error.authentication_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo could not authenticate: Touch ID was cancelled or unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo を認証できませんでした：Touch ID がキャンセルされたか、利用できません" } }
+      }
+    },
+    "sudo.error.staging_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "the approved sudo script could not be staged safely" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認された sudo スクリプトを安全に準備できませんでした" } }
+      }
+    },
+    "sudo.error.runner_launch_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "the independent sudo runner could not be launched" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "独立した sudo ランナーを起動できませんでした" } }
+      }
+    },
+    "sudo.error.process_launch_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "the approved sudo command could not be launched" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認された sudo コマンドを起動できませんでした" } }
+      }
+    },
+    "sudo.error.cleanup_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo execution timed out, but one or more processes survived cleanup" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo の実行がタイムアウトしましたが、クリーンアップ後も 1 つ以上のプロセスが残っています" } }
+      }
+    },
+    "sudo.cli.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n       cmux sudo pending" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)\n        cmux sudo pending" } }
+      }
+    },
+    "sudo.cli.default_reason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "(no reason given)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "（理由なし）" } }
+      }
+    },
+    "sudo.cli.error.timeout_positive_integer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: timeout must be a positive integer" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: タイムアウトには正の整数を指定してください" } }
+      }
+    },
+    "sudo.cli.error.timeout_too_large": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: timeout must not exceed 86400 seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: タイムアウトは 86400 秒以下にしてください" } }
+      }
+    },
+    "sudo.cli.error.missing_input": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: nothing to run; pass -c 'command', a script file, or -" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 実行内容がありません。-c 'command'、スクリプトファイル、または - を指定してください" } }
+      }
+    },
+    "sudo.cli.error.invalid_utf8": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: the script must be valid UTF-8" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: スクリプトは有効な UTF-8 である必要があります" } }
+      }
+    },
+    "sudo.cli.error.script_too_large": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: the script exceeds the 16 MiB limit" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: スクリプトが 16 MiB の上限を超えています" } }
+      }
+    },
+    "sudo.cli.error.app_launch_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not launch the enclosing cmux app" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 対応する cmux アプリを起動できませんでした" } }
+      }
+    },
+    "sudo.cli.error.request_write_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: could not write the approval request" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 承認リクエストを書き込めませんでした" } }
+      }
+    },
+    "sudo.cli.denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: request denied" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: リクエストは拒否されました" } }
+      }
+    },
+    "sudo.cli.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: request failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: リクエストに失敗しました" } }
+      }
+    },
+    "sudo.cli.pending.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "(none)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "（なし）" } }
+      }
+    },
+    "sudo.cli.error.unknown_flag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: unknown flag: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 不明なフラグです：%@" } }
+      }
+    },
+    "sudo.cli.error.unexpected_argument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: unexpected argument: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 予期しない引数です：%@" } }
+      }
+    },
+    "sudo.cli.error.script_not_found": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: script not found: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: スクリプトが見つかりません：%@" } }
+      }
+    },
+    "sudo.cli.queued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: request %@ queued; waiting up to %d seconds for approval in cmux…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: リクエスト %1$@ をキューに追加しました。cmux での承認を最大 %2$d 秒待ちます…" } }
+      }
+    },
+    "sudo.cli.timeout.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: timed out waiting for approval (request %@ was not approved)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 承認待ちがタイムアウトしました（リクエスト %@ は承認されませんでした）" } }
+      }
+    },
+    "sudo.cli.timeout.approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: request %@ was approved, but execution did not complete before the timeout" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: リクエスト %@ は承認されましたが、タイムアウトまでに実行が完了しませんでした" } }
+      }
+    },
+    "sudo.cli.error.runner_context": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo: the hidden runner could not resolve its enclosing cmux app" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo: 内部ランナーが対応する cmux アプリを解決できませんでした" } }
+      }
+    },
+    "sudo.cli.error.enclosing_app": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo requires the bundled cmux CLI from an installed or tagged cmux app" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo には、インストール済みまたはタグ付き cmux アプリに同梱された cmux CLI が必要です" } }
+      }
+    },
+    "sudo.cli.requester.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "sudo.cli.global_usage.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)" } }
+      }
+    },
+    "sudo.cli.global_usage.pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "sudo pending" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "sudo pending" } }
+      }
+    },
+    "sudo.approval.heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Administrator access requested" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "管理者アクセスが要求されました" } }
+      }
+    },
+    "sudo.approval.warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Review the entire script before approving. It will run with administrator privileges." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認する前にスクリプト全体を確認してください。管理者権限で実行されます。" } }
+      }
+    },
+    "sudo.approval.request_id": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request ID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエスト ID" } }
+      }
+    },
+    "sudo.approval.reason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reason" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "理由" } }
+      }
+    },
+    "sudo.approval.requester": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Requested by" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "要求元" } }
+      }
+    },
+    "sudo.approval.working_directory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Working directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作業ディレクトリ" } }
+      }
+    },
+    "sudo.approval.queued": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Queued" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "キューに追加" } }
+      }
+    },
+    "sudo.approval.script": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Script to run as root" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "root として実行するスクリプト" } }
+      }
+    },
+    "sudo.approval.approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Approve with Touch ID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Touch ID で承認" } }
+      }
+    },
+    "sudo.approval.deny": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Deny" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "拒否" } }
+      }
+    },
+    "sudo.approval.status.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Waiting for approval" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認待ち" } }
+      }
+    },
+    "sudo.approval.status.deciding": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Applying decision…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "決定を適用中…" } }
+      }
+    },
+    "sudo.approval.status.approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Approved — starting the secure runner…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "承認済み — セキュアランナーを起動中…" } }
+      }
+    },
+    "sudo.approval.status.executing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Running with administrator privileges…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "管理者権限で実行中…" } }
+      }
+    },
+    "sudo.approval.window_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Administrator request %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "管理者リクエスト %@" } }
+      }
+    },
+    "sudo.approval.requester_value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@ (PID %2$d)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@（PID %2$d）" } }
+      }
+    },
     "cli.workspaceGroup.help.overview": {
       "extractionState": "manual",
       "localizations": {

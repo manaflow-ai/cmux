@@ -17,5 +17,16 @@ public enum SudoResultErrorCode: String, Codable, Sendable, Equatable {
 
     /// The independent execution runner could not be launched.
     case runnerLaunchFailed = "runner_launch_failed"
-}
 
+    /// Sudo exited because Touch ID was cancelled or authentication was unavailable.
+    case authenticationFailed = "authentication_failed"
+
+    /// The approved command could not be spawned by the independent runner.
+    case processLaunchFailed = "process_launch_failed"
+
+    /// One or more privileged descendants survived bounded process-tree cleanup.
+    case processCleanupFailed = "process_cleanup_failed"
+
+    /// LaunchServices could not open the exact enclosing cmux app bundle.
+    case appLaunchFailed = "app_launch_failed"
+}

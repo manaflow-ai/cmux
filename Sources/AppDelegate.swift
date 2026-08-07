@@ -11,6 +11,8 @@ import CmuxTerminalCore
 import CmuxTerminal
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSudoBroker
+import CmuxSudoBrokerUI
 import CmuxUpdater
 import CmuxWorkspaces
 import CmuxUpdaterUI
@@ -566,6 +568,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let cmuxThemePreviewReloadScheduler = MainActorDeferredActionScheduler()
     private let connectivityInvalidationSubscriberCoordinator =
         ConnectivityInvalidationSubscriberCoordinator()
+    private var sudoApprovalCoordinator: SudoApprovalCoordinator?
+    private var sudoApprovalStartTask: Task<Void, Never>?
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {
         // The CI wrapper uses xcodebuild's TEST_RUNNER_ forwarding so its marker
@@ -1355,6 +1359,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             syncActivationPolicy()
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
+        if !isRunningUnderXCTest {
+            startSudoApprovalBrokerIfAvailable()
+        }
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See
@@ -2170,6 +2177,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         BrowserProfileStore.shared.flushPendingSaves()
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
+        sudoApprovalStartTask?.cancel()
+        sudoApprovalStartTask = nil
+        if let sudoApprovalCoordinator {
+            Task { await sudoApprovalCoordinator.stop() }
+        }
+        sudoApprovalCoordinator = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         unregisterDisplayReconfigurationCallbackIfNeeded()
@@ -2259,6 +2272,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+    }
+
+    private func startSudoApprovalBrokerIfAvailable() {
+        guard sudoApprovalCoordinator == nil,
+              let bundleIdentifier = Bundle.main.bundleIdentifier,
+              !bundleIdentifier.isEmpty,
+              let applicationSupportDirectory = FileManager.default.urls(
+                  for: .applicationSupportDirectory,
+                  in: .userDomainMask
+              ).first,
+              let runnerExecutableURL = Bundle.main.resourceURL?
+                  .appendingPathComponent("bin/cmux", isDirectory: false),
+              FileManager.default.isExecutableFile(atPath: runnerExecutableURL.path) else {
+            return
+        }
+
+        let broker = SudoBroker(
+            paths: SudoBrokerPaths(
+                applicationSupportDirectory: applicationSupportDirectory,
+                bundleIdentifier: bundleIdentifier
+            ),
+            runnerExecutableURL: runnerExecutableURL,
+            messages: .localized
+        )
+        let coordinator = SudoApprovalCoordinator(
+            broker: broker,
+            presenter: SudoApprovalWindowPresenter()
+        )
+        sudoApprovalCoordinator = coordinator
+        sudoApprovalStartTask = Task { [weak self] in
+            do {
+                try await coordinator.start()
+            } catch {
+#if DEBUG
+                cmuxDebugLog("sudo.approval.start failed error=\(error.localizedDescription)")
+#endif
+            }
+            self?.sudoApprovalStartTask = nil
+        }
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {

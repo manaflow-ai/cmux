@@ -37,4 +37,3 @@ public struct SudoResult: Codable, Sendable, Equatable {
         self.note = note
     }
 }
-
