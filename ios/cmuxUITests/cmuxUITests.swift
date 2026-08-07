@@ -598,27 +598,48 @@ final class cmuxUITests: XCTestCase {
             XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
         }
 
+        func waitForLabel(_ label: String, on element: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", label),
+                object: element
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func assertUnifiedRowsRemainVisible() {
+            XCTAssertTrue(app.navigationBars["Computers"].exists)
+            XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+            XCTAssertTrue(app.staticTexts["Preview Mac"].exists)
+            XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+        }
+
         let shownToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-2"]
         let hiddenToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-1"]
+        let shownPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-2"
+        ]
+        let hiddenPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-1"
+        ]
         XCTAssertTrue(shownToggle.waitForExistence(timeout: 8))
         XCTAssertTrue(hiddenToggle.waitForExistence(timeout: 3))
+        XCTAssertTrue(shownPersistence.waitForExistence(timeout: 3))
+        XCTAssertTrue(hiddenPersistence.waitForExistence(timeout: 3))
+        waitForLabel("shown", on: shownPersistence)
+        waitForLabel("hidden", on: hiddenPersistence)
         waitForValue("1", on: shownToggle)
         waitForValue("0", on: hiddenToggle)
-        XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+        assertUnifiedRowsRemainVisible()
 
         shownToggle.tap()
+        waitForLabel("hidden", on: shownPersistence)
         waitForValue("0", on: shownToggle)
-        XCTAssertTrue(
-            app.staticTexts["Studio Mac"].exists,
-            "Turning a computer off must keep it in the same list."
-        )
+        assertUnifiedRowsRemainVisible()
 
         hiddenToggle.tap()
+        waitForLabel("shown", on: hiddenPersistence)
         waitForValue("1", on: hiddenToggle)
-        XCTAssertTrue(
-            app.staticTexts["Preview Mac"].exists,
-            "Turning a computer on must update its switch without moving it to another section."
-        )
+        assertUnifiedRowsRemainVisible()
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "computer-visibility-switches-unified-section"

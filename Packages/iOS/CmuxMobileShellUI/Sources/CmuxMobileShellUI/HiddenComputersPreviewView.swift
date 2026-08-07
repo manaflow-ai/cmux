@@ -41,6 +41,24 @@ struct HiddenComputersPreviewView: View {
             }
             .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
         }
+        .overlay(alignment: .topLeading) {
+            visibilityPersistenceMarkers
+        }
+    }
+
+    /// Accessibility-only completion markers for deterministic UI tests. Each
+    /// label changes only after the fixture's authoritative state mutates.
+    private var visibilityPersistenceMarkers: some View {
+        VStack {
+            ForEach(fixtures, id: \.id) { fixture in
+                Text(visibleIDs.contains(fixture.id) ? "shown" : "hidden")
+                    .accessibilityIdentifier(
+                        "MobileComputerVisibilityPersisted-\(fixture.id)"
+                    )
+            }
+        }
+        .frame(width: 1, height: 1)
+        .opacity(0.01)
     }
 
     private var visibleComputers: [MacComputerSnapshot] {

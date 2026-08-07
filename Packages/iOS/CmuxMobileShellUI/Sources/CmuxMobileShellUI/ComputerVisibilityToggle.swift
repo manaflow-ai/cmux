@@ -10,6 +10,7 @@ struct ComputerVisibilityToggle: View {
     let computerID: String
     let computerName: String
     let isVisible: Bool
+    var isDisabled = false
     let setVisible: (Bool) -> Void
 
     var body: some View {
@@ -25,15 +26,13 @@ struct ComputerVisibilityToggle: View {
         )
         .labelsHidden()
         .accessibilityLabel(
-            String(
-                format: L10n.string(
-                    "mobile.computers.visibilityToggle.named",
-                    defaultValue: "Show %@ on this iPhone"
-                ),
-                computerName
+            L10n.string(
+                "mobile.computers.visibilityToggle.named",
+                defaultValue: "Show \(computerName) on this iPhone"
             )
         )
         .accessibilityIdentifier("MobileComputerVisibilityToggle-\(computerID)")
+        .disabled(isDisabled)
     }
 }
 #endif

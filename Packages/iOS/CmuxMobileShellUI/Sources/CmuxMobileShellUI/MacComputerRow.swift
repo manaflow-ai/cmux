@@ -26,6 +26,7 @@ struct MacComputerRow: View {
     /// Changes whether this computer appears on the current iPhone. When `nil`,
     /// the visibility switch is omitted.
     var setVisible: ((Bool) -> Void)? = nil
+    var isVisibilityMutating = false
     var style: Style = .computers
     /// Reconnect action for `.reconnect` rows; tapping the row calls this with
     /// the device id instead of navigating.
@@ -43,6 +44,7 @@ struct MacComputerRow: View {
                     computerID: computer.id,
                     computerName: computer.title,
                     isVisible: true,
+                    isDisabled: isVisibilityMutating,
                     setVisible: setVisible
                 )
             }

@@ -52,6 +52,7 @@ struct DeviceTreeView: View {
                         ComputerVisibilityRows(
                             visibleComputers: computers,
                             hiddenComputers: store.hiddenComputers,
+                            mutatingComputerIDs: store.computerVisibilityMutationIDs,
                             hide: hideComputer,
                             unhide: unhideComputer,
                             forget: forgetComputer
@@ -167,16 +168,15 @@ struct DeviceTreeView: View {
         }
     }
 
-    private func hideComputer(_ computer: MacComputerSnapshot) async {
-        await store.hideStoredPairedMacEntries(
+    private func hideComputer(_ computer: MacComputerSnapshot) {
+        store.requestHideStoredPairedMacEntries(
             representativeID: computer.id,
             aliasIDs: computer.aliasIDs
         )
-        await reload()
     }
 
-    private func unhideComputer(_ computer: MobileHiddenComputer) async {
-        await store.unhideMacDeviceID(
+    private func unhideComputer(_ computer: MobileHiddenComputer) {
+        store.requestUnhideMacDeviceID(
             computer.macDeviceID,
             instanceTag: computer.instanceTag
         )

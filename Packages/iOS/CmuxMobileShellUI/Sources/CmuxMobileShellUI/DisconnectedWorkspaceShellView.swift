@@ -156,6 +156,7 @@ struct DisconnectedWorkspaceShellView: View {
                     style: .reconnect,
                     connect: connect,
                     connectingComputerID: connectingMacID,
+                    mutatingComputerIDs: store?.computerVisibilityMutationIDs ?? [],
                     hide: hideComputer,
                     unhide: unhideComputer
                 )
@@ -275,15 +276,15 @@ struct DisconnectedWorkspaceShellView: View {
         )
     }
 
-    private func hideComputer(_ computer: MacComputerSnapshot) async {
-        await store?.hideStoredPairedMacEntries(
+    private func hideComputer(_ computer: MacComputerSnapshot) {
+        store?.requestHideStoredPairedMacEntries(
             representativeID: computer.id,
             aliasIDs: computer.aliasIDs
         )
     }
 
-    private func unhideComputer(_ computer: MobileHiddenComputer) async {
-        await store?.unhideMacDeviceID(
+    private func unhideComputer(_ computer: MobileHiddenComputer) {
+        store?.requestUnhideMacDeviceID(
             computer.macDeviceID,
             instanceTag: computer.instanceTag
         )

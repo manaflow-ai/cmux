@@ -14,6 +14,7 @@ import SwiftUI
 struct HiddenComputerRow: View {
     let computer: MobileHiddenComputer
     let setVisible: (Bool) -> Void
+    let isVisibilityMutating: Bool
     /// Revokes this Mac's binding for the account (via the store, which resolves
     /// the binding id from a fresh discovery). Presenting any failure feedback is
     /// the caller's job so the row stays a pure snapshot.
@@ -22,7 +23,7 @@ struct HiddenComputerRow: View {
     @State private var forgetTask: Task<Void, Never>?
     @State private var showForgetConfirm = false
 
-    private var isBusy: Bool { forgetTask != nil }
+    private var isBusy: Bool { forgetTask != nil || isVisibilityMutating }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -44,9 +45,9 @@ struct HiddenComputerRow: View {
                 computerID: computer.id,
                 computerName: computer.displayName,
                 isVisible: false,
+                isDisabled: isBusy,
                 setVisible: setVisible
             )
-            .disabled(isBusy)
         }
         .padding(.vertical, 4)
         .contextMenu {
@@ -166,8 +167,9 @@ struct ComputerVisibilityRows: View {
     var style: MacComputerRow.Style = .computers
     var connect: @MainActor (MacComputerSnapshot) -> Void = { _ in }
     var connectingComputerID: String?
-    let hide: @MainActor (MacComputerSnapshot) async -> Void
-    let unhide: @MainActor (MobileHiddenComputer) async -> Void
+    var mutatingComputerIDs: Set<String> = []
+    let hide: @MainActor (MacComputerSnapshot) -> Void
+    let unhide: @MainActor (MobileHiddenComputer) -> Void
     var forget: (@MainActor (MobileHiddenComputer) async -> Void)? = nil
 
     var body: some View {
@@ -176,8 +178,9 @@ struct ComputerVisibilityRows: View {
                 computer: computer,
                 setVisible: { visible in
                     guard !visible else { return }
-                    Task { await hide(computer) }
+                    hide(computer)
                 },
+                isVisibilityMutating: mutatingComputerIDs.contains(computer.id),
                 style: style,
                 connect: { _ in connect(computer) },
                 isConnecting: connectingComputerID == computer.id
@@ -188,8 +191,9 @@ struct ComputerVisibilityRows: View {
                 computer: computer,
                 setVisible: { visible in
                     guard visible else { return }
-                    Task { await unhide(computer) }
+                    unhide(computer)
                 },
+                isVisibilityMutating: mutatingComputerIDs.contains(computer.id),
                 forget: forgetAction(for: computer)
             )
         }
