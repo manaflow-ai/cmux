@@ -1457,6 +1457,13 @@ extension Workspace {
             }()
             let canAttemptAgentResumeLaunch = !restoresRemoteWorkspaceTerminalSnapshot ||
                 remoteResumeWorkingDirectorySelection.permitsResume
+            let restoredAgentWillRunStartupCommand = restorableAgent != nil &&
+                restoredPersistentSSHResumeCommand != nil &&
+                resumeBinding?.isAgentHookBinding == true
+            let restorableAgentForContinuation =
+                canAttemptAgentResumeLaunch || restoredAgentWillRunStartupCommand
+                    ? restorableAgent
+                    : nil
             let restoredBindingLaunch = unresolvedBindingLaunch
             let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingLaunch == nil
                 ? sessionRestorePolicy.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
@@ -1519,7 +1526,7 @@ extension Workspace {
                     nil
                 }
             let shouldReplayScrollback = sessionRestorePolicy.shouldReplaySessionScrollback(
-                hasRestorableAgent: restorableAgent != nil,
+                hasRestorableAgent: restorableAgentForContinuation != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
@@ -1533,15 +1540,21 @@ extension Workspace {
             // collision forces a fresh id on restore-into-live / duplicate-workspace). The
             // (session id, agent source) comes from the restorable-agent snapshot when present,
             // else from the agent-hook resume binding (most restores carry only the binding, whose `checkpointId` IS the agent session id).
-            // Skipped when `agentSessionAlreadyActive`: cmux decided NOT to fire a resume onto
-            // this panel (a live process for the same session already exists elsewhere, or this
-            // panel lost the per-launch dedup race), so this panel must not steal the session
+            // Skipped when the session cannot safely continue or `agentSessionAlreadyActive`:
+            // cmux decided NOT to fire a resume onto this panel, so it must not steal the session
             // registry's authoritative (surface, workspace) pointer away from the panel that
             // actually owns the live process — that would send mobile/chat routing to a dead
             // duplicate instead of the real one (#8446).
             let resumeReboundSession: (sessionID: String, source: String)? = {
-                if let restorableAgent, !agentSessionAlreadyActive {
-                    return (restorableAgent.sessionId, restorableAgent.kind.rawValue)
+                if restorableAgent != nil {
+                    guard let restorableAgentForContinuation,
+                          !agentSessionAlreadyActive else {
+                        return nil
+                    }
+                    return (
+                        restorableAgentForContinuation.sessionId,
+                        restorableAgentForContinuation.kind.rawValue
+                    )
                 }
                 if let binding = resumeBinding,
                    binding.isAgentHookBinding,
@@ -1597,9 +1610,6 @@ extension Workspace {
             }()
             let requestedWorkingDirectory =
                 localWorkingDirectory ?? hostShellWorkingDirectory
-            let restoredAgentWillRunStartupCommand = restorableAgent != nil &&
-                restoredPersistentSSHResumeCommand != nil &&
-                resumeBinding?.isAgentHookBinding == true
             let restoredAgentWillRunStartupInput =
                 restoredAgentResumeLaunch?.initialInput != nil ||
                 (restoredBindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true)
@@ -1748,17 +1758,17 @@ extension Workspace {
             } else {
                 restoredTerminalScrollbackByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            if let restorableAgent {
+            if let restorableAgentForContinuation {
                 seedSessionRestoredAgentState(
                     panelId: terminalPanel.id,
-                    restorableAgent: restorableAgent,
+                    restorableAgent: restorableAgentForContinuation,
                     willRunStartupCommand: restoredAgentWillRunStartupCommand,
                     willRunStartupInput: restoredAgentWillRunStartupInput
                 )
                 if let restoredHibernation,
-                   restorableAgent.resumeCommand != nil {
+                   restorableAgentForContinuation.resumeCommand != nil {
                     terminalPanel.enterAgentHibernation(
-                        agent: restorableAgent,
+                        agent: restorableAgentForContinuation,
                         lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
                         hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
                     )
