@@ -87,4 +87,37 @@ struct SudoPolicyRegressionTests {
         try Data(SudoAuthenticationOutputDetector.passwordPrompt.utf8).write(to: outputURL)
         #expect(detector.indicatesPasswordPrompt(at: outputURL))
     }
+
+    @Test("Orphan inventory rejects a PID generation that changes during argument capture")
+    func orphanInventoryRejectsPIDReuseRace() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let approvedScriptURL = fixture.paths.approved
+            .appendingPathComponent("pid-reuse.sh", isDirectory: false)
+        let processIdentifier: Int32 = 4_242
+        let initialIdentity = SudoProcessIdentity(
+            processIdentifier: processIdentifier,
+            startSeconds: 100,
+            startMicroseconds: 10
+        )
+        let reusedIdentity = SudoProcessIdentity(
+            processIdentifier: processIdentifier,
+            startSeconds: 101,
+            startMicroseconds: 20
+        )
+        let inspector = SequencedSudoProcessInspector(
+            processIdentifier: processIdentifier,
+            identities: [initialIdentity, reusedIdentity],
+            arguments: [
+                "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
+                "-p", SudoAuthenticationOutputDetector.passwordPrompt,
+                "/bin/bash", approvedScriptURL.path,
+            ]
+        )
+
+        let inventory = SudoOrphanProcessInventory(inspector: inspector)
+            .identitiesByScriptPath(approvedScriptURLs: [approvedScriptURL])
+
+        #expect(inventory[approvedScriptURL.standardizedFileURL.path]?.isEmpty == true)
+    }
 }
