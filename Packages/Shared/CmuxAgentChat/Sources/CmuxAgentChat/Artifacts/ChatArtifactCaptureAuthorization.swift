@@ -19,4 +19,12 @@ public enum ChatArtifactCaptureAuthorization: Sendable, Equatable, Codable {
         case .attached: .attached
         }
     }
+
+    /// Returns the newer grant, breaking sequence ties by provenance authority.
+    func latest(with candidate: ChatArtifactCaptureAuthorization) -> ChatArtifactCaptureAuthorization {
+        if sequence != candidate.sequence {
+            return sequence > candidate.sequence ? self : candidate
+        }
+        return provenance.preferred(over: candidate.provenance) == provenance ? self : candidate
+    }
 }
