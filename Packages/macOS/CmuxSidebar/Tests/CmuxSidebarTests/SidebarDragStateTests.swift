@@ -113,7 +113,7 @@ import CmuxFoundation
         #expect(registry.currentWorkspaceId == nil)
     }
 
-    @Test func appResignClearsActiveWorkspaceDragSynchronously() {
+    @Test func appResignDoesNotPreemptActiveWorkspaceDragSourceLifecycle() {
         let registry = SidebarWorkspaceDragRegistry(isLeftMouseButtonPressed: { true })
         let workspaceId = UUID()
         let source = SidebarDragState(workspaceDragRegistry: registry)
@@ -129,10 +129,12 @@ import CmuxFoundation
         )
 
         #expect(
-            registry.currentWorkspaceId == nil,
-            "A workspace drag must not leave stale process-wide identity after app deactivation."
+            registry.currentWorkspaceId == workspaceId,
+            "App deactivation can happen while a native drag is crossing windows or applications; only the drag source lifecycle may end its identity."
         )
-        #expect(source.draggedTabId == nil)
-        #expect(destination.draggedTabId == nil)
+        #expect(source.draggedTabId == workspaceId)
+        #expect(destination.draggedTabId == workspaceId)
+
+        source.finishDrag()
     }
 }
