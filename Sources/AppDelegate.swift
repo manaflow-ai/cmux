@@ -14449,20 +14449,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         if let workspaceTerminalFontSizeAction,
            !matchingExplicitActionShouldPreemptFontSizeDefault {
-            let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
-            let routedTabs = routedContext?.tabManager ?? tabManager
-            if let selectedWorkspace = routedTabs?.selectedWorkspace {
-                let accepted =
-                    enqueueWorkspaceTerminalFontSizeChange(
-                        workspaceTerminalFontSizeAction,
-                        workspace: selectedWorkspace,
-                        tabManager: routedTabs,
-                        deferFlush: event.isARepeat
-                    )
-                if !accepted {
-                    NSSound.beep()
-                }
-            }
+            performWorkspaceTerminalFontSizeShortcut(
+                workspaceTerminalFontSizeAction,
+                event: event
+            )
             return true
         }
         if equalizeSplitsMatches && !matchingExplicitActionShouldPreemptEqualizeDefault {
@@ -14879,6 +14869,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    /// Shared action path for the workspace terminal font-size shortcuts so
+    /// the app-level monitor and the focused text box route identically
+    /// (issue #9463).
+    func performWorkspaceTerminalFontSizeShortcut(
+        _ action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) {
+        let routedContext = preferredMainWindowContextForShortcutRouting(event: event)
+        let routedTabs = routedContext?.tabManager ?? tabManager
+        guard let selectedWorkspace = routedTabs?.selectedWorkspace else { return }
+        let accepted =
+            enqueueWorkspaceTerminalFontSizeChange(
+                action,
+                workspace: selectedWorkspace,
+                tabManager: routedTabs,
+                deferFlush: event.isARepeat
+            )
+        if !accepted {
+            NSSound.beep()
+        }
     }
 
     private func enqueueWorkspaceTerminalFontSizeChange(

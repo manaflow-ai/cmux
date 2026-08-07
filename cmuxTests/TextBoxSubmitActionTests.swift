@@ -1127,6 +1127,34 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testTextBoxFontSizeShortcutsForwardToWorkspaceZoom() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        var receivedActions: [KeyboardShortcutSettings.Action] = []
+        textView.onPerformWorkspaceTerminalFontSizeShortcut = { action, _ in
+            receivedActions.append(action)
+        }
+
+        let strokes: [(key: String, keyCode: UInt16, action: KeyboardShortcutSettings.Action)] = [
+            ("=", UInt16(kVK_ANSI_Equal), .increaseWorkspaceTerminalFontSize),
+            ("-", UInt16(kVK_ANSI_Minus), .decreaseWorkspaceTerminalFontSize),
+            ("0", UInt16(kVK_ANSI_0), .resetWorkspaceTerminalFontSize),
+        ]
+        for stroke in strokes {
+            guard let event = makeKeyDownEvent(
+                key: stroke.key,
+                modifiers: [.command, .control],
+                keyCode: stroke.keyCode
+            ) else {
+                XCTFail("Failed to construct Cmd+Ctrl+\(stroke.key) event")
+                return
+            }
+            XCTAssertTrue(textView.handleConfiguredTextBoxShortcut(event))
+            #expect(receivedActions.last == stroke.action)
+        }
+        XCTAssertEqual(receivedActions.count, 3)
+    }
+
+    @Test
     func testFocusTextBoxOnNewTerminalsDefaultDoesNotFocusBackgroundOrAutomationTerminals() {
         let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
         let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey

@@ -886,6 +886,10 @@ extension TerminalSurface {
         guard lastKnownFontSizeLineage != lineage else { return }
         lastKnownFontSizeLineage = lineage
         onFontSizeLineageChanged?(lineage)
+        NotificationCenter.default.post(
+            name: .terminalSurfaceFontSizeLineageDidChange,
+            object: self
+        )
     }
 
     /// Makes a runtime deferred across config replacement consume the newly
