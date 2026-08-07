@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 import Testing
 
@@ -87,6 +88,57 @@ struct KeyboardShortcutSettingsFileStoreNoOpPersistenceTests {
 
         #expect(defaults.data(forKey: importedManagedDefaultsKey) == legacyImportedData)
         #expect(defaults.data(forKey: settingsFileBackupsDefaultsKey) == legacyBackupsData)
+    }
+
+    @Test
+    func languageResetRemovesOverrideFromInjectedDefaultsSuite() throws {
+        let defaultsSuiteName = "KeyboardShortcutSettingsFileStoreLanguageTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defaults.removePersistentDomain(forName: defaultsSuiteName)
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "language": "ja"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: NotificationCenter(),
+            userDefaults: defaults,
+            startWatching: false
+        )
+        store.applyDeferredManagedDefaultSideEffects()
+
+        #expect(defaults.persistentDomain(forName: defaultsSuiteName)?["AppleLanguages"] as? [String] == ["ja"])
+        #expect(defaults.persistentDomain(forName: defaultsSuiteName)?["appLanguageAppliedOverride"] as? String == "ja")
+
+        try writeSettingsFile(
+            """
+            {
+              "app": {
+                "language": "system"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        store.reload()
+
+        #expect(defaults.persistentDomain(forName: defaultsSuiteName)?["AppleLanguages"] == nil)
+        #expect(defaults.persistentDomain(forName: defaultsSuiteName)?["appLanguageAppliedOverride"] == nil)
     }
 
     private func makeTemporaryDirectory() throws -> URL {
