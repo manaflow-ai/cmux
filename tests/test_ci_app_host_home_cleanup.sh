@@ -46,10 +46,12 @@ case "${0##*/}" in
       printf 'ci-console\n'
       exit 0
     fi
-    if [ "${1:-}" = "-f" ] \
-      && [ "${2:-}" = "%Su" ] \
-      && [ "${3:-}" = "${CMUX_FAKE_UNTRUSTED_SCOPE_PATH:-}" ]; then
-      printf 'untrusted-local-user\n'
+    if [ "${1:-}" = "-f" ] && [ "${2:-}" = "%Su" ]; then
+      if [ "${3:-}" = "${CMUX_FAKE_UNTRUSTED_SCOPE_PATH:-}" ]; then
+        printf 'untrusted-local-user\n'
+      else
+        /usr/bin/id -un
+      fi
       exit 0
     fi
     exec /usr/bin/stat "$@"
@@ -185,10 +187,14 @@ printf 'version=2\nkey=%s\npid=%s\nexecutable=%s\nreceipt_fd=9\n' \
 # Model the supported split-account runner: the console user owns the exact
 # app-host targets but cannot modify the runner account's RUNNER_TEMP parent.
 chmod 0555 "$RUNNER_TEMP_DIR"
-PATH="$FAKE_BIN:$PATH" \
+if ! PATH="$FAKE_BIN:$PATH" \
   bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
     scripts/ci/cleanup-app-host-home.sh \
-    > "$TMP_DIR/success.log" 2>&1
+    > "$TMP_DIR/success.log" 2>&1; then
+  cat "$TMP_DIR/success.log"
+  echo "FAIL: cleanup rejected a trusted split-account scope"
+  exit 1
+fi
 chmod 0755 "$RUNNER_TEMP_DIR"
 wait "$APP_HOST_PID" 2>/dev/null || true
 APP_HOST_PID=""
