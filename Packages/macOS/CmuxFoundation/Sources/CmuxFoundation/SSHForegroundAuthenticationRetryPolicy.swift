@@ -162,9 +162,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// Builds the bounded helper that terminates foreground SSH authentication.
     ///
     /// The classifier publishes a signal-resistant anchor in its isolated PTY
-    /// process group. Cleanup validates the anchor and group identities, freezes
-    /// the bounded descendant closure, then KILLs every owned group. The shared
-    /// wrapper PID is KILLed only while its original identity still matches.
+    /// process group. Cleanup validates the anchor and stable process identities,
+    /// freezes the descendant closure in bounded batches, then KILLs each batch.
+    /// The shared wrapper PID is KILLed only while its original identity still
+    /// matches.
     ///
     /// - Returns: Shell functions that terminate the owned group and outer tree.
     public func processTreeTerminationShellFunction() -> String {

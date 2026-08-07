@@ -583,60 +583,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(process.terminationStatus == 0)
     }
 
-    @Test func forceOwnedProcessesChecksDeadlineInsidePIDLoop() throws {
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-ssh-auth-loop-deadline-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let command = """
-        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        cmux_ssh_auth_deadline_allows_work() { return 0; }
-        cmux_ssh_auth_deadline_allows_signal() {
-          cmux_test_deadline_calls=$(/bin/cat "$CMUX_TEST_DEADLINE_CALLS") || return 1
-          cmux_test_deadline_calls=$((cmux_test_deadline_calls + 1))
-          printf '%s\n' "$cmux_test_deadline_calls" > "$CMUX_TEST_DEADLINE_CALLS" || return 1
-          [ "$cmux_test_deadline_calls" -le 1 ]
-        }
-        cmux_ssh_auth_take_process_snapshot() {
-          printf '101 1 2 S Thu Jan 1 00:00:00 1970\n102 1 2 S Thu Jan 1 00:00:00 1970\n103 1 2 S Thu Jan 1 00:00:00 1970\n' > "$1"
-        }
-        cmux_ssh_auth_expand_owned_processes() { return 0; }
-        cmux_ssh_auth_select_exclusive_groups() { : > "$cmux_ssh_auth_owned_groups"; }
-        cmux_ssh_auth_order_children_first() {
-          /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"
-        }
-        printf '0\n' > "$CMUX_TEST_DEADLINE_CALLS"
-        printf '101 1 2 Thu_Jan_1_00:00:00_1970 S\n102 1 2 Thu_Jan_1_00:00:00_1970 S\n103 1 2 Thu_Jan_1_00:00:00_1970 S\n' \
-          > "$CMUX_TEST_OWNED"
-        : > "$CMUX_TEST_GROUPS"
-        cmux_ssh_auth_caller_group=3
-        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
-        cmux_ssh_auth_owned_processes="$CMUX_TEST_OWNED"
-        cmux_ssh_auth_next_owned_processes="$CMUX_TEST_OWNED_NEXT"
-        cmux_ssh_auth_owned_groups="$CMUX_TEST_GROUPS"
-        cmux_ssh_auth_next_owned_groups="$CMUX_TEST_GROUPS_NEXT"
-        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
-        cmux_ssh_auth_ordered_processes="$CMUX_TEST_ORDERED"
-        if cmux_ssh_auth_force_owned_processes; then exit 98; fi
-        test "$(/bin/cat "$CMUX_TEST_DEADLINE_CALLS")" -eq 2 || exit 97
-        """
-
-        let result = try runShellCommand(command, environment: [
-            "CMUX_TEST_DEADLINE_CALLS": root.appendingPathComponent("deadline-calls").path,
-            "CMUX_TEST_GROUPS": root.appendingPathComponent("groups").path,
-            "CMUX_TEST_GROUPS_NEXT": root.appendingPathComponent("groups.next").path,
-            "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
-            "CMUX_TEST_ORDERED": root.appendingPathComponent("ordered").path,
-            "CMUX_TEST_OWNED": root.appendingPathComponent("owned").path,
-            "CMUX_TEST_OWNED_NEXT": root.appendingPathComponent("owned.next").path,
-            "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
-        ])
-
-        #expect(result.status == 0, "Shell failed: \(result.standardError)")
-    }
-
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func forceFrozenProcessGroupsChecksDeadlineInsideKillLoop(shellPath: String) throws {
         let fileManager = FileManager.default
@@ -815,7 +761,6 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
         cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
-        cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
         cmux_ssh_auth_identity() {
           printf '1|777|Thu_Jan_1_00:00:00_1970\n'
         }
@@ -838,8 +783,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_freeze_owned_processes || exit 99
         test ! -s "$CMUX_TEST_SIGNALS" || exit 98
-        /usr/bin/grep -Fqx '101 1 2 Thu_Jan_1_00:00:00_1970' \
-          "$CMUX_TEST_SIGNALED_PIDS" || exit 97
+        test ! -s "$CMUX_TEST_SIGNALED_PIDS" || exit 97
         test ! -s "$CMUX_TEST_FROZEN" || exit 96
         """
 
@@ -853,7 +797,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func freezeRecordsAndRevalidatesPIDImmediatelyAfterStop(shellPath: String) throws {
+    func freezeRejectsChangedPIDIdentityInPostStopSnapshot(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-poststop-identity-\(UUID().uuidString)", isDirectory: true)
@@ -867,18 +811,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_select_exclusive_groups() { : > "$cmux_ssh_auth_owned_groups"; }
         cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
         cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
-        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '101 9 99 T Thu Jan 1 00:00:00 1970\n' > "$1"
+        }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
-        cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
         cmux_ssh_auth_identity() {
           cmux_test_identity_calls=$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS") || return 1
           cmux_test_identity_calls=$((cmux_test_identity_calls + 1))
           printf '%s\n' "$cmux_test_identity_calls" > "$CMUX_TEST_IDENTITY_CALLS" || return 1
-          if [ "$cmux_test_identity_calls" -eq 1 ]; then
-            printf '1|2|Thu_Jan_1_00:00:00_1970\n'
-          else
-            printf '9|99|Thu_Jan_1_00:00:00_1970\n'
-          fi
+          printf '1|2|Thu_Jan_1_00:00:00_1970\n'
         }
         kill() {
           if [ "$*" = '-STOP 101' ] && \
@@ -904,11 +845,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
-        cmux_ssh_auth_freeze_owned_processes || exit 99
+        if cmux_ssh_auth_freeze_owned_processes; then exit 99; fi
         test -f "$CMUX_TEST_RECORDED_BEFORE_STOP" || exit 98
-        test "$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS")" -eq 2 || exit 97
+        test "$(/bin/cat "$CMUX_TEST_IDENTITY_CALLS")" -eq 1 || exit 97
         /usr/bin/grep -Fqx -- '-STOP 101' "$CMUX_TEST_SIGNALS" || exit 96
-        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
+        ! /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
         test ! -s "$CMUX_TEST_FROZEN" || exit 94
         """
 
@@ -933,14 +874,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_deadline_allows_work() { return 0; }
         cmux_ssh_auth_deadline_allows_signal() { return 0; }
-        cmux_ssh_auth_select_exclusive_groups() {
-          printf '777\n' > "$cmux_ssh_auth_owned_groups"
-        }
+        cmux_ssh_auth_select_exclusive_groups() { : > "$cmux_ssh_auth_owned_groups"; }
         cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
         cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
-        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          printf '101 1 777 T Thu Jan 1 00:00:00 1970\n102 1 777 T Thu Jan 1 00:00:00 1970\n' \
+            > "$1"
+        }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
-        cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
         cmux_ssh_auth_stable_identity() {
           printf '777|Thu_Jan_1_00:00:00_1970\n'
         }
@@ -980,7 +921,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func freezeBatchesOwnedProcessesAboveWriteAheadStopBudget(shellPath: String) throws {
+    func freezeBatchesSharedGroupAboveWriteAheadStopBudget(shellPath: String) throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-ssh-auth-stop-budget-\(UUID().uuidString)", isDirectory: true)
@@ -991,21 +932,25 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_deadline_allows_work() { return 0; }
         cmux_ssh_auth_deadline_allows_signal() { return 0; }
-        cmux_ssh_auth_select_exclusive_groups() { return 0; }
+        cmux_ssh_auth_select_exclusive_groups() { : > "$cmux_ssh_auth_owned_groups"; }
         cmux_ssh_auth_filter_current_processes() { /bin/cp "$2" "$3"; }
         cmux_ssh_auth_order_children_first() { /usr/bin/awk '{ print 0, $0 }' "$1" > "$2"; }
-        cmux_ssh_auth_take_process_snapshot() { : > "$1"; }
+        cmux_ssh_auth_take_process_snapshot() {
+          /usr/bin/awk 'BEGIN {
+            for (pid = 1000; pid <= 2024; pid += 1) {
+              print pid, 1, 777, "T Thu Jan 1 00:00:00 1970"
+            }
+          }' > "$1"
+        }
         cmux_ssh_auth_expand_owned_processes() { return 0; }
-        cmux_ssh_auth_revalidate_stopped_groups() { return 0; }
         cmux_ssh_auth_stable_identity() {
-          printf '%s|Thu_Jan_1_00:00:00_1970\n' "$1"
+          printf '777|Thu_Jan_1_00:00:00_1970\n'
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
-        /usr/bin/awk 'BEGIN { for (group = 1000; group <= 2024; group += 1) print group }' \
-          > "$CMUX_TEST_GROUPS"
+        : > "$CMUX_TEST_GROUPS"
         /usr/bin/awk 'BEGIN {
-          for (group = 1000; group <= 2024; group += 1) {
-            print group, 1, group, "Thu_Jan_1_00:00:00_1970", "S"
+          for (pid = 1000; pid <= 2024; pid += 1) {
+            print pid, 1, 777, "Thu_Jan_1_00:00:00_1970", "S"
           }
         }' > "$CMUX_TEST_OWNED"
         : > "$CMUX_TEST_FROZEN"
@@ -3094,7 +3039,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
-    func cleanupTransactionReusesValidatedPostStopSnapshot(shellPath: String) throws {
+    func cleanupTransactionReusesPostStopSnapshotAndChecksCompletion(shellPath: String) throws {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_test_snapshot_calls=0
@@ -3112,7 +3057,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         cmux_ssh_auth_process_snapshot="$CMUX_TEST_PROCESS_SNAPSHOT"
         cmux_ssh_auth_poststop_snapshot="$CMUX_TEST_POSTSTOP_SNAPSHOT"
         cmux_ssh_auth_freeze_and_force_owned_processes || exit 99
-        test "$cmux_test_snapshot_calls" -eq 1 || exit 98
+        test "$cmux_test_snapshot_calls" -eq 2 || exit 98
         """
 
         let root = FileManager.default.temporaryDirectory
