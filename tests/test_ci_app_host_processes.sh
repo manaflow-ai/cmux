@@ -41,7 +41,8 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
         || [ "$fd_filter" != "9" ]; then
         continue
       fi
-      printf 'p%s\nf9\nn%s\n' "$state_pid" "$path_filter"
+      printf 'p%s\n%s\nn%s\n' \
+        "$state_pid" "${CMUX_FAKE_LSOF_RECEIPT_FD_FIELD:-f9}" "$path_filter"
     else
       printf 'p%s\nftxt\nn%s\nftxt\nn/usr/lib/dyld\n' \
         "$state_pid" "$state_executable"
@@ -223,6 +224,15 @@ verified="$(cmux_app_host_verified_pids \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
   2> "$TMP_DIR/matching-lsof-warning.err")" || fail "matching receipt was rejected"
 [ "$verified" = "$matching_pid" ] || fail "matching receipt did not return its PID"
+export CMUX_FAKE_LSOF_RECEIPT_FD_FIELD=f9w
+if cmux_app_host_verified_pids \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  > "$TMP_DIR/human-fd-suffix.out" 2> "$TMP_DIR/human-fd-suffix.err"; then
+  fail "human-readable lsof descriptor suffix was accepted as machine output"
+fi
+unset CMUX_FAKE_LSOF_RECEIPT_FD_FIELD
+/bin/kill -0 "$matching_pid" 2>/dev/null \
+  || fail "malformed lsof descriptor verification signaled the live PID"
 cmux_terminate_verified_app_hosts \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
   2>> "$TMP_DIR/matching-lsof-warning.err" || fail "matching receipt did not terminate"
