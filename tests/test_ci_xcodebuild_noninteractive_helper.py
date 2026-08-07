@@ -182,6 +182,71 @@ def main() -> int:
         print(f"FAIL: noisy post-test timeout was rearmed; elapsed {noisy_elapsed:.2f}s")
         return 1
 
+    mixed_framework_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("◇ Test run started.", flush=True)
+        time.sleep(0.4)
+        print("✔ Test run with 1 test passed after 0.4 seconds.", flush=True)
+        print("swift-testing-complete", flush=True)
+        """
+    )
+    mixed_framework_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", mixed_framework_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if mixed_framework_result.returncode != 0:
+        print(mixed_framework_result.stdout, end="")
+        print(mixed_framework_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected a Swift Testing run after the XCTest summary to exit 0, "
+            f"got {mixed_framework_result.returncode}"
+        )
+        return 1
+    if "swift-testing-complete" not in mixed_framework_result.stdout:
+        print(mixed_framework_result.stdout, end="")
+        print(mixed_framework_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper terminated active Swift Testing after the XCTest summary")
+        return 1
+
+    failing_mixed_framework_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("◇ Test run started.", flush=True)
+        time.sleep(0.4)
+        print("✘ Test run with 1 test failed after 0.4 seconds with 1 issue.", flush=True)
+        time.sleep(10)
+        """
+    )
+    failing_mixed_framework_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", failing_mixed_framework_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env=post_test_env,
+    )
+    if failing_mixed_framework_result.returncode != 125:
+        print(failing_mixed_framework_result.stdout, end="")
+        print(failing_mixed_framework_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: expected a failed Swift Testing summary to override the passing "
+            f"XCTest summary, got {failing_mixed_framework_result.returncode}"
+        )
+        return 1
+
     failing_post_test_child = textwrap.dedent(
         """
         import time
