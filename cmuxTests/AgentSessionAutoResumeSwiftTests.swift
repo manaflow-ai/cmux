@@ -1921,6 +1921,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         let staleAgentDirectory = "/repo-a"
         let staleLaunchDirectory = "/repo-launch"
         let latestRemoteDirectory = "/repo-b"
+        let savedScrollback = "last remote agent output\n"
         let remoteCommand = "ssh cmux-remote"
         let sessionId = "grok-remote-launch-cwd-\(UUID().uuidString)"
         let source = Workspace(
@@ -1956,11 +1957,16 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             panelId: sourcePanelId
         )
 
-        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
         #expect(snapshot.panels.first?.directoryIsTrustedRemoteReport == true)
         #expect(snapshot.panels.first?.terminal?.workingDirectory == latestRemoteDirectory)
         #expect(snapshot.panels.first?.terminal?.agent?.workingDirectory == staleAgentDirectory)
         #expect(snapshot.panels.first?.terminal?.agent?.launchCommand?.workingDirectory == staleLaunchDirectory)
+
+        let panelIndex = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelId })
+        var terminalSnapshot = try #require(snapshot.panels[panelIndex].terminal)
+        terminalSnapshot.scrollback = savedScrollback
+        snapshot.panels[panelIndex].terminal = terminalSnapshot
 
         let restored = Workspace(agentSessionAutoResumeDefaults: defaults)
         defer { restored.teardownAllPanels() }
@@ -1971,6 +1977,9 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
 
         #expect(startupInput == nil, Comment(rawValue: startupInput ?? "nil"))
         #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelId] == nil)
+        #expect(restored.restoredAgentResumeStatesByPanelId[restoredPanelId] == nil)
+        #expect(restored.restoredTerminalScrollbackByPanelId[restoredPanelId] == savedScrollback)
     }
 
     @MainActor
