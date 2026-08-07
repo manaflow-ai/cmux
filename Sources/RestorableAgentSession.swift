@@ -292,7 +292,7 @@ enum TerminalStartupWorkingDirectoryPrefix {
         in words: [ShellWordRange],
         workingDirectory: String
     ) -> [Range<String.Index>] {
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
+        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w"]
         let optionPrefixes = valueOptions.map { "\($0)=" }
         var ranges: [Range<String.Index>] = []
         var index = 0
@@ -513,7 +513,11 @@ enum AgentResumeCommandBuilder {
         // sanitizer strips `--cwd`/`-C`/`--workspace` options whose value matches the restore
         // directory, and a launcher's prefix may legitimately carry the same option for itself.
         // The environment prefix stays out of it — those words are `NAME=value`, never options.
-        let sanitizedAgentParts = customRegistration == nil
+        // Exact built-in registrations delegate to AgentResumeArgv just like
+        // non-Vault kinds; only user-authored templates own their cwd flags.
+        let usesStructuredResumeArguments = customRegistration == nil ||
+            customRegistration?.registeredResumeKind != nil
+        let sanitizedAgentParts = usesStructuredResumeArguments
             ? workingDirectoriesToRemove.reduce(argv) { parts, directory in
                 AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                     from: parts,
