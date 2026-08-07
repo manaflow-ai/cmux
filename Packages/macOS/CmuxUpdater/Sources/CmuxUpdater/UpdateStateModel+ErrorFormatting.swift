@@ -135,22 +135,23 @@ extension UpdateStateModel {
         return String(localized: "update.error.failed.message", defaultValue: "Something went wrong while checking for updates. Try again, or check the update log for details.")
     }
 
-    /// Whether a Sparkle installation error contains the exact updater-agent startup timeout.
-    ///
-    /// Sparkle uses its internal error code 10 for many installer-helper failures. The message
-    /// below is emitted specifically when ``Autoupdate``'s 18-second agent-connection deadline
-    /// expires, so endpoint-security guidance must require that signal rather than code 10 alone.
-    private static func isUpdaterAgentStartupTimeout(_ error: NSError) -> Bool {
-        guard error.domain == SUSparkleErrorDomain, error.code == 4005 else { return false }
-        let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
-        return [error, underlying].compactMap { $0 }.contains { candidate in
-            let text = [
-                candidate.localizedDescription,
-                (candidate.userInfo[NSLocalizedFailureReasonErrorKey] as? String) ?? "",
-                (candidate.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String) ?? "",
-            ].joined(separator: "\n").lowercased()
-            return text.contains("agent connection was never initiated")
-        }
+}
+
+/// Whether a Sparkle installation error contains the exact updater-agent startup timeout.
+///
+/// Sparkle uses its internal error code 10 for many installer-helper failures. The message below
+/// is emitted specifically when ``Autoupdate``'s 18-second agent-connection deadline expires, so
+/// endpoint-security guidance must require that signal rather than code 10 alone.
+private func isUpdaterAgentStartupTimeout(_ error: NSError) -> Bool {
+    guard error.domain == SUSparkleErrorDomain, error.code == 4005 else { return false }
+    let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+    return [error, underlying].compactMap { $0 }.contains { candidate in
+        let text = [
+            candidate.localizedDescription,
+            (candidate.userInfo[NSLocalizedFailureReasonErrorKey] as? String) ?? "",
+            (candidate.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String) ?? "",
+        ].joined(separator: "\n").lowercased()
+        return text.contains("agent connection was never initiated")
     }
 }
 
