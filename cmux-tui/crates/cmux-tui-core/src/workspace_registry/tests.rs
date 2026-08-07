@@ -404,14 +404,16 @@ fn reset_preview_rejects_confirmation_manifest_byte_budget() {
 }
 
 #[test]
-fn reset_private_rename_rejects_replaced_directory_identity() {
+fn reset_private_rename_rejects_replaced_directory_fingerprint() {
     let root = temp_root("reset-rename-rejects-replacement");
     let session = "reset-rename-rejects-replacement";
     let resetter = PersistentSessionStateResetter::new(root.clone());
     let session_dir = resetter.session_dir(session);
     fs::create_dir_all(&session_dir).unwrap();
     fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"old").unwrap();
-    let expected_identity = reset_path_metadata_fingerprint(&session_dir).unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
 
     fs::remove_dir_all(&session_dir).unwrap();
     fs::create_dir_all(&session_dir).unwrap();
@@ -419,10 +421,64 @@ fn reset_private_rename_rejects_replaced_directory_identity() {
     fs::write(&replacement, b"new").unwrap();
 
     let error =
-        rename_session_dir_for_reset(&root, session, &session_dir, &expected_identity).unwrap_err();
+        rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+            .unwrap_err();
 
     assert!(error.to_string().contains("reset path changed during reset"));
     assert!(replacement.exists(), "reset deleted the replacement directory");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_late_nested_session_file() {
+    let root = temp_root("reset-rename-rejects-late-session-file");
+    let session = "reset-rename-rejects-late-session-file";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let nested = session_dir.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    fs::write(nested.join("previewed"), b"old").unwrap();
+    let expected_fingerprint =
+        session_reset_target_fingerprint(&session_dir, &mut ResetFingerprintBudget::default())
+            .unwrap();
+
+    let late = nested.join("late-sidecar");
+    fs::write(&late, b"new").unwrap();
+    let error =
+        rename_session_dir_for_reset(&root, session, &session_dir, &expected_fingerprint)
+            .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(session_dir.exists(), "reset staged the changed session directory");
+    assert!(late.exists(), "reset deleted an unconfirmed nested session file");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_late_terminal_host_file() {
+    let root = temp_root("reset-rename-rejects-late-terminal-host-file");
+    let session = "reset-rename-rejects-late-terminal-host-file";
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    let nested = host_root.join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("previewed"), b"old").unwrap();
+    let expected_fingerprint = reset_dir_fingerprint(
+        "terminal-hosts",
+        &host_root,
+        &mut ResetFingerprintBudget::default(),
+    )
+    .unwrap();
+
+    let late = nested.join("late-sidecar");
+    fs::write(&late, b"new").unwrap();
+    let error =
+        rename_terminal_host_dir_for_reset(&root, session, &host_root, &expected_fingerprint)
+            .unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(host_root.exists(), "reset staged the changed terminal-host directory");
+    assert!(late.exists(), "reset deleted an unconfirmed terminal-host file");
     fs::remove_dir_all(root).unwrap();
 }
 
