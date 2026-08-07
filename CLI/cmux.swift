@@ -35992,35 +35992,24 @@ export default CMUXSessionRestore;
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
     private static let piFeedHookMaxStdinBytes = 128 * 1024
 
-    private struct BoundedFeedHookStdinRead {
-        let data: Data
-        let isComplete: Bool
-    }
-
     private static func readBoundedFeedHookStdin(
         maxBytes: Int,
         handle: FileHandle = .standardInput
-    ) -> BoundedFeedHookStdinRead {
+    ) -> (data: Data, isComplete: Bool) {
         var data = Data()
         while data.count <= maxBytes {
             let remainingBytes = maxBytes + 1 - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else {
-                return BoundedFeedHookStdinRead(
-                    data: data,
-                    isComplete: true
-                )
+                return (data: data, isComplete: true)
             }
             data.append(chunk)
         }
         guard data.count <= maxBytes else {
-            return BoundedFeedHookStdinRead(
-                data: data,
-                isComplete: false
-            )
+            return (data: data, isComplete: false)
         }
-        return BoundedFeedHookStdinRead(data: data, isComplete: true)
+        return (data: data, isComplete: true)
     }
 
     private static let feedPostToolUseScalarStringLimitBytes = 512
