@@ -81,7 +81,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
           cmux_ssh_auth_expand_snapshot="${1:-$cmux_ssh_auth_process_snapshot}"
           /usr/bin/awk -v cmux_root_group="$cmux_ssh_auth_owned_group" '
             FILENAME == ARGV[1] {
-              cmux_previous[$1 SUBSEP $4] = 1
+              cmux_previous[$1 SUBSEP $2 SUBSEP $3 SUBSEP $4] = 1
               next
             }
             NF >= 9 && $4 !~ /Z/ {
@@ -93,7 +93,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
               cmux_next_sibling[cmux_pid] = cmux_first_child[$2]
               cmux_first_child[$2] = cmux_pid
               if ($3 == cmux_root_group ||
-                  (($1 SUBSEP cmux_started[cmux_pid]) in cmux_previous)) {
+                  (($1 SUBSEP $2 SUBSEP $3 SUBSEP cmux_started[cmux_pid]) in cmux_previous)) {
                 cmux_owned[cmux_pid] = 1
                 cmux_queue[++cmux_queue_tail] = cmux_pid
               }
@@ -398,9 +398,10 @@ extension SSHForegroundAuthenticationRetryPolicy {
             return 1
           fi
 
-          # Once every owned identity is stopped and validated, finish the
-          # bounded signal transaction without launching another clock process.
+          # Every signal still participates in the hard deadline. The helper
+          # amortizes its clock reads while keeping each kill operation bounded.
           while IFS= read -r cmux_ssh_auth_group; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
             kill -KILL -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || return 1
           done < "$cmux_ssh_auth_owned_groups"
@@ -411,6 +412,7 @@ extension SSHForegroundAuthenticationRetryPolicy {
             > "$cmux_ssh_auth_individual_processes" || return 1
           while read -r cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
             cmux_ssh_auth_started cmux_ssh_auth_state; do
+            cmux_ssh_auth_deadline_allows_signal || return 1
             case "$cmux_ssh_auth_pid:$cmux_ssh_auth_parent:$cmux_ssh_auth_group:$cmux_ssh_auth_started" in
               *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
             esac

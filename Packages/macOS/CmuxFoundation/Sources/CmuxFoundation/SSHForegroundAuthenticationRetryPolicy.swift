@@ -173,14 +173,6 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             }'
         }
 
-        cmux_ssh_auth_running_identity() {
-          /usr/bin/env LC_ALL=C LANG=C /bin/ps -o ppid= -o pgid= -o state= -o lstart= -p "$1" 2>/dev/null | \
-            /usr/bin/awk 'NF >= 8 && $3 !~ /[TZ]/ {
-              cmux_started = $4 "_" $5 "_" $6 "_" $7 "_" $8
-              print $1 "|" $2 "|" cmux_started
-            }'
-        }
-
         \#(ownedProcessGroupTerminationShellFunctions())
 
         cmux_ssh_auth_recorded_process_is_live() {
@@ -202,35 +194,39 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "$cmux_ssh_auth_record_identity" ]
         }
 
-        cmux_ssh_auth_recorded_process_is_running() {
-          cmux_ssh_auth_running_record_file="$1"
-          if ! cmux_ssh_auth_recorded_process_is_live \
-            "$cmux_ssh_auth_running_record_file"; then return 1; fi
-          cmux_ssh_auth_running_record=$(/bin/cat -- \
-            "$cmux_ssh_auth_running_record_file" 2>/dev/null || true)
-          cmux_ssh_auth_running_pid=${cmux_ssh_auth_running_record%%|*}
-          cmux_ssh_auth_running_expected_identity=${cmux_ssh_auth_running_record#*|}
-          [ "$(cmux_ssh_auth_running_identity "$cmux_ssh_auth_running_pid")" = \
-            "$cmux_ssh_auth_running_expected_identity" ]
+        cmux_ssh_auth_group_cleanup_is_abandoned() {
+          cmux_ssh_auth_cleanup_group_dir="$1"
+          cmux_ssh_auth_cleanup_record_file="$cmux_ssh_auth_cleanup_group_dir/cleanup.owner"
+          if [ ! -e "$cmux_ssh_auth_cleanup_group_dir/cancel" ] || \
+            [ ! -s "$cmux_ssh_auth_cleanup_record_file" ]; then return 1; fi
+          cmux_ssh_auth_cleanup_record=$(/bin/cat -- \
+            "$cmux_ssh_auth_cleanup_record_file" 2>/dev/null || true)
+          cmux_ssh_auth_cleanup_pid=${cmux_ssh_auth_cleanup_record%%|*}
+          cmux_ssh_auth_cleanup_identity=${cmux_ssh_auth_cleanup_record#*|}
+          if [ "$cmux_ssh_auth_cleanup_identity" = \
+            "$cmux_ssh_auth_cleanup_record" ]; then return 1; fi
+          cmux_ssh_auth_cleanup_parent=${cmux_ssh_auth_cleanup_identity%%|*}
+          cmux_ssh_auth_cleanup_remainder=${cmux_ssh_auth_cleanup_identity#*|}
+          cmux_ssh_auth_cleanup_group=${cmux_ssh_auth_cleanup_remainder%%|*}
+          cmux_ssh_auth_cleanup_started=${cmux_ssh_auth_cleanup_remainder#*|}
+          case "$cmux_ssh_auth_cleanup_pid" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_cleanup_parent" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_cleanup_group" in ''|*[!0-9]*) return 1 ;; esac
+          case "$cmux_ssh_auth_cleanup_started" in ''|*[!A-Za-z0-9_:]*) return 1 ;; esac
+          ! cmux_ssh_auth_recorded_process_is_live "$cmux_ssh_auth_cleanup_record_file"
         }
 
         cmux_ssh_auth_group_publisher_is_live() {
           cmux_ssh_auth_publisher_group_dir="$1"
-          if cmux_ssh_auth_recorded_process_is_running \
-            "$cmux_ssh_auth_publisher_group_dir/cleanup.owner" || \
-            cmux_ssh_auth_recorded_process_is_running \
-              "$cmux_ssh_auth_publisher_group_dir/cleanup.owner.new" || \
-            cmux_ssh_auth_recorded_process_is_running \
-              "$cmux_ssh_auth_publisher_group_dir/publisher" || \
-            cmux_ssh_auth_recorded_process_is_running \
-              "$cmux_ssh_auth_publisher_group_dir/publisher.new"; then
-            return 0
-          fi
           if cmux_ssh_auth_recorded_process_is_live \
-            "$cmux_ssh_auth_publisher_group_dir/publisher" || \
+            "$cmux_ssh_auth_publisher_group_dir/cleanup.owner" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_publisher_group_dir/cleanup.owner.new" || \
+            cmux_ssh_auth_recorded_process_is_live \
+              "$cmux_ssh_auth_publisher_group_dir/publisher" || \
             cmux_ssh_auth_recorded_process_is_live \
               "$cmux_ssh_auth_publisher_group_dir/publisher.new"; then
-            return 1
+            return 0
           fi
 
           if [ ! -s "$cmux_ssh_auth_publisher_group_dir/identity" ]; then return 1; fi
@@ -244,7 +240,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             *[!A-Za-z0-9_:]*|:*|*:) return 1 ;;
           esac
 
-          cmux_ssh_auth_publisher_anchor_identity=$(cmux_ssh_auth_running_identity \
+          cmux_ssh_auth_publisher_anchor_identity=$(cmux_ssh_auth_identity \
             "$cmux_ssh_auth_publisher_anchor")
           cmux_ssh_auth_publisher_parent=${cmux_ssh_auth_publisher_anchor_identity%%|*}
           cmux_ssh_auth_publisher_anchor_remainder=${cmux_ssh_auth_publisher_anchor_identity#*|}
@@ -807,7 +803,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               fi
               continue
             fi
-            if cmux_ssh_auth_group_publisher_is_live \
+            if cmux_ssh_auth_group_cleanup_is_abandoned \
+              "$cmux_ssh_auth_recovery_group_dir"; then
+              :
+            elif cmux_ssh_auth_group_publisher_is_live \
               "$cmux_ssh_auth_recovery_group_dir"; then
               /bin/rm -f -- "$cmux_ssh_auth_recovery_group_dir/orphaned" \
                 "$cmux_ssh_auth_recovery_group_dir/orphaned.new" 2>/dev/null || true
