@@ -21,6 +21,7 @@ final class MobileIrohSettingsModel {
         forKey: MobileDebugLog.verboseLogDefaultsKey
     )
     private var diagnosticReloadGeneration: UInt64 = 0
+    private var connectionCheckTask: Task<Void, Never>?
 
     /// The durable verbose log file, offered for sharing once it exists.
     var verboseLogShareURL: URL? {
@@ -42,16 +43,10 @@ final class MobileIrohSettingsModel {
     }
 
     func observe() async {
-        snapshot = await controller.irohSettingsSnapshot()
-        await reloadDiagnostics()
-        if snapshot.runtimeStatus == .degraded,
-           diagnosticReport.lastFailureKind != nil {
-            await runConnectionCheckAndWait()
-        }
+        await acceptSnapshot(await controller.irohSettingsSnapshot(), previousStatus: nil)
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
-            snapshot = next
-            await reloadDiagnostics()
+            await acceptSnapshot(next, previousStatus: snapshot.runtimeStatus)
         }
     }
 
@@ -108,7 +103,16 @@ final class MobileIrohSettingsModel {
 
     func runConnectionCheck() {
         guard !isRunningConnectionCheck else { return }
-        Task { await runConnectionCheckAndWait() }
+        connectionCheckTask = Task { [weak self] in
+            guard let self else { return }
+            await runConnectionCheckAndWait()
+            connectionCheckTask = nil
+        }
+    }
+
+    func cancelConnectionCheck() {
+        connectionCheckTask?.cancel()
+        connectionCheckTask = nil
     }
 
     func upsertCustomPrivatePath(
@@ -175,9 +179,25 @@ final class MobileIrohSettingsModel {
         guard !isRunningConnectionCheck else { return }
         isRunningConnectionCheck = true
         defer { isRunningConnectionCheck = false }
-        connectionCheck = await controller.runIrohConnectionCheck()
-        snapshot = await controller.irohSettingsSnapshot()
+        let report = await controller.runIrohConnectionCheck()
+        guard !Task.isCancelled else { return }
+        let refreshedSnapshot = await controller.irohSettingsSnapshot()
+        guard !Task.isCancelled else { return }
+        connectionCheck = report
+        snapshot = refreshedSnapshot
         await reloadDiagnostics()
+    }
+
+    private func acceptSnapshot(
+        _ next: CmxIrohSettingsSnapshot,
+        previousStatus: CmxIrohSettingsSnapshot.RuntimeStatus?
+    ) async {
+        snapshot = next
+        await reloadDiagnostics()
+        guard !Task.isCancelled,
+              previousStatus != .degraded,
+              next.runtimeStatus == .degraded else { return }
+        await runConnectionCheckAndWait()
     }
 }
 #endif

@@ -5,7 +5,7 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         case macHost
     }
 
-    public enum StageKind: CaseIterable, Equatable, Sendable {
+    public enum StageKind: CaseIterable, Hashable, Sendable {
         case encryptedTransport
         case relayPolicy
         case relayReachability
@@ -21,8 +21,15 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
     }
 
     public enum RelayReachability: Equatable, Sendable {
+        case notConfigured
         case reachable
         case unreachable
+        case unavailable
+    }
+
+    public enum MacDiscovery: Equatable, Sendable {
+        case found
+        case missing
         case unavailable
     }
 
@@ -62,7 +69,8 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         role: Role,
         snapshot: CmxIrohSettingsSnapshot,
         diagnostics: DiagnosticReport,
-        relayReachability: RelayReachability
+        relayReachability: RelayReachability,
+        macDiscovery: MacDiscovery = .unavailable
     ) {
         self.role = role
         failureKind = diagnostics.lastFailureKind
@@ -79,9 +87,10 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         case .unavailable: .failed
         }
         let relayStatus: StageStatus = switch relayReachability {
+        case .notConfigured: .notApplicable
         case .reachable: .passed
         case .unreachable: .failed
-        case .unavailable: .notApplicable
+        case .unavailable: .failed
         }
         let discoveryStatus: StageStatus
         let sessionStatus: StageStatus
@@ -90,7 +99,10 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
             discoveryStatus = .notApplicable
             sessionStatus = .notApplicable
         case .mobileClient:
-            discoveryStatus = snapshot.privateNetworkMacs.isEmpty ? .failed : .passed
+            discoveryStatus = switch macDiscovery {
+            case .found: .passed
+            case .missing, .unavailable: .failed
+            }
             sessionStatus = snapshot.selectedTransportPath == .unavailable ? .failed : .passed
         }
 
@@ -124,13 +136,12 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         failureKind: DiagnosticFailureKind?,
         hasRelayConfigurationProblem: Bool
     ) -> Recommendation {
-        if transportStatus == .failed {
-            return failureKind == .offline ? .checkInternet : .refreshAccount
-        }
+        if transportStatus == .failed, failureKind == .offline { return .checkInternet }
         if policyStatus == .failed || hasRelayConfigurationProblem {
             return .reviewRelaySettings
         }
         if relayStatus == .failed { return .allowRelayTraffic }
+        if transportStatus == .failed { return .refreshAccount }
         if role == .mobileClient, discoveryStatus == .failed { return .openMacApp }
         if role == .mobileClient, sessionStatus == .failed {
             switch failureKind {

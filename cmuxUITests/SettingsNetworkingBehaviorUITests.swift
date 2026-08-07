@@ -16,20 +16,17 @@ final class SettingsNetworkingBehaviorUITests: SettingsUITestCase {
             timeout: 5,
             description: "Iroh connection check button"
         )
+        // The check reads signed policy, diagnostics, and live Iroh path hints.
+        // It does not dial configured relay URLs from this UI test.
         runButton.click()
 
-        let transportStage = window.staticTexts["Encrypted Transport"]
         XCTAssertTrue(
-            poll(timeout: 12) { transportStage.exists },
-            "Running the check should publish its encrypted-transport stage"
-        )
-        XCTAssertTrue(
-            window.staticTexts["Relay Policy"].exists,
-            "The result should distinguish relay policy from transport readiness"
-        )
-        XCTAssertTrue(
-            window.staticTexts["Relay Reachability"].exists,
-            "The result should distinguish network relay reachability"
+            poll(timeout: 12) {
+                window.staticTexts["Encrypted Transport"].exists
+                    && window.staticTexts["Relay Policy"].exists
+                    && window.staticTexts["Relay Reachability"].exists
+            },
+            "Running the check should publish transport, relay policy, and relay reachability stages"
         )
     }
 }

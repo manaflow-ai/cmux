@@ -41,7 +41,7 @@ struct MobileIrohConnectionCheckSection: View {
                         .accessibilityIdentifier("MobileIrohConnectionCheckAction")
                 }
                 if report.recommendation == .allowRelayTraffic,
-                   !relayURLs.isEmpty {
+                   !safeRelayOrigins.isEmpty {
                     ShareLink(item: relayAllowlistText) {
                         Label(
                             L10n.string(
@@ -75,7 +75,11 @@ struct MobileIrohConnectionCheckSection: View {
             "mobile.iroh.check.allowlist.header",
             defaultValue: "Allow outbound HTTPS and WebSocket access to these cmux relay origins:"
         )
-        return ([header] + relayURLs.sorted().map { "- \($0)" }).joined(separator: "\n")
+        return ([header] + safeRelayOrigins.map { "- \($0)" }).joined(separator: "\n")
+    }
+
+    private var safeRelayOrigins: [String] {
+        CmxIrohRelayOrigin.canonicalOrigins(from: relayURLs)
     }
 
     private func stageTitle(_ kind: CmxIrohConnectionCheckReport.StageKind) -> String {

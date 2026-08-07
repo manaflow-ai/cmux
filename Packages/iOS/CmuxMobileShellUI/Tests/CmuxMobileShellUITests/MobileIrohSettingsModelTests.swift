@@ -116,6 +116,25 @@ struct MobileIrohSettingsModelTests {
         #expect(!model.isRunningConnectionCheck)
     }
 
+    @Test func laterTransitionIntoDiagnosedDegradedRunsConnectionCheckOnce() async {
+        let controller = MobileIrohSettingsControllerDouble(snapshot: snapshot(sequence: 1))
+        controller.report = diagnosticReport()
+        let model = MobileIrohSettingsModel(controller: controller)
+        let observation = Task { await model.observe() }
+        await waitUntil { controller.streamCreations == 1 }
+
+        let degraded = snapshot(sequence: 2, runtimeStatus: .degraded)
+        controller.snapshot = degraded
+        controller.continuation.yield(degraded)
+        await waitUntil { controller.connectionCheckRunCount == 1 }
+        controller.continuation.yield(degraded)
+        for _ in 0..<20 { await Task.yield() }
+
+        #expect(controller.connectionCheckRunCount == 1)
+        observation.cancel()
+        await observation.value
+    }
+
     @Test func customPrivatePathMutationsForwardExactMacScopedDraft() async {
         let controller = MobileIrohSettingsControllerDouble(snapshot: .unavailable)
         let model = MobileIrohSettingsModel(controller: controller)
@@ -227,10 +246,11 @@ struct MobileIrohSettingsModelTests {
 
     private func snapshot(
         sequence: Int64,
+        runtimeStatus: CmxIrohSettingsSnapshot.RuntimeStatus = .active,
         debugMode: CmxIrohTransportVerificationMode? = nil
     ) -> CmxIrohSettingsSnapshot {
         CmxIrohSettingsSnapshot(
-            runtimeStatus: .active,
+            runtimeStatus: runtimeStatus,
             preference: .automatic,
             managedRelays: [],
             customRelays: [],

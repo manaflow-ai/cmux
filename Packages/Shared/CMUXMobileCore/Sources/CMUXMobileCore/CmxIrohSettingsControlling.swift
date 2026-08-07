@@ -59,7 +59,8 @@ public extension CmxIrohSettingsControlling {
             role: .mobileClient,
             snapshot: await irohSettingsSnapshot(),
             diagnostics: await irohDiagnosticReport(),
-            relayReachability: .unavailable
+            relayReachability: .unavailable,
+            macDiscovery: .unavailable
         )
     }
 

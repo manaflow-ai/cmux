@@ -14,7 +14,8 @@ struct CmxIrohConnectionCheckReportTests {
                 hasMac: true
             ),
             diagnostics: .empty,
-            relayReachability: .reachable
+            relayReachability: .reachable,
+            macDiscovery: .found
         )
 
         #expect(report.isReady)
@@ -28,7 +29,8 @@ struct CmxIrohConnectionCheckReportTests {
             role: .mobileClient,
             snapshot: snapshot(runtimeStatus: .active, hasMac: true),
             diagnostics: diagnosticFailure(.timedOut),
-            relayReachability: .unreachable
+            relayReachability: .unreachable,
+            macDiscovery: .found
         )
 
         #expect(!report.isReady)
@@ -37,16 +39,79 @@ struct CmxIrohConnectionCheckReportTests {
     }
 
     @Test
+    func relayConfigurationFailureTakesPriorityOverGenericAccountAdvice() {
+        let brokenRelaySnapshot = CmxIrohSettingsSnapshot(
+            runtimeStatus: .degraded,
+            preference: .automatic,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .server,
+            failureDescription: "redacted relay configuration failure"
+        )
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: brokenRelaySnapshot,
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+
+        #expect(report.recommendation == .reviewRelaySettings)
+    }
+
+    @Test
     func missingMacIsDistinguishedFromAReachableRelay() {
         let report = CmxIrohConnectionCheckReport(
             role: .mobileClient,
             snapshot: snapshot(runtimeStatus: .active),
             diagnostics: .empty,
-            relayReachability: .reachable
+            relayReachability: .reachable,
+            macDiscovery: .missing
         )
 
         #expect(report.recommendation == .openMacApp)
         #expect(report.stages.first { $0.kind == .macDiscovery }?.status == .failed)
+    }
+
+    @Test
+    func unavailableRelayProbeFailsClosedWhileNoRelayConfigurationIsOptional() {
+        let unavailable = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot(runtimeStatus: .active),
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+        let notConfigured = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot(runtimeStatus: .active),
+            diagnostics: .empty,
+            relayReachability: .notConfigured
+        )
+
+        #expect(!unavailable.isReady)
+        #expect(
+            unavailable.stages.first { $0.kind == .relayReachability }?.status == .failed
+        )
+        #expect(notConfigured.isReady)
+        #expect(
+            notConfigured.stages.first { $0.kind == .relayReachability }?.status
+                == .notApplicable
+        )
+    }
+
+    @Test
+    func relayAllowlistOriginsRejectCredentialsAndNonRootURLs() {
+        #expect(CmxIrohRelayOrigin.canonicalOrigins(from: [
+            "https://relay.example.test/",
+            "https://relay.example.test",
+            "https://relay.example.test:443",
+            "https://user:secret@relay.example.test",
+            "https://relay.example.test/private",
+            "https://relay.example.test?token=secret",
+            "http://relay.example.test",
+        ]) == [
+            "https://relay.example.test",
+            "https://relay.example.test:443",
+        ])
     }
 
     @Test

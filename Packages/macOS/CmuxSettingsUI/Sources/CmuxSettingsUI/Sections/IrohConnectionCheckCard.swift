@@ -57,7 +57,7 @@ struct IrohConnectionCheckCard: View {
         if report.recommendation != .none {
             SettingsCardNote(recommendation(report.recommendation))
         }
-        if report.recommendation == .allowRelayTraffic, !activeRelayURLs.isEmpty {
+        if report.recommendation == .allowRelayTraffic, !safeRelayOrigins.isEmpty {
             SettingsCardDivider()
             SettingsCardRow(
                 configurationReview: .settingsOnly,
@@ -82,7 +82,8 @@ struct IrohConnectionCheckCard: View {
 
     private var activeRelayURLs: [String] {
         switch snapshot.preference {
-        case .automatic, .managed: snapshot.managedRelays.filter(\.isSelected).map(\.url)
+        case .automatic: snapshot.managedRelays.map(\.url)
+        case .managed: snapshot.managedRelays.filter(\.isSelected).map(\.url)
         case .custom: snapshot.customRelays.map(\.url)
         }
     }
@@ -92,7 +93,11 @@ struct IrohConnectionCheckCard: View {
             localized: "settings.networking.check.allowlist.header",
             defaultValue: "Allow outbound HTTPS and WebSocket access to these cmux relay origins:"
         )
-        return ([header] + activeRelayURLs.sorted().map { "- \($0)" }).joined(separator: "\n")
+        return ([header] + safeRelayOrigins.map { "- \($0)" }).joined(separator: "\n")
+    }
+
+    private var safeRelayOrigins: [String] {
+        CmxIrohRelayOrigin.canonicalOrigins(from: activeRelayURLs)
     }
 
     private func stageTitle(_ kind: CmxIrohConnectionCheckReport.StageKind) -> String {

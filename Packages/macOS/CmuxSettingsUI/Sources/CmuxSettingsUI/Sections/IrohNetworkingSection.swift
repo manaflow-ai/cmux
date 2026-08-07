@@ -26,6 +26,7 @@ public struct IrohNetworkingSection: View {
             diagnosticsCard
         }
         .task { await model.observe() }
+        .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             NavigationStack {
                 IrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in

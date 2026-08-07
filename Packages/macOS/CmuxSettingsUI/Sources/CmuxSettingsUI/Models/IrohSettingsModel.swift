@@ -16,6 +16,7 @@ final class IrohSettingsModel {
     private(set) var diagnosticReport = DiagnosticReport.empty
     private(set) var diagnosticExportText = ""
     private var diagnosticReloadGeneration: UInt64 = 0
+    private var connectionCheckTask: Task<Void, Never>?
 
     init(controller: (any CmxIrohSettingsControlling)?) {
         self.controller = controller
@@ -23,16 +24,14 @@ final class IrohSettingsModel {
 
     func observe() async {
         guard let controller else { return }
-        snapshot = await controller.irohSettingsSnapshot()
-        await reloadDiagnostics(using: controller)
-        if snapshot.runtimeStatus == .degraded,
-           diagnosticReport.lastFailureKind != nil {
-            await runConnectionCheckAndWait(using: controller)
-        }
+        await acceptSnapshot(
+            await controller.irohSettingsSnapshot(),
+            previousStatus: nil,
+            using: controller
+        )
         for await next in controller.irohSettingsUpdates() {
             guard !Task.isCancelled else { return }
-            snapshot = next
-            await reloadDiagnostics(using: controller)
+            await acceptSnapshot(next, previousStatus: snapshot.runtimeStatus, using: controller)
         }
     }
 
@@ -87,7 +86,16 @@ final class IrohSettingsModel {
 
     func runConnectionCheck() {
         guard let controller, !isRunningConnectionCheck else { return }
-        Task { await runConnectionCheckAndWait(using: controller) }
+        connectionCheckTask = Task { [weak self] in
+            guard let self else { return }
+            await runConnectionCheckAndWait(using: controller)
+            connectionCheckTask = nil
+        }
+    }
+
+    func cancelConnectionCheck() {
+        connectionCheckTask?.cancel()
+        connectionCheckTask = nil
     }
 
     func clearSaveError() {
@@ -138,8 +146,25 @@ final class IrohSettingsModel {
         guard !isRunningConnectionCheck else { return }
         isRunningConnectionCheck = true
         defer { isRunningConnectionCheck = false }
-        connectionCheck = await controller.runIrohConnectionCheck()
-        snapshot = await controller.irohSettingsSnapshot()
+        let report = await controller.runIrohConnectionCheck()
+        guard !Task.isCancelled else { return }
+        let refreshedSnapshot = await controller.irohSettingsSnapshot()
+        guard !Task.isCancelled else { return }
+        connectionCheck = report
+        snapshot = refreshedSnapshot
         await reloadDiagnostics(using: controller)
+    }
+
+    private func acceptSnapshot(
+        _ next: CmxIrohSettingsSnapshot,
+        previousStatus: CmxIrohSettingsSnapshot.RuntimeStatus?,
+        using controller: any CmxIrohSettingsControlling
+    ) async {
+        snapshot = next
+        await reloadDiagnostics(using: controller)
+        guard !Task.isCancelled,
+              previousStatus != .degraded,
+              next.runtimeStatus == .degraded else { return }
+        await runConnectionCheckAndWait(using: controller)
     }
 }

@@ -175,6 +175,7 @@ struct MobileIrohSettingsView: View {
         .navigationTitle(L10n.string("mobile.iroh.title", defaultValue: "Iroh and Relays"))
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.observe() }
+        .onDisappear { model.cancelConnectionCheck() }
         .sheet(isPresented: $showsCustomEditor) {
             MobileIrohCustomRelayEditor(relay: editedCustomRelay) { relay, secret in
                 await model.upsertCustomRelay(relay, deviceSecret: secret)
@@ -287,7 +288,9 @@ struct MobileIrohSettingsView: View {
 
     private var activeRelayURLs: [String] {
         switch model.snapshot.preference {
-        case .automatic, .managed:
+        case .automatic:
+            model.snapshot.managedRelays.map(\.url)
+        case .managed:
             model.snapshot.managedRelays.filter(\.isSelected).map(\.url)
         case .custom:
             model.snapshot.customRelays.map(\.url)

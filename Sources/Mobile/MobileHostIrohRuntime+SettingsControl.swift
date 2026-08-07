@@ -169,13 +169,14 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         let diagnostics = await irohDiagnosticReport()
         let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
         if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
-           !profile.allowedRelayURLs.isEmpty,
-           let isReachable = await runtime?.hasReachableRelay(
-               in: profile.allowedRelayURLs
-           ) {
-            relayReachability = isReachable ? .reachable : .unreachable
+           !profile.allowedRelayURLs.isEmpty {
+            if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
+                relayReachability = isReachable ? .reachable : .unreachable
+            } else {
+                relayReachability = .unavailable
+            }
         } else {
-            relayReachability = .unavailable
+            relayReachability = .notConfigured
         }
         return CmxIrohConnectionCheckReport(
             role: .macHost,
