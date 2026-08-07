@@ -39,7 +39,10 @@ struct NestedTopologyReducerTests {
             title: nil
         )
 
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.providerMismatch(
+            expected: fixture.provider,
+            actual: other.provider
+        )) {
             try fixture.snapshot(tabs: [tab], panes: [], agents: [])
         }
     }
@@ -54,7 +57,11 @@ struct NestedTopologyReducerTests {
             title: nil
         )
 
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.invalidParentKind(
+            node: fixture.id("tab-1", kind: .tab),
+            parent: fixture.id("pane-1", kind: .pane),
+            expected: .workspace
+        )) {
             try fixture.snapshot(tabs: [tab], panes: [], agents: [])
         }
     }

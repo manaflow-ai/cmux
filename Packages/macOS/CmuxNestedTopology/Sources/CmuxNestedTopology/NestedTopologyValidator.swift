@@ -82,36 +82,17 @@ struct NestedTopologyValidator: Sendable {
             )
         }
         for pane in panes {
-            let association = pane.association
-            guard association.key.paneID == pane.id else {
-                throw NestedTopologyError.invalidAssociationKey(
-                    pane: pane.id,
-                    keyPane: association.key.paneID
-                )
-            }
-            if association.authority == .heuristic, !association.heuristicAlreadySatisfied {
-                throw NestedTopologyError.invalidHeuristicState(pane: pane.id)
-            }
-            try validateOptionalSession(
-                association.key.sessionID,
-                name: "pane.association.sessionID"
-            )
+            try validatePaneFields(pane)
             try validateParent(
                 node: pane.id,
-                parent: association.tabID,
+                parent: pane.association.tabID,
                 expectedKind: .tab,
                 provider: provider,
-                exists: tabByID[association.tabID] != nil
+                exists: tabByID[pane.association.tabID] != nil
             )
         }
         for agent in agents {
-            try validateOptionalSession(agent.sessionID, name: "agent.sessionID")
-            try validateRequiredField(
-                agent.status.providerRawValue,
-                name: "agent.status.providerRawValue",
-                maximumBytes: limits.maximumRawStatusBytes,
-                rejectsControls: true
-            )
+            try validateAgentFields(agent)
             try validateParent(
                 node: agent.id,
                 parent: agent.paneID,
@@ -216,23 +197,10 @@ struct NestedTopologyValidator: Sendable {
             titleAuthoritySource: titleAuthoritySource,
             allIDs: &ids
         )
-        let association = node.association
-        guard association.key.paneID == node.id else {
-            throw NestedTopologyError.invalidAssociationKey(
-                pane: node.id,
-                keyPane: association.key.paneID
-            )
-        }
-        if association.authority == .heuristic, !association.heuristicAlreadySatisfied {
-            throw NestedTopologyError.invalidHeuristicState(pane: node.id)
-        }
-        try validateOptionalSession(
-            association.key.sessionID,
-            name: "pane.association.sessionID"
-        )
+        try validatePaneFields(node)
         try validateParentIdentity(
             node: node.id,
-            parent: association.tabID,
+            parent: node.association.tabID,
             expectedKind: .tab,
             provider: provider
         )
@@ -257,18 +225,39 @@ struct NestedTopologyValidator: Sendable {
             titleAuthoritySource: titleAuthoritySource,
             allIDs: &ids
         )
+        try validateAgentFields(node)
+        try validateParentIdentity(
+            node: node.id,
+            parent: node.paneID,
+            expectedKind: .pane,
+            provider: provider
+        )
+    }
+
+    private func validatePaneFields(_ node: NestedPaneNode) throws {
+        let association = node.association
+        guard association.key.paneID == node.id else {
+            throw NestedTopologyError.invalidAssociationKey(
+                pane: node.id,
+                keyPane: association.key.paneID
+            )
+        }
+        if association.authority == .heuristic, !association.heuristicAlreadySatisfied {
+            throw NestedTopologyError.invalidHeuristicState(pane: node.id)
+        }
+        try validateOptionalSession(
+            association.key.sessionID,
+            name: "pane.association.sessionID"
+        )
+    }
+
+    private func validateAgentFields(_ node: NestedAgentNode) throws {
         try validateOptionalSession(node.sessionID, name: "agent.sessionID")
         try validateRequiredField(
             node.status.providerRawValue,
             name: "agent.status.providerRawValue",
             maximumBytes: limits.maximumRawStatusBytes,
             rejectsControls: true
-        )
-        try validateParentIdentity(
-            node: node.id,
-            parent: node.paneID,
-            expectedKind: .pane,
-            provider: provider
         )
     }
 
