@@ -229,10 +229,12 @@ struct TerminalImageTransferConcurrencyTests {
             await service.prepare(request: secondRequest, mode: .paste)
         }
         #expect(await admitted.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
         let thirdTask = Task {
             await service.prepare(request: thirdRequest, mode: .paste)
         }
         #expect(await admitted.next() == thirdRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(3)
 
         await operation.release(firstRequest.pasteboardName)
         let firstResult = await firstTask.value
@@ -240,14 +242,12 @@ struct TerminalImageTransferConcurrencyTests {
 
         let secondStarted = await started.next()
         #expect(secondStarted == secondRequest.pasteboardName)
-        await deadlines.waitForArrivalCount(2)
         await operation.release(secondRequest.pasteboardName)
         let secondResult = await secondTask.value
         #expect(secondResult == .insertText(secondRequest.pasteboardName))
 
         let thirdStarted = await started.next()
         #expect(thirdStarted == thirdRequest.pasteboardName)
-        await deadlines.waitForArrivalCount(3)
         #expect(await operation.snapshot().maximumActiveCount == 1)
         #expect(
             await operation.snapshot().startedNames
@@ -295,7 +295,7 @@ struct TerminalImageTransferConcurrencyTests {
             await service.prepare(request: secondRequest, mode: .paste)
         }
         #expect(await admitted.next() == secondRequest.pasteboardName)
-        #expect(await deadlines.currentArrivalCount() == 1)
+        await deadlines.waitForArrivalCount(2)
 
         let firedFirstDeadline = await deadlines.fireNext()
         #expect(firedFirstDeadline)
@@ -306,7 +306,6 @@ struct TerminalImageTransferConcurrencyTests {
 
         let replacementStarted = await started.next()
         #expect(replacementStarted == secondRequest.pasteboardName)
-        await deadlines.waitForArrivalCount(2)
         #expect(await operation.snapshot().maximumActiveCount == 1)
         await operation.release(secondRequest.pasteboardName)
         let secondResult = await secondTask.value
@@ -344,15 +343,7 @@ struct TerminalImageTransferConcurrencyTests {
             await service.prepare(request: queuedRequest, mode: .paste)
         }
         #expect(await admitted.next() == queuedRequest.pasteboardName)
-        let arrivalCount = await deadlines.currentArrivalCount()
-        guard arrivalCount == 2 else {
-            Issue.record("Queued preparation did not arm its admission deadline")
-            await operation.release(queuedRequest.pasteboardName)
-            await operation.release(firstRequest.pasteboardName)
-            _ = await firstTask.value
-            _ = await queuedTask.value
-            return
-        }
+        await deadlines.waitForArrivalCount(2)
 
         #expect(await deadlines.fireLast())
         #expect(await queuedTask.value == .reject)
@@ -399,11 +390,12 @@ struct TerminalImageTransferConcurrencyTests {
             await service.prepare(request: secondRequest, mode: .paste)
         }
         #expect(await admitted.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
         let thirdTask = Task {
             await service.prepare(request: thirdRequest, mode: .paste)
         }
         #expect(await admitted.next() == thirdRequest.pasteboardName)
-        #expect(await deadlines.currentArrivalCount() == 1)
+        await deadlines.waitForArrivalCount(3)
 
         let firedFirstDeadline = await deadlines.fireNext()
         #expect(firedFirstDeadline)
@@ -411,7 +403,6 @@ struct TerminalImageTransferConcurrencyTests {
         #expect(firstResult == .reject)
         let secondStarted = await started.next()
         #expect(secondStarted == secondRequest.pasteboardName)
-        await deadlines.waitForArrivalCount(2)
 
         let firedSecondDeadline = await deadlines.fireNext()
         #expect(firedSecondDeadline)
@@ -419,7 +410,6 @@ struct TerminalImageTransferConcurrencyTests {
         #expect(secondResult == .reject)
         let thirdStarted = await started.next()
         #expect(thirdStarted == thirdRequest.pasteboardName)
-        await deadlines.waitForArrivalCount(3)
         #expect(await operation.snapshot().maximumActiveCount == 1)
         #expect(
             await operation.snapshot().startedNames
@@ -514,6 +504,7 @@ struct TerminalImageTransferConcurrencyTests {
             await service.prepare(request: secondRequest, mode: .paste)
         }
         #expect(await admitted.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
 
         let rejectedResult = await service.prepare(
             request: rejectedRequest,
@@ -562,6 +553,7 @@ struct TerminalImageTransferConcurrencyTests {
             await service.prepare(request: cancelledRequest, mode: .paste)
         }
         #expect(await admitted.next() == cancelledRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
 
         cancelledTask.cancel()
         let cancelledResult = await cancelledTask.value

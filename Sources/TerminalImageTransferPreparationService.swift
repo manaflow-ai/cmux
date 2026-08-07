@@ -2,6 +2,8 @@ import AppKit
 import Foundation
 
 /// Preserves accepted paste commands in a bounded FIFO outside the main actor.
+/// Every accepted command has one admission-to-completion deadline, including
+/// time spent waiting behind the active worker.
 actor TerminalImageTransferPreparationService {
     /// Cancellation must return only after any owned work terminates and is
     /// reaped so the service's single-operation resource bound remains true.
@@ -132,7 +134,7 @@ actor TerminalImageTransferPreparationService {
                     id: id,
                     request: request,
                     continuation: continuation,
-                    deadlineTask: nil,
+                    deadlineTask: makeDeadlineTask(for: id),
                     operationTask: nil
                 )
                 if activeJob == nil {
@@ -170,7 +172,6 @@ actor TerminalImageTransferPreparationService {
         let request = job.request
         let operation = self.operation
         let cleanup = self.cleanup
-        runningJob.deadlineTask = makeDeadlineTask(for: id)
         runningJob.operationTask = Task { [weak self] in
             do {
                 let result = try await operation(request)
