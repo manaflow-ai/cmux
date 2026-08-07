@@ -167,6 +167,9 @@ final class CmuxTUITerminalBinding {
     private var runtimeCreationFailureObserver: NSObjectProtocol?
     private var previousRuntimeReadyHandler: (@MainActor () -> Void)?
     private var isWaitingForResetRuntime = false
+    private var isConsumingUpdates = false
+    private var consumeUpdatesRequested = false
+    private var didRejectRenderStream = false
     private var didStart = false
     private var isShuttingDown = false
     private var errorKind: ErrorKind?
@@ -287,7 +290,22 @@ final class CmuxTUITerminalBinding {
     }
 
     private func consumeUpdates() async {
-        guard !isShuttingDown, let surface else { return }
+        guard !isShuttingDown, !didRejectRenderStream else { return }
+        consumeUpdatesRequested = true
+        guard !isConsumingUpdates else { return }
+        isConsumingUpdates = true
+        defer { isConsumingUpdates = false }
+
+        repeat {
+            consumeUpdatesRequested = false
+            await consumeAvailableUpdates()
+        } while consumeUpdatesRequested
+            && !isShuttingDown
+            && !didRejectRenderStream
+    }
+
+    private func consumeAvailableUpdates() async {
+        guard !isShuttingDown, !didRejectRenderStream, let surface else { return }
         if isWaitingForResetRuntime {
             guard surface.hasLiveSurface else { return }
             isWaitingForResetRuntime = false
@@ -296,7 +314,7 @@ final class CmuxTUITerminalBinding {
             var hasMore = true
             while hasMore {
                 guard !Task.isCancelled, !isShuttingDown else { return }
-                let batch = try await terminal.drainRenderEventBatch()
+                let batch = await terminal.drainRenderEventBatch()
                 for event in batch.events {
                     switch event.kind {
                     case .reset:
@@ -333,6 +351,9 @@ final class CmuxTUITerminalBinding {
                         didExit = true
                     }
                 }
+                if let failure = batch.failure {
+                    throw failure
+                }
                 if isWaitingForResetRuntime { return }
                 hasMore = batch.hasMore
                 if hasMore { await Task.yield() }
@@ -342,7 +363,10 @@ final class CmuxTUITerminalBinding {
             didExit = didExit || snapshot.didExit
             clearError(kind: .renderer)
         } catch {
+            didRejectRenderStream = true
+            consumeUpdatesRequested = false
             recordError(kind: .renderer, message: error.localizedDescription)
+            await terminal.stopUpdates()
         }
     }
 

@@ -15,7 +15,7 @@ func drainCmuxTUIRenderEventBatch(
     maximumBatchPayloadBytes: Int = cmuxTUIRenderMaximumBatchPayloadBytes,
     maximumEventPayloadBytes: Int = cmuxTUIRenderMaximumEventPayloadBytes,
     copyNext: CmuxTUIRenderEventCopy
-) throws -> CmuxTUIRenderEventBatch {
+) -> CmuxTUIRenderEventBatch {
     precondition(maximumEventCount > 0)
     precondition(maximumBatchPayloadBytes > 0)
     precondition(maximumEventPayloadBytes > 0)
@@ -24,6 +24,14 @@ func drainCmuxTUIRenderEventBatch(
     events.reserveCapacity(min(maximumEventCount, 32))
     var payloadBytes = 0
 
+    func failed(_ message: String) -> CmuxTUIRenderEventBatch {
+        CmuxTUIRenderEventBatch(
+            events: events,
+            hasMore: false,
+            failure: .invalidRenderEvent(message)
+        )
+    }
+
     while events.count < maximumEventCount {
         var descriptor = CmuxTUIRenderEventDescriptor()
         guard copyNext(&descriptor, nil, 0) else {
@@ -31,7 +39,7 @@ func drainCmuxTUIRenderEventBatch(
         }
         guard descriptor.payloadLength >= 0,
               descriptor.payloadLength <= maximumEventPayloadBytes else {
-            throw CmuxTUIClientError.invalidRenderEvent(
+            return failed(
                 "render payload exceeds the native client limit"
             )
         }
@@ -51,13 +59,13 @@ func drainCmuxTUIRenderEventBatch(
                 )
             }
             guard copied else {
-                throw CmuxTUIClientError.invalidRenderEvent(
+                return failed(
                     "render payload changed before the native client could copy it"
                 )
             }
         }
         guard let kind = CmuxTUIRenderEvent.Kind(rawValue: descriptor.kind) else {
-            throw CmuxTUIClientError.invalidRenderEvent(
+            return failed(
                 "unknown native render event kind: \(descriptor.kind)"
             )
         }
@@ -132,7 +140,7 @@ public actor CmuxTUITerminal {
         return CmuxTUIUpdateSubscription(generation: generation, stream: pair.stream)
     }
 
-    public func drainRenderEventBatch() throws -> CmuxTUIRenderEventBatch {
+    public func drainRenderEventBatch() -> CmuxTUIRenderEventBatch {
         guard let raw else {
             return CmuxTUIRenderEventBatch(events: [], hasMore: false)
         }
@@ -140,7 +148,7 @@ public actor CmuxTUITerminal {
         // Swift 6.2 otherwise treats the actor-isolated pointer capture as a
         // potential concurrent access even though this method never suspends.
         let rawAddress = UInt(bitPattern: raw)
-        return try drainCmuxTUIRenderEventBatch { descriptor, buffer, capacity in
+        return drainCmuxTUIRenderEventBatch { descriptor, buffer, capacity in
             library.copyNextRenderEvent(
                 terminal: OpaquePointer(bitPattern: rawAddress),
                 descriptor: &descriptor,

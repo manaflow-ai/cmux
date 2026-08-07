@@ -62,10 +62,16 @@ public struct CmuxTUIRenderEvent: Sendable {
 public struct CmuxTUIRenderEventBatch: Sendable {
     public let events: [CmuxTUIRenderEvent]
     public let hasMore: Bool
+    public let failure: CmuxTUIClientError?
 
-    public init(events: [CmuxTUIRenderEvent], hasMore: Bool) {
+    public init(
+        events: [CmuxTUIRenderEvent],
+        hasMore: Bool,
+        failure: CmuxTUIClientError? = nil
+    ) {
         self.events = events
         self.hasMore = hasMore
+        self.failure = failure
     }
 }
 

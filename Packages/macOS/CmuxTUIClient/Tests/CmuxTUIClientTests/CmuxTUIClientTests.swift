@@ -75,9 +75,9 @@ struct CmuxTUIClientTests {
     }
 
     @Test("Render drains yield after a bounded number of empty events")
-    func renderDrainBoundsEventCount() throws {
+    func renderDrainBoundsEventCount() {
         var copies = 0
-        let batch = try drainCmuxTUIRenderEventBatch { descriptor, _, _ in
+        let batch = drainCmuxTUIRenderEventBatch { descriptor, _, _ in
             copies += 1
             descriptor.kind = CmuxTUIRenderEvent.Kind.ready.rawValue
             descriptor.columns = 80
@@ -92,13 +92,13 @@ struct CmuxTUIClientTests {
     }
 
     @Test("Render drains defer the next payload at the batch byte boundary")
-    func renderDrainBoundsPayloadBytes() throws {
+    func renderDrainBoundsPayloadBytes() {
         let source = RenderEventSource([
             .init(kind: CmuxTUIRenderEvent.Kind.bytes.rawValue, payload: Data(repeating: 1, count: 5)),
             .init(kind: CmuxTUIRenderEvent.Kind.bytes.rawValue, payload: Data(repeating: 2, count: 5)),
         ])
 
-        let first = try drainCmuxTUIRenderEventBatch(
+        let first = drainCmuxTUIRenderEventBatch(
             maximumEventCount: 256,
             maximumBatchPayloadBytes: 8,
             maximumEventPayloadBytes: 32,
@@ -107,7 +107,7 @@ struct CmuxTUIClientTests {
         #expect(first.events.map(\.payload.count) == [5])
         #expect(first.hasMore)
 
-        let second = try drainCmuxTUIRenderEventBatch(
+        let second = drainCmuxTUIRenderEventBatch(
             maximumEventCount: 256,
             maximumBatchPayloadBytes: 8,
             maximumEventPayloadBytes: 32,
@@ -123,9 +123,9 @@ struct CmuxTUIClientTests {
             .init(kind: 999, payload: Data([1, 2, 3])),
         ])
 
-        #expect(throws: CmuxTUIClientError.self) {
-            _ = try drainCmuxTUIRenderEventBatch(copyNext: source.copyNext)
-        }
+        let batch = drainCmuxTUIRenderEventBatch(copyNext: source.copyNext)
+        #expect(batch.events.isEmpty)
+        #expect(batch.failure?.errorDescription == "unknown native render event kind: 999")
         #expect(source.remainingEventCount == 0)
     }
 
@@ -135,25 +135,20 @@ struct CmuxTUIClientTests {
             .init(kind: CmuxTUIRenderEvent.Kind.ready.rawValue, payload: Data()),
             .init(kind: 999, payload: Data([1, 2, 3])),
         ])
-        var receivedKinds: [CmuxTUIRenderEvent.Kind] = []
+        let batch = drainCmuxTUIRenderEventBatch(copyNext: source.copyNext)
 
-        do {
-            receivedKinds = try drainCmuxTUIRenderEventBatch(
-                copyNext: source.copyNext
-            ).events.map(\.kind)
-        } catch {}
-
-        #expect(receivedKinds == [.ready])
+        #expect(batch.events.map(\.kind) == [.ready])
+        #expect(batch.failure?.errorDescription == "unknown native render event kind: 999")
     }
 
     @Test("A reset ends its render batch before later output is consumed")
-    func resetEndsRenderBatch() throws {
+    func resetEndsRenderBatch() {
         let source = RenderEventSource([
             .init(kind: CmuxTUIRenderEvent.Kind.reset.rawValue, payload: Data("reset".utf8)),
             .init(kind: CmuxTUIRenderEvent.Kind.bytes.rawValue, payload: Data("later".utf8)),
         ])
 
-        let batch = try drainCmuxTUIRenderEventBatch(copyNext: source.copyNext)
+        let batch = drainCmuxTUIRenderEventBatch(copyNext: source.copyNext)
 
         #expect(batch.events.map(\.kind) == [.reset])
         #expect(batch.hasMore)
