@@ -137,7 +137,8 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
 
     /// Binds lifecycle evidence to an exact process generation.
     ///
-    /// An older generation can never replace newer live, hook, or exit evidence.
+    /// An older generation can never replace newer live, hook, exit, or exact
+    /// Feed-attention evidence.
     ///
     /// - Parameters:
     ///   - key: The sidebar lifecycle key.
@@ -167,21 +168,20 @@ public nonisolated struct AgentLifecycleReconciliationState: Sendable {
            generation < hookGeneration {
             return false
         }
+        if let attentionGeneration = entry.feedAttentionTokens.compactMap(\.processGeneration).max(),
+           generation < attentionGeneration {
+            return false
+        }
 
         if entry.liveProcessGeneration != generation {
             entry.suppressesLifecycleUntilNextHook = false
         }
-        if let previousGeneration = entry.liveProcessGeneration,
-           previousGeneration != generation {
-            entry.feedAttentionTokens.removeAll()
-        } else {
-            entry.feedAttentionTokens = Set(
-                entry.feedAttentionTokens.filter {
-                    $0.processGeneration == nil
-                        || $0.processGeneration == generation
-                }
-            )
-        }
+        entry.feedAttentionTokens = Set(
+            entry.feedAttentionTokens.filter {
+                $0.processGeneration == nil
+                    || $0.processGeneration == generation
+            }
+        )
         if var hook = entry.hook {
             if hook.processGeneration == nil {
                 hook.processGeneration = generation
