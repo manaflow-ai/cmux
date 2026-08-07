@@ -61,6 +61,12 @@ TEST_RUNNER_ENVIRONMENT_KEYS = (
 FORBIDDEN_SCHEME_ENVIRONMENT_KEYS = {
     f"TEST_RUNNER_{key}" for key in TEST_RUNNER_ENVIRONMENT_KEYS
 }
+UNSAFE_SIGNAL_PATTERN = re.compile(
+    r"(?m)^\s*(?:/bin/)?kill\s+-(?:TERM|KILL|9|15)(?:\s|$)"
+)
+OPPORTUNISTIC_DELETION_PATTERN = re.compile(
+    r"(?m)^\s*(?:/bin/)?rm\s+-(?:rf|fr|f)\s+--(?:\s|$)"
+)
 
 
 def require(text: str, needle: str, context: str) -> None:
@@ -481,18 +487,34 @@ def main() -> int:
         "cmux_recover_owned_app_host_attempt",
         "current-run retry recovery",
     )
-    unsafe_signal = re.search(
-        r"(?m)^\s*(?:/bin/)?kill\s+-(?:TERM|KILL|9|15)(?:\s|$)",
-        APP_HOST_PROCESSES,
-    )
+    for unsafe_signal_variant in (
+        '/usr/bin/kill -s TERM "$pid"',
+        'kill -s KILL "$pid"',
+        '/bin/kill -15 "$pid"',
+    ):
+        if not UNSAFE_SIGNAL_PATTERN.search(unsafe_signal_variant):
+            raise SystemExit(
+                "FAIL: reusable-PID signal guard missed equivalent command: "
+                f"{unsafe_signal_variant}"
+            )
+    unsafe_signal = UNSAFE_SIGNAL_PATTERN.search(APP_HOST_PROCESSES)
     if unsafe_signal:
         raise SystemExit(
             "FAIL: verified app-host cleanup must not signal a reusable PID: "
             f"{unsafe_signal.group(0).strip()}"
         )
-    opportunistic_deletion = re.search(
-        r"(?m)^\s*(?:/bin/)?rm\s+-(?:rf|fr|f)\s+--(?:\s|$)",
-        APP_HOST_PROCESSES,
+    for deletion_variant in (
+        'rm -r -f -- "$scope"',
+        '/bin/rm -f -r -- "$scope"',
+        '/usr/bin/rm --recursive --force -- "$scope"',
+    ):
+        if not OPPORTUNISTIC_DELETION_PATTERN.search(deletion_variant):
+            raise SystemExit(
+                "FAIL: prior-scope deletion guard missed equivalent command: "
+                f"{deletion_variant}"
+            )
+    opportunistic_deletion = OPPORTUNISTIC_DELETION_PATTERN.search(
+        APP_HOST_PROCESSES
     )
     if opportunistic_deletion:
         raise SystemExit(

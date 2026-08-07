@@ -112,7 +112,12 @@ case "${0##*/}" in
         fi
         shift
         exec /usr/bin/env \
-          -u GITHUB_REPOSITORY_ID -u CARGO_HOME -u RUSTUP_HOME "$@"
+          -u GITHUB_REPOSITORY_ID -u CARGO_HOME -u RUSTUP_HOME \
+          -u LEASE_RELEASE_READY_FIFO \
+          -u CMUX_FAKE_LSOF_TXT_COUNTER \
+          -u CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS \
+          -u CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS \
+          "$@"
         ;;
       *) exec "$@" ;;
     esac
