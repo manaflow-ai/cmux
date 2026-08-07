@@ -911,6 +911,31 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/assigned-fetch.ts",
+            'const url = "https://api.openai.com/v1/items"; await fetch(url)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-request.py",
+            'url = "https://api.openai.com/v1/items"; requests.get(url)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/assigned-fetch-template.ts",
+            'const url = "https://api.openai.com/v1/items"; fetch(`${url}/next`)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-request-fstring.py",
+            'url = "https://api.openai.com/v1/items"; requests.get(f"{url}/next")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/assigned-fetch-interpolation.swift",
+            'let url = "https://api.openai.com/v1/items"; fetch("\\(url)/next")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -1071,6 +1096,21 @@ def _self_test() -> int:
         (
             "web/tests/n17i.ts",
             'expect(text).toContain("curl ${HOME} https://cmux.com/install.sh")\n',
+        ),
+        (
+            "web/tests/n17j.ts",
+            'const docs = "https://cmux.com/docs/api"; '
+            'await fetch("http://127.0.0.1:4321")\n',
+        ),
+        (
+            "web/tests/n17k.ts",
+            'let url = "https://cmux.com/docs/api"; '
+            'url = "http://127.0.0.1:4321"; await fetch(url)\n',
+        ),
+        (
+            "tests/n17l.py",
+            'url = "https://cmux.com/docs/api"; '
+            'requests.get(url="http://127.0.0.1:4321")\n',
         ),
         (
             "web/tests/n18.ts",
