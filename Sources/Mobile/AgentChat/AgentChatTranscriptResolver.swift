@@ -60,12 +60,31 @@ struct AgentChatTranscriptResolver: Sendable {
 
     /// Resolves the transcript path for a session.
     ///
-    /// - Parameters:
-    ///   - record: The session's registry record.
+    /// - Parameter record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
     /// - Throws: ``CancellationError`` when the calling task is canceled.
     func transcriptPath(for record: AgentChatSessionRecord) throws -> String? {
+        try transcriptPathThrowing(for: record, deadline: nil)
+    }
+
+    /// Resolves a transcript path for the bounded fallback coordinator.
+    /// Cancellation and deadline expiry are reported as no result so the
+    /// coordinator can discard an abandoned attempt without caching failure.
+    func transcriptPath(
+        for record: AgentChatSessionRecord,
+        deadline: ContinuousClock.Instant?
+    ) -> String? {
+        try? transcriptPathThrowing(for: record, deadline: deadline)
+    }
+
+    private func transcriptPathThrowing(
+        for record: AgentChatSessionRecord,
+        deadline: ContinuousClock.Instant?
+    ) throws -> String? {
         try Task.checkCancellation()
+        if let deadline, ContinuousClock.now >= deadline {
+            return nil
+        }
         if let recorded = recordedTranscriptPath(for: record) {
             return recorded
         }
@@ -73,7 +92,7 @@ struct AgentChatTranscriptResolver: Sendable {
         case .claude:
             return claudeFallbackPath(record: record)
         case .codex:
-            return try codexFallbackPath(sessionID: record.sessionID)
+            return try codexFallbackPath(sessionID: record.sessionID, deadline: deadline)
         case .other:
             return nil
         }
@@ -116,7 +135,14 @@ struct AgentChatTranscriptResolver: Sendable {
     /// Codex rollout files are named `rollout-<timestamp>-<session-uuid>.jsonl`
     /// under `~/.codex/sessions/YYYY/MM/DD/`; scan recent day directories for
     /// the session id.
-    private func codexFallbackPath(sessionID: String) throws -> String? {
+    private func codexFallbackPath(
+        sessionID: String,
+        deadline: ContinuousClock.Instant?
+    ) throws -> String? {
+        try Task.checkCancellation()
+        if let deadline, ContinuousClock.now >= deadline {
+            return nil
+        }
         let fileManager = FileManager.default
         let root = codexConfigRoot
             .appendingPathComponent("sessions", isDirectory: true)
@@ -129,6 +155,9 @@ struct AgentChatTranscriptResolver: Sendable {
         var visitedEntryCount = 0
         for case let url as URL in enumerator {
             try Task.checkCancellation()
+            if let deadline, ContinuousClock.now >= deadline {
+                return nil
+            }
             guard visitedEntryCount < maximumCodexFallbackEntries else { return nil }
             visitedEntryCount += 1
             guard url.pathExtension == "jsonl" else { continue }

@@ -85,6 +85,34 @@ extension TerminalController {
         return (resolved.record.sessionID, snapshot)
     }
 
+    /// Returns the stat-filtered count for the gallery's default landing view.
+    func mobileChatArtifactGalleryRowTotal(
+        sessionID: String,
+        generation: String,
+        artifacts: [ChatArtifactIndexedReference],
+        includeDirectories: Bool,
+        includeMissing: Bool
+    ) async -> Int {
+        // Counting is order-independent, so the ordering cache is skipped;
+        // the sweep is existence-only over the raw snapshot, runs off the
+        // caller inside the cache actor, and concurrent misses on the same
+        // (session, generation, filters) key share one computation.
+        guard let service = agentChatTranscriptService else { return 0 }
+        return await service.artifactGalleryRowCountCache.total(
+            sessionID: sessionID,
+            generation: generation,
+            includeDirectories: includeDirectories,
+            includeMissing: includeMissing,
+            now: Date()
+        ) {
+            ChatArtifactGalleryRowEligibility().defaultRowCount(
+                artifacts,
+                includeDirectories: includeDirectories,
+                includeMissing: includeMissing
+            )
+        }
+    }
+
     func v2MobileChatArtifactStat(params: [String: Any]) async -> V2CallResult {
         let resolution = await mobileChatArtifactResolution(params: params, operation: .file)
         guard case .success(let resolved) = resolution else {

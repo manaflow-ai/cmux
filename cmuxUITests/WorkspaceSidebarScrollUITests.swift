@@ -12,7 +12,7 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
     }
 
     func testWorkspaceSelectionKeepsSidebarRowVisible() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureLaunch(app)
         launchAndEnsureRunning(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
@@ -47,7 +47,7 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
     }
 
     func testCommandPaletteMoveWorkspaceToTopKeepsMovedWorkspaceVisible() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureLaunch(app)
         launchAndEnsureRunning(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
@@ -74,7 +74,7 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
     }
 
     func testSidebarScrollerVisibilityFollowsWorkspaceOverflow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         configureLaunch(app)
         launchAndEnsureRunning(app)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
@@ -118,7 +118,7 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
     /// `cmux set status` in the field. A main-hop watchdog after every gesture
     /// turns the AttributeGraph spin into a bounded test failure.
     func testOverflowingSidebarScrollRemainsResponsiveDuringStatusChurn() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let token = UUID().uuidString
         let socketPath = "/tmp/cmux-ui-sidebar-livelock-\(token).sock"
         let diagnosticsPath = "/tmp/cmux-ui-sidebar-livelock-\(token).json"

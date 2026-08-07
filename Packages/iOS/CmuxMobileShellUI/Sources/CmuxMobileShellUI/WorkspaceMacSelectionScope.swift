@@ -7,6 +7,11 @@ struct WorkspaceMacSelectionScope {
     let machineIDs: Set<String>
     let foregroundMachineIDs: Set<String>
     let workspaces: [MobileWorkspacePreview]
+    private let displayPairedMacs: [MobilePairedMac]
+    /// The LIVE foreground connection's instance tag. Stored `isActive` flags
+    /// can lag promotion (written with `reloadAfterWrite: false`), so
+    /// correctness-critical gates use this instead of presentation state.
+    private let foregroundInstanceTag: String?
 
     init(
         selection: WorkspaceMacSelection,
@@ -14,6 +19,7 @@ struct WorkspaceMacSelectionScope {
         displayPairedMacs: [MobilePairedMac],
         notificationFeedItems: [MobileNotificationFeedItem] = [],
         foregroundMacDeviceID: String?,
+        foregroundInstanceTag: String? = nil,
         aliasesFor: (String) -> [String]
     ) {
         let aliasIndex = WorkspaceMacPickerAliasIndex(
@@ -25,7 +31,7 @@ struct WorkspaceMacSelectionScope {
             machineIDs.insert(aliasIndex.representativeID(for: id))
         }
         for mac in displayPairedMacs {
-            machineIDs.insert(mac.macDeviceID)
+            machineIDs.insert(mac.id)
         }
         for item in notificationFeedItems {
             machineIDs.insert(aliasIndex.representativeID(for: item.macDeviceID))
@@ -43,6 +49,8 @@ struct WorkspaceMacSelectionScope {
         self.machineIDs = machineIDs
         self.foregroundMachineIDs = foregroundMachineIDs
         self.workspaces = workspaces
+        self.displayPairedMacs = displayPairedMacs
+        self.foregroundInstanceTag = foregroundInstanceTag
     }
 
     var visibleSelection: WorkspaceMacSelection {
@@ -70,39 +78,119 @@ struct WorkspaceMacSelectionScope {
         return active
     }
 
+    /// The exact saved app instance selected by a pairing-scoped menu entry.
+    func switchTarget(for id: String) -> (macDeviceID: String, instanceTag: String?)? {
+        displayPairedMacs.first { $0.id == id }
+            .map { ($0.macDeviceID, $0.instanceTag) }
+    }
+
+    /// Whether selecting `id` must move the foreground connection to another
+    /// saved app instance. Workspace-only device entries remain local filters.
+    func shouldSwitch(to id: String) -> Bool {
+        guard let target = displayPairedMacs.first(where: { $0.id == id }) else {
+            return false
+        }
+        // The live connection is authoritative; stored isActive lags promotion.
+        if !foregroundMachineIDs.isEmpty {
+            let sameDevice = !foregroundMachineIDs.isDisjoint(
+                with: Set(aliasIndex.filterMachineIDs(for: target.id).map {
+                    MobilePairedMac.pairingIdentity(from: $0).macDeviceID
+                })
+            )
+            return !(sameDevice
+                && Self.normalizedTag(target.instanceTag) == Self.normalizedTag(foregroundInstanceTag))
+        }
+        if let active = displayPairedMacs.first(where: \.isActive) {
+            return active.id != target.id
+        }
+        return true
+    }
+
+    /// Empty/whitespace tags read as "no tag", matching the store's authority
+    /// normalization.
+    private static func normalizedTag(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    /// The selection's filter entries projected to bare device ids (entries may
+    /// be pairing ids since the tuple-aware filter).
+    private func selectedDeviceIDs(for id: String) -> Set<String> {
+        Set(aliasIndex.filterMachineIDs(for: id).map {
+            MobilePairedMac.pairingIdentity(from: $0).macDeviceID
+        })
+    }
+
     func canCreateWorkspace(base canCreateWorkspace: Bool, switchPending: Bool = false) -> Bool {
         guard canCreateWorkspace else { return false }
         guard !switchPending else { return false }
         switch visibleSelection {
         case .machine(let id):
-            return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
+            // Creating requires the foreground connection to BE the selected
+            // pairing: same device, and for a tagged selection the same build.
+            guard !foregroundMachineIDs.isDisjoint(with: selectedDeviceIDs(for: id)) else {
+                return false
+            }
+            guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag else {
+                // An untagged selection names a legacy pairing. It matches
+                // only an untagged live foreground: a tagged sibling on the
+                // same device is a DIFFERENT app instance, and a missing tag
+                // is not proof of ownership.
+                return Self.normalizedTag(foregroundInstanceTag) == nil
+            }
+            // Prefer the live connection's tag; stored isActive lags promotion.
+            if let liveTag = Self.normalizedTag(foregroundInstanceTag) {
+                return liveTag == Self.normalizedTag(selectedTag)
+            }
+            if let activePairing = displayPairedMacs.first(where: \.isActive) {
+                return Self.normalizedTag(activePairing.instanceTag) == Self.normalizedTag(selectedTag)
+            }
+            // Same device proven, but not WHICH build owns the live client.
+            // Creating a workspace is a mutation, so missing identity is a
+            // denial, not permission.
+            return false
         case .all, .automatic:
             return true
         }
     }
 
     /// Whether content owned by `macDeviceID` belongs to the computer scope
-    /// shown by the shared title picker.
+    /// shown by the shared title picker. Device-level: sibling builds share it.
     func includes(macDeviceID: String) -> Bool {
         switch visibleSelection {
         case .machine(let id):
-            return aliasIndex.filterMachineIDs(for: id).contains(macDeviceID)
+            return selectedDeviceIDs(for: id).contains(macDeviceID)
         case .all, .automatic:
             return true
         }
     }
 
     /// Applies the shared computer selection to notification rows through the
-    /// same alias index used by workspace rows and the title picker.
+    /// same entry matching used by workspace rows: a tagged selection scopes to
+    /// that build's notifications, legacy untagged items stay visible.
     func notificationFeedItems(
         from items: [MobileNotificationFeedItem]
     ) -> [MobileNotificationFeedItem] {
-        items.filter { includes(macDeviceID: $0.macDeviceID) }
+        switch visibleSelection {
+        case .machine(let id):
+            let entries = aliasIndex.filterMachineIDs(for: id)
+            return items.filter { item in
+                entries.contains(where: { entry in
+                    MobileWorkspaceListFilter.machineEntryMatches(
+                        entry, deviceID: item.macDeviceID, rowTag: item.macInstanceTag
+                    )
+                })
+            }
+        case .all, .automatic:
+            return items
+        }
     }
 
-    /// Exact Mac identifiers represented by a machine selection. `nil` means
-    /// the global All Computers scope.
-    var selectedMachineIDs: Set<String>? {
+    /// The selection's raw filter entries (bare device ids or pairing ids),
+    /// for consumers that must preserve the selected build's identity, like
+    /// the notification feed projection.
+    var selectedScopeEntries: Set<String>? {
         switch visibleSelection {
         case .machine(let id):
             aliasIndex.filterMachineIDs(for: id)
@@ -111,10 +199,35 @@ struct WorkspaceMacSelectionScope {
         }
     }
 
-    var canRenderGroupsForSelection: Bool {
+    /// Exact Mac DEVICE identifiers represented by a machine selection. `nil`
+    /// means the global All Computers scope. Device-level by design: status
+    /// consumers reason about physical reachability.
+    var selectedMachineIDs: Set<String>? {
         switch visibleSelection {
         case .machine(let id):
-            return !foregroundMachineIDs.isDisjoint(with: aliasIndex.filterMachineIDs(for: id))
+            selectedDeviceIDs(for: id)
+        case .all, .automatic:
+            nil
+        }
+    }
+
+    /// Whether foreground-only group mutations such as reorder and create-in-
+    /// group are safe for the current picker scope. Rendering is independent:
+    /// every Mac's immutable group snapshot can render under All Computers.
+    var canMutateForegroundGroupsForSelection: Bool {
+        switch visibleSelection {
+        case .machine(let id):
+            // Groups belong to the exact foreground BUILD: device match alone
+            // would render the foreground's groups under the sibling selection.
+            guard !foregroundMachineIDs.isDisjoint(with: selectedDeviceIDs(for: id)) else {
+                return false
+            }
+            guard let selectedTag = MobilePairedMac.pairingIdentity(from: id).instanceTag else {
+                // Same rule as workspace creation: an untagged selection
+                // matches only an untagged live foreground build.
+                return Self.normalizedTag(foregroundInstanceTag) == nil
+            }
+            return Self.normalizedTag(selectedTag) == Self.normalizedTag(foregroundInstanceTag)
         case .all, .automatic:
             return visibleRowsAreOnlyForegroundMac
         }
@@ -125,7 +238,12 @@ struct WorkspaceMacSelectionScope {
         guard !foregroundMachineIDs.isEmpty else { return false }
         return workspaces.allSatisfy { workspace in
             guard let macDeviceID = workspace.macDeviceID else { return false }
+            // Exact pairing: a sibling build's rows on the foreground DEVICE
+            // are served by a secondary connection, and group/reorder RPCs
+            // must never mix builds whose local ids can collide.
             return foregroundMachineIDs.contains(macDeviceID)
+                && Self.normalizedTag(workspace.macInstanceTag)
+                    == Self.normalizedTag(foregroundInstanceTag)
         }
     }
 

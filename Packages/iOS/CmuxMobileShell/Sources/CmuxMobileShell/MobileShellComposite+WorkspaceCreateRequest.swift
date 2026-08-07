@@ -76,7 +76,7 @@ extension MobileShellComposite {
         do {
             var params: [String: Any] = [:]
             if let groupID {
-                params["group_id"] = groupID.rawValue
+                params["group_id"] = remoteWorkspaceGroupID(for: groupID).rawValue
             }
             if let title = spec?.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
                 params["title"] = title
@@ -99,7 +99,11 @@ extension MobileShellComposite {
                 return .failure(.notConnected(hostDisplayName: context.hostDisplayName))
             }
             let resultData = try await client.sendRequest(
-                MobileCoreRPCClient.requestData(method: "workspace.create", params: params)
+                MobileCoreRPCClient.requestData(method: "workspace.create", params: params),
+                attachTicketPolicy: groupID != nil
+                    && context.supportedHostCapabilities.contains(Self.workspaceMutationAccountAuthCapability)
+                    ? .omit
+                    : .whenCovered
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
             let createdWorkspace: MobileWorkspacePreview.ID?
@@ -137,7 +141,8 @@ extension MobileShellComposite {
                 setSelectedWorkspaceID(
                     rowWorkspaceID(
                         forRemoteWorkspaceID: createdWorkspace,
-                        macDeviceID: context.macDeviceID
+                        macDeviceID: context.macDeviceID,
+                        instanceTag: context.instanceTag
                     ) ?? createdWorkspace
                 )
             }
@@ -192,6 +197,7 @@ extension MobileShellComposite {
         guard connectionState == .connected, let remoteClient else { return nil }
         return WorkspaceCreatePinnedContext(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration,
             supportedHostCapabilities: supportedHostCapabilities,
@@ -202,6 +208,7 @@ extension MobileShellComposite {
     private func isCurrentWorkspaceCreateContext(_ context: WorkspaceCreatePinnedContext) -> Bool {
         context.isCurrent(
             macDeviceID: foregroundMacDeviceID,
+            instanceTag: activeMacInstanceTag,
             client: remoteClient,
             generation: connectionGeneration
         ) && isSignedIn && connectionState == .connected

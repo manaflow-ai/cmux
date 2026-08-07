@@ -128,6 +128,114 @@ import Testing
         #expect(refreshed.terminals.last?.viewportFit == nil)
     }
 
+    @Test func remoteRefreshMissingGroupFieldPreservesGroupHeaders() throws {
+        let store = groupedForegroundStore()
+        let response = try MobileSyncWorkspaceListResponse.decode(Data(#"""
+        {
+          "workspaces": [
+            {
+              "id": "anchor",
+              "title": "Anchor",
+              "is_selected": true,
+              "group_id": "group-a",
+              "terminals": []
+            },
+            {
+              "id": "member",
+              "title": "Member",
+              "is_selected": false,
+              "group_id": "group-a",
+              "terminals": []
+            }
+          ]
+        }
+        """#.utf8))
+
+        store.applyRemoteWorkspaceList(response)
+
+        #expect(store.workspaceGroups.map(\.id.rawValue) == ["group-a"])
+        #expect(store.workspaceGroups.first?.name == "Overnight")
+        #expect(store.workspaces.map(\.groupID?.rawValue) == ["group-a", "group-a"])
+    }
+
+    @Test func remoteRefreshEmptyGroupMetadataWithGroupedRowsPreservesGroupHeaders() {
+        let store = groupedForegroundStore()
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [
+                workspaceListWorkspace(
+                    id: "anchor",
+                    title: "Anchor",
+                    groupID: "group-a",
+                    isSelected: true
+                ),
+                workspaceListWorkspace(
+                    id: "member",
+                    title: "Member",
+                    groupID: "group-a"
+                ),
+            ],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaceGroups.map(\.id.rawValue) == ["group-a"])
+        #expect(store.workspaceGroups.first?.name == "Overnight")
+        #expect(store.workspaces.map(\.groupID?.rawValue) == ["group-a", "group-a"])
+    }
+
+    @Test func disconnectedEmptyRefreshPreservesGroupHeaders() {
+        let store = groupedForegroundStore()
+        store.connectionState = .disconnected
+        store.macConnectionStatus = .unavailable
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaceGroups.map(\.id.rawValue) == ["group-a"])
+        #expect(store.workspaceGroups.first?.name == "Overnight")
+    }
+
+    @Test func connectedEmptyAuthoritativeRefreshCanClearGroupHeaders() {
+        let store = groupedForegroundStore()
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaces.isEmpty)
+        #expect(store.workspaceGroups.isEmpty)
+    }
+
+    @Test func connectedUngroupedRefreshCanClearGroupHeaders() {
+        let store = groupedForegroundStore()
+
+        store.applyRemoteWorkspaceList(MobileSyncWorkspaceListResponse(
+            workspaces: [
+                workspaceListWorkspace(
+                    id: "anchor",
+                    title: "Anchor",
+                    isSelected: true
+                ),
+                workspaceListWorkspace(id: "member", title: "Member"),
+            ],
+            groups: [],
+            createdWorkspaceID: nil,
+            createdTerminalID: nil
+        ))
+
+        #expect(store.workspaceGroups.isEmpty)
+        #expect(store.workspaces.map(\.groupID?.rawValue) == [String?](repeating: nil, count: 2))
+    }
+
     @Test func startsAtSignInWithoutConnection() {
         let store = MobileShellComposite.preview()
 
@@ -296,7 +404,7 @@ import Testing
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
             teamIDProvider: { await team.value },
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
 
         let staleReconnect = Task {
@@ -323,7 +431,7 @@ import Testing
             isSignedIn: true,
             pairedMacStore: pairedStore,
             identityProvider: StaticIdentityProvider(userID: "user-1"),
-            forgottenMacStore: InMemoryPairedMacForgottenStore()
+            hiddenMacStore: InMemoryPairedMacHiddenStore()
         )
 
         store.currentTeamDidChange()
@@ -689,5 +797,56 @@ private func hostPortRoute(
         kind: kind,
         endpoint: .hostPort(host: host, port: port),
         priority: priority
+    )
+}
+
+@MainActor
+private func groupedForegroundStore() -> CMUXMobileShellStore {
+    let store = MobileShellComposite.preview()
+    store.signIn()
+    store.pairingCode = "debug"
+    store.connectPreviewHost()
+    store.replaceForegroundWorkspaceState([
+        MobileWorkspacePreview(
+            id: "anchor",
+            name: "Anchor",
+            groupID: "group-a",
+            terminals: []
+        ),
+        MobileWorkspacePreview(
+            id: "member",
+            name: "Member",
+            groupID: "group-a",
+            terminals: []
+        ),
+    ], groups: [
+        MobileWorkspaceGroupPreview(
+            id: "group-a",
+            name: "Overnight",
+            anchorWorkspaceID: "anchor"
+        ),
+    ])
+    return store
+}
+
+private func workspaceListWorkspace(
+    id: String,
+    title: String,
+    groupID: String? = nil,
+    isSelected: Bool = false
+) -> MobileSyncWorkspaceListResponse.Workspace {
+    MobileSyncWorkspaceListResponse.Workspace(
+        id: id,
+        windowID: nil,
+        title: title,
+        currentDirectory: nil,
+        isSelected: isSelected,
+        isPinned: nil,
+        groupID: groupID,
+        preview: nil,
+        previewAt: nil,
+        lastActivityAt: nil,
+        hasUnread: nil,
+        terminals: []
     )
 }

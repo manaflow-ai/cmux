@@ -4,6 +4,7 @@ import { buildAlternates, openGraphDefaults, twitterSummary } from "@/i18n/seo";
 import { blogPostSeoCopy } from "@/i18n/audited-seo";
 import { BlogSchema } from "../blog-schema";
 import { Link } from "@/i18n/navigation";
+import { BlogPostMeta } from "@/app/[locale]/components/blog-author";
 
 export async function generateMetadata({
   params,
@@ -53,9 +54,7 @@ export default function UnreadShortcutsPage() {
       </div>
 
       <h1>{t("title")}</h1>
-      <time dateTime="2026-05-22" className="text-sm text-muted">
-        {t("date")}
-      </time>
+      <BlogPostMeta date={t("date")} dateTime="2026-05-22" />
 
       <video
         src="/blog/cmd-ctrl-u-cmd-option-u.mp4"

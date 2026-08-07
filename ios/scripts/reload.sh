@@ -3,14 +3,25 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--no-launch]
+Usage: ios/scripts/reload.sh --tag <tag> [--simulator <name>] [--simulator-id <id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
        ios/scripts/reload.sh --tag <tag> --device-only [--device-id <id>] [--device-name <name>] [--team <team-id>] [--no-launch]
+       ios/scripts/reload.sh --tag <tag> --simulator-only
 
 Build, install, and launch the cmux iOS app with an isolated tag.
 
-By default this reloads only the simulator. Use --device to also reload the
-first available paired iPhone/iPad, or --device-only to skip the simulator.
+Verification default is simulator + iPhone: when a default iPhone is configured
+(CMUX_IPHONE_DEVICE_ID or ~/.config/cmux/iphone-device-id), the device leg is
+enabled automatically; --simulator-only opts out explicitly. Without a
+configured default, this reloads only the simulator unless --device is given.
+If the iPhone is unreachable, the signed build is parked in the offline install
+queue (scripts/iphone-install-queue.sh) and auto-installs when the phone
+reconnects. Unless a simulator is named explicitly, the simulator leg uses the
+tag's own isolated device ("cmux-dev-<slug>"), created on demand.
+
+Every device build requires the same-tag Mac dev build (the iOS app is unusable
+without its Mac); when it is missing, the Mac tag is built first, and the reload
+refuses to ship a phone-only build if that fails.
 
 After install, the app is launched signed in (dogfood creds) and auto-paired to
 the tagged Mac app. Opt out granularly:
@@ -52,12 +63,18 @@ require_option_value() {
 
 TAG=""
 SIMULATOR_NAME="${IOS_SIMULATOR_NAME:-iPhone 17}"
+SIMULATOR_ID="${IOS_SIMULATOR_ID:-}"
+# Track whether the caller picked a simulator explicitly (flag or env); when
+# not, the reload uses the tag's own isolated simulator instead of a shared one.
+SIMULATOR_EXPLICIT=0
+[[ -n "${IOS_SIMULATOR_NAME:-}" || -n "${IOS_SIMULATOR_ID:-}" ]] && SIMULATOR_EXPLICIT=1
 DEVICE_ID="${IOS_DEVICE_ID:-}"
 DEVICE_NAME="${IOS_DEVICE_NAME:-}"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-}"
 LAUNCH=1
 RELOAD_SIMULATOR=1
 RELOAD_DEVICE=0
+SIMULATOR_ONLY=0
 ALLOW_PROVISIONING_UPDATES=1
 ALLOW_DEVICE_REGISTRATION=0
 # Auto-setup: after install + launch, sign in (inject dogfood creds) and auto-pair
@@ -85,7 +102,18 @@ while [[ $# -gt 0 ]]; do
     --simulator)
       require_option_value "$1" "${2:-}"
       SIMULATOR_NAME="${2:-}"
+      SIMULATOR_EXPLICIT=1
       shift 2
+      ;;
+    --simulator-id)
+      require_option_value "$1" "${2:-}"
+      SIMULATOR_ID="${2:-}"
+      SIMULATOR_EXPLICIT=1
+      shift 2
+      ;;
+    --simulator-only|--sim-only)
+      SIMULATOR_ONLY=1
+      shift
       ;;
     --device)
       RELOAD_DEVICE=1
@@ -161,6 +189,16 @@ if [[ -z "$TAG" ]]; then
   echo "error: --tag is required" >&2
   usage >&2
   exit 1
+fi
+
+if [[ "$SIMULATOR_ONLY" -eq 1 ]]; then
+  # At this point RELOAD_DEVICE is 1 only via explicit --device* flags (the
+  # configured-default device leg is applied later), so this is a real conflict.
+  if [[ "$RELOAD_SIMULATOR" -eq 0 || "$RELOAD_DEVICE" -eq 1 ]]; then
+    echo "error: --simulator-only conflicts with --device/--device-only/--device-id/--device-name" >&2
+    usage >&2
+    exit 1
+  fi
 fi
 
 if [[ "$RELOAD_SIMULATOR" -eq 0 && "$RELOAD_DEVICE" -eq 0 ]]; then
@@ -254,6 +292,12 @@ CMUX_IOS_IROH_BROKER_BASE_URL_VALUE="$(cmux_ios_resolve_iroh_broker_base_url)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+IROH_RELAY_POLICY_BUILD_ARGS=()
+if [[ "$PROD_AUTH" -eq 1 ]]; then
+  IROH_RELAY_POLICY_BUILD_ARGS=(
+    -xcconfig "$IOS_DIR/../config/IrohRelayPolicyProduction.xcconfig"
+  )
+fi
 # Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
 # built bundle id matches the signed-launch bundle id. Sourced before any
 # sanitize_tag call below.
@@ -270,8 +314,52 @@ TAG_SLUG="$(sanitize_tag "$TAG")"
 DISPLAY_NAME="cmux DEV $TAG"
 BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
+QUEUE_SCRIPT="$IOS_DIR/../scripts/iphone-install-queue.sh"
+
+# Enforced verification default: simulator + iPhone. When a default device id
+# is configured (CMUX_IPHONE_DEVICE_ID or ~/.config/cmux/iphone-device-id) and
+# the caller made no explicit device/simulator-only choice, enable the device
+# leg automatically so agent verification never silently stops at sim-only.
+DEFAULT_DEVICE_ID=""
+if [[ -x "$QUEUE_SCRIPT" ]]; then
+  DEFAULT_DEVICE_ID="$("$QUEUE_SCRIPT" default-device 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+fi
+if [[ "$SIMULATOR_ONLY" -eq 0 && "$RELOAD_DEVICE" -eq 0 && -n "$DEFAULT_DEVICE_ID" ]]; then
+  RELOAD_DEVICE=1
+  echo "==> default iPhone configured; reloading simulator + phone (opt out with --simulator-only)"
+fi
+if [[ "$RELOAD_DEVICE" -eq 1 && -z "$DEVICE_ID" && -z "$DEVICE_NAME" && -n "$DEFAULT_DEVICE_ID" ]]; then
+  DEVICE_ID="$DEFAULT_DEVICE_ID"
+fi
+
+# Isolated per-tag simulator by default: unless the caller explicitly picked a
+# simulator (flag or IOS_SIMULATOR_NAME/IOS_SIMULATOR_ID), resolve or create
+# "cmux-dev-<slug>" so concurrent agent sessions never share a simulator.
+if [[ "$RELOAD_SIMULATOR" -eq 1 && "$SIMULATOR_EXPLICIT" -eq 0 ]]; then
+  # shellcheck source=../../scripts/lib/ios-sim-isolate.sh
+  source "$IOS_DIR/../scripts/lib/ios-sim-isolate.sh"
+  SIMULATOR_ID="$(cmux_ios_isolated_sim_udid "$TAG_SLUG")"
+  [[ -n "$SIMULATOR_ID" ]] || { echo "error: could not resolve the isolated simulator for tag $TAG" >&2; exit 1; }
+  SIMULATOR_NAME="$(cmux_ios_isolated_sim_name "$TAG_SLUG")"
+fi
+
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
+if [[ -n "$SIMULATOR_ID" ]]; then
+  DESTINATION="platform=iOS Simulator,id=$SIMULATOR_ID"
+fi
 MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
+DEVICE_PROCESS_HELPER="$IOS_DIR/../scripts/ios-device-process.sh"
+GHOSTTYKIT_ENSURE="$IOS_DIR/../scripts/ensure-ghosttykit.sh"
+
+# Keep the linked xcframework synchronized with the checked-out Ghostty
+# submodule before Xcode builds either target. Without this, a local cloud
+# fallback can reuse a stale GhosttyKit symlink and compile against an older C
+# header even though the Swift sources target the current submodule API.
+if [[ ! -x "$GHOSTTYKIT_ENSURE" ]]; then
+  echo "error: $GHOSTTYKIT_ENSURE not found or not executable" >&2
+  exit 1
+fi
+"$GHOSTTYKIT_ENSURE"
 
 # Auto-setup launch: relaunch the just-installed app signed in (dogfood creds
 # injected) and, unless --no-attach, auto-paired to the tagged Mac app. Delegates
@@ -551,7 +639,7 @@ PY
 }
 
 reload_simulator() {
-  echo "==> Building simulator app (tag: $TAG, simulator: $SIMULATOR_NAME)"
+  echo "==> Building simulator app (tag: $TAG, simulator: $SIMULATOR_NAME${SIMULATOR_ID:+, id: $SIMULATOR_ID})"
 
   # Build the Swift package + app target with -O / wholemodule even on
   # Debug. The VT parser + snapshot rehydration runs on every push from
@@ -565,6 +653,7 @@ reload_simulator() {
     -configuration Debug \
     -destination "$DESTINATION" \
     -derivedDataPath "$DERIVED_DATA" \
+    ${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"} \
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
@@ -587,7 +676,10 @@ reload_simulator() {
     exit 1
   fi
 
-  SIM_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 - <<'PY'
+  if [[ -n "$SIMULATOR_ID" ]]; then
+    SIM_ID="$SIMULATOR_ID"
+  else
+    SIM_ID="$(SIMULATOR_NAME="$SIMULATOR_NAME" /usr/bin/python3 - <<'PY'
 import json
 import os
 import subprocess
@@ -603,7 +695,8 @@ for runtimes in data.get("devices", {}).values():
 print(f"error: simulator not found: {name}", file=sys.stderr)
 raise SystemExit(1)
 PY
-  )"
+    )"
+  fi
 
   xcrun simctl boot "$SIM_ID" >/dev/null 2>&1 || true
   xcrun simctl install "$SIM_ID" "$APP_PATH"
@@ -637,6 +730,39 @@ EOF
   fi
 }
 
+# Every phone build ships with the same-tag Mac dev build (the iOS app is
+# unusable without its Mac). Build the Mac tag first when missing; refuse to
+# ship a phone-only build when that fails.
+mac_app_present() {
+  [[ -d "$(cmux_attach_mac_app_path "$TAG")" ]] && return 0
+  compgen -G "$HOME/Library/Developer/Xcode/DerivedData/cmux-$TAG/Build/Products/Debug/cmux DEV*.app" >/dev/null 2>&1
+}
+
+ensure_mac_build() {
+  mac_app_present && return 0
+  if [[ "${CMUX_IOS_SKIP_MAC_BUILD_CHECK:-0}" == "1" ]]; then
+    echo "warning: same-tag Mac dev build missing (CMUX_IOS_SKIP_MAC_BUILD_CHECK=1; shipping phone-only at your own risk)" >&2
+    return 0
+  fi
+  local repo_root mac_reload
+  repo_root="$(cd "$IOS_DIR/.." && pwd)"
+  if [[ -x "$repo_root/scripts/reload-cloud.sh" ]]; then
+    mac_reload="$repo_root/scripts/reload-cloud.sh"
+  else
+    mac_reload="$repo_root/scripts/reload.sh"
+  fi
+  echo "==> same-tag Mac dev build missing for '$TAG'; building it first ($mac_reload)"
+  if ! ( cd "$repo_root" && "$mac_reload" --tag "$TAG" ); then
+    echo "error: Mac tagged build failed; refusing to ship a phone-only iOS build (the iOS app is unusable without its Mac)." >&2
+    echo "error: build it manually (./scripts/reload-cloud.sh --tag $TAG or ./scripts/reload.sh --tag $TAG), then re-run." >&2
+    exit 1
+  fi
+  if ! mac_app_present; then
+    echo "error: Mac build finished but no tagged Mac app was found; refusing a phone-only iOS build." >&2
+    exit 1
+  fi
+}
+
 reload_device() {
   local selection
   local selected_device_id
@@ -648,15 +774,64 @@ reload_device() {
   local build_log
   local tab
   local build_args
+  local queue_mode=0
+  local queued_device_id=""
 
-  selection="$(select_device)"
-  tab=$'\t'
-  selected_device_id="${selection%%$tab*}"
-  selection_remainder="${selection#*$tab}"
-  selected_device_install_id="${selection_remainder%%$tab*}"
-  selected_device_name="${selection_remainder#*$tab}"
+  ensure_mac_build
+
+  # Reachability uses ONE probe implementation (the queue script's), so the
+  # local and cloud reload paths agree on what "unreachable" means, including
+  # the CMUX_IPHONE_QUEUE_FORCE_UNREACHABLE test hook. select_device still owns
+  # name/ambiguity resolution for reachable devices, and its failure is treated
+  # as unreachable too (the phone can drop between probe and selection).
+  # A --device-name target never falls back to the DEFAULT device id: queueing
+  # a build for a different phone than the one named would install it on the
+  # wrong device.
+  local probe_id="$DEVICE_ID"
+  if [[ -z "$probe_id" && -z "$DEVICE_NAME" ]]; then
+    probe_id="$DEFAULT_DEVICE_ID"
+  fi
+  local device_unreachable=0
+  if [[ -n "$probe_id" && -x "$QUEUE_SCRIPT" ]] \
+      && ! "$QUEUE_SCRIPT" probe --device-id "$probe_id" >/dev/null 2>&1; then
+    device_unreachable=1
+  elif ! selection="$(select_device)"; then
+    device_unreachable=1
+  fi
+
+  if [[ "$device_unreachable" -eq 1 ]]; then
+    # The target iPhone is unreachable. Build anyway and park the signed app in
+    # the offline install queue so it auto-installs when the phone reconnects,
+    # instead of silently shipping simulator-only.
+    queued_device_id="$probe_id"
+    if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
+      echo "error: --allow-device-registration needs the device connected; cannot queue" >&2
+      exit 1
+    fi
+    if [[ -z "$queued_device_id" ]]; then
+      if [[ -n "$DEVICE_NAME" ]]; then
+        echo "error: device '$DEVICE_NAME' is unreachable and name targets cannot be queued (the queue needs a stable id); pass --device-id instead" >&2
+      else
+        echo "error: iPhone unreachable and no device id to queue for (pass --device-id, set CMUX_IPHONE_DEVICE_ID, or write ~/.config/cmux/iphone-device-id)" >&2
+      fi
+      exit 1
+    fi
+    if [[ ! -x "$QUEUE_SCRIPT" ]]; then
+      echo "error: iPhone unreachable and $QUEUE_SCRIPT is missing; cannot queue the build" >&2
+      exit 1
+    fi
+    queue_mode=1
+    selected_device_name="(unreachable, queueing for $queued_device_id)"
+    echo "==> iPhone unreachable; the signed build will be QUEUED for auto-install on reconnect"
+  else
+    tab=$'\t'
+    selected_device_id="${selection%%"$tab"*}"
+    selection_remainder="${selection#*"$tab"}"
+    selected_device_install_id="${selection_remainder%%"$tab"*}"
+    selected_device_name="${selection_remainder#*"$tab"}"
+  fi
   device_destination="generic/platform=iOS"
-  if [[ "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
+  if [[ "$queue_mode" -eq 0 && "$ALLOW_DEVICE_REGISTRATION" -eq 1 ]]; then
     device_destination="platform=iOS,id=$selected_device_id"
   fi
   device_app_path="$DERIVED_DATA/Build/Products/Debug-iphoneos/cmux.app"
@@ -672,6 +847,7 @@ reload_device() {
     -destination "$device_destination"
     -derivedDataPath "$DERIVED_DATA"
   )
+  build_args+=(${IROH_RELAY_POLICY_BUILD_ARGS[@]+"${IROH_RELAY_POLICY_BUILD_ARGS[@]}"})
 
   if [[ "$ALLOW_PROVISIONING_UPDATES" -eq 1 ]]; then
     build_args+=(-allowProvisioningUpdates)
@@ -681,7 +857,8 @@ reload_device() {
     build_args+=(-allowProvisioningDeviceRegistration)
   fi
 
-  build_args+=("${XCODE_AUTH_ARGS[@]}")
+  # bash 3.2 + set -u errors on expanding an empty array; guard the expansion.
+  build_args+=(${XCODE_AUTH_ARGS[@]+"${XCODE_AUTH_ARGS[@]}"})
 
   build_args+=(
     PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID"
@@ -722,7 +899,26 @@ reload_device() {
     exit 1
   fi
 
+  if [[ "$queue_mode" -eq 1 ]]; then
+    local enqueue_args
+    enqueue_args=(enqueue --tag "$TAG" --app "$device_app_path" \
+      --device-id "$queued_device_id" --checkout "$(cd "$IOS_DIR/.." && pwd)")
+    [[ "$NO_ATTACH" -eq 1 ]] && enqueue_args+=(--no-attach)
+    [[ "$NO_SIGN_IN" -eq 1 ]] && enqueue_args+=(--no-sign-in)
+    [[ "$NO_SETUP" -eq 1 ]] && enqueue_args+=(--no-setup)
+    [[ "$LAUNCH" -eq 0 ]] && enqueue_args+=(--no-launch)
+    "$QUEUE_SCRIPT" "${enqueue_args[@]}"
+    return 0
+  fi
+
   echo "==> Installing physical device app"
+  if [[ ! -x "$DEVICE_PROCESS_HELPER" ]]; then
+    echo "error: $DEVICE_PROCESS_HELPER not found or not executable" >&2
+    exit 1
+  fi
+  "$DEVICE_PROCESS_HELPER" terminate-installed \
+    --device-id "$selected_device_install_id" \
+    --bundle-id "$BUNDLE_ID"
   xcrun devicectl device install app --device "$selected_device_install_id" "$device_app_path"
 
   if [[ "$LAUNCH" -eq 1 ]]; then

@@ -8,6 +8,7 @@ let insertedEventRows: unknown[] = [{ id: "evt_1" }];
 let selectedEventRows: unknown[] = [];
 const updates: Record<string, unknown>[] = [];
 let recordCheckoutShouldFail = false;
+let proWelcomeShouldFail = false;
 let recordCheckoutCompletionResult: unknown = {
   scope: "user",
   stackUserId: "user_1",
@@ -17,15 +18,28 @@ const recordCheckoutCompletion = mock(async () => {
   if (recordCheckoutShouldFail) throw new Error("db down");
   return recordCheckoutCompletionResult;
 });
-const applySubscriptionUpdate = mock(async () => ({ stackUserId: "user_1", isActive: true }));
-const retrieveSession = mock(async () => ({
+let applySubscriptionUpdateResult: unknown = {
+  scope: "user",
+  stackUserId: "user_1",
+  isActive: true,
+};
+const applySubscriptionUpdate = mock(async () => applySubscriptionUpdateResult);
+const revokeCoderouterRouteTokens = mock(async () => {});
+const captureStripeBillingEvent = mock(async () => {});
+const deferredTasks: Array<() => Promise<void>> = [];
+const sendProSignupWelcome = mock(async () => {
+  if (proWelcomeShouldFail) throw new Error("email provider unavailable");
+});
+const paidCheckoutSession = {
   id: "cs_1",
   payment_status: "paid",
   client_reference_id: "user_1",
   metadata: { app: "cmux", plan: "pro" },
-  subscription: { id: "sub_1" },
+  subscription: { id: "sub_1", status: "active" },
   customer: { id: "cus_1" },
-}));
+};
+let retrievedCheckoutSession: Record<string, unknown> = paidCheckoutSession;
+const retrieveSession = mock(async () => retrievedCheckoutSession);
 const retrieveSubscription = mock(async () => ({
   id: "sub_1",
   customer: "cus_1",
@@ -82,6 +96,10 @@ const POST = makeStripeWebhookHandler({
     }) as never,
   recordCheckoutCompletion: recordCheckoutCompletion as never,
   applySubscriptionUpdate: applySubscriptionUpdate as never,
+  sendProSignupWelcome,
+  revokeCoderouterRouteTokens,
+  captureStripeBillingEvent,
+  defer: (task) => deferredTasks.push(task),
 });
 
 describe("Stripe billing webhook route", () => {
@@ -102,13 +120,24 @@ describe("Stripe billing webhook route", () => {
     selectedEventRows = [];
     updates.length = 0;
     recordCheckoutShouldFail = false;
+    proWelcomeShouldFail = false;
     recordCheckoutCompletionResult = {
       scope: "user",
       stackUserId: "user_1",
       subscriptionId: "sub_1",
     };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+    };
+    retrievedCheckoutSession = paidCheckoutSession;
     recordCheckoutCompletion.mockClear();
     applySubscriptionUpdate.mockClear();
+    revokeCoderouterRouteTokens.mockClear();
+    captureStripeBillingEvent.mockClear();
+    deferredTasks.length = 0;
+    sendProSignupWelcome.mockClear();
     retrieveSession.mockClear();
     retrieveSubscription.mockClear();
   });
@@ -155,7 +184,134 @@ describe("Stripe billing webhook route", () => {
       expand: ["subscription", "customer"],
     });
     expect(recordCheckoutCompletion).toHaveBeenCalled();
+    expect(captureStripeBillingEvent).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+    await deferredTasks[0]();
+    expect(captureStripeBillingEvent).toHaveBeenCalledWith(
+      currentEvent,
+      {
+        scope: "user",
+        stackUserId: "user_1",
+        isActive: true,
+        status: "active",
+      },
+    );
     expect(updates.at(-1)).toMatchObject({ error: null });
+  });
+
+  test("sends the Pro signup welcome after a personal Pro checkout", async () => {
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).toHaveBeenCalledWith({
+      session: expect.objectContaining({ id: "cs_1" }),
+      stackUserId: "user_1",
+    });
+  });
+
+  test("retries a Pro welcome when the first webhook delivery records an email error", async () => {
+    proWelcomeShouldFail = true;
+
+    const failed = await POST(webhookRequest());
+
+    expect(failed.status).toBe(500);
+    expect(updates.at(-1)).toMatchObject({ error: "email provider unavailable" });
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+
+    insertedEventRows = [];
+    selectedEventRows = [{ processedAt: null, error: "email provider unavailable" }];
+    proWelcomeShouldFail = false;
+
+    const retried = await POST(webhookRequest());
+
+    expect(retried.status).toBe(200);
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(2);
+    expect(updates.at(-1)).toMatchObject({ error: null });
+  });
+
+  test("defers recording and Pro email while checkout payment is pending", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      payment_status: "unpaid",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: "checkout_payment_pending",
+    });
+    expect(recordCheckoutCompletion).not.toHaveBeenCalled();
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
+  });
+
+  test("does not mark a settled checkout active when its subscription is incomplete", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      subscription: { id: "sub_1", status: "incomplete" },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await deferredTasks[0]();
+    expect(captureStripeBillingEvent).toHaveBeenCalledWith(
+      currentEvent,
+      expect.objectContaining({
+        isActive: false,
+        status: "incomplete",
+      }),
+    );
+  });
+
+  test("records and emails a delayed Pro checkout after payment succeeds", async () => {
+    currentEvent = {
+      id: "evt_async_paid",
+      type: "checkout.session.async_payment_succeeded",
+      data: {
+        object: {
+          id: "cs_1",
+          client_reference_id: "user_1",
+          metadata: { app: "cmux", plan: "pro" },
+        },
+      },
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      processed: "checkout.session.async_payment_succeeded",
+    });
+    expect(recordCheckoutCompletion).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+  });
+
+  test("records a fully discounted checkout that requires no payment", async () => {
+    retrievedCheckoutSession = {
+      ...paidCheckoutSession,
+      payment_status: "no_payment_required",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(recordCheckoutCompletion).toHaveBeenCalledTimes(1);
+    expect(sendProSignupWelcome).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not run personal Pro fulfillment for a team checkout", async () => {
+    recordCheckoutCompletionResult = {
+      scope: "team",
+      stackTeamId: "team_1",
+      subscriptionId: "sub_1",
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(sendProSignupWelcome).not.toHaveBeenCalled();
   });
 
   test("reports checkout completions skipped during account deletion", async () => {
@@ -175,6 +331,11 @@ describe("Stripe billing webhook route", () => {
   });
 
   test("applies deleted subscription updates", async () => {
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: false,
+    };
     currentEvent = {
       id: "evt_1",
       type: "customer.subscription.deleted",
@@ -194,6 +355,90 @@ describe("Stripe billing webhook route", () => {
     expect(applySubscriptionUpdate).toHaveBeenCalledWith(
       (currentEvent.data as { object: unknown }).object,
     );
+    expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+    expect(captureStripeBillingEvent).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+    await deferredTasks[0]();
+    expect(captureStripeBillingEvent).toHaveBeenCalledWith(
+      currentEvent,
+      {
+        scope: "user",
+        stackUserId: "user_1",
+        isActive: false,
+        status: "canceled",
+      },
+    );
+  });
+
+  test("revokes coderouter tokens for an inactive invoice subscription update", async () => {
+    currentEvent = {
+      id: "evt_invoice_failed",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_1",
+          subscription: "sub_1",
+        },
+      },
+    };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: false,
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(revokeCoderouterRouteTokens).toHaveBeenCalledWith("user_1");
+  });
+
+  test("restores entitlement without revoking tokens after invoice recovery", async () => {
+    currentEvent = {
+      id: "evt_invoice_paid",
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_1",
+          subscription: "sub_1",
+        },
+      },
+    };
+    applySubscriptionUpdateResult = {
+      scope: "user",
+      stackUserId: "user_1",
+      isActive: true,
+    };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_1");
+    expect(applySubscriptionUpdate).toHaveBeenCalledTimes(1);
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
+  });
+
+  test("does not revoke tokens when an invoice subscription is unmapped", async () => {
+    currentEvent = {
+      id: "evt_invoice_unmapped",
+      type: "invoice.payment_failed",
+      data: {
+        object: {
+          id: "in_1",
+          subscription: "sub_foreign",
+        },
+      },
+    };
+    applySubscriptionUpdateResult = { skipped: "subscription_unmapped" };
+
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      skipped: "invoice_subscription_unmapped",
+    });
+    expect(revokeCoderouterRouteTokens).not.toHaveBeenCalled();
   });
 
   test("marks the event and returns 500 when processing fails", async () => {

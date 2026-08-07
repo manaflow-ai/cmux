@@ -18,6 +18,7 @@ import socket
 import struct
 import subprocess
 import termios
+import tempfile
 import time
 
 BIN = os.environ.get("CMUX_TUI_BIN", "target/debug/cmux-tui")
@@ -25,6 +26,9 @@ SESSION = f"smoke-attach-{os.getpid()}"
 SOCK = None
 CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
 MARKER = f"reattach-marker-{os.getpid()}"
+TEST_CONFIG_ROOT = tempfile.TemporaryDirectory(prefix="cmux-smoke-attach-")
+TEST_CONFIG = os.path.join(TEST_CONFIG_ROOT.name, "config.json")
+CLIENTS = []
 
 
 def fallback_socket_path():
@@ -72,6 +76,31 @@ def wait_for_control_socket(server, seconds=15):
         + "; output:\n"
         + "".join(output)[-2000:]
     )
+
+
+def control_string_end(data, start, allow_bel):
+    ends = []
+    if allow_bel:
+        bel = data.find(b"\x07", start)
+        if bel >= 0:
+            ends.append((bel, bel + 1))
+    st = data.find(b"\x1b\\", start)
+    if st >= 0:
+        ends.append((st, st + 2))
+    if not ends:
+        return None
+    return min(ends, key=lambda entry: entry[0])[1]
+
+
+def non_csi_escape_end(data, start):
+    if start + 1 >= len(data):
+        return None
+    kind = data[start + 1]
+    if kind == ord("]"):
+        return control_string_end(data, start + 2, allow_bel=True)
+    if kind in (ord("P"), ord("X"), ord("^"), ord("_")):
+        return control_string_end(data, start + 2, allow_bel=False)
+    return start + 2
 
 
 def render_client_frame(data, rows=30, cols=100):
@@ -165,6 +194,12 @@ def render_client_frame(data, rows=30, cols=100):
                         rev = False
             i = j + 1
             continue
+        if b == 0x1B:
+            end = non_csi_escape_end(data, i)
+            if end is None:
+                break
+            i = end
+            continue
         if b == 0x0D:
             x = 0
             i += 1
@@ -197,6 +232,14 @@ def render_client_frame(data, rows=30, cols=100):
         i += width
         x = min(cols - 1, x + 1)
     return chars, reverse
+
+
+control_frame, _ = render_client_frame(
+    b"\x1b]12;#c0c1b5\x07A\x1bPignored payload\x1b\\B",
+    rows=1,
+    cols=2,
+)
+assert control_frame[0] == ["A", "B"], control_frame[0]
 
 
 def reverse_percent_cells(frame):
@@ -263,6 +306,15 @@ def client_server_mismatch(client):
     ws = rpc({"id": 1999, "cmd": "list-workspaces"})
     active_ws = next(w for w in ws["data"]["workspaces"] if w["active"])
     screen = next(s for s in active_ws["screens"] if s["active"])
+    clients = rpc({"id": 1998, "cmd": "list-clients"})["data"]
+    tui_clients = [info for info in clients if info["kind"] == "tui"]
+    assert len(tui_clients) == 1, tui_clients
+    participating_surfaces = {
+        size["surface"]
+        for info in tui_clients
+        for size in info["sizes"]
+        if size["size_participating"]
+    }
     pane_rects = layout_panes(screen["layout"], (22, 0, client.cols - 22, client.rows - 1))
     panes = {pane["id"]: pane for pane in screen["panes"]}
     frame = render_client_frame(client.output, client.rows, client.cols)
@@ -271,6 +323,11 @@ def client_server_mismatch(client):
         if not pane or not pane["tabs"]:
             continue
         tab = pane["tabs"][pane["active_tab"]]
+        if tab["surface"] not in participating_surfaces:
+            # A passive projection intentionally replaces cells outside the
+            # authoritative terminal grid with a dead-space hint. Its client
+            # frame therefore cannot equal the raw server grid cell-for-cell.
+            continue
         cx, cy, width, height = content_rect(rect)
         if width == 0 or height == 0:
             continue
@@ -340,10 +397,34 @@ class Client:
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.environ["TERM"] = "xterm-256color"
+            os.environ["CMUX_TUI_CONFIG"] = TEST_CONFIG
             os.execv(BIN, [BIN, "attach", "--session", SESSION, "--socket", SOCK])
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         os.kill(self.pid, signal.SIGWINCH)
+        self.reaped = False
+        self.closed = False
         self.output = b""
+        self.keyboard_probe_answers = 0
+        self.device_probe_answers = 0
+        self.color_probe_answers = {10: 0, 11: 0}
+        CLIENTS.append(self)
+
+    def record_output(self, chunk):
+        self.output += chunk
+        keyboard_queries = self.output.count(b"\x1b[?u")
+        while self.keyboard_probe_answers < keyboard_queries:
+            os.write(self.fd, b"\x1b[?29u")
+            self.keyboard_probe_answers += 1
+        device_queries = self.output.count(b"\x1b[c")
+        while self.device_probe_answers < device_queries:
+            os.write(self.fd, b"\x1b[?1;2c")
+            self.device_probe_answers += 1
+        for color, value in ((10, b"rgb:d8d8/d9d9/dada"), (11, b"rgb:1313/1414/1515")):
+            query = f"\x1b]{color};?\x1b\\".encode()
+            queries = self.output.count(query)
+            while self.color_probe_answers[color] < queries:
+                os.write(self.fd, f"\x1b]{color};".encode() + value + b"\x1b\\")
+                self.color_probe_answers[color] += 1
 
     def drain(self, seconds):
         end = time.time() + seconds
@@ -351,7 +432,7 @@ class Client:
             r, _, _ = select.select([self.fd], [], [], 0.1)
             if r:
                 try:
-                    self.output += os.read(self.fd, 65536)
+                    self.record_output(os.read(self.fd, 65536))
                 except OSError:
                     break
 
@@ -363,7 +444,7 @@ class Client:
             r, _, _ = select.select([self.fd], [], [], wait)
             if r:
                 try:
-                    self.output += os.read(self.fd, 65536)
+                    self.record_output(os.read(self.fd, 65536))
                     quiet_deadline = time.time() + quiet
                 except OSError:
                     return
@@ -379,6 +460,34 @@ class Client:
                 return True
         return False
 
+    def wait_frame_text(self, needle, seconds):
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            self.drain(0.2)
+            frame, _ = render_client_frame(self.output, self.rows, self.cols)
+            if needle in "\n".join("".join(row) for row in frame):
+                return True
+        return False
+
+    def wait_ready(self, seconds=15):
+        deadline = time.time() + seconds
+        session_marker = f"[{SESSION}]".encode()
+        while time.time() < deadline:
+            self.drain(0.2)
+            if (
+                self.keyboard_probe_answers > 0
+                and self.device_probe_answers >= 2
+                and b"\x1b[?2004h" in self.output
+                and session_marker in self.output
+            ):
+                assert b"\x1b[<1u" not in self.output, "keyboard protocol negotiation fell back"
+                self.drain_until_quiet(quiet=0.2)
+                return
+        raise AssertionError(
+            "attach client did not finish terminal startup; raw output: "
+            + repr(self.output[-2000:])
+        )
+
     def send(self, data):
         os.write(self.fd, data)
 
@@ -386,32 +495,64 @@ class Client:
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.cols, 0, 0))
         os.kill(self.pid, signal.SIGWINCH)
 
+    def close(self):
+        if not self.reaped:
+            try:
+                done, _ = os.waitpid(self.pid, os.WNOHANG)
+            except ChildProcessError:
+                done = self.pid
+            if not done:
+                os.kill(self.pid, signal.SIGKILL)
+                os.waitpid(self.pid, 0)
+            self.reaped = True
+        if not self.closed:
+            os.close(self.fd)
+            self.closed = True
+
     def detach(self):
-        self.send(b"\x02d")  # prefix-d
+        self.send(b"\x1b[98;5u\x1b[100u")  # enhanced Ctrl-b, then d
         deadline = time.time() + 10
         while time.time() < deadline:
             done, status = os.waitpid(self.pid, os.WNOHANG)
             if done:
+                self.reaped = True
+                self.close()
                 return status
             self.drain(0.2)
         os.kill(self.pid, signal.SIGKILL)
-        raise SystemExit("attach client did not exit on prefix-d")
+        os.waitpid(self.pid, 0)
+        self.reaped = True
+        frame, _ = render_client_frame(self.output, self.rows, self.cols)
+        self.close()
+        raise SystemExit(
+            "attach client did not exit on prefix-d; final frame:\n"
+            + "\n".join("".join(row) for row in frame)
+            + "\nraw tail: "
+            + repr(self.output[-2000:])
+            + "\nraw head: "
+            + repr(self.output[:2000])
+            + f"\nkeyboard probe answers: {self.keyboard_probe_answers}"
+        )
 
 
 # Headless server.
 server = subprocess.Popen(
-    [BIN, "--headless", "--session", SESSION],
+    # This test owns one process lifetime and verifies frontend detach, not
+    # daemon restart adoption. Keep its terminals in-process so teardown
+    # cannot leave durable terminal hosts or consume the machine PTY pool.
+    [BIN, "--headless", "--ephemeral", "--session", SESSION],
     stdout=subprocess.PIPE,
     stderr=subprocess.STDOUT,
     text=True,
     bufsize=1,
+    env={**os.environ, "CMUX_TUI_CONFIG": TEST_CONFIG},
 )
-SOCK = wait_for_control_socket(server)
 
 try:
+    SOCK = wait_for_control_socket(server)
     # First attach: type a marker into the shell.
     c1 = Client()
-    c1.drain(1.5)
+    c1.wait_ready()
     c1.send(f"printf '{MARKER}\\n'\r".encode())
     assert c1.wait_output(MARKER, 15), "marker never rendered on first attach"
     status = c1.detach()
@@ -428,10 +569,19 @@ try:
 
     # Reattach: the marker must be rendered from the VT replay alone.
     c2 = Client()
+    c2.wait_ready()
     assert c2.wait_output(MARKER, 15), "marker not rendered after reattach"
     # Live path still works after replay: type another command.
     c2.send(b"printf '\\033[3J\\033[H\\033[2J'; printf 'live-after-reattach\\n'\r")
-    assert c2.wait_output("live-after-reattach", 15), "live stream broken after reattach"
+    if not c2.wait_frame_text("live-after-reattach", 15):
+        stalled_screen = rpc({"id": 30, "cmd": "read-screen", "surface": surface_id})
+        stalled_frame, _ = render_client_frame(c2.output)
+        raise AssertionError(
+            "live stream broken after reattach; client frame:\n"
+            + "\n".join("".join(row) for row in stalled_frame)
+            + "\nserver screen:\n"
+            + stalled_screen["data"]["text"]
+        )
     live_screen = rpc({"id": 3, "cmd": "read-screen", "surface": surface_id})
     assert "live-after-reattach" in live_screen["data"]["text"], live_screen["data"]["text"]
 
@@ -469,16 +619,16 @@ try:
     print("reattach replay + live stream ok")
 
     c3 = Client(rows=60, cols=231)
-    c3.drain_until_quiet()
+    c3.wait_ready()
     storm_start = len(c3.output)
     for _ in range(4):
-        c3.send(b"\x1bn")
+        c3.send(b"\x1b[110;3u")
         time.sleep(0.04)
         c3.drain(0.1)
-    c3.send(b"\x02%")
+    c3.send(b"\x1b[98;5u\x1b[53:37;2;37u")
     time.sleep(0.04)
     c3.drain(0.2)
-    c3.send(b"\x02t")
+    c3.send(b"\x1b[98;5u\x1b[116u")
     c3.drain_until_quiet()
 
     repaint = base64.b64encode(b"\x0c").decode()
@@ -497,9 +647,19 @@ try:
     print("large attach storm ok")
 
 finally:
-    server.terminate()
-    server.wait(timeout=10)
-    if SOCK and os.path.exists(SOCK):
-        os.unlink(SOCK)
+    for client in CLIENTS:
+        client.close()
+    if server.poll() is None:
+        server.terminate()
+    try:
+        server.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        server.kill()
+        server.wait(timeout=10)
+    try:
+        if SOCK and os.path.exists(SOCK):
+            os.unlink(SOCK)
+    finally:
+        TEST_CONFIG_ROOT.cleanup()
 
 print("ATTACH SMOKE OK")

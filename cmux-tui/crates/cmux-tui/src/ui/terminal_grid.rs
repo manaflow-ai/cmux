@@ -1,5 +1,7 @@
+use std::borrow::Cow;
+
 use cmux_tui_core::{Rect, SurfaceRenderFrame};
-use ghostty_vt::{Cell as VtCell, ColorSpec, Rgb};
+use ghostty_vt::{Cell as VtCell, CellWidth, ColorSpec, Rgb};
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect as RatatuiRect;
@@ -16,29 +18,70 @@ pub fn draw_render_frame(
     chrome: &ChromeTheme,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
-    draw_render_frame_with_catalog(frame, rect, render, theme, chrome, catalog(), selected)
+    draw_render_frame_with_catalog(
+        frame,
+        HorizontalViewport { rect, source_x: 0 },
+        render,
+        theme,
+        chrome,
+        catalog(),
+        selected,
+    )
 }
 
-pub(crate) fn rendered_viewport_rect(
+pub fn draw_render_frame_cropped(
+    frame: &mut Frame,
+    rect: Rect,
+    source_x: u16,
+    render: &SurfaceRenderFrame,
+    theme: &Theme,
+    chrome: &ChromeTheme,
+    selected: impl Fn(u16, u16) -> bool,
+) -> Option<(u16, u16)> {
+    draw_render_frame_with_catalog(
+        frame,
+        HorizontalViewport { rect, source_x },
+        render,
+        theme,
+        chrome,
+        catalog(),
+        selected,
+    )
+}
+
+pub(crate) fn rendered_viewport_rect_cropped(
     rect: Rect,
     screen: RatatuiRect,
     render: &SurfaceRenderFrame,
+    source_x: u16,
 ) -> Rect {
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x));
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y));
     let (snap_cols, snap_rows) = render.frame.size;
-    Rect { x: rect.x, y: rect.y, width: snap_cols.min(max_cols), height: snap_rows.min(max_rows) }
+    Rect {
+        x: rect.x,
+        y: rect.y,
+        width: snap_cols.saturating_sub(source_x).min(max_cols),
+        height: snap_rows.min(max_rows),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HorizontalViewport {
+    rect: Rect,
+    source_x: u16,
 }
 
 fn draw_render_frame_with_catalog(
     frame: &mut Frame,
-    rect: Rect,
+    viewport: HorizontalViewport,
     render: &SurfaceRenderFrame,
     theme: &Theme,
     chrome: &ChromeTheme,
     catalog: &Catalog,
     selected: impl Fn(u16, u16) -> bool,
 ) -> Option<(u16, u16)> {
+    let HorizontalViewport { rect, source_x } = viewport;
     if rect.width == 0 || rect.height == 0 {
         return None;
     }
@@ -46,10 +89,11 @@ fn draw_render_frame_with_catalog(
     let max_cols = rect.width.min(screen.width.saturating_sub(rect.x)) as usize;
     let max_rows = rect.height.min(screen.height.saturating_sub(rect.y)) as usize;
     let (snap_cols, snap_rows) = render.frame.size;
-    let live = rendered_viewport_rect(rect, screen, render);
+    let live = rendered_viewport_rect_cropped(rect, screen, render, source_x);
     let live_cols = usize::from(live.width);
     let live_rows = usize::from(live.height);
     let colors = PaletteResolver::from_frame(render);
+    let blank_style = colors.blank_style();
     let buf = frame.buffer_mut();
 
     for (row, cells) in render.frame.styled_rows().iter().enumerate() {
@@ -57,17 +101,22 @@ fn draw_render_frame_with_catalog(
             break;
         }
         let y = rect.y + row as u16;
-        for (col, cell) in cells.iter().enumerate() {
-            if col >= live_cols {
-                break;
-            }
+        let source_x = usize::from(source_x);
+        let available = cells.len().saturating_sub(source_x).min(live_cols);
+        let source_end = source_x.saturating_add(available);
+        for col in 0..available {
+            let source_col = source_x + col;
             let x = rect.x + col as u16;
-            let selected = selected(col as u16, row as u16);
+            let selected = selected(source_col as u16, row as u16);
+            let cell = &cells[source_col];
             apply_cell(&mut buf[(x, y)], cell, &colors, selected.then_some(theme));
+            if partial_wide_cell(cells, source_x, source_end, source_col) {
+                buf[(x, y)].set_symbol(" ");
+            }
         }
-        for col in cells.len()..live_cols {
+        for col in available..live_cols {
             let x = rect.x + col as u16;
-            buf[(x, y)].set_symbol(" ").set_style(Style::default());
+            buf[(x, y)].set_symbol(" ").set_style(blank_style);
         }
     }
 
@@ -81,8 +130,33 @@ fn draw_render_frame_with_catalog(
     render
         .frame
         .cursor
-        .filter(|cursor| (cursor.x as usize) < live_cols && (cursor.y as usize) < live_rows)
-        .map(|cursor| (rect.x + cursor.x, rect.y + cursor.y))
+        .filter(|cursor| {
+            cursor.x >= source_x
+                && usize::from(cursor.x - source_x) < live_cols
+                && (cursor.y as usize) < live_rows
+        })
+        .map(|cursor| (rect.x + cursor.x - source_x, rect.y + cursor.y))
+}
+
+fn partial_wide_cell(
+    cells: &[VtCell],
+    source_start: usize,
+    source_end: usize,
+    source_col: usize,
+) -> bool {
+    match cells[source_col].width {
+        CellWidth::Wide => cells
+            .get(source_col.saturating_add(1))
+            .filter(|_| source_col.saturating_add(1) < source_end)
+            .is_none_or(|next| next.width != CellWidth::SpacerTail),
+        CellWidth::SpacerTail => {
+            source_col == source_start
+                || cells
+                    .get(source_col.saturating_sub(1))
+                    .is_none_or(|previous| previous.width != CellWidth::Wide)
+        }
+        CellWidth::Narrow | CellWidth::SpacerHead => false,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -199,22 +273,52 @@ fn draw_foreign_size_hint(
 struct PaletteResolver<'a> {
     colors: &'a [Rgb; 256],
     overridden: &'a [bool; 256],
+    default_fg: Rgb,
+    default_bg: Rgb,
+}
+
+pub(crate) fn resolved_cursor_color(frame: &SurfaceRenderFrame) -> Rgb {
+    frame.frame.cursor_color.unwrap_or(frame.frame.default_colors.1)
 }
 
 impl<'a> PaletteResolver<'a> {
     fn from_frame(frame: &'a SurfaceRenderFrame) -> Self {
-        Self { colors: &frame.palette_colors, overridden: &frame.palette_overridden }
+        // RenderFrame follows Ghostty's native (background, foreground)
+        // ordering; keep the visual roles explicit at this boundary.
+        let (default_bg, default_fg) = frame.frame.default_colors;
+        Self {
+            colors: &frame.palette_colors,
+            overridden: &frame.palette_overridden,
+            default_fg,
+            default_bg,
+        }
     }
 
-    fn resolve(&self, spec: ColorSpec) -> Color {
+    fn resolve(&self, spec: ColorSpec, default: Rgb) -> Color {
         match spec {
-            ColorSpec::Default => Color::Reset,
+            ColorSpec::Default => rgb_color(default),
             ColorSpec::Rgb(rgb) => Color::Rgb(rgb.r, rgb.g, rgb.b),
             ColorSpec::Palette(idx) => {
                 resolve_palette_color(idx, self.overridden[idx as usize], self.colors[idx as usize])
             }
         }
     }
+
+    fn resolve_fg(&self, spec: ColorSpec) -> Color {
+        self.resolve(spec, self.default_fg)
+    }
+
+    fn resolve_bg(&self, spec: ColorSpec) -> Color {
+        self.resolve(spec, self.default_bg)
+    }
+
+    fn blank_style(&self) -> Style {
+        Style::default().fg(rgb_color(self.default_fg)).bg(rgb_color(self.default_bg))
+    }
+}
+
+fn rgb_color(rgb: Rgb) -> Color {
+    Color::Rgb(rgb.r, rgb.g, rgb.b)
 }
 
 fn resolve_palette_color(idx: u8, overridden: bool, rgb: Rgb) -> Color {
@@ -253,15 +357,11 @@ fn apply_cell(
     selected: Option<&Theme>,
 ) {
     target.reset();
-    if cell.text.is_empty() {
-        target.set_symbol(" ");
-    } else {
-        target.set_symbol(&cell.text);
-    }
+    target.set_symbol(&renderable_cell_text(&cell.text));
 
     let mut style = Style::default();
-    style = style.fg(colors.resolve(cell.fg));
-    style = style.bg(colors.resolve(cell.bg));
+    style = style.fg(colors.resolve_fg(cell.fg));
+    style = style.bg(colors.resolve_bg(cell.bg));
     let mut modifier = Modifier::empty();
     if cell.bold {
         modifier |= Modifier::BOLD;
@@ -298,22 +398,42 @@ fn apply_cell(
     target.set_style(style);
 }
 
+fn renderable_cell_text(text: &str) -> Cow<'_, str> {
+    if text.is_empty() {
+        return Cow::Borrowed(" ");
+    }
+    if !text.chars().any(char::is_control) {
+        return Cow::Borrowed(text);
+    }
+    let sanitized = text.chars().filter(|character| !character.is_control()).collect::<String>();
+    if sanitized.is_empty() { Cow::Borrowed(" ") } else { Cow::Owned(sanitized) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmux_tui_core::SurfaceRenderFrame;
-    use ghostty_vt::{Callbacks, RenderState, Terminal as VtTerminal};
-    use ratatui::Terminal;
+    use ghostty_vt::{Callbacks, RenderState, Terminal};
+    use ratatui::Terminal as RatatuiTerminal;
     use ratatui::backend::TestBackend;
 
+    #[test]
+    fn terminal_cells_drop_control_characters_before_ratatui_diffing() {
+        assert_eq!(renderable_cell_text("\r").as_ref(), " ");
+        assert_eq!(renderable_cell_text("a\x1bb").as_ref(), "ab");
+        assert_eq!(renderable_cell_text("plain").as_ref(), "plain");
+    }
+
     fn render_frame(cols: u16, rows: u16) -> SurfaceRenderFrame {
-        let mut terminal = VtTerminal::new(cols, rows, 0, Callbacks::default()).unwrap();
+        let mut terminal = Terminal::new(cols, rows, 0, Callbacks::default()).unwrap();
         terminal.vt_write(b"live");
         let mut state = RenderState::new().unwrap();
         state.update(&mut terminal).unwrap();
         SurfaceRenderFrame {
             frame: state.build_frame().unwrap(),
+            content_generation: 1,
             scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
             palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
             palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
         }
@@ -324,15 +444,15 @@ mod tests {
         rect: Rect,
         chrome: ChromeTheme,
         locale: &str,
-    ) -> Terminal<TestBackend> {
+    ) -> RatatuiTerminal<TestBackend> {
         let width = rect.x + rect.width;
         let height = rect.y + rect.height;
-        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        let mut terminal = RatatuiTerminal::new(TestBackend::new(width, height)).unwrap();
         terminal
             .draw(|frame| {
                 draw_render_frame_with_catalog(
                     frame,
-                    rect,
+                    HorizontalViewport { rect, source_x: 0 },
                     render,
                     &Theme::default(),
                     &chrome,
@@ -342,6 +462,89 @@ mod tests {
             })
             .unwrap();
         terminal
+    }
+
+    #[test]
+    fn cropped_grid_starts_at_the_requested_source_column() {
+        let mut terminal = Terminal::new(8, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"abcdefgh");
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let mut output = RatatuiTerminal::new(TestBackend::new(3, 1)).unwrap();
+        output
+            .draw(|frame| {
+                draw_render_frame_with_catalog(
+                    frame,
+                    HorizontalViewport {
+                        rect: Rect { x: 0, y: 0, width: 3, height: 1 },
+                        source_x: 3,
+                    },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    crate::localization::catalog_for_locale("en_US.UTF-8"),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+
+        assert_eq!(row_text(output.backend().buffer(), 0, 0, 3), "def");
+    }
+
+    #[test]
+    fn cropped_grid_blanks_partial_wide_glyphs_at_both_edges() {
+        let mut terminal = Terminal::new(6, 1, 0, Callbacks::default()).unwrap();
+        terminal.vt_write("a界bc".as_bytes());
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        let render = SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: std::array::from_fn(|idx| state.palette_color(idx as u8)),
+            palette_overridden: std::array::from_fn(|idx| state.palette_overridden(idx as u8)),
+        };
+        let draw_crop = |source_x| {
+            let mut output = RatatuiTerminal::new(TestBackend::new(2, 1)).unwrap();
+            output
+                .draw(|frame| {
+                    draw_render_frame_with_catalog(
+                        frame,
+                        HorizontalViewport {
+                            rect: Rect { x: 0, y: 0, width: 2, height: 1 },
+                            source_x,
+                        },
+                        &render,
+                        &Theme::default(),
+                        &ChromeTheme::dark(),
+                        crate::localization::catalog_for_locale("en_US.UTF-8"),
+                        |_, _| false,
+                    );
+                })
+                .unwrap();
+            output
+        };
+
+        let clipped_lead = draw_crop(0);
+        assert_eq!(row_text(clipped_lead.backend().buffer(), 0, 0, 2), "a ");
+
+        let complete_glyph = draw_crop(1);
+        assert_eq!(complete_glyph.backend().buffer()[(0, 0)].symbol(), "界");
+        assert_eq!(complete_glyph.backend().buffer()[(1, 0)].symbol(), " ");
+
+        let clipped_tail = draw_crop(2);
+        assert_eq!(row_text(clipped_tail.backend().buffer(), 0, 0, 2), " b");
     }
 
     fn row_text(buffer: &Buffer, y: u16, x: u16, width: u16) -> String {
@@ -358,11 +561,40 @@ mod tests {
             .expect("English hint fits inline")
     }
 
+    fn render_frame_with_defaults(
+        foreground: Rgb,
+        background: Rgb,
+        cursor: Option<Rgb>,
+    ) -> SurfaceRenderFrame {
+        let mut terminal = Terminal::new(2, 1, 0, Callbacks::default()).unwrap();
+        terminal.set_default_colors(Some(foreground), Some(background), cursor);
+        let mut state = RenderState::new().unwrap();
+        state.update(&mut terminal).unwrap();
+        SurfaceRenderFrame {
+            frame: state.build_frame().unwrap(),
+            content_generation: 1,
+            scrollback_rows: 0,
+            history_epoch: terminal.history_epoch(),
+            pointer_semantics: terminal.pointer_semantic_snapshot(),
+            palette_colors: [Rgb::default(); 256],
+            palette_overridden: [false; 256],
+        }
+    }
+
+    fn resolver<'a>(colors: &'a [Rgb; 256], overridden: &'a [bool; 256]) -> PaletteResolver<'a> {
+        PaletteResolver {
+            colors,
+            overridden,
+            default_fg: Rgb { r: 0x11, g: 0x22, b: 0x33 },
+            default_bg: Rgb { r: 0x44, g: 0x55, b: 0x66 },
+        }
+    }
+
     #[test]
     fn palette_resolver_preserves_host_palette_for_non_overridden_entries() {
         let colors = [Rgb { r: 1, g: 2, b: 3 }; 256];
         let overridden = [false; 256];
-        let resolver = PaletteResolver { colors: &colors, overridden: &overridden };
+        let resolver = resolver(&colors, &overridden);
         let expected = [
             Color::Black,
             Color::Red,
@@ -383,10 +615,10 @@ mod tests {
         ];
 
         for (idx, color) in expected.into_iter().enumerate() {
-            assert_eq!(resolver.resolve(ColorSpec::Palette(idx as u8)), color);
+            assert_eq!(resolver.resolve_fg(ColorSpec::Palette(idx as u8)), color);
         }
-        assert_eq!(resolver.resolve(ColorSpec::Palette(16)), Color::Indexed(16));
-        assert_eq!(resolver.resolve(ColorSpec::Palette(196)), Color::Indexed(196));
+        assert_eq!(resolver.resolve_fg(ColorSpec::Palette(16)), Color::Indexed(16));
+        assert_eq!(resolver.resolve_fg(ColorSpec::Palette(196)), Color::Indexed(196));
     }
 
     #[test]
@@ -397,10 +629,86 @@ mod tests {
         let mut overridden = [false; 256];
         overridden[1] = true;
         overridden[196] = true;
-        let resolver = PaletteResolver { colors: &colors, overridden: &overridden };
+        let resolver = resolver(&colors, &overridden);
 
-        assert_eq!(resolver.resolve(ColorSpec::Palette(1)), Color::Rgb(1, 2, 3));
-        assert_eq!(resolver.resolve(ColorSpec::Palette(196)), Color::Rgb(4, 5, 6));
+        assert_eq!(resolver.resolve_fg(ColorSpec::Palette(1)), Color::Rgb(1, 2, 3));
+        assert_eq!(resolver.resolve_bg(ColorSpec::Palette(196)), Color::Rgb(4, 5, 6));
+    }
+
+    #[test]
+    fn default_colors_are_resolved_by_visual_role() {
+        let colors = [Rgb::default(); 256];
+        let overridden = [false; 256];
+        let resolver = resolver(&colors, &overridden);
+
+        assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(
+            resolver.blank_style(),
+            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Rgb(0x44, 0x55, 0x66))
+        );
+    }
+
+    #[test]
+    fn explicit_rgb_does_not_inherit_a_default_role() {
+        let colors = [Rgb::default(); 256];
+        let overridden = [false; 256];
+        let resolver = resolver(&colors, &overridden);
+        let explicit = ColorSpec::Rgb(Rgb { r: 7, g: 8, b: 9 });
+
+        assert_eq!(resolver.resolve_fg(explicit), Color::Rgb(7, 8, 9));
+        assert_eq!(resolver.resolve_bg(explicit), Color::Rgb(7, 8, 9));
+    }
+
+    #[test]
+    fn terminal_control_cells_render_as_blanks() {
+        let colors = [Rgb::default(); 256];
+        let overridden = [false; 256];
+        let resolver = resolver(&colors, &overridden);
+
+        for text in ["\0", "\t", "\r"] {
+            let cell = VtCell { text: text.to_string(), ..VtCell::default() };
+            let mut target = ratatui::buffer::Cell::default();
+            apply_cell(&mut target, &cell, &resolver, None);
+            assert_eq!(target.symbol(), " ");
+        }
+    }
+
+    #[test]
+    fn frame_default_order_and_live_blank_cells_follow_canonical_roles() {
+        let foreground = Rgb { r: 0x11, g: 0x22, b: 0x33 };
+        let background = Rgb { r: 0x44, g: 0x55, b: 0x66 };
+        let cursor = Rgb { r: 0x77, g: 0x88, b: 0x99 };
+        let render = render_frame_with_defaults(foreground, background, Some(cursor));
+        let colors = PaletteResolver::from_frame(&render);
+
+        assert_eq!(colors.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(colors.resolve_bg(ColorSpec::Default), Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(resolved_cursor_color(&render), cursor);
+        let implicit_cursor = render_frame_with_defaults(foreground, background, None);
+        assert_eq!(resolved_cursor_color(&implicit_cursor), foreground);
+
+        let mut terminal = RatatuiTerminal::new(TestBackend::new(4, 2)).unwrap();
+        terminal
+            .draw(|frame| {
+                draw_render_frame(
+                    frame,
+                    Rect { x: 0, y: 0, width: 4, height: 2 },
+                    &render,
+                    &Theme::default(),
+                    &ChromeTheme::dark(),
+                    |_, _| false,
+                );
+            })
+            .unwrap();
+
+        // This cell belongs to the 2x1 terminal frame and is not occupied by
+        // the cursor. Cells outside that frame intentionally use the foreign
+        // viewport chrome styling, which is covered below.
+        let cell = &terminal.backend().buffer()[(1, 0)];
+        assert_eq!(cell.fg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(cell.bg, Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(cell.symbol(), " ");
     }
 
     #[test]
