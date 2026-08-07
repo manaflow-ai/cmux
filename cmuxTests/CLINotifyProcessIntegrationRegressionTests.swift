@@ -2161,6 +2161,43 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testAmpThreadsShareOneProcessScopedPIDOwner() throws {
+        let context = try makeClaudeHookContext(
+            name: "amp-process-scoped-pid-owner"
+        )
+        defer { context.cleanup() }
+
+        let launchEnvironment = agentLaunchEnvironment(
+            context: context,
+            kind: "amp",
+            executable: "/usr/local/bin/amp"
+        )
+        startAgentHookMockServerAccepting(context: context)
+
+        for index in 1 ... 2 {
+            let result = runAgentHook(
+                context: context,
+                agent: "amp",
+                subcommand: "prompt-submit",
+                standardInput: #"{"session_id":"amp-thread-\#(index)","turn_id":"amp-turn-\#(index)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+                extraEnvironment: launchEnvironment
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+        }
+
+        let pidRegistrations = context.state.commands.filter {
+            $0.hasPrefix("set_agent_pid amp.")
+        }
+        XCTAssertFalse(pidRegistrations.isEmpty)
+        XCTAssertTrue(
+            pidRegistrations.allSatisfy {
+                $0.hasPrefix("set_agent_pid amp.process ")
+            },
+            "Amp's long-lived plugin process must own one stable PID key, saw \(pidRegistrations)"
+        )
+    }
+
     func testCodexTurnStackPreservesAnonymousDepthBetweenKnownTurns() throws {
         let context = try makeClaudeHookContext(name: "codex-mixed-anonymous-depth")
         defer { context.cleanup() }

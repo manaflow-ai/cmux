@@ -216,6 +216,93 @@ struct WorkspaceSidebarObservationTests {
     }
 
     @Test
+    func cursorBoundaryRejectsDelayedObserverButAllowsFutureObserver() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.remoteConfiguration = WorkspaceRemoteConfiguration(
+            destination: "test-remote",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_002,
+            relayID: "cursor-boundary-test",
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-cursor-boundary-test.sock",
+            ownerWorkspaceID: workspace.id,
+            terminalStartupCommand: "ssh test-remote"
+        )
+        defer {
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let coordinator = FeedCoordinator.shared
+        let sessionId = "cursor-boundary-\(UUID().uuidString)"
+        let generation = AgentPIDProcessIdentity(
+            pid: 5_151,
+            startSeconds: 300,
+            startMicroseconds: 30
+        )
+        #expect(
+            coordinator.endObservedAgentAttention(
+                source: "cursor",
+                sessionId: sessionId,
+                observationId: nil,
+                scopeId: nil,
+                processGeneration: generation,
+                boundaryEpoch: 200
+            ) == 0
+        )
+
+        #expect(
+            !coordinator.beginObservedAgentAttention(
+                source: "cursor",
+                sessionId: sessionId,
+                observationId: "delayed-observation",
+                scopeId: "delayed-scope",
+                workspaceId: workspace.id,
+                surfaceId: panelId,
+                processGeneration: generation,
+                observationEpoch: 100
+            ),
+            "A native observer that predates the process boundary must not resurrect attention."
+        )
+
+        let futureBegan = coordinator.beginObservedAgentAttention(
+            source: "cursor",
+            sessionId: sessionId,
+            observationId: "future-observation",
+            scopeId: "future-scope",
+            workspaceId: workspace.id,
+            surfaceId: panelId,
+            processGeneration: generation,
+            observationEpoch: 300
+        )
+        #expect(
+            futureBegan,
+            "A later approval in the same long-lived process must remain eligible."
+        )
+        if futureBegan {
+            _ = coordinator.endObservedAgentAttention(
+                source: "cursor",
+                sessionId: sessionId,
+                observationId: "future-observation",
+                scopeId: "future-scope",
+                processGeneration: generation
+            )
+        }
+    }
+
+    @Test
     func relayBlockingAttentionDoesNotUseTheLocalProcessTable() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

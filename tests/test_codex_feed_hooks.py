@@ -1206,7 +1206,6 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             bounds_env,
         )
         wait_for_stop_delivery(fake, per_turn_stop_start)
-        per_turn_recovery_start = len(fake.frames)
         for work_id in reversed(per_turn_work_ids):
             finish_work(
                 source="codex",
@@ -1215,20 +1214,26 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
                 work_id=work_id,
                 env=bounds_env,
             )
-        wait_for_raw_prefix(
-            fake,
-            per_turn_recovery_start,
-            "set_agent_lifecycle codex idle",
-        )
-        per_turn_recovered = session_state(
+        per_turn_overflowed = session_state(
             bounds_state_dir,
             "codex",
             per_turn_session_id,
         )
-        if per_turn_recovered.get("backgroundWorkOverflowTurnKeys"):
+        if per_turn_id not in per_turn_overflowed.get(
+            "backgroundWorkOverflowTurnKeys",
+            [],
+        ):
             raise AssertionError(
-                "A terminal turn retained its drained per-turn overflow: "
-                f"{per_turn_recovered!r}"
+                "A dropped work identity was treated as authoritatively drained: "
+                f"{per_turn_overflowed!r}"
+            )
+        if per_turn_id not in per_turn_overflowed.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "Per-turn overflow released its deferred settlement without "
+                f"an authoritative drain: {per_turn_overflowed!r}"
             )
 
         turn_overflow_session_id = (
@@ -1254,7 +1259,6 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             bounds_env,
         )
         wait_for_stop_delivery(fake, turn_stop_start)
-        turn_recovery_start = len(fake.frames)
         for turn_id in reversed(turn_overflow_ids[1:]):
             finish_work(
                 source="codex",
@@ -1270,20 +1274,23 @@ def test_structured_background_work_bounds_and_generation_owned_clear(
             work_id=f"work-{turn_overflow_ids[0]}",
             env=bounds_env,
         )
-        wait_for_raw_prefix(
-            fake,
-            turn_recovery_start,
-            "set_agent_lifecycle codex idle",
-        )
-        turns_recovered = session_state(
+        turns_overflowed = session_state(
             bounds_state_dir,
             "codex",
             turn_overflow_session_id,
         )
-        if turns_recovered.get("hasBackgroundWorkTurnOverflow") is True:
+        if turns_overflowed.get("hasBackgroundWorkTurnOverflow") is not True:
             raise AssertionError(
-                "A fully drained session retained its turn-overflow latch: "
-                f"{turns_recovered!r}"
+                "Dropped turn identity was treated as authoritatively drained: "
+                f"{turns_overflowed!r}"
+            )
+        if turn_overflow_ids[0] not in turns_overflowed.get(
+            "deferredTurnSettlementsByTurn",
+            {},
+        ):
+            raise AssertionError(
+                "Turn overflow released its deferred settlement without an "
+                f"authoritative drain: {turns_overflowed!r}"
             )
 
         older_process = subprocess.Popen(["/bin/sleep", "30"])
