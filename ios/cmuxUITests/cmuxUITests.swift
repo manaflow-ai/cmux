@@ -3227,7 +3227,14 @@ final class cmuxUITests: XCTestCase {
         let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
         XCTAssertTrue(docsRow.waitForExistence(timeout: 20))
         docsRow.tap()
-        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 20))
+        let docsTerminal = app.otherElements["MobileTerminalSurface"]
+        if !docsTerminal.waitForExistence(timeout: 20), docsRow.exists {
+            // The list can reshuffle under the first tap while the popped
+            // workspace's cover finishes tearing down on a slow runner;
+            // retry once if we are demonstrably still on the list.
+            docsRow.tap()
+        }
+        XCTAssertTrue(docsTerminal.waitForExistence(timeout: 20))
         try await Task.sleep(for: .seconds(3))
         XCTAssertEqual(
             app.state,
