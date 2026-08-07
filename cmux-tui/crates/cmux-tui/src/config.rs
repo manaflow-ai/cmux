@@ -3252,6 +3252,57 @@ mod tests {
         assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0x77, g: 0x88, b: 0x99 }));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn load_uses_file_ghostty_defaults_without_invoking_external_resolver() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
+        let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-ghostty-startup-file-only-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        let marker = dir.join("resolver-ran");
+        let resolver = dir.join("ghostty-resolver");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "foreground = #010203\n").unwrap();
+        std::fs::write(
+            &resolver,
+            format!(
+                "#!/bin/sh\n\
+                 printf marker > '{}'\n\
+                 printf 'foreground = #aabbcc\\nbackground = #ddeeff\\n'\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("GHOSTTY_RESOURCES_DIR") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+
+        let config = load();
+
+        restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
+        restore_env_var("GHOSTTY_RESOURCES_DIR", old_ghostty_resources);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        let resolver_ran = marker.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(!resolver_ran, "config load must not run ghostty +show-config at startup");
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(config.terminal_defaults.bg, None);
+    }
+
     #[test]
     fn omitted_ghostty_cursor_blink_remains_unspecified() {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
