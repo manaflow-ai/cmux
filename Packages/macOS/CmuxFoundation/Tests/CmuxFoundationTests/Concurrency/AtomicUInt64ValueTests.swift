@@ -7,10 +7,20 @@ struct AtomicUInt64ValueTests {
         let value = AtomicUInt64Value(41)
 
         #expect(value.loadRelaxed() == 41)
+        #expect(value.loadAcquire() == 41)
         value.storeRelaxed(7)
         #expect(value.loadRelaxed() == 7)
         #expect(value.wrappingIncrementRelaxed() == 8)
         #expect(value.loadRelaxed() == 8)
+    }
+
+    @Test func compareExchangeOnlyReplacesTheExpectedValue() {
+        let value = AtomicUInt64Value(7)
+
+        #expect(!value.compareExchange(expected: 6, desired: 8))
+        #expect(value.loadAcquire() == 7)
+        #expect(value.compareExchange(expected: 7, desired: 8))
+        #expect(value.loadAcquire() == 8)
     }
 
     @Test func concurrentIncrementsAreNotLost() async {

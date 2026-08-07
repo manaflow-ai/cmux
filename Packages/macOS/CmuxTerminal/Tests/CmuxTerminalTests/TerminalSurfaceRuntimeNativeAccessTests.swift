@@ -16,6 +16,7 @@ import Testing
         )
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         let runtimeLifecycleId = UUID()
+        let nativeAccessGate = TerminalSurfaceRuntimeNativeAccessGate()
         defer {
             releaseNativeFree.signal()
             surface.deallocate()
@@ -26,16 +27,17 @@ import Testing
             workspaceId: UUID(),
             reason: "test.teardownBeforeNativeBorrow",
             surface: surface,
+            nativeAccessGate: nativeAccessGate,
             callbackContext: nil,
             freeSurface: { _ in
                 _ = releaseNativeFree.wait(timeout: .distantFuture)
             }
         )
         let request = TerminalSurfaceRuntimeScreenTailRequest(
-            runtimeLifecycleId: runtimeLifecycleId,
             surface: surface,
             maxRows: 1,
-            maxBytes: 1
+            maxBytes: 1,
+            nativeAccessGate: nativeAccessGate
         )
 
         #expect(coordinator.acquireScreenTailBorrow(for: request) == nil)
@@ -55,6 +57,7 @@ import Testing
         )
         let surface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
         let runtimeLifecycleId = UUID()
+        let nativeAccessGate = TerminalSurfaceRuntimeNativeAccessGate()
         defer { surface.deallocate() }
         let surfaceBits = UInt(bitPattern: surface)
         cmux_test_ghostty_surface_read_blocking_begin(surface)
@@ -65,10 +68,10 @@ import Testing
 
         let borrowedSurface = UnsafeMutableRawPointer(bitPattern: surfaceBits)!
         let request = TerminalSurfaceRuntimeScreenTailRequest(
-            runtimeLifecycleId: runtimeLifecycleId,
             surface: borrowedSurface,
             maxRows: 1,
-            maxBytes: 1
+            maxBytes: 1,
+            nativeAccessGate: nativeAccessGate
         )
         let borrow = try #require(
             coordinator.acquireScreenTailBorrow(for: request)
@@ -92,6 +95,7 @@ import Testing
             workspaceId: UUID(),
             reason: "test.activeNativeBorrow",
             surface: surface,
+            nativeAccessGate: nativeAccessGate,
             callbackContext: nil,
             freeSurface: { _ in
                 nativeFreeCount.withLock { $0 += 1 }

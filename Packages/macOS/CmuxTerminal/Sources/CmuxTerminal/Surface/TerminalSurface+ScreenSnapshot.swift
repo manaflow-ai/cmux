@@ -18,10 +18,10 @@ extension TerminalSurface {
             return nil
         }
         let request = TerminalSurfaceRuntimeScreenTailRequest(
-            runtimeLifecycleId: terminalLifecycleId,
             surface: surface,
             maxRows: maxRows,
-            maxBytes: maxBytes
+            maxBytes: maxBytes,
+            nativeAccessGate: runtimeNativeAccessGate
         )
         guard let borrow = runtimeTeardown.acquireScreenTailBorrow(
             for: request

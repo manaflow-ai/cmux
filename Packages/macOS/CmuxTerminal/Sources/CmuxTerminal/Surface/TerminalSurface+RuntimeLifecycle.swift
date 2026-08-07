@@ -275,10 +275,10 @@ extension TerminalSurface {
             // native free, which is what joins ghostty's IO threads.
             runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
-                runtimeLifecycleId: terminalLifecycleId,
                 workspaceId: tabId,
                 reason: "teardown",
                 surface: surfaceToFree,
+                nativeAccessGate: runtimeNativeAccessGate,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -293,10 +293,10 @@ extension TerminalSurface {
         // releases all callback userdata only after the free returns.
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
-            runtimeLifecycleId: terminalLifecycleId,
             workspaceId: tabId,
             reason: "teardown",
             surface: surfaceToFree,
+            nativeAccessGate: runtimeNativeAccessGate,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease
@@ -369,10 +369,10 @@ extension TerminalSurface {
             // native free, which is what joins ghostty's IO threads.
             agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
                 id: id,
-                runtimeLifecycleId: terminalLifecycleId,
                 workspaceId: tabId,
                 reason: reason,
                 surface: surfaceToFree,
+                nativeAccessGate: runtimeNativeAccessGate,
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
@@ -386,10 +386,10 @@ extension TerminalSurface {
 
         agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
-            runtimeLifecycleId: terminalLifecycleId,
             workspaceId: tabId,
             reason: reason,
             surface: surfaceToFree,
+            nativeAccessGate: runtimeNativeAccessGate,
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,

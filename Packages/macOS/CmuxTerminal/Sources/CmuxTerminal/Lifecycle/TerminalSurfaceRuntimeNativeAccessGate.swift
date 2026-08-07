@@ -1,130 +1,115 @@
-internal import Foundation
-internal import os
+internal import CmuxFoundation
 
-/// Admits native surface borrows before suspension and orders teardown after them.
+/// Orders native surface borrows before the teardown of one runtime generation.
 ///
-/// Entries use the terminal's unique runtime-lifecycle identity rather than a
-/// raw pointer address, which an allocator may reuse immediately after free.
+/// The high state bit permanently closes borrow admission. Lower bits count
+/// active borrows. A retained one-shot teardown action is published before the
+/// close transition, so either the closer or the final borrower can claim and
+/// run it synchronously without a task hop.
 final class TerminalSurfaceRuntimeNativeAccessGate: Sendable {
-    /// A one-shot borrow whose lifetime prevents teardown of its native surface.
-    final class Borrow: Sendable {
-        private struct State {
-            var gate: TerminalSurfaceRuntimeNativeAccessGate?
-        }
+    private static let teardownRequestedMask: UInt64 = 1 << 63
+    private static let borrowCountMask = teardownRequestedMask - 1
 
-        private let runtimeLifecycleId: UUID
-        // Synchronous cancellation/deinit must release exactly once; this is a
-        // bounded compare-and-set, not ongoing domain state.
-        private let state: OSAllocatedUnfairLock<State>
+    private let state = AtomicUInt64Value()
+    private let pendingTeardownAction = AtomicRawPointerValue()
 
-        fileprivate init(
-            gate: TerminalSurfaceRuntimeNativeAccessGate,
-            runtimeLifecycleId: UUID
-        ) {
-            self.runtimeLifecycleId = runtimeLifecycleId
-            state = OSAllocatedUnfairLock(initialState: State(gate: gate))
-        }
-
-        func release() {
-            let gate = state.withLock { state in
-                defer { state.gate = nil }
-                return state.gate
-            }
-            gate?.releaseBorrow(runtimeLifecycleId: runtimeLifecycleId)
-        }
-
-        deinit {
-            release()
-        }
-    }
-
-    private enum Phase {
-        case acceptingBorrows
-        case teardownPending(@Sendable () -> Void)
-        case tearingDown
-    }
-
-    private struct Entry {
-        var borrowCount = 0
-        var phase = Phase.acceptingBorrows
-    }
-
-    // Borrow admission and synchronous deinit teardown cannot await an actor.
-    // The lock guards only short, nonblocking entry transitions; callbacks run
-    // after unlock. Idle borrow entries leave on release, and teardown entries
-    // leave immediately after the corresponding native free returns.
-    private let entries = OSAllocatedUnfairLock(initialState: [UUID: Entry]())
-
-    func acquireBorrow(for runtimeLifecycleId: UUID) -> Borrow? {
-        let acquired = entries.withLock { entries in
-            var entry = entries[runtimeLifecycleId] ?? Entry()
-            guard case .acceptingBorrows = entry.phase else {
-                return false
-            }
-            entry.borrowCount += 1
-            entries[runtimeLifecycleId] = entry
-            return true
-        }
-        guard acquired else { return nil }
-        return Borrow(gate: self, runtimeLifecycleId: runtimeLifecycleId)
-    }
-
-    func requestTeardown(
-        for runtimeLifecycleId: UUID,
-        start: @escaping @Sendable () -> Void
-    ) {
-        let ready = entries.withLock { entries -> (@Sendable () -> Void)? in
-            var entry = entries[runtimeLifecycleId] ?? Entry()
-            guard case .acceptingBorrows = entry.phase else {
+    /// Acquires a borrow unless teardown has already claimed this generation.
+    func acquireBorrow() -> TerminalSurfaceRuntimeNativeAccessBorrow? {
+        while true {
+            let current = state.loadAcquire()
+            guard current & Self.teardownRequestedMask == 0,
+                  current != Self.borrowCountMask else {
                 return nil
             }
-            guard entry.borrowCount > 0 else {
-                entry.phase = .tearingDown
-                entries[runtimeLifecycleId] = entry
-                return start
+            guard state.compareExchange(
+                expected: current,
+                desired: current + 1
+            ) else {
+                continue
             }
-            entry.phase = .teardownPending(start)
-            entries[runtimeLifecycleId] = entry
-            return nil
+            return TerminalSurfaceRuntimeNativeAccessBorrow(gate: self)
         }
-        ready?()
     }
 
-    func finishTeardown(for runtimeLifecycleId: UUID) {
-        entries.withLock { entries in
-            guard let entry = entries[runtimeLifecycleId],
-                  case .tearingDown = entry.phase,
-                  entry.borrowCount == 0 else {
+    /// Closes admission and starts teardown after all admitted borrows finish.
+    func requestTeardown(start: @escaping @Sendable () -> Void) {
+        let retainedAction = Unmanaged.passRetained(
+            TerminalSurfaceRuntimeTeardownAction(start: start)
+        )
+        let actionPointer = UnsafeRawPointer(retainedAction.toOpaque())
+        guard pendingTeardownAction.compareExchange(
+            expected: nil,
+            desired: actionPointer
+        ) else {
+            retainedAction.release()
+            return
+        }
+
+        while true {
+            let current = state.loadAcquire()
+            guard current & Self.teardownRequestedMask == 0 else {
+                discardPendingAction(actionPointer: actionPointer)
                 return
             }
-            entries.removeValue(forKey: runtimeLifecycleId)
+            let closed = current | Self.teardownRequestedMask
+            guard state.compareExchange(expected: current, desired: closed) else {
+                continue
+            }
+            if closed & Self.borrowCountMask == 0 {
+                runPendingTeardown()
+            }
+            return
         }
     }
 
-    private func releaseBorrow(runtimeLifecycleId: UUID) {
-        let ready = entries.withLock { entries -> (@Sendable () -> Void)? in
-            guard var entry = entries[runtimeLifecycleId],
-                  entry.borrowCount > 0 else {
-                return nil
+    /// Releases one admitted borrow and starts any newly-unblocked teardown.
+    fileprivate func releaseBorrow() {
+        while true {
+            let current = state.loadAcquire()
+            let borrowCount = current & Self.borrowCountMask
+            guard borrowCount > 0 else { return }
+            let released = current - 1
+            guard state.compareExchange(expected: current, desired: released) else {
+                continue
             }
-            entry.borrowCount -= 1
-            guard entry.borrowCount == 0 else {
-                entries[runtimeLifecycleId] = entry
-                return nil
+            if released == Self.teardownRequestedMask {
+                runPendingTeardown()
             }
-            switch entry.phase {
-            case .acceptingBorrows:
-                entries.removeValue(forKey: runtimeLifecycleId)
-                return nil
-            case .teardownPending(let pendingTeardown):
-                entry.phase = .tearingDown
-                entries[runtimeLifecycleId] = entry
-                return pendingTeardown
-            case .tearingDown:
-                entries[runtimeLifecycleId] = entry
-                return nil
-            }
+            return
         }
-        ready?()
+    }
+
+    private func runPendingTeardown() {
+        while true {
+            guard let actionPointer = pendingTeardownAction.loadAcquire() else {
+                return
+            }
+            guard pendingTeardownAction.compareExchange(
+                expected: actionPointer,
+                desired: nil
+            ) else {
+                continue
+            }
+            takeRetainedAction(actionPointer: actionPointer).run()
+            return
+        }
+    }
+
+    private func discardPendingAction(actionPointer: UnsafeRawPointer) {
+        guard pendingTeardownAction.compareExchange(
+            expected: actionPointer,
+            desired: nil
+        ) else {
+            return
+        }
+        _ = takeRetainedAction(actionPointer: actionPointer)
+    }
+
+    private func takeRetainedAction(
+        actionPointer: UnsafeRawPointer
+    ) -> TerminalSurfaceRuntimeTeardownAction {
+        return Unmanaged<TerminalSurfaceRuntimeTeardownAction>
+            .fromOpaque(actionPointer)
+            .takeRetainedValue()
     }
 }
