@@ -285,11 +285,16 @@ extension MobileShellComposite {
         after readiness: MobileTerminalEventSubscriptionReadiness
     ) {
         Task { @MainActor [weak self] in
-            let replacementIsReady = await readiness.wait()
+            _ = await readiness.wait()
             guard let self else { return }
             await self.drainTerminalSubscriptionHandoff(pending)
-            if replacementIsReady,
-               self.remoteClient !== pending.client {
+            // The old peer stays demoted whether or not the replacement
+            // subscribe succeeded: failure recovery redials the CURRENT
+            // foreground, never this client. Only a completed reversal (this
+            // client owns focus again) keeps its registration; otherwise the
+            // Mac would keep streaming terminal state to a control-only
+            // session indefinitely.
+            if self.remoteClient !== pending.client {
                 _ = await self.unsubscribeTerminalEventStream(
                     on: pending.client
                 )

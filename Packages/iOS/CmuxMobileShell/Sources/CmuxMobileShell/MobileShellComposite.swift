@@ -4583,7 +4583,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Mac across Stack accounts and publish another account's workspaces into
         // this UI (the scope guard alone passes for nil == nil). Mirrors
         // loadPairedMacs()'s account requirement.
-        guard let scope = await currentScopeSnapshot() else { return }
+        guard let scope = await currentScopeSnapshot() else {
+            // A transient exit must not consume the one-shot discovery intent:
+            // the retry re-enters through scheduleSecondaryAggregation, which
+            // only rediscovers when the pending flag survived.
+            if discoverLivePeers { secondaryIrohDiscoveryPending = true }
+            return
+        }
         // Full snapshots and explicit refreshes reconcile the account backup.
         // Targeted presence updates already persisted their pushed route and must
         // not turn one Mac's churn into an account-wide network fetch.
@@ -4659,6 +4665,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     \(String(describing: error), privacy: .public)
                     """
                 )
+                // A failed store load must not consume the one-shot discovery
+                // intent: the scheduled full-refresh retry re-enters through
+                // scheduleSecondaryAggregation, which only rediscovers when
+                // the pending flag survived.
+                if discoverLivePeers { secondaryIrohDiscoveryPending = true }
                 return
             }
             authorityValidation = .store

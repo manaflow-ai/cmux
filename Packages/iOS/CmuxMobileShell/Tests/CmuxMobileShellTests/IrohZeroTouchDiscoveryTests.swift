@@ -295,7 +295,7 @@ struct IrohZeroTouchDiscoveryTests {
             multiMacAggregationDefaults: defaults
         )
         defer {
-            for subscription in shell.secondaryMacSubscriptions.values {
+            for (_, subscription) in shell.secondaryMacSubscriptions {
                 subscription.cancel()
             }
             Task { await shell.remoteClient?.disconnect() }
