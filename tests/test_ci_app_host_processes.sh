@@ -113,20 +113,21 @@ fail() {
 }
 
 # Recovery is inclusive at the grace boundary and excludes current, newest,
-# future-dated, young, and pre-v2 scopes.
+# future-dated, young, and pre-v3 scopes.
 cmux_classify_app_host_scope_recovery_eligibility \
-  111111111111 222222222222 2 100 300 200 100
+  111111111111 222222222222 3 100 300 200 100
 [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -eq 1 ] \
   || fail "exact app-host recovery grace boundary was not eligible"
 cmux_classify_app_host_scope_recovery_eligibility \
-  111111111111 222222222222 2 199 300 200 0
+  111111111111 222222222222 3 199 300 200 0
 [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -eq 1 ] \
   || fail "authenticated prior owner was not immediately eligible"
 for eligibility_case in \
-  "222222222222 222222222222 2 100 300 200 100" \
-  "111111111111 222222222222 2 300 300 400 100" \
-  "111111111111 222222222222 2 301 300 300 100" \
-  "111111111111 222222222222 2 101 300 200 100" \
+  "222222222222 222222222222 3 100 300 200 100" \
+  "111111111111 222222222222 3 300 300 400 100" \
+  "111111111111 222222222222 3 301 300 300 100" \
+  "111111111111 222222222222 3 101 300 200 100" \
+  "111111111111 222222222222 2 100 300 200 100" \
   "111111111111 222222222222 1 100 300 200 100"
 do
   # shellcheck disable=SC2086
@@ -138,15 +139,17 @@ done
 # Shared /tmp debris cannot make a genuine old scope lose newest protection.
 newest_scope_root="$TMP_DIR/newest-scope-root"
 mkdir -p "$newest_scope_root"
-cmux_compute_app_host_key 940001 1 1
+cmux_compute_app_host_key 940001 1 1 "$GITHUB_REPOSITORY_ID"
 trusted_newest_key="$CMUX_COMPUTED_APP_HOST_KEY"
 trusted_newest_home="$newest_scope_root/cmux-ah-$trusted_newest_key"
 trusted_newest_receipts="$newest_scope_root/cmux-ah-$trusted_newest_key-receipts"
 cmux_compute_app_host_cleanup_confirmation \
-  940001 1 1 "$trusted_newest_home" "$trusted_newest_receipts"
+  940001 1 1 "$trusted_newest_home" "$trusted_newest_receipts" \
+  "$GITHUB_REPOSITORY_ID"
 trusted_newest_confirmation="$newest_scope_root/cmux-ah-$trusted_newest_key.confirm"
-printf 'version=2\nrun_id=940001\nrun_attempt=1\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
-  "$trusted_newest_key" "$trusted_newest_home" "$trusted_newest_receipts" \
+printf 'version=3\nrepository_id=%s\nrun_id=940001\nrun_attempt=1\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+  "$GITHUB_REPOSITORY_ID" "$trusted_newest_key" \
+  "$trusted_newest_home" "$trusted_newest_receipts" \
   "$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION" \
   > "$trusted_newest_confirmation"
 chmod 600 "$trusted_newest_confirmation"
@@ -154,21 +157,23 @@ touch -t 202001010000 "$trusted_newest_confirmation"
 cmux_app_host_scope_mtime "$trusted_newest_confirmation"
 trusted_newest_mtime="$CMUX_APP_HOST_SCOPE_MTIME"
 
-cmux_compute_app_host_key 940002 1 1
+cmux_compute_app_host_key 940002 1 1 "$GITHUB_REPOSITORY_ID"
 malformed_newest_confirmation="$newest_scope_root/cmux-ah-$CMUX_COMPUTED_APP_HOST_KEY.confirm"
-printf 'version=2\nmalformed\n' > "$malformed_newest_confirmation"
+printf 'version=3\nmalformed\n' > "$malformed_newest_confirmation"
 chmod 600 "$malformed_newest_confirmation"
 touch -t 203001010000 "$malformed_newest_confirmation"
 
-cmux_compute_app_host_key 940003 1 1
+cmux_compute_app_host_key 940003 1 1 "$GITHUB_REPOSITORY_ID"
 nonprivate_newest_key="$CMUX_COMPUTED_APP_HOST_KEY"
 nonprivate_newest_home="$newest_scope_root/cmux-ah-$nonprivate_newest_key"
 nonprivate_newest_receipts="$newest_scope_root/cmux-ah-$nonprivate_newest_key-receipts"
 cmux_compute_app_host_cleanup_confirmation \
-  940003 1 1 "$nonprivate_newest_home" "$nonprivate_newest_receipts"
+  940003 1 1 "$nonprivate_newest_home" "$nonprivate_newest_receipts" \
+  "$GITHUB_REPOSITORY_ID"
 nonprivate_newest_confirmation="$newest_scope_root/cmux-ah-$nonprivate_newest_key.confirm"
-printf 'version=2\nrun_id=940003\nrun_attempt=1\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
-  "$nonprivate_newest_key" "$nonprivate_newest_home" \
+printf 'version=3\nrepository_id=%s\nrun_id=940003\nrun_attempt=1\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+  "$GITHUB_REPOSITORY_ID" "$nonprivate_newest_key" \
+  "$nonprivate_newest_home" \
   "$nonprivate_newest_receipts" "$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION" \
   > "$nonprivate_newest_confirmation"
 chmod 644 "$nonprivate_newest_confirmation"
@@ -488,8 +493,8 @@ make_durable_scope() {
     "$DURABLE_SCOPE_RECEIPT_DIR" \
     "$(dirname "$DURABLE_SCOPE_EXECUTABLE")"
   : > "$DURABLE_SCOPE_EXECUTABLE"
-  printf 'version=2\nrun_id=%s\nrun_attempt=%s\nshard=%s\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
-    "$run_id" "$run_attempt" "$shard" \
+  printf 'version=3\nrepository_id=%s\nrun_id=%s\nrun_attempt=%s\nshard=%s\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+    "$GITHUB_REPOSITORY_ID" "$run_id" "$run_attempt" "$shard" \
     "$DURABLE_SCOPE_KEY" "$DURABLE_SCOPE_HOME" \
     "$DURABLE_SCOPE_RECEIPT_DIR" "$DURABLE_SCOPE_CONFIRMATION" \
     > "$DURABLE_SCOPE_CONFIRMATION_FILE"
@@ -502,6 +507,9 @@ stale_runner_root="$TMP_DIR/stale-runner-work"
 system_temp_root="$(cd /tmp && pwd -P)"
 mkdir -p "$stale_runner_root"
 
+current_repository_id="$GITHUB_REPOSITORY_ID"
+GITHUB_REPOSITORY_ID=7654321
+export GITHUB_REPOSITORY_ID
 make_durable_scope old "930000$$" 2 1 \
   "$stale_runner_root/old-job/derived-data"
 old_key="$DURABLE_SCOPE_KEY"
@@ -509,6 +517,8 @@ old_home="$DURABLE_SCOPE_HOME"
 old_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
 old_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
 old_executable="$DURABLE_SCOPE_EXECUTABLE"
+GITHUB_REPOSITORY_ID="$current_repository_id"
+export GITHUB_REPOSITORY_ID
 spawn_process
 old_pid_one="$CMUX_TEST_SPAWNED_PID"
 spawn_process
@@ -600,6 +610,8 @@ touch "$old_confirmation_file"
 cmux_app_host_scope_mtime "$old_confirmation_file"
 old_orphan_confirmation_mtime="$CMUX_APP_HOST_SCOPE_MTIME"
 old_orphan_recovery_now=$((old_orphan_confirmation_mtime + 1))
+touch -t 204001010000 \
+  "$current_confirmation_file" "$waiting_confirmation_file"
 old_derived_data="${old_executable%%/Build/Products/*}"
 rm -rf -- "$old_derived_data"
 printf '%s|%s (deleted)\n%s|%s (deleted)\n' \
@@ -753,7 +765,7 @@ cmux_reclaim_abandoned_app_host_scopes \
   "$current_key" "$candidate_one_key" "$candidate_two_key" \
   || fail "valid terminated scope candidates were not removed"
 
-# V1 records do not carry the tuple needed to recompute stale authority.
+# Pre-v3 records do not carry repository-scoped stale authority.
 make_durable_scope legacy "930005$$" 2 1 \
   "$stale_runner_root/legacy/derived-data"
 legacy_key="$DURABLE_SCOPE_KEY"
@@ -761,6 +773,16 @@ legacy_home="$DURABLE_SCOPE_HOME"
 legacy_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
 legacy_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
 legacy_record="$(cat "$legacy_confirmation_file")"
+printf 'version=2\nrun_id=%s\nrun_attempt=2\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+  "930005$$" "$legacy_key" "$legacy_home" "$legacy_receipt_dir" \
+  "$DURABLE_SCOPE_CONFIRMATION" > "$legacy_confirmation_file"
+cmux_reclaim_abandoned_app_host_scopes \
+  "$stale_runner_root" "$system_temp_root" "$current_key" \
+  2000000000 86400 "$current_key" "$legacy_key" \
+  > "$TMP_DIR/v2-candidate.out" 2> "$TMP_DIR/v2-candidate.err" \
+  || fail "V2 confirmation preservation blocked valid recovery"
+[ -d "$legacy_home" ] \
+  || fail "stale recovery removed a V2 scope"
 printf 'version=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
   "$legacy_key" "$legacy_home" "$legacy_receipt_dir" \
   "$DURABLE_SCOPE_CONFIRMATION" > "$legacy_confirmation_file"

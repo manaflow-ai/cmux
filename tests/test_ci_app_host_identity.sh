@@ -34,6 +34,10 @@ export GITHUB_REPOSITORY_ID="1234567"
 export GITHUB_RUN_ID="900000$$"
 export GITHUB_RUN_ATTEMPT="7"
 export CMUX_APP_HOST_SHARD="3"
+export CARGO_HOME="$TMP_DIR/shared-cargo"
+export RUSTUP_HOME="$TMP_DIR/shared-rustup"
+expected_cargo_home="$CARGO_HOME"
+expected_rustup_home="$RUSTUP_HOME"
 mkdir -p "$RUNNER_TEMP"
 : > "$GITHUB_ENV"
 
@@ -42,6 +46,10 @@ set -a
 # shellcheck disable=SC1090
 source "$GITHUB_ENV"
 set +a
+[ "$CARGO_HOME" = "$expected_cargo_home" ] \
+  || { echo "FAIL: preparation overwrote configured CARGO_HOME"; exit 1; }
+[ "$RUSTUP_HOME" = "$expected_rustup_home" ] \
+  || { echo "FAIL: preparation overwrote configured RUSTUP_HOME"; exit 1; }
 APP_HOST_HOME="$CMUX_APP_HOST_HOME"
 APP_HOST_RECEIPT_DIR="$CMUX_APP_HOST_RECEIPT_DIR"
 APP_HOST_CONFIRMATION_FILE="$CMUX_APP_HOST_CONFIRMATION_FILE"
@@ -54,6 +62,10 @@ cmux_validate_app_host_cleanup_confirmation
 
 original_repository_id="$GITHUB_REPOSITORY_ID"
 original_repository_key="$CMUX_RESOLVED_APP_HOST_KEY"
+original_repository_home="$CMUX_RESOLVED_APP_HOST_HOME"
+original_repository_receipts="$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR"
+original_repository_confirmation_file="$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE"
+original_repository_confirmation="$CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION"
 GITHUB_REPOSITORY_ID=7654321
 export GITHUB_REPOSITORY_ID
 cmux_resolve_app_host_identity
@@ -61,9 +73,24 @@ cmux_resolve_app_host_identity
   echo "FAIL: app-host identity must distinguish repositories on one runner"
   exit 1
 }
+for repository_scoped_pair in \
+  "$CMUX_RESOLVED_APP_HOST_HOME|$original_repository_home" \
+  "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR|$original_repository_receipts" \
+  "$CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE|$original_repository_confirmation_file" \
+  "$CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION|$original_repository_confirmation"
+do
+  [ "${repository_scoped_pair%%|*}" != "${repository_scoped_pair#*|}" ] || {
+    echo "FAIL: repository identity did not scope every cleanup authority"
+    exit 1
+  }
+done
 GITHUB_REPOSITORY_ID="$original_repository_id"
 export GITHUB_REPOSITORY_ID
 cmux_resolve_app_host_identity
+[ "$CMUX_RESOLVED_APP_HOST_KEY" = "$original_repository_key" ] \
+  || { echo "FAIL: restoring repository identity changed its key"; exit 1; }
+cmux_validate_published_app_host_identity
+cmux_validate_app_host_cleanup_confirmation
 
 printf 'preserve home\n' > "$CMUX_APP_HOST_HOME/reprepare-marker"
 printf 'preserve receipts\n' > "$CMUX_APP_HOST_RECEIPT_DIR/reprepare-marker"

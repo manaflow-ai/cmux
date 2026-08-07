@@ -28,8 +28,6 @@ app_host_config_sentinel="$app_host_home/Library/Application Support/com.mitchel
   echo "CMUX_APP_HOST_RECEIPT_DIR=$app_host_receipt_dir"
   echo "CMUX_APP_HOST_CLEANUP_CONFIRMATION=$app_host_cleanup_confirmation"
   echo "CMUX_APP_HOST_CONFIRMATION_FILE=$app_host_confirmation_file"
-  echo "CARGO_HOME=${HOME}/.cargo"
-  echo "RUSTUP_HOME=${HOME}/.rustup"
 } >> "$GITHUB_ENV"
 
 if [ -e "$app_host_home" ] \

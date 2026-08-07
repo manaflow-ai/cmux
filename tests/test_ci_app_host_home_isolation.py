@@ -213,17 +213,6 @@ def main() -> int:
                 "FAIL: preparation must not erase existing app-host authority: "
                 f"{destructive_preparation}"
             )
-    for overwritten_toolchain_home in (
-        'echo "CARGO_HOME=',
-        'echo "RUSTUP_HOME=',
-    ):
-        if overwritten_toolchain_home in prepare_app_host:
-            raise SystemExit(
-                "FAIL: preparation must preserve configured toolchain homes and "
-                "let console-user defaults follow HOME: "
-                f"{overwritten_toolchain_home}"
-            )
-
     app_host_job = require_job("app-host-unit-tests")
     app_host_job_environment = app_host_job.get("env")
     if not isinstance(app_host_job_environment, dict) or (
@@ -311,16 +300,6 @@ def main() -> int:
 
     require(
         CONSOLE_WRAPPER,
-        "GITHUB_REPOSITORY_ID GITHUB_RUN_ID GITHUB_RUN_ATTEMPT "
-        "CMUX_APP_HOST_SHARD "
-        "CMUX_CI_APP_HOST_ISOLATION_REQUIRED CMUX_APP_HOST_KEY "
-        "CMUX_APP_HOST_HOME CMUX_APP_HOST_XDG_CONFIG_HOME "
-        "CMUX_APP_HOST_RECEIPT_DIR CMUX_APP_HOST_CLEANUP_CONFIRMATION "
-        "CMUX_APP_HOST_CONFIRMATION_FILE",
-        "console-session environment forwarding",
-    )
-    require(
-        CONSOLE_WRAPPER,
         "unset SSH_AUTH_SOCK",
         "ambient SSH agent removal",
     )
@@ -399,11 +378,6 @@ def main() -> int:
         APP_HOST_POLICY_TESTS,
         "#if CMUX_CI_APP_HOST_ISOLATION_REQUIRED",
         "compiled app-host isolation assertion",
-    )
-    require(
-        APP_HOST_ISOLATION,
-        '"${run_id}:${run_attempt}:${shard}"',
-        "independent run identity derivation",
     )
     require(
         APP_HOST_ISOLATION,

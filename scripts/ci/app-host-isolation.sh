@@ -23,11 +23,13 @@ cmux_compute_app_host_key() {
   local run_id="$1"
   local run_attempt="$2"
   local shard="$3"
+  local repository_id="$4"
+  cmux_require_app_host_identity_number GITHUB_REPOSITORY_ID "$repository_id" || return 1
   cmux_require_app_host_identity_number GITHUB_RUN_ID "$run_id" || return 1
   cmux_require_app_host_identity_number GITHUB_RUN_ATTEMPT "$run_attempt" || return 1
   cmux_require_app_host_identity_number CMUX_APP_HOST_SHARD "$shard" || return 1
   CMUX_COMPUTED_APP_HOST_KEY="$(
-    printf '%s' "${run_id}:${run_attempt}:${shard}" \
+    printf '%s' "${repository_id}:${run_id}:${run_attempt}:${shard}" \
       | cmux_app_host_sha256 \
       | cut -c1-12
   )"
@@ -46,8 +48,11 @@ cmux_compute_app_host_cleanup_confirmation() {
   local shard="$3"
   local app_host_home="$4"
   local app_host_receipt_dir="$5"
+  local repository_id="$6"
+  cmux_require_app_host_identity_number GITHUB_REPOSITORY_ID "$repository_id" || return 1
   local confirmation_material
-  confirmation_material="cmux-app-host-cleanup-v2
+  confirmation_material="cmux-app-host-cleanup-v3
+${repository_id}
 ${run_id}
 ${run_attempt}
 ${shard}
@@ -62,6 +67,8 @@ ${app_host_receipt_dir}"
 # tuple. Published paths are assertions checked against these outputs, never an
 # authority from which the expected boundary is inferred.
 cmux_resolve_app_host_identity() {
+  cmux_require_app_host_identity_number \
+    GITHUB_REPOSITORY_ID "${GITHUB_REPOSITORY_ID:-}" || return 1
   cmux_require_app_host_identity_number \
     GITHUB_RUN_ID "${GITHUB_RUN_ID:-}" || return 1
   cmux_require_app_host_identity_number \
@@ -88,7 +95,8 @@ cmux_resolve_app_host_identity() {
     return 1
   }
   cmux_compute_app_host_key \
-    "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$CMUX_APP_HOST_SHARD" || return 1
+    "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$CMUX_APP_HOST_SHARD" \
+    "$GITHUB_REPOSITORY_ID" || return 1
   app_host_key="$CMUX_COMPUTED_APP_HOST_KEY"
 
   CMUX_RESOLVED_APP_HOST_KEY="$app_host_key"
@@ -110,12 +118,14 @@ cmux_resolve_app_host_identity() {
 
   cmux_compute_app_host_cleanup_confirmation \
     "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$CMUX_APP_HOST_SHARD" \
-    "$CMUX_RESOLVED_APP_HOST_HOME" "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR"
+    "$CMUX_RESOLVED_APP_HOST_HOME" "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR" \
+    "$GITHUB_REPOSITORY_ID"
   CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION="$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION"
 }
 
 cmux_app_host_confirmation_record() {
-  printf 'version=2\nrun_id=%s\nrun_attempt=%s\nshard=%s\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+  printf 'version=3\nrepository_id=%s\nrun_id=%s\nrun_attempt=%s\nshard=%s\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+    "$GITHUB_REPOSITORY_ID" \
     "$GITHUB_RUN_ID" \
     "$GITHUB_RUN_ATTEMPT" \
     "$CMUX_APP_HOST_SHARD" \
@@ -169,10 +179,11 @@ cmux_validate_stale_app_host_confirmation() {
     return 1
   fi
 
-  local line line_number record_version record_run_id record_run_attempt
+  local line line_number record_version record_repository_id record_run_id record_run_attempt
   local record_shard record_key record_home record_receipt_dir record_confirmation
   line_number=0
   record_version=""
+  record_repository_id=""
   record_run_id=""
   record_run_attempt=""
   record_shard=""
@@ -184,26 +195,30 @@ cmux_validate_stale_app_host_confirmation() {
     line_number=$((line_number + 1))
     case "$line_number" in
       1) record_version="${line#version=}"; [ "$line" != "$record_version" ] || record_version="" ;;
-      2) record_run_id="${line#run_id=}"; [ "$line" != "$record_run_id" ] || record_run_id="" ;;
-      3) record_run_attempt="${line#run_attempt=}"; [ "$line" != "$record_run_attempt" ] || record_run_attempt="" ;;
-      4) record_shard="${line#shard=}"; [ "$line" != "$record_shard" ] || record_shard="" ;;
-      5) record_key="${line#key=}"; [ "$line" != "$record_key" ] || record_key="" ;;
-      6) record_home="${line#home=}"; [ "$line" != "$record_home" ] || record_home="" ;;
-      7) record_receipt_dir="${line#receipt_dir=}"; [ "$line" != "$record_receipt_dir" ] || record_receipt_dir="" ;;
-      8) record_confirmation="${line#confirmation=}"; [ "$line" != "$record_confirmation" ] || record_confirmation="" ;;
+      2) record_repository_id="${line#repository_id=}"; [ "$line" != "$record_repository_id" ] || record_repository_id="" ;;
+      3) record_run_id="${line#run_id=}"; [ "$line" != "$record_run_id" ] || record_run_id="" ;;
+      4) record_run_attempt="${line#run_attempt=}"; [ "$line" != "$record_run_attempt" ] || record_run_attempt="" ;;
+      5) record_shard="${line#shard=}"; [ "$line" != "$record_shard" ] || record_shard="" ;;
+      6) record_key="${line#key=}"; [ "$line" != "$record_key" ] || record_key="" ;;
+      7) record_home="${line#home=}"; [ "$line" != "$record_home" ] || record_home="" ;;
+      8) record_receipt_dir="${line#receipt_dir=}"; [ "$line" != "$record_receipt_dir" ] || record_receipt_dir="" ;;
+      9) record_confirmation="${line#confirmation=}"; [ "$line" != "$record_confirmation" ] || record_confirmation="" ;;
       *)
         echo "FAIL: stale app-host confirmation has unexpected fields" >&2
         return 1
         ;;
     esac
   done < "$confirmation_file"
-  if [ "$line_number" -ne 8 ] || [ "$record_version" != "2" ]; then
+  if [ "$line_number" -ne 9 ] || [ "$record_version" != "3" ]; then
     echo "FAIL: stale app-host confirmation version is invalid" >&2
     return 1
   fi
 
+  cmux_require_app_host_identity_number \
+    GITHUB_REPOSITORY_ID "$record_repository_id" || return 1
   cmux_compute_app_host_key \
-    "$record_run_id" "$record_run_attempt" "$record_shard" || return 1
+    "$record_run_id" "$record_run_attempt" "$record_shard" \
+    "$record_repository_id" || return 1
   if [ "$record_key" != "$expected_key" ] \
     || [ "$record_key" != "$CMUX_COMPUTED_APP_HOST_KEY" ]; then
     echo "FAIL: stale app-host confirmation key is invalid" >&2
@@ -219,7 +234,7 @@ cmux_validate_stale_app_host_confirmation() {
   fi
   cmux_compute_app_host_cleanup_confirmation \
     "$record_run_id" "$record_run_attempt" "$record_shard" \
-    "$record_home" "$record_receipt_dir"
+    "$record_home" "$record_receipt_dir" "$record_repository_id"
   if [ "$record_confirmation" != "$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION" ]; then
     echo "FAIL: stale app-host cleanup confirmation is invalid" >&2
     return 1

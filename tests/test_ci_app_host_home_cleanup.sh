@@ -63,15 +63,23 @@ case "${0##*/}" in
     fi
     exec /usr/bin/id "$@"
     ;;
-  dscl) exit 1 ;;
+  dscl)
+    if [ "$*" = ". -read /Users/ci-console NFSHomeDirectory" ]; then
+      printf 'NFSHomeDirectory: /Users/ci-console\n'
+      exit 0
+    fi
+    exit 1
+    ;;
   launchctl)
     if [ "${1:-}" = "asuser" ]; then shift 2; fi
     exec "$@"
     ;;
   sudo)
+    preserve_environment=0
     while [ "$#" -gt 0 ]; do
       case "$1" in
-        -n|-E) shift ;;
+        -n) shift ;;
+        -E) preserve_environment=1; shift ;;
         -u) shift 2 ;;
         *) break ;;
       esac
@@ -83,6 +91,15 @@ case "${0##*/}" in
           printf '%s\n' "$*" >> "$CMUX_FAKE_MUTATION_LOG"
         fi
         exit 0
+        ;;
+      env)
+        if [ "$preserve_environment" -eq 0 ]; then
+          shift
+          exec /usr/bin/env -i PATH="$PATH" "$@"
+        fi
+        shift
+        exec /usr/bin/env \
+          -u GITHUB_REPOSITORY_ID -u CARGO_HOME -u RUSTUP_HOME "$@"
         ;;
       *) exec "$@" ;;
     esac
@@ -182,7 +199,34 @@ discard_corrupted_scope_fixture() {
   rm -f -- "$CMUX_APP_HOST_CONFIRMATION_FILE"
 }
 
+unset CARGO_HOME RUSTUP_HOME
 prepare_scope
+
+unset_toolchain_capture="$TMP_DIR/unset-toolchain.capture"
+# shellcheck disable=SC2016 # expanded by the console-user child shell
+unset_toolchain_probe='printf "%s|%s|%s|%s\n" "$HOME" "$GITHUB_REPOSITORY_ID" "${CARGO_HOME-<unset>}" "${RUSTUP_HOME-<unset>}" > "$1"'
+PATH="$FAKE_BIN:$PATH" \
+  bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+    /bin/bash -c "$unset_toolchain_probe" \
+    bash "$unset_toolchain_capture"
+[ "$(cat "$unset_toolchain_capture")" = \
+  "/Users/ci-console|$GITHUB_REPOSITORY_ID|<unset>|<unset>" ] \
+  || { echo "FAIL: unset toolchain homes did not follow console HOME"; exit 1; }
+
+shared_cargo_home="$TMP_DIR/shared-cargo"
+shared_rustup_home="$TMP_DIR/shared-rustup"
+shared_toolchain_capture="$TMP_DIR/shared-toolchain.capture"
+# shellcheck disable=SC2016 # expanded by the console-user child shell
+shared_toolchain_probe='printf "%s|%s|%s|%s\n" "$HOME" "$GITHUB_REPOSITORY_ID" "$CARGO_HOME" "$RUSTUP_HOME" > "$1"'
+CARGO_HOME="$shared_cargo_home" RUSTUP_HOME="$shared_rustup_home" \
+  PATH="$FAKE_BIN:$PATH" \
+  bash "$ROOT_DIR/scripts/ci/run-in-console-session.sh" \
+    /bin/bash -c "$shared_toolchain_probe" \
+    bash "$shared_toolchain_capture"
+[ "$(cat "$shared_toolchain_capture")" = \
+  "/Users/ci-console|$GITHUB_REPOSITORY_ID|$shared_cargo_home|$shared_rustup_home" ] \
+  || { echo "FAIL: configured shared toolchain homes were not forwarded"; exit 1; }
+
 APP_HOST_EXECUTABLE="$DERIVED_DATA_PATH/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV"
 mkdir -p "$(dirname "$APP_HOST_EXECUTABLE")"
 : > "$APP_HOST_EXECUTABLE"

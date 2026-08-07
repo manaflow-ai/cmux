@@ -876,7 +876,7 @@ cmux_app_host_scope_file_identity() {
 }
 
 # The newest confirmation may belong to a job that has prepared its scope but
-# is still waiting for the canonical machine lock. Only authenticated v2 files
+# is still waiting for the canonical machine lock. Only authenticated v3 files
 # owned by this account with private permissions participate. Shared /tmp debris
 # cannot weaken newest-scope protection or authorize a process signal.
 cmux_newest_app_host_confirmation_mtime() {
@@ -926,7 +926,7 @@ cmux_newest_app_host_confirmation_mtime() {
   CMUX_NEWEST_APP_HOST_CONFIRMATION_MTIME="$newest_mtime"
 }
 
-# Set CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE to 1 only for an authenticated v2
+# Set CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE to 1 only for an authenticated v3
 # scope that is old enough, is not current, and is not tied for newest.
 cmux_classify_app_host_scope_recovery_eligibility() {
   local key="$1"
@@ -938,7 +938,7 @@ cmux_classify_app_host_scope_recovery_eligibility() {
   local minimum_age_seconds="$7"
   CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE=0
 
-  if [ "$version" != "2" ] \
+  if [ "$version" != "3" ] \
     || [ -z "$mtime" ] \
     || [ "$key" = "$preserved_key" ] \
     || [ "$mtime" -eq "$newest_mtime" ] \
@@ -1085,10 +1085,10 @@ cmux_find_eligible_prior_app_host_receipt() {
     cmux_app_host_scope_mtime "$confirmation_file" || return 1
     mtime="$CMUX_APP_HOST_SCOPE_MTIME"
     cmux_classify_app_host_scope_recovery_eligibility \
-      "$expected_key" "$preserved_key" 2 "$mtime" "$newest_mtime" \
+      "$expected_key" "$preserved_key" 3 "$mtime" "$newest_mtime" \
       "$now_epoch" "$minimum_age_seconds" || return 1
     if [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -ne 1 ]; then
-      echo "FAIL: foreign app-host PID $target_pid is not old enough for prior-run recovery" >&2
+      echo "FAIL: foreign app-host PID $target_pid is not eligible for prior-run recovery" >&2
       return 1
     fi
     cmux_app_host_scope_file_identity "$confirmation_file" || return 1
@@ -1187,7 +1187,8 @@ cmux_reclaim_abandoned_app_host_scopes() {
   candidate_mtimes=()
   seen_keys=""
   key_count=0
-  newest_mtime=0
+  cmux_newest_app_host_confirmation_mtime "$system_temp_root" || return 1
+  newest_mtime="$CMUX_NEWEST_APP_HOST_CONFIRMATION_MTIME"
 
   if [ "$#" -gt 0 ]; then
     for key in "$@"; do
@@ -1232,15 +1233,12 @@ cmux_reclaim_abandoned_app_host_scopes() {
     cmux_app_host_scope_mtime "$confirmation_file" || return 1
     mtime="$CMUX_APP_HOST_SCOPE_MTIME"
     scope_mtimes[key_index]="$mtime"
-    if [ "$mtime" -gt "$newest_mtime" ]; then
-      newest_mtime="$mtime"
-    fi
-    if [ "$first_line" != "version=2" ]; then
+    if [ "$first_line" != "version=3" ]; then
       echo "Preserving unsupported app-host confirmation: $confirmation_file"
       key_index=$((key_index + 1))
       continue
     fi
-    scope_versions[key_index]=2
+    scope_versions[key_index]=3
     key_index=$((key_index + 1))
   done
 
@@ -1303,9 +1301,10 @@ cmux_reclaim_abandoned_app_host_scopes() {
 
 # Retry recovery always owns the immutable current run key. While holding the
 # canonical machine lock, it may also admit a prior-run owner whose confirmation
-# is authenticated, older than the grace period, and not newest. Every live PID
+# is authenticated, older than the current scope, and not newest. Every live PID
 # and admitted confirmation is preflighted twice before any signal. Process-free
-# scope maintenance remains advisory after process safety is established.
+# scope deletion retains the reclamation grace and remains advisory after process
+# safety is established.
 cmux_recover_owned_app_host_attempt() {
   local receipt_dir="$1"
   local expected_key="$2"
@@ -1313,7 +1312,8 @@ cmux_recover_owned_app_host_attempt() {
   local runner_root="$4"
   local system_temp_root="$5"
   local now_epoch="${6:-}"
-  local minimum_age_seconds="${7:-21600}"
+  local reclamation_minimum_age_seconds="${7:-21600}"
+  local live_recovery_minimum_age_seconds=0
   shift "$(( $# < 7 ? $# : 7 ))"
 
   if [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" != "1" ] \
@@ -1334,7 +1334,7 @@ cmux_recover_owned_app_host_attempt() {
   if [ -z "$now_epoch" ]; then
     now_epoch="$(/bin/date +%s)" || return 1
   fi
-  case "$now_epoch:$minimum_age_seconds" in
+  case "$now_epoch:$reclamation_minimum_age_seconds" in
     *[!0-9:]*|:*|*:)
       echo "FAIL: app-host recovery age inputs are invalid" >&2
       return 1
@@ -1397,7 +1397,7 @@ cmux_recover_owned_app_host_attempt() {
     if cmux_find_eligible_prior_app_host_receipt \
       "$runner_root" "$system_temp_root" "$expected_key" \
       "$target_pid" "$target_executable" "$newest_mtime" \
-      "$now_epoch" "$minimum_age_seconds"; then
+      "$now_epoch" "$live_recovery_minimum_age_seconds"; then
       find_status=0
     else
       find_status=$?
@@ -1476,9 +1476,9 @@ cmux_recover_owned_app_host_attempt() {
       return 1
     fi
     cmux_classify_app_host_scope_recovery_eligibility \
-      "${prior_keys[$target_index]}" "$expected_key" 2 \
+      "${prior_keys[$target_index]}" "$expected_key" 3 \
       "${prior_confirmation_mtimes[$target_index]}" "$newest_mtime" \
-      "$now_epoch" "$minimum_age_seconds" || return 1
+      "$now_epoch" "$live_recovery_minimum_age_seconds" || return 1
     if [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -ne 1 ]; then
       echo "FAIL: prior app-host scope became ineligible before recovery" >&2
       return 1
@@ -1544,14 +1544,15 @@ cmux_recover_owned_app_host_attempt() {
     || [ "${CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER:-0}" = "1" ]; then
     cmux_reclaim_abandoned_app_host_scopes \
       "$runner_root" "$system_temp_root" "$expected_key" \
-      "$now_epoch" "$minimum_age_seconds" "${maintenance_keys[@]}" || {
+      "$now_epoch" "$reclamation_minimum_age_seconds" \
+      "${maintenance_keys[@]}" || {
       echo "WARNING: abandoned app-host scope reclamation was skipped" >&2
       return 0
     }
   else
     cmux_reclaim_abandoned_app_host_scopes \
       "$runner_root" "$system_temp_root" "$expected_key" \
-      "$now_epoch" "$minimum_age_seconds" || {
+      "$now_epoch" "$reclamation_minimum_age_seconds" || {
       echo "WARNING: abandoned app-host scope reclamation was skipped" >&2
       return 0
     }
