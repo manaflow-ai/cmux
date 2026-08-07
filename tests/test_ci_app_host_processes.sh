@@ -539,20 +539,32 @@ done
 # crash orphan wedge every future shard. Young foreign owners above remain a
 # zero-signal failure.
 spawn_process
-old_orphan_pid="$CMUX_TEST_SPAWNED_PID"
+old_orphan_pid_one="$CMUX_TEST_SPAWNED_PID"
+spawn_process
+old_orphan_pid_two="$CMUX_TEST_SPAWNED_PID"
 write_receipt \
-  "$old_receipt_dir" "$old_key" "$old_orphan_pid" "$old_executable"
+  "$old_receipt_dir" "$old_key" "$old_orphan_pid_one" "$old_executable"
+write_receipt \
+  "$old_receipt_dir" "$old_key" "$old_orphan_pid_two" "$old_executable"
 touch -t 200001010000 "$old_confirmation_file"
-printf '%s|%s\n' "$old_orphan_pid" "$old_executable" \
+old_derived_data="${old_executable%%/Build/Products/*}"
+rm -rf -- "$old_derived_data"
+printf '%s|%s (deleted)\n%s|%s (deleted)\n' \
+  "$old_orphan_pid_one" "$old_executable" \
+  "$old_orphan_pid_two" "$old_executable" \
   > "$CMUX_FAKE_LSOF_STATE"
 cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
   "${current_executable%%/Build/Products/*}" \
   "$stale_runner_root" "$system_temp_root" 2000000000 86400 \
   "$old_key" \
-  || fail "authenticated old prior-run app host was not recovered"
-wait "$old_orphan_pid" 2>/dev/null || true
-untrack_pid "$old_orphan_pid"
+  || fail "authenticated old prior-run app hosts were not recovered"
+for old_orphan_pid in "$old_orphan_pid_one" "$old_orphan_pid_two"; do
+  wait "$old_orphan_pid" 2>/dev/null || true
+  untrack_pid "$old_orphan_pid"
+done
+[ ! -e "$old_derived_data" ] \
+  || fail "prior-run recovery recreated deleted DerivedData"
 for removed_path in "$old_home" "$old_receipt_dir" "$old_confirmation_file"; do
   [ ! -e "$removed_path" ] \
     || fail "recovered prior-run app-host scope was not reclaimed"
