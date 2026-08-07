@@ -148,10 +148,10 @@ import Testing
     // constant, so tests don't need to import Sparkle. Title/message assertions check English
     // substrings because `String(localized:)` falls back to its `defaultValue` under the test bundle.
 
-    /// Regression: a 4005 installation error wrapping an agent-connection timeout (the wedged
-    /// launchd-session case) adds restart guidance on top of the existing "move into Applications"
-    /// guidance, rather than replacing it. Both must be present.
-    @Test func installerAgentFailureKeepsRelocateGuidanceAndAddsRestart() {
+    /// Regression for #9660: a 4005 installation error wrapping an agent-connection timeout must
+    /// explain that endpoint security can delay the helper and direct the user to the one-time
+    /// manual upgrade. Generic permission/location guidance is inaccurate for this precise error.
+    @Test func installerAgentFailureExplainsEndpointSecurityRecovery() {
         let underlying = NSError(
             domain: "SUSparkleErrorDomain",
             code: 10,
@@ -166,8 +166,10 @@ import Testing
             ]
         )
         let message = UpdateStateModel.userFacingErrorMessage(for: err)
-        #expect(message.localizedCaseInsensitiveContains("Applications"))
+        #expect(message.localizedCaseInsensitiveContains("security software"))
         #expect(message.localizedCaseInsensitiveContains("restart"))
+        #expect(message.localizedCaseInsensitiveContains("download"))
+        #expect(!message.localizedCaseInsensitiveContains("Applications"))
     }
 
     @Test func installerAgentFailureHasOwnTitleAndOffersManualDownload() {
