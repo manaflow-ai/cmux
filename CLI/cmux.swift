@@ -31711,13 +31711,11 @@ export default CMUXSessionRestore;
             env: env
         )
 #endif
-        let pidKey: String
-        switch def.integration.lifecycleProcessOwnershipScope {
-        case .session:
-            pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
-        case .sharedProcess:
-            pidKey = "\(def.statusKey).process"
-        }
+        let pidKey = def.integration.lifecycleProcessOwnershipScope.agentPIDKey(
+            statusKey: def.statusKey,
+            sessionId: sessionId,
+            processID: inferredPID
+        )
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the
