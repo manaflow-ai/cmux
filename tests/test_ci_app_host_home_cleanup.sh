@@ -18,6 +18,18 @@ case "${0##*/}" in
         *) shift ;;
       esac
     done
+    if [ "$fd_filter" = "txt" ] \
+      && [ -n "$pid_filter" ] \
+      && [ -n "${LEASE_RELEASE_READY_FIFO:-}" ] \
+      && [ -n "${CMUX_FAKE_LSOF_TXT_COUNTER:-}" ] \
+      && [ -n "${CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS:-}" ]; then
+      txt_call_count="$(< "$CMUX_FAKE_LSOF_TXT_COUNTER")"
+      txt_call_count=$((txt_call_count + 1))
+      printf '%s\n' "$txt_call_count" > "$CMUX_FAKE_LSOF_TXT_COUNTER"
+      if [ "$txt_call_count" -eq "$CMUX_FAKE_LSOF_READY_AFTER_TXT_CALLS" ]; then
+        printf 'ready\n' > "$LEASE_RELEASE_READY_FIFO"
+      fi
+    fi
     found=0
     while IFS='|' read -r state_pid state_executable; do
       [ -n "$state_pid" ] || continue
