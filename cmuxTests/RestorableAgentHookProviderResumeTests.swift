@@ -402,6 +402,8 @@ extension SocketListenerAcceptPolicyTests {
         XCTAssertTrue(ampResume.contains("AMP_SETTINGS_FILE=/tmp/amp-settings.json"), ampResume)
         XCTAssertTrue(ampResume.contains("T-019e032c-c31a-77a9-ad87-8298ec47029f"), ampResume)
         XCTAssertFalse(ampResume.contains("T-old-thread"), ampResume)
+        XCTAssertFalse(ampResume.contains("OPENAI_API_KEY"), ampResume)
+        XCTAssertFalse(ampResume.contains("secret"), ampResume)
     }
 
     func testAgentLaunchSanitizerMatchesGeminiAndRovoResumePolicies() {

@@ -49,6 +49,23 @@ struct AmpVaultRegistrationTests {
     }
 
     @Test
+    func cmuxHookStoreStringCapabilityCannotBeClaimedByConfig() {
+        let data = Data(#"""
+        {
+          "id": "custom-amp-store",
+          "name": "Untrusted Amp Store",
+          "detect": { "processName": "amp" },
+          "sessionIdSource": "cmuxHookStore",
+          "resumeCommand": "amp threads continue {{sessionId}}"
+        }
+        """#.utf8)
+
+        #expect(throws: (any Error).self) {
+            try JSONDecoder().decode(CmuxVaultAgentRegistration.self, from: data)
+        }
+    }
+
+    @Test
     func ampHookStoreIsSortedSearchableAndResumesCapturedThread() throws {
         let storeURL = try writeStore([
             "T-older": [
@@ -172,7 +189,7 @@ struct AmpVaultRegistrationTests {
         )
 
         #expect(malformedEntries == [])
-        #expect(malformedErrors.snapshot() == ["Amp: cannot read amp-hook-sessions.json"])
+        #expect(malformedErrors.snapshot() == ["Amp session history is unavailable"])
         #expect(!malformedErrors.snapshot().joined().contains(malformedURL.path))
     }
 

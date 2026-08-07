@@ -19,7 +19,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         let sessionID = "T-amp-lifecycle"
 
-        let sessionStart = runAmpHook(
+        let sessionStart = try runAmpHook(
             context: context,
             subcommand: "session-start",
             sessionID: sessionID,
@@ -30,7 +30,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
 
         let beforeRunning = context.state.snapshot().count
-        let running = runAmpHook(
+        let running = try runAmpHook(
             context: context,
             subcommand: "lifecycle",
             sessionID: sessionID,
@@ -60,7 +60,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let beforeApproval = context.state.snapshot().count
-        let approval = runAmpHook(
+        let approval = try runAmpHook(
             context: context,
             subcommand: "lifecycle",
             sessionID: sessionID,
@@ -93,7 +93,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let beforeCompletion = context.state.snapshot().count
-        let completion = runAmpHook(
+        let completion = try runAmpHook(
             context: context,
             subcommand: "lifecycle",
             sessionID: sessionID,
@@ -123,7 +123,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let errorTurnID = "amp-error-turn"
-        let errorPrompt = runAmpHook(
+        let errorPrompt = try runAmpHook(
             context: context,
             subcommand: "prompt-submit",
             sessionID: sessionID,
@@ -139,7 +139,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(errorPrompt.status, 0, errorPrompt.stderr)
 
         let beforeIdleError = context.state.snapshot().count
-        let idleError = runAmpHook(
+        let idleError = try runAmpHook(
             context: context,
             subcommand: "lifecycle",
             sessionID: sessionID,
@@ -178,7 +178,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let beforeError = context.state.snapshot().count
-        let error = runAmpHook(
+        let error = try runAmpHook(
             context: context,
             subcommand: "lifecycle",
             sessionID: sessionID,
@@ -229,7 +229,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessionID = "T-amp-cancelled"
         let turnID = "amp-cancelled-turn"
 
-        let sessionStart = runAmpHook(
+        let sessionStart = try runAmpHook(
             context: context,
             subcommand: "session-start",
             sessionID: sessionID,
@@ -239,7 +239,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
         XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
 
-        let prompt = runAmpHook(
+        let prompt = try runAmpHook(
             context: context,
             subcommand: "prompt-submit",
             sessionID: sessionID,
@@ -254,7 +254,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(prompt.status, 0, prompt.stderr)
 
         let beforeCancellation = context.state.snapshot().count
-        let cancellation = runAmpHook(
+        let cancellation = try runAmpHook(
             context: context,
             subcommand: "lifecycle",
             sessionID: sessionID,
@@ -296,7 +296,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         for state in ["running", "awaiting-approval"] {
             let before = context.state.snapshot().count
-            let result = runAmpHook(
+            let result = try runAmpHook(
                 context: context,
                 subcommand: "lifecycle",
                 sessionID: "T-dead-\(state)",
@@ -328,14 +328,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         sessionID: String,
         pid: Int32,
         fields: [String: Any]
-    ) -> ProcessRunResult {
+    ) throws -> ProcessRunResult {
         var payload = fields
         payload["session_id"] = sessionID
         payload["cwd"] = context.root.path
         let input = String(
-            data: try! JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
-            encoding: .utf8
-        )!
+            decoding: try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+            as: UTF8.self
+        )
         let executable = "/opt/amp/bin/amp"
         let environment = [
             "HOME": context.root.path,

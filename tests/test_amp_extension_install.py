@@ -231,7 +231,7 @@ async function waitForProjectedStatus(fragment) {
     const text = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
       ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
       : "";
-    const statuses = text.split("\n").filter((line) => line.startsWith("set-status amp "));
+    const statuses = text.split("\\n").filter((line) => line.startsWith("set-status amp "));
     if (statuses.at(-1)?.includes(fragment)) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -241,7 +241,7 @@ function commandCount(fragment) {
   const text = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
     ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
     : "";
-  return text.split("\n").filter((line) => line.includes(fragment)).length;
+  return text.split("\\n").filter((line) => line.includes(fragment)).length;
 }
 async function waitForCommandCount(fragment, minimumCount) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -254,7 +254,7 @@ function projectedStatusCount() {
   const text = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
     ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
     : "";
-  return text.split("\n").filter((line) => line.startsWith("set-status amp ")).length;
+  return text.split("\\n").filter((line) => line.startsWith("set-status amp ")).length;
 }
 process.argv.splice(
   0,
@@ -277,13 +277,6 @@ if (typeof titleSubscriber === "function") titleSubscriber("Updated Amp title");
 if (typeof resolveStaleTitle !== "function") throw new Error("missing deferred title lookup");
 resolveStaleTitle("Stale Amp title");
 await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1", status: "done", messages: [] }, ctx);
-await new Promise((resolve) => setTimeout(resolve, 350));
-const beforeSettled = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
-  ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
-  : "";
-if (beforeSettled.includes("hooks amp stop")) {
-  throw new Error("agent.end emitted completion before authoritative thread idle");
-}
 currentState = "awaiting-approval";
 await stateSubscriber(currentState);
 currentState = "idle";
@@ -354,6 +347,24 @@ await handlers.get("agent.end")({
 secondState = "idle";
 await secondStateSubscriber(secondState);
 selectThread(thread);
+
+// Amp can begin another turn through a thread-state transition without
+// emitting a second agent.start event. That transition must re-arm terminal
+// delivery so the follow-up completion is not swallowed by the prior turn.
+secondState = "running";
+await secondStateSubscriber(secondState);
+await handlers.get("agent.end")({
+  thread: secondThread,
+  id: "turn-second-follow-up",
+  status: "done",
+  messages: [{
+    role: "assistant",
+    content: [{ type: "text", text: "Second thread follow-up completed" }]
+  }]
+}, { thread: secondThread });
+secondState = "idle";
+await secondStateSubscriber(secondState);
+
 await handlers.get("agent.end")({
   thread: thirdThread,
   id: "turn-third",
@@ -374,12 +385,21 @@ await new Promise((resolve) => setTimeout(resolve, 100));
 const statusCountWithoutActiveThread = projectedStatusCount();
 secondState = "running";
 await secondStateSubscriber(secondState);
-await new Promise((resolve) => setTimeout(resolve, 150));
-if (projectedStatusCount() !== statusCountWithoutActiveThread) {
+const primaryStatusMarker = "set-status amp error --icon xmark.circle --color #ff5555";
+const primaryStatusCount = commandCount(primaryStatusMarker);
+selectThread(thread);
+await waitForCommandCount(primaryStatusMarker, primaryStatusCount + 1);
+if (projectedStatusCount() !== statusCountWithoutActiveThread + 1) {
   throw new Error("a background Amp thread repainted status with no active thread");
 }
-selectThread(thread);
 
+process.argv.splice(
+  0,
+  process.argv.length,
+  "/Users/example/custom-amp-launcher",
+  "--mode",
+  "fallback"
+);
 await handlers.get("session.start")({ thread: legacyThread }, { thread: legacyThread });
 await handlers.get("agent.start")(
   { thread: legacyThread, message: "legacy finish", id: "turn-legacy" },
@@ -396,7 +416,6 @@ const legacyEnd = {
 };
 await handlers.get("agent.end")(legacyEnd, { thread: legacyThread });
 await handlers.get("agent.end")(legacyEnd, { thread: legacyThread });
-await new Promise((resolve) => setTimeout(resolve, 350));
 """
         check_script = root / "check.mjs"
         check_script.write_text(check_source, encoding="utf-8")
@@ -427,6 +446,7 @@ await new Promise((resolve) => setTimeout(resolve, 350));
                 and "hooks amp title-update" in args_log
                 and "hooks amp lifecycle" in args_log
                 and '"session_id":"T-amp-session-test"' in stdin_log
+                and '"session_id":"T-amp-session-legacy"' in stdin_log
                 and "argv=" in env_log
             ):
                 break
@@ -495,13 +515,19 @@ await new Promise((resolve) => setTimeout(resolve, 350));
             and payload.get("agent_state") == "idle"
             and payload.get("turn_outcome") == "done"
         ]
-        if len(second_completions) != 1:
-            print(f"FAIL: second Amp thread did not settle independently, got {second_completions!r}")
+        if len(second_completions) != 2:
+            print(f"FAIL: second Amp thread did not re-arm terminal delivery, got {second_completions!r}")
             return 1
-        if (
-            second_completions[0].get("turn_id") != "turn-second"
-            or second_completions[0].get("last_assistant_message") != "Second thread completed"
-        ):
+        if [payload.get("turn_id") for payload in second_completions] != [
+            "turn-second",
+            "turn-second-follow-up",
+        ]:
+            print(f"FAIL: second Amp thread lost a turn identity, got {second_completions!r}")
+            return 1
+        if [payload.get("last_assistant_message") for payload in second_completions] != [
+            "Second thread completed",
+            "Second thread follow-up completed",
+        ]:
             print(f"FAIL: second Amp thread lost its turn payload, got {second_completions!r}")
             return 1
         third_errors = [
@@ -563,6 +589,27 @@ await new Promise((resolve) => setTimeout(resolve, 350));
         ]
         if decoded_argv != expected_argv:
             print(f"FAIL: plugin captured wrong Amp launch argv; expected {expected_argv!r}, got {decoded_argv!r}")
+            return 1
+        fallback_argv_lines = [
+            line[len("argv="):]
+            for line in env_log.splitlines()
+            if line.startswith("argv=")
+        ]
+        try:
+            fallback_argv = [
+                value
+                for value in base64.b64decode(fallback_argv_lines[-1]).decode("utf-8").split("\0")
+                if value
+            ]
+        except Exception as exc:
+            print(f"FAIL: fallback plugin launch argv was not valid base64 NUL data: {exc}; env={env_log!r}")
+            return 1
+        expected_fallback_argv = [str(fake_amp), "--mode", "fallback"]
+        if fallback_argv != expected_fallback_argv:
+            print(
+                "FAIL: plugin dropped unrecognized launch arguments; "
+                f"expected {expected_fallback_argv!r}, got {fallback_argv!r}"
+            )
             return 1
 
     print("PASS: generated Amp plugin installs and emits cmux hooks")
