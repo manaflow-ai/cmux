@@ -369,6 +369,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // edge in surface coordinates, -1 while the accessory is unhosted.
         let keyboardGuideTop = accessoryFrameInSurfaceCoordinates()
             .map { pointValue($0.minY) } ?? pointValue(-1)
+        let dockTraceMotionRange: CGFloat
+        if debugDockTraceSamples > 0 {
+            dockTraceMotionRange = debugDockTraceMaxAccessoryTop - debugDockTraceMinAccessoryTop
+        } else {
+            dockTraceMotionRange = 0
+        }
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
@@ -408,6 +414,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
             "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
+            "dockTraceComplete=\(debugDockTraceComplete ? 1 : 0)",
+            "dockTraceSamples=\(debugDockTraceSamples)",
+            "dockTraceMotionRange=\(pointValue(dockTraceMotionRange))",
+            "dockTraceMaxGap=\(pointValue(debugDockTraceMaxGap))",
+            "dockTraceMaxViewportError=\(pointValue(debugDockTraceMaxViewportError))",
+            "dockStressRemaining=\(debugDockStressRemaining)",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -536,6 +548,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var keyboardOverlapFloorInWindow: CGFloat = 0
     #if DEBUG
     private var keyboardHeightOverrideForTesting: CGFloat?
+    /// Bounded CADisplayLink trace for keyboard/accessory transitions. It is
+    /// armed by real keyboard notifications and by the UI-test rapid-toggle
+    /// harness; Release builds contain neither the state nor the sampling.
+    private var debugDockTraceActive = false
+    private var debugDockTraceComplete = false
+    private var debugDockTraceDeadline: CFTimeInterval = 0
+    private var debugDockTraceSamples = 0
+    private var debugDockTraceMinAccessoryTop = CGFloat.greatestFiniteMagnitude
+    private var debugDockTraceMaxAccessoryTop = -CGFloat.greatestFiniteMagnitude
+    private var debugDockTraceMaxGap: CGFloat = 0
+    private var debugDockTraceMaxViewportError: CGFloat = 0
+    private var debugDockStressRemaining = 0
+    private var debugDockStressNextToggleAt: CFTimeInterval?
+    private var debugLastKeyboardNotificationMinY: CGFloat = -1
     #endif
 
     #if DEBUG
@@ -700,25 +726,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 ))
             }
             #endif
-            // Round 8: the keyboard-toggle button only raises/lowers the keyboard. The
-            // toolbar stays visible either way, and an open composer survives a
-            // keyboard-down (its draft lives in the store; the field just loses focus).
-            // Resign whichever responder actually owns the keyboard: with the composer
-            // open by default the band can be presented (`composerActive == true`)
-            // while the terminal's hidden input proxy holds first responder (a
-            // terminal tap focuses the proxy without closing the band), and the proxy
-            // is a sibling of `composerContainer`, so `endEditing` on the container
-            // alone would resign nothing and the keyboard would stay up.
-            // Decide from ACTUAL responder truth, not `keyboardVisible`: that
-            // bit is reconciled from keyboard notifications and lags a frame
-            // or two during rapid toggling, which made quick successive taps
-            // of the toggle re-focus when they should resign (and vice versa)
-            // until the keyboard wedged out of sync with the button.
-            if self.inputProxy.isFirstResponder || self.composerFieldIsFirstResponder {
-                self.resignCurrentInput()
-            } else {
-                self.focusInput()
-            }
+            self.toggleKeyboardFromAccessory()
         }
         inputProxy.onHideChrome = { [weak self] in
             self?.setChromeHidden(true)
@@ -1049,6 +1057,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // willChangeFrame with the notification frame, the tracker/floor pair,
         // and the animation duration, so a dogfood recording can be lined up
         // against which source moved (or failed to move) the grid and when.
+        debugLastKeyboardNotificationMinY = transition.endFrame.minY
+        debugArmKeyboardDockTrace()
         MobileDebugLog.anchormux(
             "kb.willChange endMinY=\(Int(transition.endFrame.minY)) endH=\(Int(transition.endFrame.height))"
                 + " dur=\(String(format: "%.2f", transition.duration))"
@@ -1240,9 +1250,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// layer.
     private func accessoryPresentationFrameInSurfaceCoordinates() -> CGRect? {
         guard let accessory = keyboardDockAccessory,
-              let superview = accessory.superview,
-              let presentationFrame = accessory.layer.presentation()?.frame else { return nil }
-        return convertDockRect(presentationFrame, from: superview)
+              let host = accessory.superview,
+              let window,
+              let presentation = accessory.layer.presentation(),
+              let hostPresentation = host.layer.presentation(),
+              let hostParentPresentation = hostPresentation.superlayer else {
+            return nil
+        }
+
+        // A CALayer presentation frame is expressed in its PRESENTATION
+        // superlayer. UIView.convert(_:from:) walks the MODEL view hierarchy,
+        // so feeding `presentation.frame` to it drops every animated ancestor
+        // transform in the private keyboard window. In practice the accessory
+        // then appeared to jump to its final Y while UIKeyboardItemContainerView
+        // was still travelling, and only its 34pt height change remained visible
+        // as the terminal's characteristic "breath".
+        //
+        // Stop at UIKit's input-accessory host boundary. That host is the
+        // physical keyboard-plane attachment and its presentation frame is in
+        // the scene-aligned coordinate space used for keyboard placement.
+        // Walking farther upward reaches a private keyboard UIWindow that UIKit
+        // may park at +4000pt during responder handoffs even while the host is
+        // visibly on screen.
+        let inSceneWindow = presentation.convert(
+            presentation.bounds,
+            to: hostParentPresentation
+        )
+        return convert(inSceneWindow, from: window)
     }
 
     /// A dock content view's frame (toolbar row or composer band, hosted inside
@@ -1254,6 +1288,166 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     #if DEBUG
+    /// Independent presentation-tree witness for the DEBUG trace. This is kept
+    /// separate from the production resolver deliberately: the regression probe
+    /// must still catch a future production conversion that accidentally walks
+    /// model ancestors again.
+    private func debugPresentationFrameInSurfaceCoordinates(of view: UIView) -> CGRect? {
+        guard let host = view.superview,
+              let window,
+              let presentation = view.layer.presentation(),
+              let hostPresentation = host.layer.presentation() else { return nil }
+
+        // Independent axis-aligned reconstruction from the accessory's local
+        // presentation rect plus its host's presentation frame. Keyboard dock
+        // motion is translational; this witness deliberately does not call the
+        // production presentation-tree conversion.
+        let inHost = presentation.convert(presentation.bounds, to: hostPresentation)
+        let inSceneWindow = inHost.offsetBy(
+            dx: hostPresentation.frame.minX,
+            dy: hostPresentation.frame.minY
+        )
+        return convert(inSceneWindow, from: window)
+    }
+
+    /// UIKit expresses the immediate input-accessory host's presentation frame
+    /// in the scene-aligned keyboard placement space. Do not walk its private
+    /// ancestors: their window-staging transform is deliberately not visual.
+    private func debugAccessoryHostFrameInSurfaceCoordinates(_ host: UIView) -> CGRect? {
+        guard let window, let presentation = host.layer.presentation() else { return nil }
+        return convert(presentation.frame, from: window)
+    }
+
+    private func debugResetKeyboardDockTrace(now: CFTimeInterval) {
+        debugDockTraceActive = true
+        debugDockTraceComplete = false
+        debugDockTraceDeadline = now + 1
+        debugDockTraceSamples = 0
+        debugDockTraceMinAccessoryTop = .greatestFiniteMagnitude
+        debugDockTraceMaxAccessoryTop = -.greatestFiniteMagnitude
+        debugDockTraceMaxGap = 0
+        debugDockTraceMaxViewportError = 0
+    }
+
+    private func debugArmKeyboardDockTrace(now: CFTimeInterval = CACurrentMediaTime()) {
+        if !debugDockTraceActive || debugDockTraceComplete {
+            debugResetKeyboardDockTrace(now: now)
+        }
+        debugDockTraceDeadline = max(debugDockTraceDeadline, now + 1)
+    }
+
+    /// Starts an app-driven reversal sequence for UI tests. It runs from the
+    /// existing display link instead of XCTest taps, because XCUI waits for a
+    /// keyboard animation to idle after every tap and therefore cannot create
+    /// the interrupted transitions that wedge this path in the wild.
+    private func debugStartKeyboardDockStressIfRequested(now: CFTimeInterval) {
+        guard debugDockStressNextToggleAt == nil,
+              debugDockStressRemaining == 0,
+              !debugDockTraceComplete,
+              let rawCount = ProcessInfo.processInfo.environment[
+                  "CMUX_UITEST_KEYBOARD_DOCK_RAPID_TOGGLE_COUNT"
+              ],
+              let count = Int(rawCount),
+              count > 0 else { return }
+        debugResetKeyboardDockTrace(now: now)
+        debugDockStressRemaining = count
+        debugDockStressNextToggleAt = now + 0.5
+        debugDockTraceDeadline = now + 0.5 + (Double(count) * 0.08) + 1
+        MobileDebugLog.anchormux("kb.frame stress.begin count=\(count)")
+    }
+
+    private func debugAdvanceKeyboardDockStress(now: CFTimeInterval) {
+        guard debugDockStressRemaining > 0,
+              let nextToggleAt = debugDockStressNextToggleAt,
+              now >= nextToggleAt else { return }
+        debugDockStressRemaining -= 1
+        let ordinal = debugDockStressRemaining
+        debugDockStressNextToggleAt = debugDockStressRemaining > 0 ? now + 0.08 : nil
+        toggleKeyboardFromAccessory()
+        debugArmKeyboardDockTrace(now: now)
+        MobileDebugLog.anchormux(
+            "kb.frame stress.toggle remaining=\(ordinal) "
+                + inputProxy.keyboardDockFrameDiagnostics
+        )
+    }
+
+    /// Samples the physical dock/key-plane attachment and the renderer viewport
+    /// once per CADisplayLink frame while a bounded transition trace is armed.
+    private func debugSampleKeyboardDockFrame(now: CFTimeInterval) {
+        guard debugDockTraceActive else { return }
+        let decimal: (Double) -> String = { String(format: "%.3f", $0) }
+
+        if let accessory = keyboardDockAccessory,
+           let host = accessory.superview,
+           let accessoryFrame = debugPresentationFrameInSurfaceCoordinates(of: accessory),
+           let hostFrame = debugAccessoryHostFrameInSurfaceCoordinates(host) {
+            debugDockTraceSamples += 1
+            debugDockTraceMinAccessoryTop = min(
+                debugDockTraceMinAccessoryTop,
+                accessoryFrame.minY
+            )
+            debugDockTraceMaxAccessoryTop = max(
+                debugDockTraceMaxAccessoryTop,
+                accessoryFrame.minY
+            )
+
+            // UIKeyboardItemContainerView's presentation top is the combined
+            // accessory+keyboard plane. The key plane starts one accessory
+            // height below it; the accessory's bottom must equal that edge.
+            let keyPlaneTop = hostFrame.minY + accessoryFrame.height
+            let physicalGap = abs(accessoryFrame.maxY - keyPlaneTop)
+            debugDockTraceMaxGap = max(debugDockTraceMaxGap, physicalGap)
+
+            // Independently reconstruct the coordinator's expected render edge
+            // from the true presentation frame. The target clamp is intentional
+            // while a stale negotiated grid settles; only the live accessory Y
+            // comes from the independent witness.
+            let snapshot = viewportSnapshot()
+            let liveEdge = min(max(1, accessoryFrame.minY), max(1, bounds.height))
+            let expectedViewport = shouldClampStaleLiveViewport(using: snapshot)
+                ? min(liveEdge, snapshot.layoutViewportRect.height)
+                : liveEdge
+            let coordinateOverflow = max(0, accessoryFrame.minY - bounds.maxY)
+            let viewportError = max(
+                abs(terminalViewportHeight - expectedViewport),
+                coordinateOverflow
+            )
+            debugDockTraceMaxViewportError = max(
+                debugDockTraceMaxViewportError,
+                viewportError
+            )
+
+            MobileDebugLog.anchormux(
+                "kb.frame t=\(decimal(now))"
+                    + " accessory=\(decimal(Double(accessoryFrame.minY)))"
+                    + " keyPlane=\(decimal(Double(keyPlaneTop)))"
+                    + " gap=\(decimal(Double(physicalGap)))"
+                    + " viewport=\(decimal(Double(terminalViewportHeight)))"
+                    + " viewportError=\(decimal(Double(viewportError)))"
+                    + " notificationTop=\(decimal(Double(debugLastKeyboardNotificationMinY))) "
+                    + inputProxy.keyboardDockFrameDiagnostics
+            )
+        } else {
+            MobileDebugLog.anchormux(
+                "kb.frame t=\(decimal(now)) unavailable "
+                    + inputProxy.keyboardDockFrameDiagnostics
+            )
+        }
+
+        guard debugDockStressRemaining == 0, now >= debugDockTraceDeadline else { return }
+        debugDockTraceActive = false
+        debugDockTraceComplete = true
+        let motion = debugDockTraceSamples > 0
+            ? debugDockTraceMaxAccessoryTop - debugDockTraceMinAccessoryTop
+            : 0
+        MobileDebugLog.anchormux(
+            "kb.frame complete samples=\(debugDockTraceSamples)"
+                + " motion=\(decimal(Double(motion)))"
+                + " maxGap=\(decimal(Double(debugDockTraceMaxGap)))"
+                + " maxViewportError=\(decimal(Double(debugDockTraceMaxViewportError)))"
+        )
+    }
+
     /// Forces a synthetic keyboard overlap for host tests and previews. Only
     /// the model/grid is synthetic now — the dock accessory needs no bottom
     /// anchor because the OS positions it.
@@ -2381,6 +2575,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             #endif
             setNeedsGeometrySync()
             setFocus(true)
+            #if DEBUG
+            debugStartKeyboardDockStressIfRequested(now: CACurrentMediaTime())
+            #endif
             if autoFocusOnWindowAttach, UIApplication.shared.applicationState == .active {
                 focusInput()
             } else if !chromeHidden {
@@ -2711,6 +2908,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         requestTerminalInputFocus()
     }
 
+    /// The single keyboard-toggle mutation path for both the accessory button
+    /// and the DEBUG rapid-reversal harness. Responder truth is authoritative:
+    /// keyboard notifications intentionally lag an interrupted transition.
+    private func toggleKeyboardFromAccessory() {
+        if inputProxy.isFirstResponder || composerFieldIsFirstResponder {
+            resignCurrentInput()
+        } else {
+            focusInput()
+        }
+    }
+
     private func requestTerminalInputFocus() {
         onFocusInputRequestedForTesting?()
         synchronizeActualInputOwner()
@@ -2894,6 +3102,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         stopDisplayLink()
         setFocus(false)
         #if DEBUG
+        debugDockStressRemaining = 0
+        debugDockStressNextToggleAt = nil
+        debugDockTraceActive = false
         debugAccessibilityProxy.accessibilityLabel = nil
         debugAccessibilityProxy.isAccessibilityElement = false
         #endif
@@ -3259,7 +3470,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 zoomSettleFrames = frames
             }
         }
+        #if DEBUG
+        debugAdvanceKeyboardDockStress(now: now)
+        #endif
         advanceBottomDockTransition()
+        #if DEBUG
+        debugSampleKeyboardDockFrame(now: now)
+        #endif
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
