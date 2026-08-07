@@ -62,6 +62,7 @@ fi
 TMP_DIR="$(mktemp -d)"
 app_host_pid=""
 APP_HOST_HOME=""
+SYMLINK_ESCAPE_HOME=""
 REPLACEMENT_LINK_HOME=""
 REPLACEMENT_VICTIM_HOME=""
 cleanup() {
@@ -74,6 +75,9 @@ cleanup() {
   fi
   if [ -n "$REPLACEMENT_VICTIM_HOME" ]; then
     rm -rf -- "$REPLACEMENT_VICTIM_HOME"
+  fi
+  if [ -n "$SYMLINK_ESCAPE_HOME" ]; then
+    rm -rf -- "$SYMLINK_ESCAPE_HOME"
   fi
   if [ -n "$APP_HOST_HOME" ]; then
     rm -rf -- "$APP_HOST_HOME"
@@ -219,24 +223,31 @@ fi
 OUTSIDE_HOME="$TMP_DIR/outside-home"
 mkdir -p "$OUTSIDE_HOME/.config"
 printf 'keep\n' > "$OUTSIDE_HOME/sentinel"
-ln -s "$OUTSIDE_HOME" "$RUNNER_TEMP_DIR/ah-fedcba654321"
+SYMLINK_ESCAPE_HOME="/tmp/cmux-ah-1${APP_HOST_KEY#?}"
+rm -rf -- "$SYMLINK_ESCAPE_HOME"
+ln -s "$OUTSIDE_HOME" "$SYMLINK_ESCAPE_HOME"
 set +e
 CMUX_CI_APP_HOST_ISOLATION_REQUIRED=1 \
 RUNNER_TEMP="$RUNNER_TEMP_DIR" \
 CMUX_DERIVED_DATA_PATH="$DERIVED_DATA_PATH" \
-CMUX_APP_HOST_HOME="$RUNNER_TEMP_DIR/ah-fedcba654321" \
-CMUX_APP_HOST_XDG_CONFIG_HOME="$RUNNER_TEMP_DIR/ah-fedcba654321/.config" \
+CMUX_APP_HOST_HOME="$SYMLINK_ESCAPE_HOME" \
+CMUX_APP_HOST_XDG_CONFIG_HOME="$SYMLINK_ESCAPE_HOME/.config" \
   bash "$CLEANUP_SCRIPT" >"$TMP_DIR/symlink-escape.log" 2>&1
 symlink_escape_status=$?
 set -e
-if [ "$symlink_escape_status" -ne 1 ] || [ ! -f "$OUTSIDE_HOME/sentinel" ]; then
+if [ "$symlink_escape_status" -ne 1 ] \
+  || [ ! -f "$OUTSIDE_HOME/sentinel" ] \
+  || ! grep -Fxq \
+    "FAIL: refusing app-host cleanup through a home symlink" \
+    "$TMP_DIR/symlink-escape.log"; then
   cat "$TMP_DIR/symlink-escape.log"
-  echo "FAIL: cleanup must reject a canonical path outside the runner temp root"
+  echo "FAIL: cleanup must reject a validly named home symlink to an outside target"
   exit 1
 fi
 
-REPLACEMENT_LINK_HOME="$RUNNER_TEMP_DIR/ah-abcdef123456"
-REPLACEMENT_VICTIM_HOME="$RUNNER_TEMP_DIR/ah-654321fedcba"
+REPLACEMENT_LINK_HOME="/tmp/cmux-ah-2${APP_HOST_KEY#?}"
+REPLACEMENT_VICTIM_HOME="/tmp/cmux-ah-3${APP_HOST_KEY#?}"
+rm -rf -- "$REPLACEMENT_LINK_HOME" "$REPLACEMENT_VICTIM_HOME"
 mkdir -p "$REPLACEMENT_VICTIM_HOME/.config"
 printf 'other-workflow\n' > "$REPLACEMENT_VICTIM_HOME/sentinel"
 ln -s "$REPLACEMENT_VICTIM_HOME" "$REPLACEMENT_LINK_HOME"
@@ -250,7 +261,10 @@ CMUX_APP_HOST_XDG_CONFIG_HOME="$REPLACEMENT_LINK_HOME/.config" \
 replacement_symlink_status=$?
 set -e
 if [ "$replacement_symlink_status" -ne 1 ] \
-  || [ ! -f "$REPLACEMENT_VICTIM_HOME/sentinel" ]; then
+  || [ ! -f "$REPLACEMENT_VICTIM_HOME/sentinel" ] \
+  || ! grep -Fxq \
+    "FAIL: refusing app-host cleanup through a home symlink" \
+    "$TMP_DIR/replacement-symlink.log"; then
   cat "$TMP_DIR/replacement-symlink.log"
   echo "FAIL: cleanup must reject a home symlink without deleting its valid-looking target"
   exit 1
