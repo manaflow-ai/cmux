@@ -96,6 +96,34 @@ struct PortalHitTestingPerformanceTests {
         return event
     }
 
+    private func makePrebuiltSplitSubtree(frame: NSRect) -> (
+        root: SubviewReadCountingView,
+        scaleContainers: [SubviewReadCountingView],
+        splitView: CountingSplitView,
+        splitDelegate: SplitDelegate
+    ) {
+        let root = SubviewReadCountingView(frame: frame)
+        let scaleContainers = (0..<1_000).map { _ in SubviewReadCountingView(frame: .zero) }
+        for scaleContainer in scaleContainers {
+            root.addSubview(scaleContainer)
+        }
+        let splitView = CountingSplitView(frame: root.bounds)
+        splitView.isVertical = true
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: root.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: root.bounds.height)))
+        root.addSubview(splitView)
+        return (root, scaleContainers, splitView, splitDelegate)
+    }
+
+    private func subviewReadCount(
+        root: SubviewReadCountingView,
+        scaleContainers: [SubviewReadCountingView]
+    ) -> Int {
+        root.subviewReadCount + scaleContainers.reduce(0) { $0 + $1.subviewReadCount }
+    }
+
     @Test
     func mouseMovedTabBarPassThroughUsesOnlyRegisteredRegions() throws {
         let window = NSWindow(
@@ -397,6 +425,14 @@ struct PortalHitTestingPerformanceTests {
         )
         defer { window.orderOut(nil) }
 
+        let controlWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { controlWindow.orderOut(nil) }
+
         let rootView = try #require(window.contentView)
         let outerContainer = NSView(frame: rootView.bounds)
         let unobservedContainer = NSView(frame: outerContainer.bounds)
@@ -415,38 +451,52 @@ struct PortalHitTestingPerformanceTests {
             #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) != nil)
         }
 
-        let insertedSubtree = SubviewReadCountingView(frame: unobservedContainer.bounds)
-        let scaleContainers = (0..<1_000).map { _ in SubviewReadCountingView(frame: .zero) }
-        for scaleContainer in scaleContainers {
-            insertedSubtree.addSubview(scaleContainer)
-        }
-        let splitView = CountingSplitView(frame: insertedSubtree.bounds)
-        splitView.isVertical = true
-        let splitDelegate = SplitDelegate()
-        splitView.delegate = splitDelegate
-        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: insertedSubtree.bounds.height)))
-        splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: insertedSubtree.bounds.height)))
-        insertedSubtree.addSubview(splitView)
+        let controlRootView = try #require(controlWindow.contentView)
+        let controlContainer = NSView(frame: controlRootView.bounds)
+        controlRootView.addSubview(controlContainer)
+        let controlSubtree = makePrebuiltSplitSubtree(frame: controlContainer.bounds)
+        let controlReadsBeforeInsertion = subviewReadCount(
+            root: controlSubtree.root,
+            scaleContainers: controlSubtree.scaleContainers
+        )
+        controlContainer.addSubview(controlSubtree.root)
+        let appKitAttachmentReads = subviewReadCount(
+            root: controlSubtree.root,
+            scaleContainers: controlSubtree.scaleContainers
+        ) - controlReadsBeforeInsertion
+        #expect(
+            appKitAttachmentReads > 0,
+            "The no-cache control must observe AppKit's subtree attachment traversal."
+        )
 
-        let subtreeReadsBeforeInsertion = insertedSubtree.subviewReadCount
-            + scaleContainers.reduce(0) { $0 + $1.subviewReadCount }
+        let insertedSubtree = makePrebuiltSplitSubtree(frame: unobservedContainer.bounds)
+        let subtreeReadsBeforeInsertion = subviewReadCount(
+            root: insertedSubtree.root,
+            scaleContainers: insertedSubtree.scaleContainers
+        )
         let cursorInvalidationsBeforeInsertion = window.cursorInvalidationCount
 
-        unobservedContainer.addSubview(insertedSubtree)
+        unobservedContainer.addSubview(insertedSubtree.root)
 
-        let subtreeReadsAfterInsertion = insertedSubtree.subviewReadCount
-            + scaleContainers.reduce(0) { $0 + $1.subviewReadCount }
+        let portalAttachmentReads = subviewReadCount(
+            root: insertedSubtree.root,
+            scaleContainers: insertedSubtree.scaleContainers
+        ) - subtreeReadsBeforeInsertion
         #expect(
-            subtreeReadsAfterInsertion - subtreeReadsBeforeInsertion <= 2,
-            "A hierarchy mutation must not recursively inspect a prebuilt subtree."
+            portalAttachmentReads - appKitAttachmentReads <= 2,
+            "Portal tracking must add only constant work beyond AppKit's own subtree attachment traversal."
         )
         #expect(
             window.cursorInvalidationCount - cursorInvalidationsBeforeInsertion <= 2,
             "One hierarchy mutation must not synchronously notify every active portal cache."
         )
 
-        let dividerPointInWindow = splitView.convert(
-            NSPoint(x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5), y: splitView.bounds.midY),
+        let dividerPointInWindow = insertedSubtree.splitView.convert(
+            NSPoint(
+                x: insertedSubtree.splitView.arrangedSubviews[0].frame.maxX
+                    + (insertedSubtree.splitView.dividerThickness * 0.5),
+                y: insertedSubtree.splitView.bounds.midY
+            ),
             to: nil
         )
         let dividerEvent = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
@@ -455,7 +505,8 @@ struct PortalHitTestingPerformanceTests {
             at: firstHost.convert(dividerPointInWindow, from: nil),
             currentEvent: dividerEvent
         ) == nil)
-        withExtendedLifetime(splitDelegate) {}
+        withExtendedLifetime(controlSubtree.splitDelegate) {}
+        withExtendedLifetime(insertedSubtree.splitDelegate) {}
     }
 
     @Test
