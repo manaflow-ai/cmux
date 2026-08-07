@@ -772,6 +772,16 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/fstring_network.py",
+            'payload = f"{requests.get(\'https://api.openai.com/v1/items\')}"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_command_network.sh",
+            'bash -c "curl -fsSL https://api.openai.com/v1/items"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -921,6 +931,17 @@ def _self_test() -> int:
         (
             "web/tests/n18e.ts",
             'const example = `fetch("https://api.openai.com/v1/items")`;\n',
+        ),
+        # Escaped braces are literal f-string text, not a replacement field.
+        (
+            "tests/n18f.py",
+            'payload = f"{{requests.get(\'https://api.openai.com/v1/items\')}}"\n',
+        ),
+        # A rendered shell invocation remains inert when the shell launcher is
+        # itself inside asserted fixture text.
+        (
+            "web/tests/n18g.ts",
+            'expect(help).toContain(\'bash -c "curl https://api.openai.com/v1/items"\')\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
