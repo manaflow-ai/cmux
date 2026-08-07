@@ -316,6 +316,52 @@ def _is_assertion_line(line: str) -> bool:
     return bool(_ASSERT_TOKEN.search(line) or _RAISE_IF.search(line))
 
 
+@dataclass
+class _QuotedLiteralMaskState:
+    """Lexical state carried across lines while masking string fixtures."""
+
+    quote: Optional[str] = None
+    escaped: bool = False
+
+
+def _quoted_literal_delimiters(path_suffix: str) -> tuple[str, ...]:
+    """Return string delimiters that are inert for the source language."""
+    if path_suffix in (".ts", ".tsx", ".js", ".mjs"):
+        return ("'", '"', "`")
+    if path_suffix in (".py", ".sh"):
+        # Backticks execute command substitutions in shell and are not Python
+        # string delimiters, so they must remain visible to network detectors.
+        return ("'", '"')
+    if path_suffix == ".swift":
+        return ('"',)
+    return ("'", '"')
+
+
+def _mask_quoted_literals(
+    line: str,
+    path_suffix: str,
+    state: _QuotedLiteralMaskState,
+) -> str:
+    """Blank inert quoted contents while retaining executable token positions."""
+    masked = list(line)
+    delimiters = _quoted_literal_delimiters(path_suffix)
+    for index, character in enumerate(line):
+        if state.quote is None:
+            if character in delimiters:
+                state.quote = character
+                masked[index] = " "
+            continue
+
+        masked[index] = " "
+        if state.escaped:
+            state.escaped = False
+        elif character == "\\":
+            state.escaped = True
+        elif character == state.quote:
+            state.quote = None
+    return "".join(masked)
+
+
 def detect_assert_on_duration(line: str) -> bool:
     if not _is_assertion_line(line):
         return False
@@ -340,14 +386,14 @@ def detect_assert_on_duration(line: str) -> bool:
     return has_threshold_compare or has_relational_assert
 
 
-def detect_live_network_host(line: str) -> bool:
+def detect_live_network_host(line: str, executable_line: str) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
-    # is ALSO handed to a network-driving verb on the same line (fetch/axios/
-    # requests/urlopen/...). A URL used as a string fixture (markdown builder,
-    # canonical-URL assertion, toContain) opens no socket and is not flagged.
+    # is ALSO handed to an executable network-driving verb on the same line
+    # (fetch/axios/requests/urlopen/...). Verbs inside quoted string fixtures are
+    # masked, so rendered commands and canonical-URL assertions are not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    if not _NETWORK_VERB.search(line):
+    if not _NETWORK_VERB.search(executable_line):
         return False
     for match in _URL.finditer(line):
         host = match.group(1)
@@ -494,6 +540,11 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(l, suffix) for l in raw_lines]
+    quote_state = _QuotedLiteralMaskState()
+    executable_lines = [
+        _mask_quoted_literals(line, suffix, quote_state)
+        for line in code_lines
+    ]
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -504,7 +555,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
         if detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code):
+        if detect_live_network_host(code, executable_lines[i]):
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
