@@ -28,6 +28,9 @@ public nonisolated struct AgentTurnSettlementReconciler: Sendable {
            evidence.boundary != .settled {
             return .keepRunning
         }
+        if evidence.activeSiblingTurnCount > 0 {
+            return .settleTurnKeepingProcessRunning
+        }
         return .settle
     }
 
