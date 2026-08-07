@@ -16,6 +16,16 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
         rawValue: "com.cmux.nested-topology.decoding-limits"
     )!
 
+    /// Decoder user-info key for an explicit ``NestedTopologySnapshotDecodingMode`` value.
+    ///
+    /// Decoding defaults to ``NestedTopologySnapshotDecodingMode/providerInput``. Only cmux-owned
+    /// serialization of an already-published snapshot may opt in to
+    /// ``NestedTopologySnapshotDecodingMode/trustedPublishedSnapshot`` so provider data cannot claim
+    /// host or user title authority.
+    public static let decodingModeUserInfoKey = CodingUserInfoKey(
+        rawValue: "com.cmux.nested-topology.decoding-mode"
+    )!
+
     /// Provider instance and connection generation that own every node.
     public let provider: NestedProviderIdentity
 
@@ -103,7 +113,7 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
         )
     }
 
-    /// Decodes and incrementally validates a snapshot with caller-supplied or standard limits.
+    /// Decodes and incrementally validates a snapshot with caller-supplied limits.
     ///
     /// Decoder APIs do not expose the source byte count. Provider transports
     /// must enforce a bounded frame size before constructing their decoder.
@@ -112,7 +122,9 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
     public init(from decoder: any Decoder) throws {
         let limits = decoder.userInfo[Self.decodingLimitsUserInfoKey]
             as? NestedTopologyLimits ?? NestedTopologyLimits()
-        self = try NestedTopologySnapshotDecoder(limits: limits).decode(from: decoder)
+        let mode = decoder.userInfo[Self.decodingModeUserInfoKey]
+            as? NestedTopologySnapshotDecodingMode ?? .providerInput
+        self = try NestedTopologySnapshotDecoder(limits: limits, mode: mode).decode(from: decoder)
     }
 
     /// Encodes the validated immutable snapshot.

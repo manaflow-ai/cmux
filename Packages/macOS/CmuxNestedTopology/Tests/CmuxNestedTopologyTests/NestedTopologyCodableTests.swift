@@ -7,14 +7,13 @@ struct NestedTopologyCodableTests {
     @Test("a complete snapshot round-trips without losing authority or raw provider state")
     func snapshotRoundTrip() throws {
         let fixture = NestedTopologyTestFixture()
-        let snapshot = try fixture.snapshot(
+        let providerSnapshot = try fixture.snapshot(
             capabilities: NestedProviderCapabilities([
                 .topologyEvents,
                 .topologySnapshot,
                 NestedProviderCapability(rawValue: "vendor.future.v2"),
             ]),
             panes: [fixture.pane(
-                title: NestedNodeTitle(value: "Locked", authority: .user),
                 associationAuthority: .heuristic,
                 heuristicAlreadySatisfied: true
             )],
@@ -29,8 +28,23 @@ struct NestedTopologyCodableTests {
                 agentID: fixture.id("agent-1", kind: .agent)
             )
         )
+        let snapshot = try NestedTopologyReducer().applying(
+            .user(nodeID: fixture.id("pane-1", kind: .pane), value: "Locked"),
+            to: providerSnapshot
+        )
         let data = try JSONEncoder().encode(snapshot)
-        let decoded = try JSONDecoder().decode(NestedTopologySnapshot.self, from: data)
+
+        #expect(throws: NestedTopologyError.invalidProviderTitleAuthority(
+            node: fixture.id("pane-1", kind: .pane),
+            authority: .user
+        )) {
+            try JSONDecoder().decode(NestedTopologySnapshot.self, from: data)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.userInfo[NestedTopologySnapshot.decodingModeUserInfoKey] =
+            NestedTopologySnapshotDecodingMode.trustedPublishedSnapshot
+        let decoded = try decoder.decode(NestedTopologySnapshot.self, from: data)
 
         #expect(decoded == snapshot)
         #expect(decoded.capabilities.values.map(\.rawValue) == [

@@ -25,7 +25,15 @@ public struct NestedWorkspaceNode: Codable, Equatable, Sendable {
         NestedWorkspaceNode(
             id: id,
             order: candidate.order,
-            title: title?.replacing(with: candidate.title) ?? candidate.title
+            title: title?.replacingFromProvider(with: candidate.title) ?? candidate.title
+        )
+    }
+
+    func replacingTitle(with title: NestedNodeTitle) -> NestedWorkspaceNode {
+        NestedWorkspaceNode(
+            id: id,
+            order: order,
+            title: self.title?.replacing(withLocalLock: title) ?? title
         )
     }
 

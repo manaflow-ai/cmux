@@ -92,8 +92,19 @@ public struct NestedAgentNode: Codable, Equatable, Sendable {
             paneID: candidate.paneID,
             sessionID: candidate.sessionID,
             order: candidate.order,
-            title: title?.replacing(with: candidate.title) ?? candidate.title,
+            title: title?.replacingFromProvider(with: candidate.title) ?? candidate.title,
             status: candidate.status
+        )
+    }
+
+    func replacingTitle(with title: NestedNodeTitle) -> NestedAgentNode {
+        NestedAgentNode(
+            id: id,
+            paneID: paneID,
+            sessionID: sessionID,
+            order: order,
+            title: self.title?.replacing(withLocalLock: title) ?? title,
+            status: status
         )
     }
 

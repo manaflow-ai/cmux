@@ -8,7 +8,8 @@ struct NestedTopologyValidator: Sendable {
         tabs: [NestedTabNode],
         panes: [NestedPaneNode],
         agents: [NestedAgentNode],
-        focus: NestedTopologyFocus
+        focus: NestedTopologyFocus,
+        titleAuthoritySource: NestedTitleAuthoritySource
     ) throws -> NestedTopologySnapshot {
         try validateLimits()
         try validateProvider(provider)
@@ -28,6 +29,7 @@ struct NestedTopologyValidator: Sendable {
                 provider: provider,
                 order: workspace.order,
                 title: workspace.title,
+                titleAuthoritySource: titleAuthoritySource,
                 allIDs: &allIDs
             )
         }
@@ -38,6 +40,7 @@ struct NestedTopologyValidator: Sendable {
                 provider: provider,
                 order: tab.order,
                 title: tab.title,
+                titleAuthoritySource: titleAuthoritySource,
                 allIDs: &allIDs
             )
         }
@@ -48,6 +51,7 @@ struct NestedTopologyValidator: Sendable {
                 provider: provider,
                 order: pane.order,
                 title: pane.title,
+                titleAuthoritySource: titleAuthoritySource,
                 allIDs: &allIDs
             )
         }
@@ -58,6 +62,7 @@ struct NestedTopologyValidator: Sendable {
                 provider: provider,
                 order: agent.order,
                 title: agent.title,
+                titleAuthoritySource: titleAuthoritySource,
                 allIDs: &allIDs
             )
         }
@@ -145,6 +150,14 @@ struct NestedTopologyValidator: Sendable {
         _ node: NestedWorkspaceNode,
         provider: NestedProviderIdentity
     ) throws {
+        try validateSnapshotNode(node, provider: provider, titleAuthoritySource: .providerInput)
+    }
+
+    func validateSnapshotNode(
+        _ node: NestedWorkspaceNode,
+        provider: NestedProviderIdentity,
+        titleAuthoritySource: NestedTitleAuthoritySource
+    ) throws {
         var ids = Set<NestedNodeID>()
         try validateNode(
             id: node.id,
@@ -152,11 +165,20 @@ struct NestedTopologyValidator: Sendable {
             provider: provider,
             order: node.order,
             title: node.title,
+            titleAuthoritySource: titleAuthoritySource,
             allIDs: &ids
         )
     }
 
     func validateEventNode(_ node: NestedTabNode, provider: NestedProviderIdentity) throws {
+        try validateSnapshotNode(node, provider: provider, titleAuthoritySource: .providerInput)
+    }
+
+    func validateSnapshotNode(
+        _ node: NestedTabNode,
+        provider: NestedProviderIdentity,
+        titleAuthoritySource: NestedTitleAuthoritySource
+    ) throws {
         var ids = Set<NestedNodeID>()
         try validateNode(
             id: node.id,
@@ -164,6 +186,7 @@ struct NestedTopologyValidator: Sendable {
             provider: provider,
             order: node.order,
             title: node.title,
+            titleAuthoritySource: titleAuthoritySource,
             allIDs: &ids
         )
         try validateParentIdentity(
@@ -175,6 +198,14 @@ struct NestedTopologyValidator: Sendable {
     }
 
     func validateEventNode(_ node: NestedPaneNode, provider: NestedProviderIdentity) throws {
+        try validateSnapshotNode(node, provider: provider, titleAuthoritySource: .providerInput)
+    }
+
+    func validateSnapshotNode(
+        _ node: NestedPaneNode,
+        provider: NestedProviderIdentity,
+        titleAuthoritySource: NestedTitleAuthoritySource
+    ) throws {
         var ids = Set<NestedNodeID>()
         try validateNode(
             id: node.id,
@@ -182,6 +213,7 @@ struct NestedTopologyValidator: Sendable {
             provider: provider,
             order: node.order,
             title: node.title,
+            titleAuthoritySource: titleAuthoritySource,
             allIDs: &ids
         )
         let association = node.association
@@ -207,6 +239,14 @@ struct NestedTopologyValidator: Sendable {
     }
 
     func validateEventNode(_ node: NestedAgentNode, provider: NestedProviderIdentity) throws {
+        try validateSnapshotNode(node, provider: provider, titleAuthoritySource: .providerInput)
+    }
+
+    func validateSnapshotNode(
+        _ node: NestedAgentNode,
+        provider: NestedProviderIdentity,
+        titleAuthoritySource: NestedTitleAuthoritySource
+    ) throws {
         var ids = Set<NestedNodeID>()
         try validateNode(
             id: node.id,
@@ -214,6 +254,7 @@ struct NestedTopologyValidator: Sendable {
             provider: provider,
             order: node.order,
             title: node.title,
+            titleAuthoritySource: titleAuthoritySource,
             allIDs: &ids
         )
         try validateOptionalSession(node.sessionID, name: "agent.sessionID")
@@ -331,12 +372,22 @@ struct NestedTopologyValidator: Sendable {
         }
     }
 
+    func validateLocalTitleChange(_ change: NestedTopologyTitleChange) throws {
+        try validateRequiredField(
+            change.title.value,
+            name: "node.title",
+            maximumBytes: limits.maximumTitleBytes,
+            rejectsControls: true
+        )
+    }
+
     private func validateNode(
         id: NestedNodeID,
         expectedKind: NestedNodeKind,
         provider: NestedProviderIdentity,
         order: Int,
         title: NestedNodeTitle?,
+        titleAuthoritySource: NestedTitleAuthoritySource,
         allIDs: inout Set<NestedNodeID>
     ) throws {
         try validateIdentity(id, expectedKind: expectedKind, provider: provider)
@@ -353,6 +404,17 @@ struct NestedTopologyValidator: Sendable {
                 maximumBytes: limits.maximumTitleBytes,
                 rejectsControls: true
             )
+            if case .providerInput = titleAuthoritySource {
+                switch title.authority {
+                case .inferred, .provider:
+                    break
+                case .host, .user:
+                    throw NestedTopologyError.invalidProviderTitleAuthority(
+                        node: id,
+                        authority: title.authority
+                    )
+                }
+            }
         }
     }
 

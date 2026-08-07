@@ -41,7 +41,8 @@ public struct NestedTopologyReducer: Sendable {
             tabs: tabs,
             panes: panes,
             agents: agents,
-            focus: focus
+            focus: focus,
+            titleAuthoritySource: .providerInput
         )
     }
 
@@ -93,6 +94,39 @@ public struct NestedTopologyReducer: Sendable {
         )
     }
 
+    /// Applies one trusted cmux-owned title lock outside the provider event path.
+    ///
+    /// Provider snapshots and events may supply only inferred or provider title
+    /// authority. Host and user locks enter the topology exclusively through
+    /// this method so untrusted provider data cannot forge their provenance.
+    ///
+    /// - Parameters:
+    ///   - change: Host- or user-owned title lock to apply.
+    ///   - snapshot: Current validated snapshot.
+    /// - Returns: A snapshot containing the lock, or `snapshot` when unchanged.
+    /// - Throws: ``NestedTopologyError`` when the target or title is invalid.
+    public func applying(
+        _ change: NestedTopologyTitleChange,
+        to snapshot: NestedTopologySnapshot
+    ) throws -> NestedTopologySnapshot {
+        try validator.validateLimits()
+        let prepared = try preparedSnapshot(snapshot)
+        try validator.validateEventTarget(change.nodeID, provider: prepared.provider)
+        try validator.validateLocalTitleChange(change)
+
+        var state = NestedTopologyReductionState(snapshot: prepared)
+        guard let changed = state.replaceTitle(change.title, for: change.nodeID) else {
+            throw NestedTopologyError.missingNode(id: change.nodeID)
+        }
+        guard changed else { return prepared }
+        state.didChange = true
+        return state.makeSnapshot(
+            provider: prepared.provider,
+            capabilities: prepared.capabilities,
+            limits: limits
+        )
+    }
+
     private var validator: NestedTopologyValidator {
         NestedTopologyValidator(limits: limits)
     }
@@ -101,14 +135,15 @@ public struct NestedTopologyReducer: Sendable {
         _ snapshot: NestedTopologySnapshot
     ) throws -> NestedTopologySnapshot {
         guard snapshot.validationLimits != limits else { return snapshot }
-        return try makeSnapshot(
+        return try validator.validatedSnapshot(
             provider: snapshot.provider,
             capabilities: snapshot.capabilities,
             workspaces: snapshot.workspaces,
             tabs: snapshot.tabs,
             panes: snapshot.panes,
             agents: snapshot.agents,
-            focus: snapshot.focus
+            focus: snapshot.focus,
+            titleAuthoritySource: .publishedSnapshot
         )
     }
 

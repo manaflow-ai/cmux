@@ -36,7 +36,16 @@ public struct NestedTabNode: Codable, Equatable, Sendable {
             id: id,
             workspaceID: candidate.workspaceID,
             order: candidate.order,
-            title: title?.replacing(with: candidate.title) ?? candidate.title
+            title: title?.replacingFromProvider(with: candidate.title) ?? candidate.title
+        )
+    }
+
+    func replacingTitle(with title: NestedNodeTitle) -> NestedTabNode {
+        NestedTabNode(
+            id: id,
+            workspaceID: workspaceID,
+            order: order,
+            title: self.title?.replacing(withLocalLock: title) ?? title
         )
     }
 

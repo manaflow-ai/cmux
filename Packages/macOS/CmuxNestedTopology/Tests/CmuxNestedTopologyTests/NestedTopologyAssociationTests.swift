@@ -214,7 +214,10 @@ struct NestedTopologyAssociationTests {
         let fixture = NestedTopologyTestFixture()
         let reducer = NestedTopologyReducer()
         let userTitle = NestedNodeTitle(value: "My title", authority: .user)
-        let snapshot = try fixture.snapshot(panes: [fixture.pane(title: userTitle)])
+        let snapshot = try reducer.applying(
+            .user(nodeID: fixture.id("pane-1", kind: .pane), value: userTitle.value),
+            to: fixture.snapshot()
+        )
         let providerUpdate = fixture.pane(
             title: NestedNodeTitle(value: "Provider refresh", authority: .provider)
         )
@@ -233,13 +236,19 @@ struct NestedTopologyAssociationTests {
         let reducer = NestedTopologyReducer()
         let snapshot = try fixture.snapshot()
 
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.invalidProviderTitleAuthority(
+            node: fixture.id("pane-1", kind: .pane),
+            authority: .host
+        )) {
             try fixture.snapshot(panes: [fixture.pane(title: NestedNodeTitle(
                 value: "Forged host lock",
                 authority: .host
             ))])
         }
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.invalidProviderTitleAuthority(
+            node: fixture.id("pane-1", kind: .pane),
+            authority: .user
+        )) {
             try reducer.applying(
                 fixture.event(.paneUpdated(node: fixture.pane(title: NestedNodeTitle(
                     value: "Forged user lock",
@@ -307,14 +316,19 @@ struct NestedTopologyAssociationTests {
         let fixture = NestedTopologyTestFixture()
         let hostTitle = NestedNodeTitle(value: "Host lock", authority: .host)
         let userTitle = NestedNodeTitle(value: "User lock", authority: .user)
-        let snapshot = try fixture.snapshot(
-            workspaces: [fixture.workspace(title: hostTitle)],
-            tabs: [fixture.tab(title: userTitle)],
-            panes: [fixture.pane(title: hostTitle)],
-            agents: [fixture.agent(title: userTitle)]
-        )
+        let reducer = NestedTopologyReducer()
+        var snapshot = try fixture.snapshot()
+        let locks: [NestedTopologyTitleChange] = [
+            .host(nodeID: fixture.id("workspace-1", kind: .workspace), value: hostTitle.value),
+            .user(nodeID: fixture.id("tab-1", kind: .tab), value: userTitle.value),
+            .host(nodeID: fixture.id("pane-1", kind: .pane), value: hostTitle.value),
+            .user(nodeID: fixture.id("agent-1", kind: .agent), value: userTitle.value),
+        ]
+        for lock in locks {
+            snapshot = try reducer.applying(lock, to: snapshot)
+        }
 
-        let result = try NestedTopologyReducer().applying([
+        let result = try reducer.applying([
             fixture.event(.workspaceUpdated(node: fixture.workspace(title: nil))),
             fixture.event(.tabUpdated(node: fixture.tab(title: nil))),
             fixture.event(.paneUpdated(node: fixture.pane(title: nil))),

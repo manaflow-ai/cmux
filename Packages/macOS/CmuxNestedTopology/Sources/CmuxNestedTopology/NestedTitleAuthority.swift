@@ -1,5 +1,5 @@
 /// Provenance and overwrite authority for a virtual-node title.
-public enum NestedTitleAuthority: String, Codable, Sendable {
+public enum NestedTitleAuthority: String, Codable, Equatable, Sendable {
     /// Best-effort title inferred from prompts, environment, or other hints.
     case inferred
 

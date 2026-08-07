@@ -84,6 +84,35 @@ struct NestedTopologyReductionState: Sendable {
         lookup.agentIDsByPane[node.paneID, default: []].insert(node.id)
     }
 
+    /// Replaces a node title without changing provider-owned topology fields.
+    ///
+    /// - Returns: `nil` when the node is missing, otherwise whether it changed.
+    mutating func replaceTitle(_ title: NestedNodeTitle, for id: NestedNodeID) -> Bool? {
+        switch id.kind {
+        case .workspace:
+            guard let index = lookup.workspaceIndices[id] else { return nil }
+            let replacement = workspaces[index].replacingTitle(with: title)
+            guard replacement != workspaces[index] else { return false }
+            replace(replacement, at: index)
+        case .tab:
+            guard let index = lookup.tabIndices[id] else { return nil }
+            let replacement = tabs[index].replacingTitle(with: title)
+            guard replacement != tabs[index] else { return false }
+            replace(replacement, at: index)
+        case .pane:
+            guard let index = lookup.paneIndices[id] else { return nil }
+            let replacement = panes[index].replacingTitle(with: title)
+            guard replacement != panes[index] else { return false }
+            replace(replacement, at: index)
+        case .agent:
+            guard let index = lookup.agentIndices[id] else { return nil }
+            let replacement = agents[index].replacingTitle(with: title)
+            guard replacement != agents[index] else { return false }
+            replace(replacement, at: index)
+        }
+        return true
+    }
+
     mutating func close(_ id: NestedNodeID) -> Bool {
         let existed: Bool
         switch id.kind {

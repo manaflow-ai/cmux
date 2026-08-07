@@ -43,7 +43,16 @@ public struct NestedPaneNode: Codable, Equatable, Sendable {
             order: candidate.order,
             title: rejectsInferredTitle
                 ? title
-                : title?.replacing(with: candidate.title) ?? candidate.title
+                : title?.replacingFromProvider(with: candidate.title) ?? candidate.title
+        )
+    }
+
+    func replacingTitle(with title: NestedNodeTitle) -> NestedPaneNode {
+        NestedPaneNode(
+            id: id,
+            association: association,
+            order: order,
+            title: self.title?.replacing(withLocalLock: title) ?? title
         )
     }
 

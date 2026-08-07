@@ -54,6 +54,9 @@ public enum NestedTopologyError: Error, Equatable, Sendable {
     /// Provider order must be nonnegative.
     case invalidOrder(node: NestedNodeID, order: Int)
 
+    /// Provider input attempted to claim cmux-owned title authority.
+    case invalidProviderTitleAuthority(node: NestedNodeID, authority: NestedTitleAuthority)
+
     /// A focus level exists without its required ancestor level.
     case incompleteFocus(kind: NestedNodeKind)
 

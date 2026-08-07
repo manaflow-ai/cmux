@@ -44,7 +44,17 @@ let snapshot = try NestedTopologySnapshot(
 )
 
 let next = try NestedTopologyReducer().applying(event, to: snapshot)
+
+let locked = try NestedTopologyReducer().applying(
+    .user(nodeID: paneID, value: userTitle),
+    to: next
+)
 ```
+
+Provider snapshots and events may carry only `.inferred` or `.provider` title
+authority. Host and user locks use the separate `NestedTopologyTitleChange`
+path shown above; this prevents provider-controlled DTOs from claiming
+cmux-owned provenance.
 
 Published snapshots guarantee:
 
@@ -67,7 +77,7 @@ Every event carries provider identity separately, including focus-clear events. 
 
 Snapshots remember the validation policy that accepted them, so a reducer with stricter limits revalidates even no-op events. Limits are trust policy rather than provider data and are not serialized. To decode data that was accepted under custom limits, put the same `NestedTopologyLimits` value in `JSONDecoder.userInfo` under `NestedTopologySnapshot.decodingLimitsUserInfoKey`; decoding otherwise uses a freshly constructed `NestedTopologyLimits()` value with production defaults.
 
-Snapshot decoding stops before materializing node or capability collections beyond those limits and validates each decoded value before retaining the next one. A `Decoder` cannot report the original frame byte count, so socket and file adapters must additionally cap the raw payload before creating `JSONDecoder`; that transport boundary belongs to the planned provider adapter rather than this model package.
+Snapshot decoding stops before materializing node or capability collections beyond those limits and validates each decoded value before retaining the next one. It defaults to `NestedTopologySnapshotDecodingMode.providerInput`, which rejects host and user title locks. Only cmux-owned serialization of an already-published snapshot may set `NestedTopologySnapshot.decodingModeUserInfoKey` to `.trustedPublishedSnapshot`; provider adapters must never use that mode. A `Decoder` cannot report the original frame byte count, so socket and file adapters must additionally cap the raw payload before creating `JSONDecoder`; that transport boundary belongs to the planned provider adapter rather than this model package.
 
 ## Planned consumers
 

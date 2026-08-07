@@ -1,9 +1,16 @@
 /// Bounded decoder for one untrusted nested-topology snapshot.
 struct NestedTopologySnapshotDecoder {
     private let validator: NestedTopologyValidator
+    private let titleAuthoritySource: NestedTitleAuthoritySource
 
-    init(limits: NestedTopologyLimits) {
+    init(limits: NestedTopologyLimits, mode: NestedTopologySnapshotDecodingMode) {
         validator = NestedTopologyValidator(limits: limits)
+        switch mode {
+        case .providerInput:
+            titleAuthoritySource = .providerInput
+        case .trustedPublishedSnapshot:
+            titleAuthoritySource = .publishedSnapshot
+        }
     }
 
     func decode(from decoder: any Decoder) throws -> NestedTopologySnapshot {
@@ -23,7 +30,11 @@ struct NestedTopologySnapshotDecoder {
             maximumCount: validator.limits.maximumWorkspaces,
             totalNodeCount: &totalNodeCount
         ) {
-            try validator.validateEventNode($0, provider: provider)
+            try validator.validateSnapshotNode(
+                $0,
+                provider: provider,
+                titleAuthoritySource: titleAuthoritySource
+            )
         }
         let tabs: [NestedTabNode] = try decodeNodes(
             from: container,
@@ -32,7 +43,11 @@ struct NestedTopologySnapshotDecoder {
             maximumCount: validator.limits.maximumTabs,
             totalNodeCount: &totalNodeCount
         ) {
-            try validator.validateEventNode($0, provider: provider)
+            try validator.validateSnapshotNode(
+                $0,
+                provider: provider,
+                titleAuthoritySource: titleAuthoritySource
+            )
         }
         let panes: [NestedPaneNode] = try decodeNodes(
             from: container,
@@ -41,7 +56,11 @@ struct NestedTopologySnapshotDecoder {
             maximumCount: validator.limits.maximumPanes,
             totalNodeCount: &totalNodeCount
         ) {
-            try validator.validateEventNode($0, provider: provider)
+            try validator.validateSnapshotNode(
+                $0,
+                provider: provider,
+                titleAuthoritySource: titleAuthoritySource
+            )
         }
         let agents: [NestedAgentNode] = try decodeNodes(
             from: container,
@@ -50,17 +69,22 @@ struct NestedTopologySnapshotDecoder {
             maximumCount: validator.limits.maximumAgents,
             totalNodeCount: &totalNodeCount
         ) {
-            try validator.validateEventNode($0, provider: provider)
+            try validator.validateSnapshotNode(
+                $0,
+                provider: provider,
+                titleAuthoritySource: titleAuthoritySource
+            )
         }
 
-        return try NestedTopologyReducer(limits: validator.limits).makeSnapshot(
+        return try validator.validatedSnapshot(
             provider: provider,
             capabilities: capabilities,
             workspaces: workspaces,
             tabs: tabs,
             panes: panes,
             agents: agents,
-            focus: container.decode(NestedTopologyFocus.self, forKey: .focus)
+            focus: container.decode(NestedTopologyFocus.self, forKey: .focus),
+            titleAuthoritySource: titleAuthoritySource
         )
     }
 
