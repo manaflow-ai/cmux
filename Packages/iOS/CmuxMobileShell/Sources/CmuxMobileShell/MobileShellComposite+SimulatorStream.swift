@@ -26,6 +26,7 @@ extension MobileShellComposite {
             ownership: currentSimulatorOwnership(panelID: panelID)
         )
         guard !startedMobileSimulatorPanelIDs.contains(panelID) else {
+            armSimulatorStreamStalenessWatchdog(panelID: panelID)
             recordSimulatorStream(
                 panelID: panelID,
                 state: .started,
@@ -62,6 +63,7 @@ extension MobileShellComposite {
             }
             startedMobileSimulatorPanelIDs.insert(panelID)
             simulatorStreamStore?.simulatorStreamDidStart(descriptor)
+            armSimulatorStreamStalenessWatchdog(panelID: panelID)
             recordSimulatorStream(
                 panelID: panelID,
                 state: .started,
@@ -100,6 +102,7 @@ extension MobileShellComposite {
             activeSessions: startedMobileSimulatorPanelIDs.count
         )
         startedMobileSimulatorPanelIDs.remove(panelID)
+        simulatorStreamStalenessMonitor.disarm(panelID: panelID)
         guard let client = remoteClient else {
             recordSimulatorStream(
                 panelID: panelID,
@@ -141,12 +144,57 @@ extension MobileShellComposite {
     }
 
     /// Cancels queued (not yet started) operations on disconnect; each chain
-    /// entry re-checks connection state before touching the wire anyway.
+    /// entry re-checks connection state before touching the wire anyway. The
+    /// staleness watchdogs disarm with them: once disconnected, the connection
+    /// layer owns the pane's truth (reconnecting/disconnected overlays).
     func cancelMobileSimulatorStreamOperations() {
         for task in mobileSimulatorStreamOperationsByPanel.values {
             task.cancel()
         }
         mobileSimulatorStreamOperationsByPanel.removeAll()
+        simulatorStreamStalenessMonitor.disarmAll()
+    }
+
+    /// Arms the per-panel staleness watchdog for an active stream. Gated on
+    /// the keepalive capability: without the Mac's fixed-cadence
+    /// `simulator.state` emissions, a static Simulator screen would be
+    /// indistinguishable from a dead stream and stall falsely.
+    private func armSimulatorStreamStalenessWatchdog(panelID: String) {
+        guard supportsSimulatorKeepalive else { return }
+        simulatorStreamStalenessMonitor.arm(panelID: panelID)
+    }
+
+    /// A full staleness threshold passed with no frame or keepalive for an
+    /// active stream while the connection still reports connected: surface the
+    /// stall instead of letting the last frame masquerade as live, and
+    /// re-request the stream through the panel's serialized operation chain.
+    /// The watchdog stays armed, so a recovery that dies silently retries on
+    /// the next silent interval.
+    func handleStaleMobileSimulatorStream(panelID: String) {
+        guard startedMobileSimulatorPanelIDs.contains(panelID) else {
+            simulatorStreamStalenessMonitor.disarm(panelID: panelID)
+            return
+        }
+        guard connectionState == .connected else { return }
+        guard let state = simulatorStreamStore?.state(for: panelID) else { return }
+        state.markStreamStale()
+        recordSimulatorStream(
+            panelID: panelID,
+            state: .restartRequested,
+            ownership: currentSimulatorOwnership(panelID: panelID),
+            activeSessions: startedMobileSimulatorPanelIDs.count
+        )
+        let workspaceID = state.workspaceID
+        _ = enqueueMobileSimulatorStreamOperation(panelID: panelID) { [weak self] in
+            guard let self else { return }
+            // Cleared inside the serialized operation so it cannot race a
+            // still-draining stop for the same panel.
+            self.startedMobileSimulatorPanelIDs.remove(panelID)
+            await self.performMobileSimulatorStreamStart(
+                panelID: panelID,
+                workspaceID: workspaceID
+            )
+        }
     }
 
     public func sendMobileSimulatorPointer(_ input: MobileSimulatorPointerInput) async {
@@ -208,8 +256,11 @@ extension MobileShellComposite {
         guard let payload = event.payloadJSON else { return }
         switch simulatorStreamStore?.receiveSimulatorFramePayload(payload) {
         case .received(let panelID, let sequence, let payloadBytes):
+            simulatorStreamStalenessMonitor.recordActivity(panelID: panelID)
             recordSimulatorFrame(panelID: panelID, state: .received, sequence: sequence, payloadBytes: payloadBytes)
         case .stale(let panelID, let sequence, _, let payloadBytes):
+            // An out-of-order frame still proves the Mac session is alive.
+            simulatorStreamStalenessMonitor.recordActivity(panelID: panelID)
             recordSimulatorFrame(panelID: panelID, state: .staleIgnored, sequence: sequence, payloadBytes: payloadBytes)
         case .decodeFailed(let payloadBytes):
             recordSimulatorFrame(panelID: "", state: .decodeFailed, payloadBytes: payloadBytes)
@@ -224,6 +275,7 @@ extension MobileShellComposite {
         guard let payload = event.payloadJSON else { return }
         switch simulatorStreamStore?.receiveSimulatorStatePayload(payload) {
         case .applied(let panelID, let ownership, let previousOwnership):
+            simulatorStreamStalenessMonitor.recordActivity(panelID: panelID)
             recordSimulatorStream(panelID: panelID, state: .descriptorApplied, ownership: ownership)
             if previousOwnership != ownership {
                 recordSimulatorOwnership(
@@ -243,6 +295,7 @@ extension MobileShellComposite {
         guard let payload = event.payloadJSON else { return }
         if let panelID = simulatorStreamStore?.receiveSimulatorClosedPayload(payload) {
             startedMobileSimulatorPanelIDs.remove(panelID)
+            simulatorStreamStalenessMonitor.disarm(panelID: panelID)
             recordSimulatorStream(
                 panelID: panelID,
                 state: .closed,

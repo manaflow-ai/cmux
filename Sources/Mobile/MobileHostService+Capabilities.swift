@@ -59,6 +59,7 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.identifier,
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
+            MobileSimulatorStreamCapability.current.keepaliveIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -110,6 +111,15 @@ extension MobileHostService {
         ]
         if !includingWorkspaceChanges {
             capabilities.removeAll { $0 == Self.workspaceChangesCapability }
+        }
+        if !includingSimulator {
+            let simulatorCapabilities: Set<String> = [
+                MobileSimulatorStreamCapability.current.identifier,
+                MobileSimulatorStreamCapability.current.inputIdentifier,
+                MobileSimulatorStreamCapability.current.ownershipIdentifier,
+                MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            ]
+            capabilities.removeAll { simulatorCapabilities.contains($0) }
         }
         return applyingDebugCapabilitySuppressions(capabilities)
     }

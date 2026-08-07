@@ -117,6 +117,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     static let browserStreamCreateCapability = MobileBrowserStreamCapability.createIdentifier
     static let simulatorStreamCapability = MobileSimulatorStreamCapability.current.identifier
     static let simulatorInputCapability = MobileSimulatorStreamCapability.current.inputIdentifier
+    static let simulatorKeepaliveCapability = MobileSimulatorStreamCapability.current.keepaliveIdentifier
     static let terminalReplayCapability = "terminal.replay.v1"
     static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
     static let maxTerminalReplayBarrierDroppedOutputBeforeFailOpen: UInt64 = 256
@@ -504,6 +505,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// restart can never interleave against the Mac's single-controller
     /// ownership. Entries self-remove when their chain drains.
     @ObservationIgnored var mobileSimulatorStreamOperationsByPanel: [String: Task<Void, Never>] = [:]
+    /// Clock behind the simulator stream staleness watchdog; injectable so
+    /// tests drive the threshold deterministically.
+    @ObservationIgnored let simulatorStreamStalenessClock: any Clock<Duration>
+    /// Fires when an active simulator stream produces no frame or keepalive
+    /// events for a full threshold, i.e. three missed Mac keepalives. Armed
+    /// only against Macs advertising `simulator.keepalive.v1`, so a static
+    /// screen on a keepalive-less host can never read as stale.
+    @ObservationIgnored private(set) lazy var simulatorStreamStalenessMonitor =
+        MobileSimulatorStreamStalenessMonitor(
+            clock: simulatorStreamStalenessClock,
+            threshold: Self.mobileSimulatorStreamStaleThreshold
+        ) { [weak self] panelID in
+            self?.handleStaleMobileSimulatorStream(panelID: panelID)
+        }
+    static let mobileSimulatorStreamStaleThreshold: Duration = .seconds(15)
     @ObservationIgnored var terminalThemeState = MobileTerminalThemeState()
     /// The selected surface's effective theme and iOS chrome source of truth.
     public internal(set) var activeTerminalTheme: TerminalTheme = .monokai
@@ -1468,6 +1484,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         taskTemplateStore: (any MobileTaskTemplateStoring)? = nil,
         browserStreamEvents: (any BrowserStreamEventReceiving)? = nil,
         simulatorStreamStore: MobileSimulatorStreamStore? = nil,
+        simulatorStreamStalenessClock: any Clock<Duration> = ContinuousClock(),
         storedMacReconnectRestoringDeadlineSeconds: Double = 15
     ) {
         self.runtime = runtime
@@ -1482,6 +1499,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.taskTemplateStore = taskTemplateStore
         self.browserStreamEvents = browserStreamEvents
         self.simulatorStreamStore = simulatorStreamStore
+        self.simulatorStreamStalenessClock = simulatorStreamStalenessClock
         self.storedMacReconnectRestoringDeadlineSeconds = storedMacReconnectRestoringDeadlineSeconds
         self.pairedMacStore = pairedMacStore
         self.connectionMethodStore = connectionMethodStore

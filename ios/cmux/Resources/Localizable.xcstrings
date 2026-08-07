@@ -1242,6 +1242,40 @@
         }
       }
     },
+    "mobile.simulatorStream.stalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting to Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorに再接続中"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.stalledDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The video feed stalled. Restoring the stream."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映像フィードが停止しました。ストリームを復元しています。"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.textPlaceholder": {
       "extractionState": "manual",
       "localizations": {

@@ -21,6 +21,12 @@ extension MobileShellComposite {
     public var supportsSimulatorInput: Bool {
         supportsSimulatorStream && supportedHostCapabilities.contains(Self.simulatorInputCapability)
     }
+    /// Whether the connected Mac re-emits `simulator.state` on a fixed cadence
+    /// while a stream session is active, making event silence a truthful
+    /// staleness signal for the watchdog.
+    public var supportsSimulatorKeepalive: Bool {
+        supportsSimulatorStream && supportedHostCapabilities.contains(Self.simulatorKeepaliveCapability)
+    }
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
 

@@ -189,6 +189,54 @@ import Testing
         #expect(state?.isControlHandshakePending == false)
     }
 
+    /// Event silence marks an active-looking stream stalled; states that
+    /// already tell the truth about not being live are left alone.
+    @Test func markStreamStaleOnlyAffectsActiveStreams() {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [
+            simulatorDescriptor(ownerConnectionID: "other", isOwnedByCurrentConnection: false),
+        ])
+        let state = store.state(for: "sim-1")
+        #expect(state?.streamStatus == .locked)
+
+        state?.markStreamStale()
+        #expect(state?.streamStatus == .locked)
+
+        state?.streamStatus = .streaming
+        state?.markStreamStale()
+        #expect(state?.streamStatus == .stalled)
+    }
+
+    /// The stalled overlay stays visible through a recovery attempt (restart
+    /// re-selection and start both preserve it) and clears only when a fresh
+    /// frame proves the stream is live again.
+    @Test func stalledSurvivesRecoveryAttemptUntilFreshFrame() throws {
+        let store = MobileSimulatorStreamStore()
+        store.replaceSimulatorPanels(in: "workspace-1", with: [simulatorDescriptor()])
+        store.activate(panelID: "sim-1", in: "workspace-1")
+        let state = try #require(store.state(for: "sim-1"))
+        state.streamStatus = .streaming
+        state.markStreamStale()
+
+        store.simulatorStreamWillStart(panelID: "sim-1")
+        #expect(state.streamStatus == .stalled)
+
+        store.activate(panelID: "sim-1", in: "workspace-1")
+        #expect(state.streamStatus == .stalled)
+
+        let frame = MobileSimulatorFrameEvent(
+            panelID: "sim-1",
+            sequence: 11,
+            format: .jpeg,
+            pixelWidth: 390,
+            pixelHeight: 844,
+            displayScale: 3,
+            dataBase64: "ZnJlc2g="
+        )
+        store.receiveSimulatorFramePayload(try JSONEncoder().encode(frame))
+        #expect(state.streamStatus == .streaming)
+    }
+
     /// A `locked` start rejection means another phone owns the panel; the
     /// ownership remembered from an earlier successful start must not keep
     /// text and hardware controls live underneath the locked overlay.

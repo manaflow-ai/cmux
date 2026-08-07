@@ -44,6 +44,11 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
         case paused
         case closed
         case locked
+        /// The stream stopped producing events past the staleness threshold
+        /// while the connection still looks healthy; the shell is re-requesting
+        /// the stream. Sticky until a fresh frame arrives so the recovering
+        /// pane cannot masquerade as live.
+        case stalled
     }
 
     public let id: String
@@ -116,7 +121,20 @@ public final class MobileSimulatorStreamSurfaceState: Identifiable {
     }
 
     public func prepareForStreamStart() {
+        // A stalled pane stays visibly stalled through the recovery attempt;
+        // flipping to `.starting` here would hide the overlay and let the
+        // stale frame masquerade as live while the restart RPC is in flight.
+        guard streamStatus != .stalled else { return }
         streamStatus = .starting
+    }
+
+    /// Marks the stream stalled after event silence: frames and keepalives
+    /// stopped arriving while the connection still reports healthy. Only an
+    /// active-looking stream can stall; locked, paused, closed, and idle
+    /// panels already tell the truth about not being live.
+    public func markStreamStale() {
+        guard streamStatus == .streaming || streamStatus == .starting else { return }
+        streamStatus = .stalled
     }
 
     /// A `locked` start rejection is an authoritative per-connection answer:
@@ -201,7 +219,11 @@ public final class MobileSimulatorStreamStore {
         guard let state = statesByPanel[panelID] else { return nil }
         activePanelByWorkspace[workspaceID] = panelID
         state.connectionStatus = currentConnectionStatus
-        state.streamStatus = .starting
+        // Re-selecting a stalled panel must not hide the stall; the overlay
+        // clears when fresh frames actually arrive.
+        if state.streamStatus != .stalled {
+            state.streamStatus = .starting
+        }
         return state
     }
 
@@ -233,7 +255,8 @@ public final class MobileSimulatorStreamStore {
         state.connectionStatus = .connected
         if state.latestFrame == nil,
            state.streamStatus != .streaming,
-           state.streamStatus != .locked {
+           state.streamStatus != .locked,
+           state.streamStatus != .stalled {
             state.streamStatus = .starting
         }
     }

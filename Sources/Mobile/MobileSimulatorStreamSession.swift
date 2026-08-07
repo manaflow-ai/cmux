@@ -25,7 +25,10 @@ final class MobileSimulatorStreamSession {
     private var needsFrameSend = false
     private var frameTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
+    private var keepaliveTask: Task<Void, Never>?
     private var subscriptionObserver: NSObjectProtocol?
+    private let keepaliveClock: any Clock<Duration>
+    private let keepaliveInterval: Duration
 
     init(
         connectionID: UUID,
@@ -34,7 +37,9 @@ final class MobileSimulatorStreamSession {
         cachedFrame: MobileSimulatorFrameEvent?,
         descriptorProvider: @escaping @MainActor (UUID) -> MobileSimulatorPanelDescriptor?,
         onFrame: @escaping @MainActor (UUID, MobileSimulatorFrameEvent) -> Void,
-        onEnded: @escaping @MainActor (UUID) -> Void
+        onEnded: @escaping @MainActor (UUID) -> Void,
+        keepaliveClock: any Clock<Duration> = ContinuousClock(),
+        keepaliveInterval: Duration = .seconds(5)
     ) {
         self.connectionID = connectionID
         self.panelID = panel.id
@@ -44,6 +49,8 @@ final class MobileSimulatorStreamSession {
         self.descriptorProvider = descriptorProvider
         self.onFrame = onFrame
         self.onEnded = onEnded
+        self.keepaliveClock = keepaliveClock
+        self.keepaliveInterval = keepaliveInterval
     }
 
     func start() {
@@ -55,6 +62,7 @@ final class MobileSimulatorStreamSession {
         emitCachedFrameIfNeeded()
         refreshReader()
         requestFrameSend()
+        startKeepalive()
     }
 
     func stop(sendClosed: Bool) async {
@@ -64,6 +72,8 @@ final class MobileSimulatorStreamSession {
         frameTask = nil
         stateTask?.cancel()
         stateTask = nil
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         if let subscriptionObserver {
             NotificationCenter.default.removeObserver(subscriptionObserver)
             self.subscriptionObserver = nil
@@ -97,6 +107,30 @@ final class MobileSimulatorStreamSession {
                     state: .subscriptionReasserted,
                     sequence: self.lastSentSequence
                 )
+                self.emitState()
+                self.requestFrameSend()
+            }
+        }
+    }
+
+    /// Re-emits the panel descriptor on a fixed cadence while the session is
+    /// active (capability `simulator.keepalive.v1`). This gives clients a
+    /// liveness signal that keeps flowing when the Simulator screen is static,
+    /// so event silence past their staleness threshold truthfully means the
+    /// session or transport is gone. The paired `requestFrameSend()` also
+    /// retries the latest frame after a refused send that no new frame
+    /// publication would otherwise retrigger.
+    private func startKeepalive() {
+        guard keepaliveTask == nil, !isStopped else { return }
+        keepaliveTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, !self.isStopped else { return }
+                do {
+                    try await self.keepaliveClock.sleep(for: self.keepaliveInterval)
+                } catch {
+                    return
+                }
+                guard !self.isStopped, !Task.isCancelled else { return }
                 self.emitState()
                 self.requestFrameSend()
             }

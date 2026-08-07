@@ -228,6 +228,13 @@ struct SimulatorStreamPane: View {
                 symbol: "lock.circle"
             )
             .accessibilityIdentifier("SimulatorStreamLockedOverlay")
+        } else if state.streamStatus == .stalled {
+            statusOverlay(
+                title: L10n.string("mobile.simulatorStream.stalled", defaultValue: "Reconnecting to Simulator"),
+                detail: L10n.string("mobile.simulatorStream.stalledDetail", defaultValue: "The video feed stalled. Restoring the stream."),
+                symbol: "arrow.triangle.2.circlepath"
+            )
+            .accessibilityIdentifier("SimulatorStreamStalledOverlay")
         } else if state.latestFrame == nil {
             statusOverlay(
                 title: L10n.string("mobile.simulatorStream.waiting", defaultValue: "Waiting for Simulator"),
