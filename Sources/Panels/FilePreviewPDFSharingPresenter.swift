@@ -3,8 +3,8 @@ import AppKit
 /// Owns the sharing picker presented by one PDF preview container.
 @MainActor
 final class FilePreviewPDFSharingPresenter: NSObject {
-    typealias PickerFactory = ([Any]) -> NSSharingServicePicker
-    typealias MenuPresenter = (NSMenu, NSView) -> Void
+    typealias PickerFactory = @MainActor ([Any]) -> NSSharingServicePicker
+    typealias MenuPresenter = @MainActor (NSMenu, NSView) -> Void
 
     private let presentMenu: MenuPresenter
     private let makePicker: PickerFactory
@@ -63,7 +63,7 @@ final class FilePreviewPDFSharingPresenter: NSObject {
     }
 }
 
-extension FilePreviewPDFSharingPresenter: NSSharingServicePickerDelegate {
+extension FilePreviewPDFSharingPresenter: @MainActor NSSharingServicePickerDelegate {
     func sharingServicePicker(
         _ sharingServicePicker: NSSharingServicePicker,
         didChoose service: NSSharingService?
