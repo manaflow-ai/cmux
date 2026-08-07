@@ -203,7 +203,8 @@ extension CMUXCLI {
     }
 
     private func noteInput(_ arguments: NoteCLIArguments) throws -> String {
-        guard (arguments.text == nil) != arguments.readsStandardInput else {
+        let hasInlineText = arguments.text != nil
+        guard hasInlineText != arguments.readsStandardInput else {
             throw CLIError(message: String(
                 localized: "cli.note.error.input",
                 defaultValue: "note write and append require exactly one of --text or --stdin"
