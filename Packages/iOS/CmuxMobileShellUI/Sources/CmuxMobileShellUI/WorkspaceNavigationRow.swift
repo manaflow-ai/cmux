@@ -29,6 +29,13 @@ struct WorkspaceNavigationRow: View {
     /// Mark the workspace read or unread on the Mac. When `nil` the read-state
     /// affordance is hidden.
     var setUnread: ((MobileWorkspacePreview.ID, Bool) -> Void)? = nil
+    /// Builds the "Move to Group" picker when the context menu opens; `nil`
+    /// result (or `nil` closure) hides the picker. Lazy so recycled rows never
+    /// compute menu state during list updates.
+    var groupMoveMenu: (() -> MobileWorkspaceGroupMoveMenu?)? = nil
+    /// Move the workspace to the end of a group, or out of its group when the
+    /// target is `nil`. When `nil` the picker is hidden.
+    var moveToGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID?) -> Void)? = nil
     /// Close the workspace on the Mac. When `nil` the delete affordance is
     /// hidden.
     var closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
@@ -216,6 +223,46 @@ struct WorkspaceNavigationRow: View {
                 Label(readStateActionTitle, systemImage: readStateActionSystemImage)
             }
             .accessibilityIdentifier("MobileWorkspaceReadStateMenuButton-\(workspace.id.rawValue)")
+        }
+        if let groupMoveMenu, let moveToGroup, let menuModel = groupMoveMenu() {
+            Menu {
+                ForEach(menuModel.entries, id: \.group.id) { entry in
+                    Button {
+                        moveToGroup(workspace.id, entry.group.id)
+                    } label: {
+                        if entry.isCurrent {
+                            Label(entry.group.name, systemImage: "checkmark")
+                        } else {
+                            Text(entry.group.name)
+                        }
+                    }
+                    .disabled(!entry.isEnabled)
+                    .accessibilityIdentifier(
+                        "MobileWorkspaceMoveToGroupTarget-\(workspace.id.rawValue)-\(entry.group.id.rawValue)"
+                    )
+                }
+                if menuModel.canRemoveFromGroup {
+                    Divider()
+                    Button {
+                        moveToGroup(workspace.id, nil)
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.workspace.removeFromGroup",
+                                defaultValue: "Remove from Group"
+                            ),
+                            systemImage: "folder.badge.minus"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileWorkspaceRemoveFromGroupButton-\(workspace.id.rawValue)")
+                }
+            } label: {
+                Label(
+                    L10n.string("mobile.workspace.moveToGroup", defaultValue: "Move to Group"),
+                    systemImage: "folder"
+                )
+            }
+            .accessibilityIdentifier("MobileWorkspaceMoveToGroupMenu-\(workspace.id.rawValue)")
         }
         if let closeWorkspace {
             Button(role: .destructive) {

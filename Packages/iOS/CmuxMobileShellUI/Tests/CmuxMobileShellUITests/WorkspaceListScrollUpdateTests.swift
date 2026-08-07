@@ -331,6 +331,75 @@ import UIKit
         #expect(identifiers.contains("MobileWorkspaceRenameButton-workspace-1"))
     }
 
+    @Test func workspaceContextMenuOffersMoveToGroupPicker() {
+        let capabilities = MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: false,
+            supportsWorkspaceMetadata: false,
+            supportsReadStateActions: false,
+            supportsCloseActions: false,
+            supportsMoveActions: true,
+            supportsGroupActions: false,
+            supportsGroupCreate: false
+        )
+        let group = MobileWorkspaceGroupPreview(
+            id: "group-1",
+            name: "Release",
+            anchorWorkspaceID: "anchor-1"
+        )
+        var anchor = MobileWorkspacePreview(
+            id: "anchor-1",
+            name: "anchor-1",
+            groupID: group.id,
+            terminals: []
+        )
+        anchor.actionCapabilities = capabilities
+        var grouped = MobileWorkspacePreview(
+            id: "workspace-2",
+            name: "workspace-2",
+            groupID: group.id,
+            terminals: []
+        )
+        grouped.actionCapabilities = capabilities
+        var root = MobileWorkspacePreview(id: "workspace-1", name: "workspace-1", terminals: [])
+        root.actionCapabilities = capabilities
+        let snapshot = [anchor, grouped, root]
+
+        var initial = configuration(workspaces: snapshot, groups: [group])
+        var moves: [(MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID?)] = []
+        initial.groupMoveMenu = { workspaceID in
+            let menu = MobileWorkspaceGroupMoveMenu(
+                workspaces: snapshot,
+                groups: [group],
+                movedWorkspaceID: workspaceID
+            )
+            return menu.isEmpty ? nil : menu
+        }
+        initial.moveToGroup = { workspaceID, groupID in
+            moves.append((workspaceID, groupID))
+        }
+        let coordinator = WorkspaceListTableCoordinator(configuration: initial)
+        let sourceView = UIView()
+
+        let rootIdentifiers = menuActionIdentifiers(
+            in: coordinator.contextMenuActions(for: root, sourceView: sourceView)
+        )
+        #expect(rootIdentifiers.contains("MobileWorkspaceMoveToGroupTarget-workspace-1-group-1"))
+        #expect(!rootIdentifiers.contains("MobileWorkspaceRemoveFromGroupButton-workspace-1"))
+
+        let groupedIdentifiers = menuActionIdentifiers(
+            in: coordinator.contextMenuActions(for: grouped, sourceView: sourceView)
+        )
+        #expect(groupedIdentifiers.contains("MobileWorkspaceMoveToGroupTarget-workspace-2-group-1"))
+        #expect(groupedIdentifiers.contains("MobileWorkspaceRemoveFromGroupButton-workspace-2"))
+
+        // Anchors move with their group; the picker must not appear at all.
+        let anchorIdentifiers = menuActionIdentifiers(
+            in: coordinator.contextMenuActions(for: anchor, sourceView: sourceView)
+        )
+        #expect(!anchorIdentifiers.contains { $0.hasPrefix("MobileWorkspaceMoveToGroup") })
+        #expect(moves.isEmpty)
+    }
+
     @Test func groupHeaderReloadsNativeActionsWhenAnchorReadStateChanges() {
         let group = MobileWorkspaceGroupPreview(
             id: "group-1",

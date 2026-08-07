@@ -35,6 +35,12 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let moveRows: ((IndexSet, Int) -> Void)?
     let canDropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Bool)?
     let dropIntoGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID) -> Void)?
+    /// Builds the row's "Move to Group" picker on demand (context-menu open),
+    /// so no per-row menu state is computed during list updates.
+    var groupMoveMenu: ((MobileWorkspacePreview.ID) -> MobileWorkspaceGroupMoveMenu?)? = nil
+    /// Moves the workspace to the end of a group, or out of its group when the
+    /// target is `nil`. Same optimistic move path as drag-and-drop.
+    var moveToGroup: ((MobileWorkspacePreview.ID, MobileWorkspaceGroupPreview.ID?) -> Void)? = nil
 
     let selectWorkspace: (MobileWorkspacePreview.ID) -> Void
     let closeWorkspace: ((MobileWorkspacePreview.ID) -> Void)?

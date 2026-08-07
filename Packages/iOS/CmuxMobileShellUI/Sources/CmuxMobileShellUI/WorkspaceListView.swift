@@ -782,6 +782,12 @@ struct WorkspaceListView: View {
                 && capabilities.supportsWorkspaceMetadata ? customizeWorkspace : nil,
             setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
             setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            groupMoveMenu: capabilities.supportsMoveActions ? {
+                groupMoveMenu(for: workspace.id)
+            } : nil,
+            moveToGroup: capabilities.supportsMoveActions ? { id, groupID in
+                joinGroupAtEnd(workspaceID: id, groupID: groupID)
+            } : nil,
             closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
             confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
