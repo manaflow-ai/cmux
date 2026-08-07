@@ -35,6 +35,19 @@ struct NestedTopologyAssociationTests {
         #expect(result.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
         #expect(result.panes[0].association.heuristicAlreadySatisfied)
         #expect(result.panes[0].title == original.title)
+
+        let providerTitle = NestedNodeTitle(value: "Provider title", authority: .provider)
+        let titled = try reducer.applying(
+            fixture.event(.paneUpdated(node: fixture.pane(
+                tabRawID: "tab-2",
+                title: providerTitle,
+                associationAuthority: .heuristic,
+                heuristicAlreadySatisfied: true
+            ))),
+            to: result
+        )
+        #expect(titled.panes[0].association.tabID == fixture.id("tab-1", kind: .tab))
+        #expect(titled.panes[0].title == providerTitle)
     }
 
     @Test("authoritative provider parentage can replace a prior heuristic")
@@ -76,6 +89,7 @@ struct NestedTopologyAssociationTests {
         let original = fixture.pane(
             tabRawID: "tab-1",
             sessionID: "session-old",
+            title: NestedNodeTitle(value: "Old guess", authority: .inferred),
             associationAuthority: .heuristic,
             heuristicAlreadySatisfied: true
         )
@@ -89,6 +103,7 @@ struct NestedTopologyAssociationTests {
         let replacementSession = fixture.pane(
             tabRawID: "tab-2",
             sessionID: "session-new",
+            title: NestedNodeTitle(value: "New guess", authority: .inferred),
             associationAuthority: .heuristic,
             heuristicAlreadySatisfied: true
         )
@@ -100,6 +115,7 @@ struct NestedTopologyAssociationTests {
 
         #expect(result.panes[0].association.key.sessionID == "session-new")
         #expect(result.panes[0].association.tabID == fixture.id("tab-2", kind: .tab))
+        #expect(result.panes[0].title == replacementSession.title)
     }
 
     @Test("a new session cannot downgrade provider-owned parentage to a heuristic")

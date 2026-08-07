@@ -35,11 +35,15 @@ public struct NestedPaneNode: Codable, Equatable, Sendable {
     }
 
     func mergingUpdate(_ candidate: NestedPaneNode) -> NestedPaneNode {
-        NestedPaneNode(
+        let rejectsInferredTitle = association.rejectsRepeatedHeuristic(candidate.association)
+            && candidate.title?.authority == .inferred
+        return NestedPaneNode(
             id: id,
             association: association.replacing(with: candidate.association),
             order: candidate.order,
-            title: title?.replacing(with: candidate.title) ?? candidate.title
+            title: rejectsInferredTitle
+                ? title
+                : title?.replacing(with: candidate.title) ?? candidate.title
         )
     }
 

@@ -55,8 +55,15 @@ public struct NestedParentAssociation: Codable, Equatable, Sendable {
                     || candidate.heuristicAlreadySatisfied
             )
         case .heuristic:
-            guard authority != .provider, !heuristicAlreadySatisfied else { return self }
+            guard !rejectsRepeatedHeuristic(candidate) else { return self }
             return candidate
         }
+    }
+
+    /// Whether a same-key heuristic candidate has already lost parent authority.
+    func rejectsRepeatedHeuristic(_ candidate: NestedParentAssociation) -> Bool {
+        candidate.key == key
+            && candidate.authority == .heuristic
+            && (authority == .provider || heuristicAlreadySatisfied)
     }
 }
