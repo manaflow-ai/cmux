@@ -81,4 +81,45 @@ struct NestedNodeIDTests {
         #expect(object["kind"] as? String == "pane")
         #expect(object["providerInstanceID"] is [String: Any])
     }
+
+    @Test("opaque identity components preserve exact canonically equivalent UTF-8")
+    func exactUTF8Identity() throws {
+        let composed = "\u{00E9}"
+        let decomposed = "e\u{0301}"
+        #expect(composed == decomposed)
+
+        let fixture = NestedTopologyTestFixture()
+        let composedID = fixture.id(composed, kind: .workspace)
+        let decomposedID = fixture.id(decomposed, kind: .workspace)
+        let snapshot = try fixture.snapshot(
+            capabilities: NestedProviderCapabilities([]),
+            workspaces: [
+                fixture.workspace(composed, order: 0, title: nil),
+                fixture.workspace(decomposed, order: 0, title: nil),
+            ],
+            tabs: [],
+            panes: [],
+            agents: []
+        )
+
+        #expect(composedID != decomposedID)
+        #expect(Set([composedID, decomposedID]).count == 2)
+        #expect(snapshot.workspaces.count == 2)
+
+        let generation = fixture.provider.instanceID.generation
+        let composedProvider = NestedProviderIdentity(
+            kind: .herdr,
+            instanceID: NestedProviderInstanceID(rawValue: composed, generation: generation)
+        )
+        let decomposedProvider = NestedProviderIdentity(
+            kind: .herdr,
+            instanceID: NestedProviderInstanceID(rawValue: decomposed, generation: generation)
+        )
+        #expect(composedProvider != decomposedProvider)
+
+        let paneID = fixture.id("pane-1", kind: .pane)
+        let composedSession = NestedAssociationKey(paneID: paneID, sessionID: composed)
+        let decomposedSession = NestedAssociationKey(paneID: paneID, sessionID: decomposed)
+        #expect(composedSession != decomposedSession)
+    }
 }

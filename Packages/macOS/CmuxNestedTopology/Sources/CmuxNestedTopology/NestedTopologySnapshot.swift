@@ -1,9 +1,20 @@
+public import Foundation
+
 /// Validated immutable provider-owned topology snapshot.
 ///
 /// The snapshot deliberately contains no cmux workspace, Bonsplit pane,
 /// Ghostty surface, endpoint, or persistence identity. A later attachment
 /// layer binds this virtual tree to a host stable surface.
 public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
+    /// Decoder user-info key for a caller-owned ``NestedTopologyLimits`` value.
+    ///
+    /// Decoding uses ``NestedTopologyLimits/standard`` when this key is absent.
+    /// A caller that encoded a snapshot accepted under custom limits should put
+    /// the same limits in `JSONDecoder.userInfo` before decoding.
+    public static let decodingLimitsUserInfoKey = CodingUserInfoKey(
+        rawValue: "com.cmux.nested-topology.decoding-limits"
+    )!
+
     /// Provider instance and connection generation that own every node.
     public let provider: NestedProviderIdentity
 
@@ -24,6 +35,12 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
 
     /// One coherent focused path.
     public let focus: NestedTopologyFocus
+
+    /// Trust policy that certified this immutable snapshot.
+    let validationLimits: NestedTopologyLimits
+
+    /// Stable indexes reused by incremental reducers.
+    let lookup: NestedTopologyLookup
 
     /// Validates and creates an immutable topology snapshot.
     ///
@@ -65,7 +82,9 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
         tabs: [NestedTabNode],
         panes: [NestedPaneNode],
         agents: [NestedAgentNode],
-        focus: NestedTopologyFocus
+        focus: NestedTopologyFocus,
+        validationLimits: NestedTopologyLimits,
+        lookup: NestedTopologyLookup? = nil
     ) {
         self.provider = provider
         self.capabilities = capabilities
@@ -74,14 +93,23 @@ public struct NestedTopologySnapshot: Codable, Equatable, Sendable {
         self.panes = panes
         self.agents = agents
         self.focus = focus
+        self.validationLimits = validationLimits
+        self.lookup = lookup ?? NestedTopologyLookup(
+            workspaces: workspaces,
+            tabs: tabs,
+            panes: panes,
+            agents: agents
+        )
     }
 
-    /// Decodes and validates a snapshot with standard publication limits.
+    /// Decodes and validates a snapshot with caller-supplied or standard limits.
     ///
     /// - Parameter decoder: Decoder containing the snapshot fields.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self = try NestedTopologyReducer().makeSnapshot(
+        let limits = decoder.userInfo[Self.decodingLimitsUserInfoKey]
+            as? NestedTopologyLimits ?? .standard
+        self = try NestedTopologyReducer(limits: limits).makeSnapshot(
             provider: container.decode(NestedProviderIdentity.self, forKey: .provider),
             capabilities: container.decode(NestedProviderCapabilities.self, forKey: .capabilities),
             workspaces: container.decode([NestedWorkspaceNode].self, forKey: .workspaces),

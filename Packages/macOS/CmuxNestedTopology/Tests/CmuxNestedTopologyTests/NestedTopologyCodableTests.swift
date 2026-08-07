@@ -92,4 +92,44 @@ struct NestedTopologyCodableTests {
             #expect(decoded == state)
         }
     }
+
+    @Test("custom validation limits can be supplied when decoding a snapshot")
+    func customLimitRoundTrip() throws {
+        let fixture = NestedTopologyTestFixture()
+        let standard = NestedTopologyLimits.standard
+        let limits = NestedTopologyLimits(
+            maximumWorkspaces: standard.maximumWorkspaces,
+            maximumTabs: standard.maximumTabs,
+            maximumPanes: standard.maximumPanes,
+            maximumAgents: standard.maximumAgents,
+            maximumTotalNodes: standard.maximumTotalNodes,
+            maximumEventsPerBatch: standard.maximumEventsPerBatch,
+            maximumDepth: standard.maximumDepth,
+            maximumIdentifierBytes: standard.maximumIdentifierBytes + 1,
+            maximumTitleBytes: standard.maximumTitleBytes,
+            maximumRawStatusBytes: standard.maximumRawStatusBytes,
+            maximumSessionIDBytes: standard.maximumSessionIDBytes,
+            maximumCapabilities: standard.maximumCapabilities,
+            maximumCapabilityBytes: standard.maximumCapabilityBytes
+        )
+        let rawID = String(repeating: "i", count: limits.maximumIdentifierBytes)
+        let snapshot = try fixture.snapshot(
+            capabilities: NestedProviderCapabilities([]),
+            workspaces: [fixture.workspace(rawID, title: nil)],
+            tabs: [],
+            panes: [],
+            agents: [],
+            limits: limits
+        )
+        let data = try JSONEncoder().encode(snapshot)
+
+        #expect(throws: NestedTopologyError.self) {
+            try JSONDecoder().decode(NestedTopologySnapshot.self, from: data)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.userInfo[NestedTopologySnapshot.decodingLimitsUserInfoKey] = limits
+        let decoded = try decoder.decode(NestedTopologySnapshot.self, from: data)
+        #expect(decoded == snapshot)
+    }
 }

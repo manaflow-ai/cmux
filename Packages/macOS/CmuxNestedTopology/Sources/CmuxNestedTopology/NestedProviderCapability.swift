@@ -36,6 +36,21 @@ public struct NestedProviderCapability: Codable, Comparable, Hashable, Sendable 
         self.rawValue = rawValue
     }
 
+    /// Compares capability tokens by their exact UTF-8 representation.
+    public static func == (
+        lhs: NestedProviderCapability,
+        rhs: NestedProviderCapability
+    ) -> Bool {
+        ExactUTF8String(lhs.rawValue) == ExactUTF8String(rhs.rawValue)
+    }
+
+    /// Hashes the exact UTF-8 capability token.
+    ///
+    /// - Parameter hasher: Hasher receiving the capability token.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ExactUTF8String(rawValue))
+    }
+
     /// Orders capabilities by stable raw value.
     ///
     /// - Parameters:
@@ -43,7 +58,7 @@ public struct NestedProviderCapability: Codable, Comparable, Hashable, Sendable 
     ///   - rhs: Right capability.
     /// - Returns: `true` when the left token sorts before the right token.
     public static func < (lhs: NestedProviderCapability, rhs: NestedProviderCapability) -> Bool {
-        lhs.rawValue < rhs.rawValue
+        ExactUTF8String(lhs.rawValue) < ExactUTF8String(rhs.rawValue)
     }
 
     /// Decodes a capability from its single string token.

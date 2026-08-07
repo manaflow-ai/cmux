@@ -43,6 +43,17 @@ public struct NestedAgentNode: Codable, Equatable, Sendable {
         self.status = status
     }
 
+    /// Compares node content while preserving exact optional session bytes.
+    public static func == (lhs: NestedAgentNode, rhs: NestedAgentNode) -> Bool {
+        lhs.id == rhs.id
+            && lhs.paneID == rhs.paneID
+            && lhs.sessionID.map(ExactUTF8String.init)
+                == rhs.sessionID.map(ExactUTF8String.init)
+            && lhs.order == rhs.order
+            && lhs.title == rhs.title
+            && lhs.status == rhs.status
+    }
+
     func mergingUpdate(_ candidate: NestedAgentNode) -> NestedAgentNode {
         NestedAgentNode(
             id: id,
@@ -52,5 +63,16 @@ public struct NestedAgentNode: Codable, Equatable, Sendable {
             title: title?.replacing(with: candidate.title) ?? candidate.title,
             status: candidate.status
         )
+    }
+
+    func precedes(_ candidate: NestedAgentNode) -> Bool {
+        let parent = ExactUTF8String(paneID.rawID)
+        let candidateParent = ExactUTF8String(candidate.paneID.rawID)
+        if parent != candidateParent {
+            return parent < candidateParent
+        }
+        return order == candidate.order
+            ? ExactUTF8String(id.rawID) < ExactUTF8String(candidate.id.rawID)
+            : order < candidate.order
     }
 }

@@ -118,4 +118,26 @@ struct NestedTopologyTestFixture {
     func event(_ change: NestedTopologyChange) -> NestedTopologyEvent {
         NestedTopologyEvent(provider: provider, change: change)
     }
+
+    func limits(
+        maximumWorkspaces: Int = NestedTopologyLimits.standard.maximumWorkspaces,
+        maximumEventsPerBatch: Int = NestedTopologyLimits.standard.maximumEventsPerBatch
+    ) -> NestedTopologyLimits {
+        let standard = NestedTopologyLimits.standard
+        return NestedTopologyLimits(
+            maximumWorkspaces: maximumWorkspaces,
+            maximumTabs: standard.maximumTabs,
+            maximumPanes: standard.maximumPanes,
+            maximumAgents: standard.maximumAgents,
+            maximumTotalNodes: standard.maximumTotalNodes,
+            maximumEventsPerBatch: maximumEventsPerBatch,
+            maximumDepth: standard.maximumDepth,
+            maximumIdentifierBytes: standard.maximumIdentifierBytes,
+            maximumTitleBytes: standard.maximumTitleBytes,
+            maximumRawStatusBytes: standard.maximumRawStatusBytes,
+            maximumSessionIDBytes: standard.maximumSessionIDBytes,
+            maximumCapabilities: standard.maximumCapabilities,
+            maximumCapabilityBytes: standard.maximumCapabilityBytes
+        )
+    }
 }

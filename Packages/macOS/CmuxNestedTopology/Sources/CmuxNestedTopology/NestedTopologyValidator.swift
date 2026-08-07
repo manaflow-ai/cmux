@@ -128,11 +128,12 @@ struct NestedTopologyValidator: Sendable {
         return NestedTopologySnapshot(
             validatedProvider: provider,
             capabilities: capabilities,
-            workspaces: workspaces.sorted(by: workspacePrecedes),
-            tabs: tabs.sorted(by: tabPrecedes),
-            panes: panes.sorted(by: panePrecedes),
-            agents: agents.sorted(by: agentPrecedes),
-            focus: focus
+            workspaces: workspaces.sorted(by: { $0.precedes($1) }),
+            tabs: tabs.sorted(by: { $0.precedes($1) }),
+            panes: panes.sorted(by: { $0.precedes($1) }),
+            agents: agents.sorted(by: { $0.precedes($1) }),
+            focus: focus,
+            validationLimits: limits
         )
     }
 
@@ -230,13 +231,14 @@ struct NestedTopologyValidator: Sendable {
         )
     }
 
-    private func validateLimits() throws {
+    func validateLimits() throws {
         let namedLimits = [
             ("maximumWorkspaces", limits.maximumWorkspaces),
             ("maximumTabs", limits.maximumTabs),
             ("maximumPanes", limits.maximumPanes),
             ("maximumAgents", limits.maximumAgents),
             ("maximumTotalNodes", limits.maximumTotalNodes),
+            ("maximumEventsPerBatch", limits.maximumEventsPerBatch),
             ("maximumDepth", limits.maximumDepth),
             ("maximumIdentifierBytes", limits.maximumIdentifierBytes),
             ("maximumTitleBytes", limits.maximumTitleBytes),
@@ -282,7 +284,7 @@ struct NestedTopologyValidator: Sendable {
         }
     }
 
-    private func validateCounts(
+    func validateCounts(
         workspaces: Int,
         tabs: Int,
         panes: Int,
@@ -316,6 +318,15 @@ struct NestedTopologyValidator: Sendable {
         }
     }
 
+    func validateEventBatchCount(_ count: Int) throws {
+        guard count <= limits.maximumEventsPerBatch else {
+            throw NestedTopologyError.eventBatchLimitExceeded(
+                actual: count,
+                maximum: limits.maximumEventsPerBatch
+            )
+        }
+    }
+
     private func validateNode(
         id: NestedNodeID,
         expectedKind: NestedNodeKind,
@@ -332,7 +343,7 @@ struct NestedTopologyValidator: Sendable {
             throw NestedTopologyError.invalidOrder(node: id, order: order)
         }
         if let title {
-            try validateField(
+            try validateRequiredField(
                 title.value,
                 name: "node.title",
                 maximumBytes: limits.maximumTitleBytes,
@@ -363,7 +374,7 @@ struct NestedTopologyValidator: Sendable {
         )
     }
 
-    private func validateParent(
+    func validateParent(
         node: NestedNodeID,
         parent: NestedNodeID,
         expectedKind: NestedNodeKind,
@@ -510,28 +521,4 @@ struct NestedTopologyValidator: Sendable {
         scalar.value <= 0x1F || (0x7F ... 0x9F).contains(scalar.value)
     }
 
-    private func workspacePrecedes(_ lhs: NestedWorkspaceNode, _ rhs: NestedWorkspaceNode) -> Bool {
-        lhs.order == rhs.order ? lhs.id.rawID < rhs.id.rawID : lhs.order < rhs.order
-    }
-
-    private func tabPrecedes(_ lhs: NestedTabNode, _ rhs: NestedTabNode) -> Bool {
-        if lhs.workspaceID != rhs.workspaceID {
-            return lhs.workspaceID.rawID < rhs.workspaceID.rawID
-        }
-        return lhs.order == rhs.order ? lhs.id.rawID < rhs.id.rawID : lhs.order < rhs.order
-    }
-
-    private func panePrecedes(_ lhs: NestedPaneNode, _ rhs: NestedPaneNode) -> Bool {
-        if lhs.association.tabID != rhs.association.tabID {
-            return lhs.association.tabID.rawID < rhs.association.tabID.rawID
-        }
-        return lhs.order == rhs.order ? lhs.id.rawID < rhs.id.rawID : lhs.order < rhs.order
-    }
-
-    private func agentPrecedes(_ lhs: NestedAgentNode, _ rhs: NestedAgentNode) -> Bool {
-        if lhs.paneID != rhs.paneID {
-            return lhs.paneID.rawID < rhs.paneID.rawID
-        }
-        return lhs.order == rhs.order ? lhs.id.rawID < rhs.id.rawID : lhs.order < rhs.order
-    }
 }

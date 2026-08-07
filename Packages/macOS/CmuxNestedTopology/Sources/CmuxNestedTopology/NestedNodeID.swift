@@ -41,6 +41,26 @@ public struct NestedNodeID: Codable, Hashable, Sendable {
         self.rawID = rawID
     }
 
+    /// Compares every structured component while preserving exact opaque ID bytes.
+    public static func == (lhs: NestedNodeID, rhs: NestedNodeID) -> Bool {
+        lhs.version == rhs.version
+            && lhs.providerKind == rhs.providerKind
+            && lhs.providerInstanceID == rhs.providerInstanceID
+            && lhs.kind == rhs.kind
+            && ExactUTF8String(lhs.rawID) == ExactUTF8String(rhs.rawID)
+    }
+
+    /// Hashes every structured component while preserving exact opaque ID bytes.
+    ///
+    /// - Parameter hasher: Hasher receiving the identity components.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(version)
+        hasher.combine(providerKind)
+        hasher.combine(providerInstanceID)
+        hasher.combine(kind)
+        hasher.combine(ExactUTF8String(rawID))
+    }
+
     /// Decodes a structured identity and rejects unsupported versions.
     ///
     /// - Parameter decoder: Decoder containing the structured identity.

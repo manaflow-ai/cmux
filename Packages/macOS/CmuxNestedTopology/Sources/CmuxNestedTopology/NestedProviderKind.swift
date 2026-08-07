@@ -18,6 +18,18 @@ public struct NestedProviderKind: Codable, Comparable, Hashable, Sendable {
         self.rawValue = rawValue
     }
 
+    /// Compares provider tokens by their exact UTF-8 representation.
+    public static func == (lhs: NestedProviderKind, rhs: NestedProviderKind) -> Bool {
+        ExactUTF8String(lhs.rawValue) == ExactUTF8String(rhs.rawValue)
+    }
+
+    /// Hashes the exact UTF-8 provider token.
+    ///
+    /// - Parameter hasher: Hasher receiving the provider token.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(ExactUTF8String(rawValue))
+    }
+
     /// Orders provider kinds by their stable raw representation.
     ///
     /// - Parameters:
@@ -25,7 +37,7 @@ public struct NestedProviderKind: Codable, Comparable, Hashable, Sendable {
     ///   - rhs: Right provider kind.
     /// - Returns: `true` when the left raw value sorts before the right value.
     public static func < (lhs: NestedProviderKind, rhs: NestedProviderKind) -> Bool {
-        lhs.rawValue < rhs.rawValue
+        ExactUTF8String(lhs.rawValue) < ExactUTF8String(rhs.rawValue)
     }
 
     /// Decodes a provider kind from its single string value.

@@ -287,4 +287,83 @@ struct NestedTopologyReducerTests {
         #expect(updated.agents.count == 500)
         #expect(updated.agents.first(where: { $0.id.rawID == "agent-499" })?.status.presentation == .done)
     }
+
+    @Test("reparenting a focused node reconciles its focused ancestor chain")
+    func focusedReparenting() throws {
+        let fixture = NestedTopologyTestFixture()
+        let reducer = NestedTopologyReducer()
+        let focused = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            focus: NestedTopologyFocus(
+                workspaceID: fixture.id("workspace-1", kind: .workspace),
+                tabID: fixture.id("tab-1", kind: .tab),
+                paneID: fixture.id("pane-1", kind: .pane),
+                agentID: fixture.id("agent-1", kind: .agent)
+            )
+        )
+        let movedPane = fixture.event(.paneUpdated(node: fixture.pane(tabRawID: "tab-2")))
+
+        let updated = try reducer.applying(movedPane, to: focused)
+        #expect(updated.focus.tabID == fixture.id("tab-2", kind: .tab))
+        #expect(updated.focus.paneID == fixture.id("pane-1", kind: .pane))
+        #expect(updated.focus.agentID == fixture.id("agent-1", kind: .agent))
+
+        let batchUpdated = try reducer.applying([
+            movedPane,
+            fixture.event(.focusChanged(id: fixture.id("agent-1", kind: .agent))),
+        ], to: focused)
+        #expect(batchUpdated == updated)
+    }
+
+    @Test("no-op events still enforce a stricter reducer policy")
+    func noOpEventsEnforceReducerLimits() throws {
+        let fixture = NestedTopologyTestFixture()
+        let snapshot = try fixture.snapshot(
+            workspaces: [fixture.workspace("workspace-1"), fixture.workspace("workspace-2")],
+            tabs: [],
+            panes: [],
+            agents: []
+        )
+        let reducer = NestedTopologyReducer(limits: fixture.limits(maximumWorkspaces: 1))
+
+        #expect(throws: NestedTopologyError.self) {
+            try reducer.applying(
+                fixture.event(.workspaceCreated(node: fixture.workspace("workspace-1"))),
+                to: snapshot
+            )
+        }
+        #expect(throws: NestedTopologyError.self) {
+            try reducer.applying(
+                fixture.event(.nodeClosed(id: fixture.id("missing", kind: .workspace))),
+                to: snapshot
+            )
+        }
+        #expect(throws: NestedTopologyError.self) {
+            try reducer.applying([], to: snapshot)
+        }
+    }
+
+    @Test("provider event batches are bounded before mutation")
+    func eventBatchLimit() throws {
+        let fixture = NestedTopologyTestFixture()
+        let limits = fixture.limits(maximumEventsPerBatch: 1)
+        let snapshot = try fixture.snapshot(
+            workspaces: [],
+            tabs: [],
+            panes: [],
+            agents: [],
+            limits: limits
+        )
+        let reducer = NestedTopologyReducer(limits: limits)
+
+        #expect(throws: NestedTopologyError.eventBatchLimitExceeded(actual: 2, maximum: 1)) {
+            try reducer.applying([
+                fixture.event(.workspaceCreated(node: fixture.workspace("workspace-1"))),
+                fixture.event(.workspaceCreated(node: fixture.workspace("workspace-2"))),
+            ], to: snapshot)
+        }
+    }
 }

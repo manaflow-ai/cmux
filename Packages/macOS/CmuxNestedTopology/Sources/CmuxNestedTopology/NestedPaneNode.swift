@@ -42,4 +42,15 @@ public struct NestedPaneNode: Codable, Equatable, Sendable {
             title: title?.replacing(with: candidate.title) ?? candidate.title
         )
     }
+
+    func precedes(_ candidate: NestedPaneNode) -> Bool {
+        let parent = ExactUTF8String(association.tabID.rawID)
+        let candidateParent = ExactUTF8String(candidate.association.tabID.rawID)
+        if parent != candidateParent {
+            return parent < candidateParent
+        }
+        return order == candidate.order
+            ? ExactUTF8String(id.rawID) < ExactUTF8String(candidate.id.rawID)
+            : order < candidate.order
+    }
 }

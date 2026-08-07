@@ -7,6 +7,7 @@ public struct NestedTopologyLimits: Equatable, Sendable {
         maximumPanes: 2_048,
         maximumAgents: 2_048,
         maximumTotalNodes: 4_096,
+        maximumEventsPerBatch: 4_096,
         maximumDepth: 4,
         maximumIdentifierBytes: 1_024,
         maximumTitleBytes: 4_096,
@@ -30,6 +31,9 @@ public struct NestedTopologyLimits: Equatable, Sendable {
 
     /// Maximum nodes across every level.
     public let maximumTotalNodes: Int
+
+    /// Maximum provider events accepted in one atomic batch.
+    public let maximumEventsPerBatch: Int
 
     /// Maximum accepted one-based hierarchy depth.
     public let maximumDepth: Int
@@ -62,6 +66,7 @@ public struct NestedTopologyLimits: Equatable, Sendable {
     ///   - maximumPanes: Maximum pane nodes.
     ///   - maximumAgents: Maximum agent nodes.
     ///   - maximumTotalNodes: Maximum total nodes.
+    ///   - maximumEventsPerBatch: Maximum events in one atomic batch.
     ///   - maximumDepth: Maximum one-based hierarchy depth.
     ///   - maximumIdentifierBytes: Maximum identifier bytes.
     ///   - maximumTitleBytes: Maximum display-title bytes.
@@ -75,6 +80,7 @@ public struct NestedTopologyLimits: Equatable, Sendable {
         maximumPanes: Int,
         maximumAgents: Int,
         maximumTotalNodes: Int,
+        maximumEventsPerBatch: Int,
         maximumDepth: Int,
         maximumIdentifierBytes: Int,
         maximumTitleBytes: Int,
@@ -88,6 +94,7 @@ public struct NestedTopologyLimits: Equatable, Sendable {
         self.maximumPanes = maximumPanes
         self.maximumAgents = maximumAgents
         self.maximumTotalNodes = maximumTotalNodes
+        self.maximumEventsPerBatch = maximumEventsPerBatch
         self.maximumDepth = maximumDepth
         self.maximumIdentifierBytes = maximumIdentifierBytes
         self.maximumTitleBytes = maximumTitleBytes

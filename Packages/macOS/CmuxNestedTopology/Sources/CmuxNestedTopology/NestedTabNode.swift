@@ -39,4 +39,15 @@ public struct NestedTabNode: Codable, Equatable, Sendable {
             title: title?.replacing(with: candidate.title) ?? candidate.title
         )
     }
+
+    func precedes(_ candidate: NestedTabNode) -> Bool {
+        let parent = ExactUTF8String(workspaceID.rawID)
+        let candidateParent = ExactUTF8String(candidate.workspaceID.rawID)
+        if parent != candidateParent {
+            return parent < candidateParent
+        }
+        return order == candidate.order
+            ? ExactUTF8String(id.rawID) < ExactUTF8String(candidate.id.rawID)
+            : order < candidate.order
+    }
 }

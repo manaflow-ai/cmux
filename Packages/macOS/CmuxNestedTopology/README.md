@@ -14,6 +14,8 @@ This package contains only immutable values, validation, and pure reduction. It 
 
 `NestedNodeID` is structured and versioned. Equality includes provider kind, provider instance value, connection generation, node kind, and the opaque provider node ID. A reconnect generation therefore invalidates old node identities even when a socket path and raw provider ID are reused.
 
+Opaque provider kinds, instance values, node IDs, capability tokens, and session IDs use exact UTF-8 identity rather than Swift `String` canonical equivalence. Providers may therefore use canonically equivalent Unicode representations as distinct protocol identifiers without collisions.
+
 The provider instance raw value may come from a server-lifetime protocol identifier. When a provider does not expose one, its adapter must generate an opaque value and always generate a fresh connection generation. Socket paths and agent session IDs are never provider identity.
 
 ## Constructing validated state
@@ -49,12 +51,15 @@ Published snapshots guarantee:
 - deterministic sibling order independent of display titles;
 - one coherent focused path;
 - bounded counts, depth, identifiers, titles, status values, sessions, and capabilities;
+- bounded event batches with indexed mutation and one ordering publication pass;
 - unknown provider capabilities and raw agent statuses remain available for forward compatibility;
 - duplicate creates are idempotent only when content matches, unknown updates fail for resynchronization, and closes cascade;
 - pane/session heuristics apply once while provider parentage remains authoritative;
 - inferred titles cannot overwrite provider, host, or user title authority.
 
 Every event carries provider identity separately, including focus-clear events. Reducers reject a stale generation before applying any mutation.
+
+Snapshots remember the validation policy that accepted them, so a reducer with stricter limits revalidates even no-op events. Limits are trust policy rather than provider data and are not serialized. To decode data that was accepted under custom limits, put the same `NestedTopologyLimits` value in `JSONDecoder.userInfo` under `NestedTopologySnapshot.decodingLimitsUserInfoKey`; decoding otherwise uses `.standard`.
 
 ## Planned consumers
 

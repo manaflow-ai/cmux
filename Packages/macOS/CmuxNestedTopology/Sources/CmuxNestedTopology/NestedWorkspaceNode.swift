@@ -28,4 +28,10 @@ public struct NestedWorkspaceNode: Codable, Equatable, Sendable {
             title: title?.replacing(with: candidate.title) ?? candidate.title
         )
     }
+
+    func precedes(_ candidate: NestedWorkspaceNode) -> Bool {
+        order == candidate.order
+            ? ExactUTF8String(id.rawID) < ExactUTF8String(candidate.id.rawID)
+            : order < candidate.order
+    }
 }

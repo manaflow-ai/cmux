@@ -19,4 +19,19 @@ public struct NestedAssociationKey: Codable, Hashable, Sendable {
         self.paneID = paneID
         self.sessionID = sessionID
     }
+
+    /// Compares pane identity and exact optional provider-session bytes.
+    public static func == (lhs: NestedAssociationKey, rhs: NestedAssociationKey) -> Bool {
+        lhs.paneID == rhs.paneID
+            && lhs.sessionID.map(ExactUTF8String.init)
+                == rhs.sessionID.map(ExactUTF8String.init)
+    }
+
+    /// Hashes pane identity and exact optional provider-session bytes.
+    ///
+    /// - Parameter hasher: Hasher receiving the association-key components.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(paneID)
+        hasher.combine(sessionID.map(ExactUTF8String.init))
+    }
 }

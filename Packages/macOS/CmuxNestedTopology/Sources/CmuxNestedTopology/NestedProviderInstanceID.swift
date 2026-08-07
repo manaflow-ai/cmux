@@ -21,4 +21,21 @@ public struct NestedProviderInstanceID: Codable, Hashable, Sendable {
         self.rawValue = rawValue
         self.generation = generation
     }
+
+    /// Compares the generation and exact opaque provider-instance bytes.
+    public static func == (
+        lhs: NestedProviderInstanceID,
+        rhs: NestedProviderInstanceID
+    ) -> Bool {
+        lhs.generation == rhs.generation
+            && ExactUTF8String(lhs.rawValue) == ExactUTF8String(rhs.rawValue)
+    }
+
+    /// Hashes the generation and exact opaque provider-instance bytes.
+    ///
+    /// - Parameter hasher: Hasher receiving the identity components.
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(generation)
+        hasher.combine(ExactUTF8String(rawValue))
+    }
 }

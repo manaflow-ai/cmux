@@ -35,6 +35,7 @@ struct NestedTopologyLimitsTests {
             maximumPanes: 1,
             maximumAgents: 1,
             maximumTotalNodes: 3,
+            maximumEventsPerBatch: 8,
             maximumDepth: 4,
             maximumIdentifierBytes: 64,
             maximumTitleBytes: 64,
@@ -62,36 +63,50 @@ struct NestedTopologyLimitsTests {
     @Test("identifier, title, status, session, and capability strings have independent bounds")
     func stringLimits() {
         let fixture = NestedTopologyTestFixture(instanceRawValue: "instance")
+        let oversizedIdentifier = String(repeating: "i", count: 65)
+        let oversizedTitle = "title-far-too-long"
+        let oversizedStatus = "status-too-long"
+        let oversizedSession = "session-too-long"
+        let oversizedCapability = "capability-too-long"
         let limits = NestedTopologyLimits(
             maximumWorkspaces: 4,
             maximumTabs: 4,
             maximumPanes: 4,
             maximumAgents: 4,
             maximumTotalNodes: 16,
+            maximumEventsPerBatch: 8,
             maximumDepth: 4,
             maximumIdentifierBytes: 64,
-            maximumTitleBytes: 8,
+            maximumTitleBytes: 16,
             maximumRawStatusBytes: 8,
             maximumSessionIDBytes: 8,
             maximumCapabilities: 4,
             maximumCapabilityBytes: 8
         )
 
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.fieldTooLarge(
+            name: "node.rawID",
+            actualBytes: oversizedIdentifier.utf8.count,
+            maximumBytes: limits.maximumIdentifierBytes
+        )) {
             try fixture.snapshot(
                 capabilities: NestedProviderCapabilities([]),
-                workspaces: [fixture.workspace(String(repeating: "i", count: 65))],
+                workspaces: [fixture.workspace(oversizedIdentifier)],
                 tabs: [],
                 panes: [],
                 agents: [],
                 limits: limits
             )
         }
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.fieldTooLarge(
+            name: "node.title",
+            actualBytes: oversizedTitle.utf8.count,
+            maximumBytes: limits.maximumTitleBytes
+        )) {
             try fixture.snapshot(
                 capabilities: NestedProviderCapabilities([]),
                 workspaces: [fixture.workspace("w", title: NestedNodeTitle(
-                    value: "title-too-long",
+                    value: oversizedTitle,
                     authority: .provider
                 ))],
                 tabs: [],
@@ -100,28 +115,40 @@ struct NestedTopologyLimitsTests {
                 limits: limits
             )
         }
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.fieldTooLarge(
+            name: "agent.status.providerRawValue",
+            actualBytes: oversizedStatus.utf8.count,
+            maximumBytes: limits.maximumRawStatusBytes
+        )) {
             try fixture.snapshot(
                 capabilities: NestedProviderCapabilities([]),
                 panes: [fixture.pane(sessionID: "s")],
                 agents: [fixture.agent(sessionID: "s", status: NestedAgentStatus(
                     presentation: .unknown,
-                    providerRawValue: "status-too-long"
+                    providerRawValue: oversizedStatus
                 ))],
                 limits: limits
             )
         }
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.fieldTooLarge(
+            name: "pane.association.sessionID",
+            actualBytes: oversizedSession.utf8.count,
+            maximumBytes: limits.maximumSessionIDBytes
+        )) {
             try fixture.snapshot(
                 capabilities: NestedProviderCapabilities([]),
-                panes: [fixture.pane(sessionID: "session-too-long")],
+                panes: [fixture.pane(sessionID: oversizedSession)],
                 limits: limits
             )
         }
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.fieldTooLarge(
+            name: "provider.capability",
+            actualBytes: oversizedCapability.utf8.count,
+            maximumBytes: limits.maximumCapabilityBytes
+        )) {
             try fixture.snapshot(
                 capabilities: NestedProviderCapabilities([
-                    NestedProviderCapability(rawValue: "capability-too-long"),
+                    NestedProviderCapability(rawValue: oversizedCapability),
                 ]),
                 workspaces: [],
                 tabs: [],
@@ -141,6 +168,7 @@ struct NestedTopologyLimitsTests {
             maximumPanes: 8,
             maximumAgents: 8,
             maximumTotalNodes: 32,
+            maximumEventsPerBatch: 16,
             maximumDepth: 3,
             maximumIdentifierBytes: 128,
             maximumTitleBytes: 128,
@@ -162,9 +190,20 @@ struct NestedTopologyLimitsTests {
     func rejectsControlCharacters() {
         let fixture = NestedTopologyTestFixture()
 
-        #expect(throws: NestedTopologyError.self) {
+        #expect(throws: NestedTopologyError.controlCharacter(name: "node.title")) {
             try fixture.snapshot(workspaces: [fixture.workspace(
                 title: NestedNodeTitle(value: "unsafe\u{001B}[31m", authority: .provider)
+            )])
+        }
+    }
+
+    @Test("an empty title is rejected instead of representing an absent title")
+    func rejectsEmptyTitle() {
+        let fixture = NestedTopologyTestFixture()
+
+        #expect(throws: NestedTopologyError.emptyField(name: "node.title")) {
+            try fixture.snapshot(workspaces: [fixture.workspace(
+                title: NestedNodeTitle(value: "", authority: .provider)
             )])
         }
     }

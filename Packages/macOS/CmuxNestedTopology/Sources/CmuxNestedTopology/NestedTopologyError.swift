@@ -18,6 +18,9 @@ public enum NestedTopologyError: Error, Equatable, Sendable {
     /// Total node count exceeds the snapshot budget.
     case totalNodeLimitExceeded(actual: Int, maximum: Int)
 
+    /// An atomic provider event batch exceeds its configured budget.
+    case eventBatchLimitExceeded(actual: Int, maximum: Int)
+
     /// Capability count exceeds the snapshot budget.
     case capabilityLimitExceeded(actual: Int, maximum: Int)
 
