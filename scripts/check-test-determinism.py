@@ -247,7 +247,8 @@ _URL = re.compile(r"https?://([A-Za-z0-9._-]+)(?::\d+)?")
 _NETWORK_VERB = re.compile(
     r"""(?x)
     \bfetch\s*\(
-  | \baxios(?:\.\w+)?\s*\(
+  | \baxios\.create\s*\([^()\n]*\)\.(?:get|post|put|patch|delete|head|request)\s*\(
+  | \baxios(?:\.(?:get|post|put|patch|delete|head|request))?\s*\(
   | \b(?:request|got|superagent|undici)\s*\(
   | \bhttp[sx]?\.(?:get|post|request)\s*\(
   | \bXMLHttpRequest\b
@@ -255,7 +256,8 @@ _NETWORK_VERB = re.compile(
   | \brequests\.(?:get|post|put|delete|head|request)\s*\(
   | \burllib\b
   | \burlopen\s*\(
-  | \bhttpx\.\w+\s*\(
+  | \bhttpx\.(?:Client|AsyncClient)\s*\([^()\n]*\)\.(?:get|post|put|patch|delete|head|request)\s*\(
+  | \bhttpx\.(?:get|post|put|patch|delete|head|request)\s*\(
   | \bsession\.(?:get|post|request)\s*\(
   | \bcurl\b
   | \bWebSocket\s*\(
@@ -263,9 +265,12 @@ _NETWORK_VERB = re.compile(
 )
 
 _NETWORK_TARGET_LABELS = frozenset({"uri", "url"})
+_NETWORK_BASE_TARGET_LABELS = frozenset({"base_url", "baseurl"})
 _NETWORK_TARGET_SPECS = (
     _NetworkTargetSpec(
-        verb_pattern=re.compile(r"\.open|(?:httpx|requests|session)\.request"),
+        verb_pattern=re.compile(
+            r"\.open\s*\(|(?:httpx|requests|session).*\.request\s*\("
+        ),
         positional_index=1,
         labels=_NETWORK_TARGET_LABELS,
     ),
@@ -1034,6 +1039,9 @@ def _argv_literal_tokens(
 
 _SHELL_ASSIGNMENT_WORD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _SHELL_COMMAND_WRAPPERS = frozenset({"builtin", "command", "exec", "nohup", "time"})
+_SHELL_CONTROL_FLOW_PREFIXES = frozenset(
+    {"!", "do", "elif", "else", "if", "then", "until", "while", "{"}
+)
 
 
 def _shell_command_region_bounds(
@@ -1100,14 +1108,15 @@ def _shell_command_word_bounds(
     index = 0
     while index < len(words):
         raw = line[words[index][0] : words[index][1]]
-        if raw[:1] not in ("'", '"') and _SHELL_ASSIGNMENT_WORD.match(raw):
+        is_unquoted = raw[:1] not in ("'", '"')
+        if is_unquoted and _SHELL_ASSIGNMENT_WORD.match(raw):
             index += 1
             continue
-        break
-
-    while index < len(words):
         command, _ = _shell_word_value_and_bounds(line, words[index])
         command_name = command.rsplit("/", 1)[-1]
+        if is_unquoted and command_name in _SHELL_CONTROL_FLOW_PREFIXES:
+            index += 1
+            continue
         if command_name == "env":
             index += 1
             while index < len(words):
@@ -1156,12 +1165,31 @@ def _shell_word_bounds(
     words: list[tuple[int, int]] = []
     index = start
     while index < end:
-        while index < end and executable[index] and line[index].isspace():
-            index += 1
+        while index < end:
+            if executable[index] and line[index].isspace():
+                index += 1
+                continue
+            if (
+                executable[index]
+                and line[index] == "\\"
+                and index + 1 < end
+                and line[index + 1] == "\n"
+            ):
+                index += 2
+                continue
+            break
         if index >= end or (executable[index] and line[index] in ";|&\n"):
             break
         word_start = index
         while index < end:
+            if (
+                executable[index]
+                and line[index] == "\\"
+                and index + 1 < end
+                and line[index + 1] == "\n"
+            ):
+                index += 2
+                continue
             if executable[index] and (
                 line[index].isspace() or line[index] in ";|&\n"
             ):
@@ -1238,13 +1266,46 @@ def _shell_command_source_bounds(
     return _evaluated_source_argument_bounds(line, words, _SHELL_SOURCE_SPEC)
 
 
-def _shell_eval_source_ranges(
+def _shell_eval_target_ranges(
     line: str,
     argument_start: int,
+    verb_start: int,
 ) -> list[tuple[int, int]]:
     statement_end = _shell_statement_end(line, argument_start)
-    bounds = _trim_bounds(line, argument_start, statement_end)
-    return [bounds] if bounds[0] < bounds[1] else []
+    arguments = _shell_word_bounds(line, argument_start, statement_end)
+    source_parts: list[str] = []
+    source_length = 0
+    source_verb_start: Optional[int] = None
+
+    for argument in arguments:
+        value, value_bounds = _shell_word_value_and_bounds(line, argument)
+        if source_parts:
+            source_length += 1
+        if _bounds_contain_offset(value_bounds, verb_start):
+            source_verb_start = source_length + verb_start - value_bounds[0]
+        source_parts.append(value)
+        source_length += len(value)
+
+    if source_verb_start is None:
+        return []
+    source = " ".join(source_parts)
+    nested_match = next(
+        (
+            match
+            for match in _NETWORK_VERB.finditer(source)
+            if match.start() <= source_verb_start < match.end()
+        ),
+        None,
+    )
+    if nested_match is None:
+        return []
+    nested_targets = _network_target_ranges(source, nested_match, ".sh")
+    if not any(
+        _contains_public_network_url(source[start:end])
+        for start, end in nested_targets
+    ):
+        return []
+    return [_trim_bounds(line, argument_start, statement_end)]
 
 
 def _call_uses_explicit_shell(
@@ -1466,8 +1527,12 @@ def _launcher_target_ranges(
                 launcher.start(),
             ):
                 continue
-            ranges = _shell_eval_source_ranges(line, launcher.end())
-            if any(_bounds_contain_offset(bounds, verb_start) for bounds in ranges):
+            ranges = _shell_eval_target_ranges(
+                line,
+                launcher.end(),
+                verb_start,
+            )
+            if ranges:
                 return ranges
     return []
 
@@ -1478,6 +1543,42 @@ def _network_target_spec(matched_verb: str) -> _NetworkTargetSpec:
         for spec in _NETWORK_TARGET_SPECS
         if spec.verb_pattern.search(matched_verb)
     )
+
+
+def _fluent_base_target_ranges(
+    line: str,
+    match: re.Match[str],
+    terminal_opening_paren: int,
+    terminal_target: _CallArgument,
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    """Return a fluent client's base URL when its request target is relative."""
+    target_start, target_end = terminal_target.value_bounds
+    if _URL.search(line[target_start:target_end]):
+        return []
+    constructor_opening_paren = line.find(
+        "(",
+        match.start(),
+        terminal_opening_paren,
+    )
+    if constructor_opening_paren == -1:
+        return []
+
+    constructor_arguments = _call_arguments(
+        line,
+        constructor_opening_paren,
+        path_suffix,
+    )
+    candidates = list(constructor_arguments)
+    for argument in constructor_arguments:
+        candidates.extend(
+            _object_properties(line, argument.value_bounds, path_suffix)
+        )
+    base_target = _select_labeled_argument(
+        candidates,
+        _NETWORK_BASE_TARGET_LABELS,
+    )
+    return [base_target.value_bounds] if base_target is not None else []
 
 
 def _direct_network_target_ranges(
@@ -1503,7 +1604,7 @@ def _direct_network_target_ranges(
         statement_end = line.find("\n", match.start())
         return [(match.start(), len(line) if statement_end == -1 else statement_end)]
 
-    opening_paren = line.find("(", match.start(), match.end())
+    opening_paren = line.rfind("(", match.start(), match.end())
     if opening_paren == -1:
         following = match.end()
         while following < len(line) and line[following].isspace():
@@ -1520,7 +1621,18 @@ def _direct_network_target_ranges(
         spec.labels,
         spec.positional_index,
     )
-    return [target.value_bounds] if target is not None else []
+    if target is None:
+        return []
+    return [
+        target.value_bounds,
+        *_fluent_base_target_ranges(
+            line,
+            match,
+            opening_paren,
+            target,
+            path_suffix,
+        ),
+    ]
 
 
 def _network_target_ranges(
@@ -2165,6 +2277,31 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_if_eval_unquoted_network.sh",
+            "if eval curl -fsSL https://api.openai.com/v1/items; then :; fi\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_if_curl_network.sh",
+            "if curl -fsSL https://api.openai.com/v1/items; then :; fi\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_while_curl_network.sh",
+            "while curl -fsSL https://api.openai.com/v1/items; do :; done\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_until_curl_network.sh",
+            "until curl -fsSL https://api.openai.com/v1/items; do :; done\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_negated_curl_network.sh",
+            "! curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_eval_multiple_args.sh",
             (
                 'eval "set -e;" \\\n'
@@ -2185,6 +2322,32 @@ def _self_test() -> int:
         (
             "tests/requests_request.py",
             'requests.request("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_get.py",
+            'httpx.Client().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_base_url_get.py",
+            (
+                'httpx.Client(base_url="https://api.openai.com")'
+                '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_client_get.ts",
+            'axios.create().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_client_base_url_get.ts",
+            (
+                'axios.create({ baseURL: "https://api.openai.com" })'
+                '.get("/v1/items")\n'
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2493,6 +2656,12 @@ def _self_test() -> int:
         (
             "tests/n18i_shell_eval_argument.sh",
             "printf eval curl https://api.openai.com/v1/items\n",
+        ),
+        # Eval parses its joined arguments as a shell command. Curl is inert
+        # when it is only an argument to the command selected by that source.
+        (
+            "tests/n18i_shell_eval_data_argument.sh",
+            "eval echo curl https://api.openai.com/v1/items\n",
         ),
         # Python does not split a string command unless shell=True is explicit.
         (
