@@ -14,6 +14,7 @@ from typing import BinaryIO
 
 
 SWIFT_CRASH_PROMPT = b"Press space to interact, D to debug, or any other key to quit"
+SWIFT_TESTING_FAILED_EXIT_CODE = 123
 TIMEOUT_EXIT_CODE = 124
 POST_TEST_FAILED_EXIT_CODE = 125
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
@@ -81,6 +82,33 @@ def expects_swift_testing() -> bool:
         file=sys.stderr,
     )
     raise SystemExit(2)
+
+
+def test_result_exit_code(
+    *,
+    swift_testing_expected: bool,
+    selected_tests_result: str | None,
+    swift_testing_result: str | None,
+    swift_testing_active: bool,
+    require_expected_swift_testing: bool,
+) -> int | None:
+    """Return an authoritative mixed-framework result, if one is known."""
+    swift_testing_missing = (
+        swift_testing_expected
+        and swift_testing_result is None
+        and (
+            require_expected_swift_testing
+            or selected_tests_result is not None
+            or swift_testing_active
+        )
+    )
+    if swift_testing_missing:
+        return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    if swift_testing_result == "failed":
+        return SWIFT_TESTING_FAILED_EXIT_CODE
+    if selected_tests_result == "failed":
+        return POST_TEST_FAILED_EXIT_CODE
+    return None
 
 
 def terminate_child(pid: int) -> None:
@@ -269,6 +297,15 @@ def main() -> int:
             )
             log_file.close()
         terminate_child(pid)
+        result_exit_code = test_result_exit_code(
+            swift_testing_expected=swift_testing_expected,
+            selected_tests_result=selected_tests_result,
+            swift_testing_result=swift_testing_result,
+            swift_testing_active=swift_testing_active,
+            require_expected_swift_testing=False,
+        )
+        if result_exit_code is not None:
+            return result_exit_code
         return TIMEOUT_EXIT_CODE
 
     if post_test_timed_out:
@@ -282,10 +319,15 @@ def main() -> int:
             log_file.write(f"{message}\n".encode())
             log_file.close()
         terminate_child(pid)
-        if swift_testing_expected and swift_testing_result is None:
-            return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
-        if "failed" in (selected_tests_result, swift_testing_result):
-            return POST_TEST_FAILED_EXIT_CODE
+        result_exit_code = test_result_exit_code(
+            swift_testing_expected=swift_testing_expected,
+            selected_tests_result=selected_tests_result,
+            swift_testing_result=swift_testing_result,
+            swift_testing_active=swift_testing_active,
+            require_expected_swift_testing=True,
+        )
+        if result_exit_code is not None:
+            return result_exit_code
         if saw_passing_terminal_summary:
             return 0
         if "passed" in (selected_tests_result, swift_testing_result):
@@ -296,18 +338,15 @@ def main() -> int:
     if log_file is not None:
         log_file.close()
     exit_code = child_exit_code(status)
-    if (
-        swift_testing_expected
-        and swift_testing_result is None
-        and (
-            exit_code == 0
-            or selected_tests_result is not None
-            or swift_testing_active
-        )
-    ):
-        return EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
-    if "failed" in (selected_tests_result, swift_testing_result):
-        return POST_TEST_FAILED_EXIT_CODE
+    result_exit_code = test_result_exit_code(
+        swift_testing_expected=swift_testing_expected,
+        selected_tests_result=selected_tests_result,
+        swift_testing_result=swift_testing_result,
+        swift_testing_active=swift_testing_active,
+        require_expected_swift_testing=exit_code == 0,
+    )
+    if result_exit_code is not None:
+        return result_exit_code
     return exit_code
 
 
