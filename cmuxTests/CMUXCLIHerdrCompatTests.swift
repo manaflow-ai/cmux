@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -24,7 +23,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHerdr.path)
 
-        var environment = herdrCompatEnvironment(searchPath: tempDirectory.path)
+        var environment = herdrCompatEnvironment(
+            searchPath: tempDirectory.path,
+            home: tempDirectory
+        )
         environment["HERDR_TEST_EXIT"] = "23"
         let result = runProcess(
             executablePath: cliPath,
@@ -48,7 +50,10 @@ extension CMUXCLIErrorOutputRegressionTests {
         try "#!/bin/sh\nprintf '%s\\n' \"$*\"\n".write(to: fakeHerdr, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHerdr.path)
 
-        let environment = herdrCompatEnvironment(searchPath: tempDirectory.path)
+        let environment = herdrCompatEnvironment(
+            searchPath: tempDirectory.path,
+            home: tempDirectory
+        )
         let cases: [([String], String)] = [
             (["--json", "__herdr-compat", "snapshot"], "api snapshot\n"),
             (["--json", "__herdr-compat", "list-workspaces"], "workspace list\n"),
@@ -118,7 +123,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         let result = runProcess(
             executablePath: cliPath,
             arguments: ["__herdr-compat", "status"],
-            environment: herdrCompatEnvironment(searchPath: searchPath),
+            environment: herdrCompatEnvironment(searchPath: searchPath, home: root),
             timeout: 5
         )
 
@@ -135,9 +140,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         try FileManager.default.createDirectory(at: emptyBin, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: isolatedHome) }
 
-        var environment = herdrCompatEnvironment(searchPath: emptyBin.path, locale: "fr")
-        environment["HOME"] = isolatedHome.path
-        environment["CFFIXED_USER_HOME"] = isolatedHome.path
+        let environment = herdrCompatEnvironment(
+            searchPath: emptyBin.path,
+            home: isolatedHome,
+            locale: "fr"
+        )
 
         let missing = runProcess(
             executablePath: cliPath,
@@ -148,7 +155,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(missing.timedOut, missing.stdout)
         XCTAssertEqual(missing.status, 127, missing.stdout)
         XCTAssertTrue(missing.stdout.contains("Impossible de lancer la commande requise."), missing.stdout)
-        XCTAssertFalse(missing.stdout.localizedCaseInsensitiveContains("herdr"), missing.stdout)
+        XCTAssertFalse(missing.stdout.localizedStandardContains("herdr"), missing.stdout)
         XCTAssertFalse(missing.stdout.contains(isolatedHome.path), missing.stdout)
 
         let unknown = runProcess(
@@ -160,7 +167,7 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(unknown.timedOut, unknown.stdout)
         XCTAssertEqual(unknown.status, 2, unknown.stdout)
         XCTAssertTrue(unknown.stdout.contains("Commande de compatibilité inconnue"), unknown.stdout)
-        XCTAssertFalse(unknown.stdout.localizedCaseInsensitiveContains("herdr"), unknown.stdout)
+        XCTAssertFalse(unknown.stdout.localizedStandardContains("herdr"), unknown.stdout)
 
         let help = runProcess(
             executablePath: cliPath,
@@ -175,16 +182,24 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(help.stdout.contains("Usage:"), help.stdout)
     }
 
-    private func herdrCompatEnvironment(searchPath: String, locale: String = "en") -> [String: String] {
+    private func herdrCompatEnvironment(
+        searchPath: String,
+        home: URL,
+        locale: String = "en"
+    ) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
             environment.removeValue(forKey: key)
         }
         environment["PATH"] = searchPath
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["AppleLanguages"] = "(\(locale))"
+        let posixLocale = locale == "fr" ? "fr_FR.UTF-8" : "en_US.UTF-8"
         environment["AppleLocale"] = locale == "fr" ? "fr_FR" : "en_US"
-        environment["LANG"] = locale == "fr" ? "fr_FR.UTF-8" : "en_US.UTF-8"
+        environment["LANG"] = posixLocale
+        environment["LC_ALL"] = posixLocale
         return environment
     }
 }

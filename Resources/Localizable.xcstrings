@@ -4,10 +4,52 @@
     "cli.herdrCompat.error.launchFailed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر بدء الأمر المطلوب. تأكد من تثبيته ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije moguće pokrenuti potrebnu naredbu. Provjerite je li instalirana i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den nødvendige kommando kunne ikke startes. Kontrollér, at den er installeret, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der erforderliche Befehl konnte nicht gestartet werden. Stelle sicher, dass er installiert ist, und versuche es erneut."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Couldn't start the required command. Verify it is installed and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo iniciar el comando requerido. Comprueba que esté instalado e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lancer la commande requise. Vérifiez qu’elle est installée, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile avviare il comando richiesto. Verifica che sia installato e riprova."
           }
         },
         "ja": {
@@ -15,22 +57,196 @@
             "state": "translated",
             "value": "必要なコマンドを起動できませんでした。インストールされていることを確認して、もう一度お試しください。"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចចាប់ផ្ដើមពាក្យបញ្ជាដែលត្រូវការបានទេ។ សូមផ្ទៀងផ្ទាត់ថាវាត្រូវបានដំឡើង ហើយព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요한 명령을 시작할 수 없습니다. 설치되어 있는지 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke starte den nødvendige kommandoen. Kontroller at den er installert, og prøv på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się uruchomić wymaganego polecenia. Sprawdź, czy jest zainstalowane, i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível iniciar o comando necessário. Verifique se ele está instalado e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось запустить требуемую команду. Убедитесь, что она установлена, и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถเริ่มคำสั่งที่จำเป็นได้ โปรดตรวจสอบว่าได้ติดตั้งแล้วและลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gerekli komut başlatılamadı. Komutun yüklü olduğunu doğrulayıp tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося запустити потрібну команду. Переконайтеся, що її встановлено, і повторіть спробу."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法启动所需命令。请确认该命令已安装，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法啟動所需的指令。請確認已安裝該指令，然後再試一次。"
+          }
         }
       }
     },
     "cli.herdrCompat.error.unknownCommand": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أمر التوافق '%1$@' غير معروف. الأوامر المدعومة: %2$@."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznata naredba za kompatibilnost '%1$@'. Podržane naredbe: %2$@."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt kompatibilitetskommando '%1$@'. Understøttede kommandoer: %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Kompatibilitätsbefehl „%1$@“. Unterstützte Befehle: %2$@."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unknown compatibility command '%1$@'. Supported commands: %2$@."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de compatibilidad desconocido «%1$@». Comandos compatibles: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commande de compatibilité inconnue « %1$@ ». Commandes prises en charge : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando di compatibilità sconosciuto '%1$@'. Comandi supportati: %2$@."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "不明な互換コマンド '%1$@' です。対応コマンド: %2$@。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនស្គាល់ពាក្យបញ្ជាភាពឆបគ្នា '%1$@' ទេ។ ពាក្យបញ្ជាដែលគាំទ្រ៖ %2$@។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 호환성 명령 '%1$@'입니다. 지원되는 명령: %2$@."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent kompatibilitetskommando «%1$@». Støttede kommandoer: %2$@."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznane polecenie zgodności „%1$@”. Obsługiwane polecenia: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comando de compatibilidade desconhecido '%1$@'. Comandos compatíveis: %2$@."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестная команда совместимости «%1$@». Поддерживаемые команды: %2$@."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จักคำสั่งความเข้ากันได้ '%1$@' คำสั่งที่รองรับ: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen uyumluluk komutu '%1$@'. Desteklenen komutlar: %2$@."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідома команда сумісності «%1$@». Підтримувані команди: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知兼容命令“%1$@”。支持的命令：%2$@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的相容性指令「%1$@」。支援的指令：%2$@。"
           }
         }
       }
@@ -260528,16 +260744,124 @@
     "cli.herdrCompat.usage": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux __herdr-compat <command> [options]\n\nجسر توافق مخفي إلى واجهة سطر أوامر لموفّر مثبت.\nالأوامر: %@\n\nملاحظات:\n  - يقبل `status` خيار cmux `--json` (ويحوّله إلى `status --json` لدى الموفّر).\n  - تُرجع `snapshot` و`list-workspaces` و`list-tabs` و`list-panes` بيانات JSON دائمًا؛\n    يُقبل خيار cmux `--json` ويتم تجاهله لهذه الأسماء المستعارة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux __herdr-compat <command> [options]\n\nSkriveni most kompatibilnosti do instaliranog CLI-ja pružaoca.\nNaredbe: %@\n\nNapomene:\n  - `status` prihvata cmux `--json` (preslikava se na pružaočev `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs` i `list-panes` uvijek vraćaju JSON;\n    cmux `--json` se prihvata i zanemaruje za te pseudonime."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux __herdr-compat <command> [options]\n\nSkjult kompatibilitetsbro til en installeret udbyder-CLI.\nKommandoer: %@\n\nBemærkninger:\n  - `status` accepterer cmux `--json` (oversættes til udbyderens `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs` og `list-panes` returnerer altid JSON;\n    cmux `--json` accepteres og ignoreres for disse aliasser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux __herdr-compat <command> [options]\n\nVerborgene Kompatibilitätsbrücke zu einer installierten Anbieter-CLI.\nBefehle: %@\n\nHinweise:\n  - `status` akzeptiert cmux `--json` (wird dem `status --json` des Anbieters zugeordnet).\n  - `snapshot`, `list-workspaces`, `list-tabs` und `list-panes` geben immer JSON zurück;\n    cmux `--json` wird für diese Aliasse akzeptiert und ignoriert."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Usage: cmux __herdr-compat <command> [options]\n\nHidden compatibility bridge to an installed provider CLI.\nCommands: %@\n\nNotes:\n  - `status` accepts cmux `--json` (mapped to provider `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs`, and `list-panes` always return JSON;\n    cmux `--json` is accepted and ignored for those aliases."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux __herdr-compat <command> [options]\n\nPuente de compatibilidad oculto hacia la CLI de un proveedor instalada.\nComandos: %@\n\nNotas:\n  - `status` acepta la opción `--json` de cmux (se convierte en `status --json` del proveedor).\n  - `snapshot`, `list-workspaces`, `list-tabs` y `list-panes` siempre devuelven JSON;\n    la opción `--json` de cmux se acepta y se ignora para estos alias."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux __herdr-compat <command> [options]\n\nPasserelle de compatibilité masquée vers la CLI d’un fournisseur installée.\nCommandes : %@\n\nRemarques :\n  - `status` accepte l’option `--json` de cmux (convertie en `status --json` du fournisseur).\n  - `snapshot`, `list-workspaces`, `list-tabs` et `list-panes` renvoient toujours du JSON ;\n    l’option `--json` de cmux est acceptée et ignorée pour ces alias."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux __herdr-compat <command> [options]\n\nBridge di compatibilità nascosto verso la CLI di un provider installata.\nComandi: %@\n\nNote:\n  - `status` accetta l’opzione `--json` di cmux (convertita in `status --json` del provider).\n  - `snapshot`, `list-workspaces`, `list-tabs` e `list-panes` restituiscono sempre JSON;\n    l’opzione `--json` di cmux viene accettata e ignorata per questi alias."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "使用法: cmux __herdr-compat <command> [options]\n\nインストール済みのプロバイダー CLI への非表示の互換ブリッジです。\nコマンド: %@\n\n注記:\n  - `status` は cmux の `--json` を受け付けます（プロバイダーの `status --json` に変換されます）。\n  - `snapshot`、`list-workspaces`、`list-tabs`、`list-panes` は常に JSON を返します。\n    これらのエイリアスでは cmux の `--json` は受け付けられますが無視されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការប្រើប្រាស់៖ cmux __herdr-compat <command> [options]\n\nស្ពានភាពឆបគ្នាដែលបានលាក់ទៅកាន់ CLI របស់អ្នកផ្ដល់ដែលបានដំឡើង។\nពាក្យបញ្ជា៖ %@\n\nចំណាំ៖\n  - `status` ទទួលយក cmux `--json` (បម្លែងទៅជា `status --json` របស់អ្នកផ្ដល់)។\n  - `snapshot`, `list-workspaces`, `list-tabs` និង `list-panes` តែងតែត្រឡប់ JSON;\n    cmux `--json` ត្រូវបានទទួលយក និងមិនអើពើសម្រាប់ឈ្មោះក្លែងក្លាយទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux __herdr-compat <command> [options]\n\n설치된 공급자 CLI로 연결하는 숨겨진 호환성 브리지입니다.\n명령: %@\n\n참고:\n  - `status`는 cmux `--json`을 허용하며 공급자의 `status --json`으로 변환합니다.\n  - `snapshot`, `list-workspaces`, `list-tabs`, `list-panes`는 항상 JSON을 반환합니다.\n    이러한 별칭에서는 cmux `--json`을 허용하지만 무시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux __herdr-compat <command> [options]\n\nSkjult kompatibilitetsbro til en installert leverandør-CLI.\nKommandoer: %@\n\nMerknader:\n  - `status` godtar cmux `--json` (tilordnes leverandørens `status --json`).\n  - `snapshot`, `list-workspaces`, `list-tabs` og `list-panes` returnerer alltid JSON;\n    cmux `--json` godtas og ignoreres for disse aliasene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux __herdr-compat <command> [options]\n\nUkryty most zgodności do zainstalowanego interfejsu CLI dostawcy.\nPolecenia: %@\n\nUwagi:\n  - `status` przyjmuje opcję `--json` programu cmux (mapowaną na `status --json` dostawcy).\n  - `snapshot`, `list-workspaces`, `list-tabs` i `list-panes` zawsze zwracają JSON;\n    opcja `--json` programu cmux jest przyjmowana i ignorowana dla tych aliasów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux __herdr-compat <command> [options]\n\nPonte de compatibilidade oculta para a CLI de um provedor instalada.\nComandos: %@\n\nObservações:\n  - `status` aceita a opção `--json` do cmux (mapeada para `status --json` do provedor).\n  - `snapshot`, `list-workspaces`, `list-tabs` e `list-panes` sempre retornam JSON;\n    a opção `--json` do cmux é aceita e ignorada para esses aliases."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux __herdr-compat <command> [options]\n\nСкрытый мост совместимости с установленным CLI поставщика.\nКоманды: %@\n\nПримечания:\n  - `status` принимает параметр cmux `--json` (преобразуется в `status --json` поставщика).\n  - `snapshot`, `list-workspaces`, `list-tabs` и `list-panes` всегда возвращают JSON;\n    параметр cmux `--json` принимается и игнорируется для этих псевдонимов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีใช้: cmux __herdr-compat <command> [options]\n\nบริดจ์ความเข้ากันได้ที่ซ่อนไว้ไปยัง CLI ของผู้ให้บริการที่ติดตั้งไว้\nคำสั่ง: %@\n\nหมายเหตุ:\n  - `status` ยอมรับ `--json` ของ cmux (แปลงเป็น `status --json` ของผู้ให้บริการ)\n  - `snapshot`, `list-workspaces`, `list-tabs` และ `list-panes` ส่งคืน JSON เสมอ;\n    `--json` ของ cmux จะได้รับการยอมรับและละเว้นสำหรับนามแฝงเหล่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux __herdr-compat <command> [options]\n\nYüklü bir sağlayıcı CLI'sine yönelik gizli uyumluluk köprüsü.\nKomutlar: %@\n\nNotlar:\n  - `status`, cmux `--json` seçeneğini kabul eder (sağlayıcının `status --json` komutuna eşlenir).\n  - `snapshot`, `list-workspaces`, `list-tabs` ve `list-panes` her zaman JSON döndürür;\n    cmux `--json` bu takma adlar için kabul edilir ve yok sayılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux __herdr-compat <command> [options]\n\nПрихований міст сумісності до встановленого CLI постачальника.\nКоманди: %@\n\nПримітки:\n  - `status` приймає параметр cmux `--json` (перетворюється на `status --json` постачальника).\n  - `snapshot`, `list-workspaces`, `list-tabs` і `list-panes` завжди повертають JSON;\n    параметр cmux `--json` приймається та ігнорується для цих псевдонімів."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux __herdr-compat <command> [options]\n\n连接到已安装提供程序 CLI 的隐藏兼容桥接器。\n命令：%@\n\n注意：\n  - `status` 接受 cmux `--json`（映射为提供程序的 `status --json`）。\n  - `snapshot`、`list-workspaces`、`list-tabs` 和 `list-panes` 始终返回 JSON；\n    对这些别名，cmux `--json` 会被接受但忽略。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux __herdr-compat <command> [options]\n\n連接至已安裝供應商 CLI 的隱藏相容性橋接器。\n指令：%@\n\n注意事項：\n  - `status` 接受 cmux `--json`（對應至供應商的 `status --json`）。\n  - `snapshot`、`list-workspaces`、`list-tabs` 和 `list-panes` 一律傳回 JSON；\n    對這些別名，cmux `--json` 會被接受但忽略。"
           }
         }
       }
