@@ -1,6 +1,7 @@
 import AppKit
-import Testing
+import Bonsplit
 import CmuxTerminal
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -18,6 +19,113 @@ struct WorkspaceDragSplitFocusSwiftTests {
         AppDelegate.shared = nil
         defer { AppDelegate.shared = originalAppDelegate }
 
+        let fixture = try makeFixture()
+        defer {
+            fixture.window.orderOut(nil)
+            fixture.previousKeyWindow?.makeKey()
+        }
+
+        fixture.workspace.focusPanel(fixture.originalPanel.id)
+        #expect(fixture.originalPanel.surface.debugDesiredFocusState())
+        #expect(!fixture.movedPanel.surface.debugDesiredFocusState())
+        #expect(fixture.originalPanel.hostedView.isSurfaceViewFirstResponder())
+
+        let newPane = try #require(
+            fixture.workspace.bonsplitController.splitPane(
+                fixture.sourcePane,
+                orientation: .vertical,
+                movingTab: fixture.movedTab,
+                insertFirst: false
+            )
+        )
+
+        #expect(fixture.workspace.bonsplitController.focusedPaneId == newPane)
+        #expect(fixture.workspace.focusedPanelId == fixture.movedPanel.id)
+        #expect(!fixture.originalPanel.surface.debugDesiredFocusState())
+        #expect(fixture.movedPanel.surface.debugDesiredFocusState())
+        #expect(fixture.movedPanel.hostedView.isSurfaceViewFirstResponder())
+        #expect(fixture.originalPanel.hostedView.debugIsSuppressingReparentFocusForTesting())
+
+        fixture.workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+
+        #expect(!fixture.originalPanel.hostedView.debugIsSuppressingReparentFocusForTesting())
+        #expect(fixture.workspace.bonsplitController.focusedPaneId == newPane)
+        #expect(fixture.workspace.focusedPanelId == fixture.movedPanel.id)
+        #expect(!fixture.originalPanel.surface.debugDesiredFocusState())
+        #expect(fixture.movedPanel.surface.debugDesiredFocusState())
+        #expect(fixture.movedPanel.hostedView.isSurfaceViewFirstResponder())
+    }
+
+    @Test
+    func nonFocusSplitPreservesCursorAndHibernation() throws {
+        let originalAppDelegate = AppDelegate.shared
+        AppDelegate.shared = nil
+        defer { AppDelegate.shared = originalAppDelegate }
+
+        let fixture = try makeFixture()
+        defer {
+            fixture.window.orderOut(nil)
+            fixture.previousKeyWindow?.makeKey()
+        }
+
+        fixture.workspace.focusPanel(fixture.originalPanel.id)
+        #expect(fixture.originalPanel.hostedView.isSurfaceViewFirstResponder())
+        let hibernatedAgent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "issue-9504-non-focus-split",
+            workingDirectory: "/tmp/issue-9504",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp/issue-9504",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        #expect(
+            fixture.workspace.enterAgentHibernation(
+                panelId: fixture.movedPanel.id,
+                agent: hibernatedAgent,
+                lastActivityAt: Date(timeIntervalSince1970: 0)
+            )
+        )
+
+        let newPane = try #require(
+            fixture.workspace.splitPaneMovingTab(
+                fixture.sourcePane,
+                orientation: .vertical,
+                movingTab: fixture.movedTab,
+                insertFirst: false,
+                focusIntent: .preserveCurrent
+            )
+        )
+
+        #expect(
+            fixture.workspace.bonsplitController.tabs(inPane: newPane)
+                .contains { $0.id == fixture.movedTab }
+        )
+        #expect(fixture.workspace.bonsplitController.focusedPaneId == fixture.sourcePane)
+        #expect(fixture.workspace.focusedPanelId == fixture.originalPanel.id)
+        #expect(fixture.originalPanel.surface.debugDesiredFocusState())
+        #expect(!fixture.movedPanel.surface.debugDesiredFocusState())
+        #expect(fixture.movedPanel.isAgentHibernated)
+        #expect(fixture.originalPanel.hostedView.isSurfaceViewFirstResponder())
+    }
+#endif
+
+    private struct Fixture {
+        let workspace: Workspace
+        let originalPanel: TerminalPanel
+        let movedPanel: TerminalPanel
+        let sourcePane: PaneID
+        let movedTab: TabID
+        let window: NSWindow
+        let previousKeyWindow: NSWindow?
+    }
+
+    private func makeFixture() throws -> Fixture {
         let workspace = Workspace()
         let originalPanelId = try #require(workspace.focusedPanelId)
         let originalPanel = try #require(workspace.terminalPanel(for: originalPanelId))
@@ -26,9 +134,15 @@ struct WorkspaceDragSplitFocusSwiftTests {
             workspace.newTerminalSurface(inPane: sourcePane, focus: false)
         )
         let movedTab = try #require(workspace.surfaceIdFromPanelId(movedPanel.id))
-
+        let previousKeyWindow = NSApp.keyWindow
         let window = makeWindow()
-        defer { window.orderOut(nil) }
+        var didBuildFixture = false
+        defer {
+            if !didBuildFixture {
+                window.orderOut(nil)
+                previousKeyWindow?.makeKey()
+            }
+        }
         let contentView = try #require(window.contentView, "Expected content view")
 
         originalPanel.hostedView.frame = contentView.bounds
@@ -44,25 +158,17 @@ struct WorkspaceDragSplitFocusSwiftTests {
         originalPanel.hostedView.layoutSubtreeIfNeeded()
         movedPanel.hostedView.layoutSubtreeIfNeeded()
 
-        workspace.focusPanel(originalPanelId)
-        #expect(originalPanel.surface.debugDesiredFocusState())
-        #expect(!movedPanel.surface.debugDesiredFocusState())
-
-        let newPane = try #require(
-            workspace.bonsplitController.splitPane(
-                sourcePane,
-                orientation: .vertical,
-                movingTab: movedTab,
-                insertFirst: false
-            )
+        didBuildFixture = true
+        return Fixture(
+            workspace: workspace,
+            originalPanel: originalPanel,
+            movedPanel: movedPanel,
+            sourcePane: sourcePane,
+            movedTab: movedTab,
+            window: window,
+            previousKeyWindow: previousKeyWindow
         )
-
-        #expect(workspace.bonsplitController.focusedPaneId == newPane)
-        #expect(workspace.focusedPanelId == movedPanel.id)
-        #expect(!originalPanel.surface.debugDesiredFocusState())
-        #expect(movedPanel.surface.debugDesiredFocusState())
     }
-#endif
 
     private func makeWindow() -> NSWindow {
         NSWindow(
