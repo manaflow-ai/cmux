@@ -110,6 +110,7 @@ printf '%s\\n' "$@" > "$FAKE_CLAUDE_ARGV_LOG"
         env["CMUX_WORKSPACE_ID"] = FOCUSED_WORKSPACE_ID
         env["CMUX_SURFACE_ID"] = surface_id
         env["CMUX_BUNDLED_CLI_PATH"] = cli_path
+        env["CMUX_SOCKET_CAPABILITY"] = "claude-teams-test-capability"
         env["FAKE_TMUX_PATH_LOG"] = str(tmux_path_log)
         env["FAKE_LAUNCH_KIND_LOG"] = str(launch_kind_log)
         env["FAKE_LAUNCH_ARGV_LOG"] = str(launch_argv_log)
