@@ -303,18 +303,30 @@ public final class GhosttyRuntime {
             return true
         }
 
-        #if DEBUG
         if action.tag == GHOSTTY_ACTION_SCROLLBAR {
             let sb = action.action.scrollbar
-            MobileDebugLog.anchormux("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
             if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
                 Task { @MainActor in
-                    GhosttySurfaceView.view(for: surface)?.recordBottomScrollStressScrollbar(total: Int(sb.total), offset: Int(sb.offset), len: Int(sb.len))
+                    let view = GhosttySurfaceView.view(for: surface)
+                    view?.updateNativeScrollBoundary(
+                        total: sb.total,
+                        offset: sb.offset,
+                        len: sb.len
+                    )
+                    #if DEBUG
+                    view?.recordBottomScrollStressScrollbar(
+                        total: Int(sb.total),
+                        offset: Int(sb.offset),
+                        len: Int(sb.len)
+                    )
+                    #endif
                 }
             }
+            #if DEBUG
+            MobileDebugLog.anchormux("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
+            #endif
             return true
         }
-        #endif
 
         return false
     }

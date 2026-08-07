@@ -344,6 +344,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
+                    if let frame = chunk.sourceRenderGridFrame {
+                        surfaceView.setNativeScrollScreen(frame.activeScreen)
+                    }
                     switch terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID

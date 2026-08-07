@@ -3130,6 +3130,43 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalNativeScrollUsesBoundedPrimaryHistory() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_BOTTOM_SCROLL_STRESS": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let initial = waitForDock(in: app, timeout: 8, describe: "bounded terminal scroll ready") {
+            guard $0["bottomStressPhase"] == "done",
+                  $0["nativeScrollScreen"] == "primary",
+                  let rawOffset = Double($0["nativeScrollRawOffset"] ?? ""),
+                  let maximumOffset = Double($0["nativeScrollMaxOffset"] ?? "") else {
+                return false
+            }
+            return maximumOffset > 100 && abs(rawOffset - maximumOffset) < 1
+        }
+        let initialOffset = try XCTUnwrap(Double(initial["nativeScrollRawOffset"] ?? ""))
+
+        surface.swipeDown(velocity: .fast)
+
+        let moved = waitForDock(in: app, timeout: 3, describe: "native terminal fling moved into history") {
+            guard let rawOffset = Double($0["nativeScrollRawOffset"] ?? "") else { return false }
+            return rawOffset < initialOffset - 20
+        }
+        XCTAssertEqual(moved["nativeScrollScreen"], "primary")
+
+        let settled = waitForDock(in: app, timeout: 4, describe: "native terminal fling settled") {
+            guard $0["nativeScrollDecelerating"] == "0",
+                  let translation = Double($0["nativeScrollTranslation"] ?? "") else {
+                return false
+            }
+            return abs(translation) < 0.5
+        }
+        XCTAssertEqual(settled["nativeScrollTracking"], "0")
+    }
+
+    @MainActor
     func testWorkspaceToolbarCreatesWorkspaceAndTerminal() async throws {
         let server = try MobileSyncMockHostServer(createdWorkspaceTerminalDelay: 1.5)
         let port = try await server.start()
