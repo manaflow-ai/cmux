@@ -230,7 +230,8 @@ struct TerminalImageTransferConcurrencyTests {
         let secondTask = Task {
             await service.prepare(request: secondRequest, mode: .paste)
         }
-        await deadlines.waitForArrivalCount(2)
+        await Task.yield()
+        #expect(await deadlines.currentArrivalCount() == 1)
 
         let firedFirstDeadline = await deadlines.fireNext()
         #expect(firedFirstDeadline)
@@ -241,6 +242,7 @@ struct TerminalImageTransferConcurrencyTests {
 
         let replacementStarted = await started.next()
         #expect(replacementStarted == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
         #expect(await operation.snapshot().maximumActiveCount == 1)
         await operation.release(secondRequest.pasteboardName)
         let secondResult = await secondTask.value
@@ -274,11 +276,12 @@ struct TerminalImageTransferConcurrencyTests {
         let secondTask = Task {
             await service.prepare(request: secondRequest, mode: .paste)
         }
-        await deadlines.waitForArrivalCount(2)
+        await Task.yield()
         let thirdTask = Task {
             await service.prepare(request: thirdRequest, mode: .paste)
         }
-        await deadlines.waitForArrivalCount(3)
+        await Task.yield()
+        #expect(await deadlines.currentArrivalCount() == 1)
 
         let firedFirstDeadline = await deadlines.fireNext()
         #expect(firedFirstDeadline)
@@ -286,6 +289,7 @@ struct TerminalImageTransferConcurrencyTests {
         #expect(firstResult == .reject)
         let secondStarted = await started.next()
         #expect(secondStarted == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
 
         let firedSecondDeadline = await deadlines.fireNext()
         #expect(firedSecondDeadline)
@@ -293,6 +297,7 @@ struct TerminalImageTransferConcurrencyTests {
         #expect(secondResult == .reject)
         let thirdStarted = await started.next()
         #expect(thirdStarted == thirdRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(3)
         #expect(await operation.snapshot().maximumActiveCount == 1)
         #expect(
             await operation.snapshot().startedNames

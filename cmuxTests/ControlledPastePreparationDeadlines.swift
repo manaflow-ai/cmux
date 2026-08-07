@@ -38,6 +38,10 @@ actor ControlledPastePreparationDeadlines {
         }
     }
 
+    func currentArrivalCount() -> Int {
+        arrivalCount
+    }
+
     func fireAll() {
         let continuations = sleepers.map(\.continuation)
         sleepers.removeAll()
