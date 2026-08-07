@@ -80,6 +80,59 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func separateAmpProcessesCannotMoveOrCancelEachOthersPaneOwnership() throws {
+        let workspace = Workspace()
+        let firstPanelId = try #require(workspace.focusedPanelId)
+        let secondPanel = try #require(
+            workspace.newTerminalSplit(
+                from: firstPanelId,
+                orientation: .horizontal
+            )
+        )
+        let firstKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
+            statusKey: BuiltInAgentIntegration.amp.statusKey,
+            sessionId: "thread-a",
+            processID: 1_001
+        )
+        let siblingThreadKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
+            statusKey: BuiltInAgentIntegration.amp.statusKey,
+            sessionId: "thread-b",
+            processID: 1_001
+        )
+        let secondKey = AgentLifecycleProcessOwnershipScope.sharedProcess.agentPIDKey(
+            statusKey: BuiltInAgentIntegration.amp.statusKey,
+            sessionId: "thread-c",
+            processID: 2_002
+        )
+
+        #expect(firstKey == siblingThreadKey)
+        #expect(firstKey != secondKey)
+        workspace.recordAgentPID(
+            key: firstKey,
+            pid: 1_001,
+            panelId: firstPanelId,
+            refreshPorts: false
+        )
+        workspace.recordAgentPID(
+            key: secondKey,
+            pid: 2_002,
+            panelId: secondPanel.id,
+            refreshPorts: false
+        )
+
+        #expect(workspace.agentPIDPanelIdsByKey[firstKey] == firstPanelId)
+        #expect(workspace.agentPIDPanelIdsByKey[secondKey] == secondPanel.id)
+        #expect(
+            workspace.clearAgentPID(
+                key: firstKey,
+                panelId: firstPanelId,
+                refreshPorts: false
+            )
+        )
+        #expect(workspace.agentPIDPanelIdsByKey[secondKey] == secondPanel.id)
+        #expect(workspace.agentPIDs[secondKey] == 2_002)
+    }
+
     @Test
     func reconciledFeedAttentionMakesPreRegisteredStatusVisible() throws {
         let workspace = Workspace()

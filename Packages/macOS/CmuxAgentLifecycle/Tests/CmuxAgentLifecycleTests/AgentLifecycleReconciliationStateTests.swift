@@ -87,4 +87,115 @@ struct AgentLifecycleReconciliationStateTests {
         )
         #expect(!acceptedResurrection)
     }
+
+    @Test("Delayed registration cannot replace newer exact Feed attention")
+    func rejectsGenerationOlderThanExactFeedAttention() throws {
+        let panelId = UUID()
+        let older = AgentProcessGeneration(
+            pid: 400,
+            startSeconds: 40,
+            startMicroseconds: 0
+        )
+        let newer = AgentProcessGeneration(
+            pid: 500,
+            startSeconds: 50,
+            startMicroseconds: 0
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        let token = try #require(
+            state.beginFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                isBuiltIn: true,
+                processGeneration: newer
+            )
+        )
+        #expect(
+            state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.cursor.statusKey]
+                == .needsInput
+        )
+
+        let acceptedOlderGeneration = state.recordProcessGeneration(
+            key: BuiltInAgentIntegration.cursor.statusKey,
+            panelId: panelId,
+            generation: older,
+            isBuiltIn: true
+        )
+
+        #expect(!acceptedOlderGeneration)
+        #expect(
+            state.resolvedStatesByPanelId[panelId]?[BuiltInAgentIntegration.cursor.statusKey]
+                == .needsInput
+        )
+        #expect(
+            state.endFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                token: token
+            )
+        )
+    }
+
+    @Test("Replacement generation preserves attention without exact ownership")
+    func replacementGenerationOnlyEvictsProvenOlderAttention() throws {
+        let panelId = UUID()
+        let older = AgentProcessGeneration(
+            pid: 600,
+            startSeconds: 60,
+            startMicroseconds: 0
+        )
+        let newer = AgentProcessGeneration(
+            pid: 700,
+            startSeconds: 70,
+            startMicroseconds: 0
+        )
+        var state = AgentLifecycleReconciliationState()
+
+        let unidentifiedToken = try #require(
+            state.beginFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                isBuiltIn: true
+            )
+        )
+        #expect(
+            state.recordProcessGeneration(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                generation: older,
+                isBuiltIn: true
+            )
+        )
+        let olderToken = try #require(
+            state.beginFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                isBuiltIn: true
+            )
+        )
+
+        #expect(
+            state.recordProcessGeneration(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                generation: newer,
+                isBuiltIn: true
+            )
+        )
+        #expect(
+            !state.endFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                token: olderToken
+            )
+        )
+        #expect(
+            state.endFeedAttention(
+                key: BuiltInAgentIntegration.cursor.statusKey,
+                panelId: panelId,
+                token: unidentifiedToken
+            )
+        )
+    }
 }
