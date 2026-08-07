@@ -138,7 +138,7 @@ public final class GhosttySurfaceCallbackContext {
     /// - Returns: Whether this live runtime context accepted the request.
     public func registerRuntimeClipboardRequest(
         id: UInt,
-        reserveAdmission: () -> Void = {},
+        reserveAdmission: @Sendable () -> Void = {},
         onInvalidation: @escaping @MainActor @Sendable (
             _ wasAdmitted: Bool,
             _ completesNativeRequest: Bool

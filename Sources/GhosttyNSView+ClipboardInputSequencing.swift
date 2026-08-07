@@ -1,16 +1,6 @@
 import AppKit
 
 extension GhosttyNSView {
-    nonisolated func reserveClipboardReadAdmission(
-        _ requestID: UInt,
-        onOverflow: @escaping @MainActor @Sendable () -> Void
-    ) {
-        terminalClipboardInputSequencer.reserveRequestAdmission(
-            id: requestID,
-            onOverflow: onOverflow
-        )
-    }
-
     func beginReservedClipboardRead(
         _ requestID: UInt,
         epoch: UInt64,

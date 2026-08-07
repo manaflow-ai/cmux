@@ -243,12 +243,12 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         )
         #expect(boundSurfaceAddress == UInt(bitPattern: originalSurface))
 
-        var reservedAdmissionCount = 0
+        let reservedAdmissionCount = AtomicUInt64Generation()
         var invalidatedSurfaceAddress: UInt?
         #expect(context.registerRuntimeClipboardRequest(
             id: 37,
             reserveAdmission: {
-                reservedAdmissionCount += 1
+                _ = reservedAdmissionCount.advanceRelaxed()
             },
             onInvalidation: { _, _ in
                 invalidatedSurfaceAddress = boundSurfaceAddress
@@ -260,7 +260,7 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
             completingNativeRequests: true
         )
 
-        #expect(reservedAdmissionCount == 1)
+        #expect(reservedAdmissionCount.loadRelaxed() == 1)
         #expect(invalidatedSurfaceAddress == UInt(bitPattern: originalSurface))
     }
 
@@ -275,16 +275,16 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
         context.invalidateRuntimeClipboardRequests(
             completingNativeRequests: false
         )
-        var reservedAdmissionCount = 0
+        let reservedAdmissionCount = AtomicUInt64Generation()
 
         #expect(!context.registerRuntimeClipboardRequest(
             id: 41,
             reserveAdmission: {
-                reservedAdmissionCount += 1
+                _ = reservedAdmissionCount.advanceRelaxed()
             },
             onInvalidation: { _, _ in }
         ))
 
-        #expect(reservedAdmissionCount == 0)
+        #expect(reservedAdmissionCount.loadRelaxed() == 0)
     }
 }
