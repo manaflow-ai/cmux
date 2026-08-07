@@ -130,6 +130,49 @@ do
     || fail "ineligible app-host recovery scope was admitted"
 done
 
+# Shared /tmp debris cannot make a genuine old scope lose newest protection.
+newest_scope_root="$TMP_DIR/newest-scope-root"
+mkdir -p "$newest_scope_root"
+cmux_compute_app_host_key 940001 1 1
+trusted_newest_key="$CMUX_COMPUTED_APP_HOST_KEY"
+trusted_newest_home="$newest_scope_root/cmux-ah-$trusted_newest_key"
+trusted_newest_receipts="$newest_scope_root/cmux-ah-$trusted_newest_key-receipts"
+cmux_compute_app_host_cleanup_confirmation \
+  940001 1 1 "$trusted_newest_home" "$trusted_newest_receipts"
+trusted_newest_confirmation="$newest_scope_root/cmux-ah-$trusted_newest_key.confirm"
+printf 'version=2\nrun_id=940001\nrun_attempt=1\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+  "$trusted_newest_key" "$trusted_newest_home" "$trusted_newest_receipts" \
+  "$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION" \
+  > "$trusted_newest_confirmation"
+chmod 600 "$trusted_newest_confirmation"
+touch -t 202001010000 "$trusted_newest_confirmation"
+cmux_app_host_scope_mtime "$trusted_newest_confirmation"
+trusted_newest_mtime="$CMUX_APP_HOST_SCOPE_MTIME"
+
+cmux_compute_app_host_key 940002 1 1
+malformed_newest_confirmation="$newest_scope_root/cmux-ah-$CMUX_COMPUTED_APP_HOST_KEY.confirm"
+printf 'version=2\nmalformed\n' > "$malformed_newest_confirmation"
+chmod 600 "$malformed_newest_confirmation"
+touch -t 203001010000 "$malformed_newest_confirmation"
+
+cmux_compute_app_host_key 940003 1 1
+nonprivate_newest_key="$CMUX_COMPUTED_APP_HOST_KEY"
+nonprivate_newest_home="$newest_scope_root/cmux-ah-$nonprivate_newest_key"
+nonprivate_newest_receipts="$newest_scope_root/cmux-ah-$nonprivate_newest_key-receipts"
+cmux_compute_app_host_cleanup_confirmation \
+  940003 1 1 "$nonprivate_newest_home" "$nonprivate_newest_receipts"
+nonprivate_newest_confirmation="$newest_scope_root/cmux-ah-$nonprivate_newest_key.confirm"
+printf 'version=2\nrun_id=940003\nrun_attempt=1\nshard=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+  "$nonprivate_newest_key" "$nonprivate_newest_home" \
+  "$nonprivate_newest_receipts" "$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION" \
+  > "$nonprivate_newest_confirmation"
+chmod 644 "$nonprivate_newest_confirmation"
+touch -t 204001010000 "$nonprivate_newest_confirmation"
+
+cmux_newest_app_host_confirmation_mtime "$newest_scope_root"
+[ "$CMUX_NEWEST_APP_HOST_CONFIRMATION_MTIME" = "$trusted_newest_mtime" ] \
+  || fail "untrusted confirmation changed newest-scope protection"
+
 untrack_pid() {
   local target_pid="$1"
   local tracked_pid updated_pids
