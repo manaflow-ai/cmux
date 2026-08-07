@@ -6,7 +6,9 @@ The bundled production binary has no default Cargo features. It includes only `r
 
 `src/protocol.rs` is the protocol source of truth. `scripts/generate-diff-sidecar-types.sh` generates `webviews/src/diff/generated/protocol.ts`; CI rejects stale generated types. React selects a `fetch`, `webSocket`, or `webKit` frontend transport from the payload. macOS uses WebKit reply messages backed by sidecar stdio. Future browser hosts can select Fetch or WebSocket without changing commands or result types. Patch bodies stay outside command replies and are served by each host's resource transport.
 
-The stdio transport accepts one request of at most 1 MiB and requires EOF within 10 seconds. Timeout, oversized, and malformed envelopes return a typed failure with ID `__cmux_untrusted_request__`, because no caller-supplied request ID is trusted until the complete envelope parses.
+The stdio transport accepts one request of at most 16 MiB and requires EOF within 10 seconds. Timeout, oversized, and malformed envelopes return a typed failure with ID `__cmux_untrusted_request__`, because no caller-supplied request ID is trusted until the complete envelope parses.
+
+Editable unstaged and branch sessions persist their exact changed-path allowlist beside the generated patch. File loads and saves require the session capability, reject traversal, symlinks, binary or non-UTF-8 data, and files larger than 1 MiB. Saves compare the worktree contents supplied by the editor before atomically replacing the file, so an external change returns `editConflict` instead of being overwritten. Staged and arbitrary patch sessions stay read-only because their right side does not map safely to a worktree file.
 
 Rust is a required macOS build dependency. `rust-toolchain.toml` pins Rust 1.88.0, including both Apple targets. Every setup, CI, generation, benchmark, and Xcode command runs Cargo through that exact rustup toolchain with `--locked`. Release builds use size optimization, fat LTO, one codegen unit, symbol stripping, isolated per-architecture target directories, and `MACOSX_DEPLOYMENT_TARGET=14.0`.
 

@@ -1,4 +1,4 @@
-import { CodeView, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
+import { CodeView, EditProvider, WorkerPoolContextProvider, type CodeViewHandle, useWorkerPool } from "@pierre/diffs/react";
 import { getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, processFile, registerCustomTheme } from "@pierre/diffs";
 import type { SelectedLineRange } from "@pierre/diffs";
 import { FileTree, useFileTree } from "@pierre/trees/react";
@@ -53,16 +53,19 @@ import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
+import {
+  createPierreEditor,
+  isEditableSessionSource,
+  useDiffEditing,
+  type ActiveDiffSession,
+  type EditFeedbackRecovery,
+  type EditSaveConflict,
+} from "./useDiffEditing";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
 type ConfigProps = {
   config: DiffViewerConfig;
   initialStatus: DiffViewerStatus;
-};
-
-type ActiveDiffSession = {
-  capabilityToken: string;
-  sessionId: string;
 };
 
 const registeredCustomThemeNames = new Set<string>();
@@ -74,6 +77,14 @@ type AppState = {
   comments: DiffCommentRecord[];
   copyFeedback: string;
   draft: CommentDraft | null;
+  dirtyItemIds: string[];
+  editConflictOpen: boolean;
+  editFeedback: string;
+  editFeedbackError: boolean;
+  editFeedbackRecovery: EditFeedbackRecovery;
+  editMode: boolean;
+  editSaveConflict: EditSaveConflict | null;
+  editSaving: boolean;
   fileSearchOpen: boolean;
   fileSearchRequest: number;
   filesWidth: number;
@@ -89,6 +100,7 @@ type AppState = {
 
 type AppAction =
   | { type: "append-items"; items: DiffItem[] }
+  | { type: "commit-edit-item"; itemId: string; fileDiff: NonNullable<DiffItem["fileDiff"]> }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
   | { type: "rename-item"; oldId: string; newId: string }
@@ -96,6 +108,13 @@ type AppAction =
   | { type: "replace-comments"; comments: DiffCommentRecord[] }
   | { type: "set-copy-feedback"; message: string }
   | { type: "set-draft"; draft: CommentDraft | null }
+  | { type: "set-edit-conflict"; conflict: EditSaveConflict | null }
+  | { type: "set-edit-conflict-open"; open: boolean }
+  | { type: "set-edit-feedback"; message: string; error?: boolean; recovery?: EditFeedbackRecovery }
+  | { type: "set-edit-mode"; enabled: boolean; editableItemIds?: string[] }
+  | { type: "set-edit-saving"; saving: boolean }
+  | { type: "set-item-dirty"; itemId: string; dirty: boolean }
+  | { type: "restore-edit-items"; items: DiffItem[] }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "request-file-search" }
   | { type: "set-files-width"; width: number }
@@ -109,7 +128,7 @@ type AppAction =
 
 const fileSkeletonWidths = ["82%", "64%", "76%", "58%", "70%", "46%"];
 const diffSkeletonWidths = ["58%", "88%", "72%", "94%", "64%", "82%", "52%", "78%"];
-const defaultWorkerModuleURL = "./assets/pierre-diffs-1.2.7-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
+const defaultWorkerModuleURL = "./assets/pierre-diffs-1.3.1-trees-1.0.0-beta.4/worker-pool/worker-portable.js";
 const persistedLayoutKey = "cmux.diffViewer.layout";
 type DiffViewerLayout = DiffViewerOptions["layout"];
 
@@ -121,6 +140,14 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     comments: [],
     copyFeedback: "",
     draft: null,
+    dirtyItemIds: [],
+    editConflictOpen: false,
+    editFeedback: "",
+    editFeedbackError: false,
+    editFeedbackRecovery: "none",
+    editMode: false,
+    editSaveConflict: null,
+    editSaving: false,
     fileSearchOpen: false,
     fileSearchRequest: 0,
     filesWidth: 252,
@@ -161,12 +188,33 @@ function reducer(state: AppState, action: AppAction): AppState {
       status: state.status.loading ? createDiffViewerStatus("", { loading: false }) : state.status,
     };
   }
+  case "commit-edit-item":
+    return {
+      ...state,
+      items: state.items.map((item) => (
+        item.id === action.itemId
+          ? withCommentAnnotations({
+              ...item,
+              fileDiff: action.fileDiff,
+              version: (item.version ?? 0) + 1,
+            }, state.comments, state.draft)
+          : item
+      )),
+    };
   case "reset-diff":
     return {
       ...state,
       activeItemId: "",
       activeTreePath: "",
       draft: null,
+      dirtyItemIds: [],
+      editConflictOpen: false,
+      editFeedback: "",
+      editFeedbackError: false,
+      editFeedbackRecovery: "none",
+      editMode: false,
+      editSaveConflict: null,
+      editSaving: false,
       items: [],
       languages: ["text"],
       metrics: null,
@@ -214,6 +262,67 @@ function reducer(state: AppState, action: AppAction): AppState {
       ...state,
       draft: action.draft,
       items: applyCommentAnnotations(state.items, state.comments, action.draft),
+    };
+  case "set-edit-conflict":
+    return {
+      ...state,
+      editConflictOpen: action.conflict == null ? false : state.editConflictOpen,
+      editSaveConflict: action.conflict,
+    };
+  case "set-edit-conflict-open":
+    return { ...state, editConflictOpen: action.open };
+  case "set-edit-feedback":
+    return {
+      ...state,
+      editConflictOpen: false,
+      editFeedback: action.message,
+      editFeedbackError: action.error === true,
+      editFeedbackRecovery: action.recovery ?? "none",
+    };
+  case "set-edit-mode": {
+    const editableItemIds = new Set(action.editableItemIds ?? []);
+    return {
+      ...state,
+      editMode: action.enabled,
+      editConflictOpen: false,
+      editFeedback: "",
+      editFeedbackError: false,
+      editFeedbackRecovery: "none",
+      editSaveConflict: null,
+      items: state.items.map((item) => ({
+        ...item,
+        edit: action.enabled && editableItemIds.has(item.id),
+        version: (item.version ?? 0) + 1,
+      })),
+    };
+  }
+  case "set-edit-saving":
+    return { ...state, editSaving: action.saving };
+  case "set-item-dirty": {
+    const dirtyItemIds = new Set(state.dirtyItemIds);
+    if (action.dirty) {
+      dirtyItemIds.add(action.itemId);
+    } else {
+      dirtyItemIds.delete(action.itemId);
+    }
+    return { ...state, dirtyItemIds: Array.from(dirtyItemIds) };
+  }
+  case "restore-edit-items":
+    return {
+      ...state,
+      dirtyItemIds: [],
+      editConflictOpen: false,
+      editFeedback: "",
+      editFeedbackError: false,
+      editFeedbackRecovery: "none",
+      editMode: false,
+      editSaveConflict: null,
+      editSaving: false,
+      items: action.items.map((item) => ({
+        ...item,
+        edit: false,
+        version: (item.version ?? 0) + 1,
+      })),
     };
   case "set-file-search-open":
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
@@ -285,6 +394,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   }
   const [activePatchURL, setActivePatchURL] = useState<string | undefined>(payload.patchURL);
   const [state, dispatch] = useReducer(reducer, initialAppState(config, initialStatus));
+  const [activeSession, setActiveSession] = useState<ActiveDiffSession | null>(null);
   const latestState = useSyncedRef(state);
   const codeViewRef = useRef<CodeViewHandle<any> | null>(null);
   const codeViewScrollTopRef = useRef(0);
@@ -304,8 +414,6 @@ export function App({ config, initialStatus }: ConfigProps) {
     latestState,
     repoRoot: commentRepoRoot,
   });
-  const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
-  renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
   const closeActiveSession = useCallback(() => {
     const activeSession = activeSessionRef.current;
     if (!transport) {
@@ -321,6 +429,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       });
     }
     activeSessionRef.current = null;
+    setActiveSession(null);
     return transport.request({
         method: "sessionClose",
         params: activeSession,
@@ -329,6 +438,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       .catch(() => {
         if (!activeSessionRef.current) {
           activeSessionRef.current = activeSession;
+          setActiveSession(activeSession);
         }
       });
   }, [payload.capabilityToken, transport]);
@@ -349,6 +459,7 @@ export function App({ config, initialStatus }: ConfigProps) {
     latestState,
     setActivePatchURL,
     activeSessionRef,
+    setActiveSession,
     closeActiveSession,
     activeSessionSource,
     rememberResolvedSessionSource,
@@ -356,6 +467,56 @@ export function App({ config, initialStatus }: ConfigProps) {
   useCommentsBootstrap(bridgeAvailable ? commentRepoRoot : null, comments.onLoaded);
   useOptionsDismiss(state.optionsOpen, dispatch);
   useFileSearchDismiss(state.fileSearchOpen, dispatch);
+
+  const resolvedSource = resolvedSessionSource ?? activeSessionSource;
+  const diffStreamComplete = Number.isFinite(state.metrics?.completedAt) && (state.metrics?.completedAt ?? 0) > 0;
+  const {
+    beginEditing,
+    blockForUnsavedEdits,
+    discardEdits,
+    editingReady,
+    editorOptions,
+    endEditing,
+    loadDiffFiles,
+    onItemEditChange,
+    overwriteConflict,
+    saveEdits,
+  } = useDiffEditing({
+    activeSession,
+    activeSessionRef,
+    diffStreamComplete,
+    dispatch,
+    label,
+    latestState,
+    sessionSource: resolvedSource,
+    state,
+    transport,
+  });
+  const saveAndRefreshDiff = useCallback(async () => {
+    if (!await saveEdits() || !resolvedSource) {
+      return;
+    }
+    dispatch({
+      type: "reset-diff",
+      status: createDiffViewerStatus(label("loadingDiff"), { pending: true }),
+    });
+    setActiveSessionSource({ ...resolvedSource });
+  }, [label, resolvedSource, saveEdits]);
+  const overwriteAndRefreshDiff = useCallback(async () => {
+    if (!await overwriteConflict() || !resolvedSource) {
+      return;
+    }
+    dispatch({
+      type: "reset-diff",
+      status: createDiffViewerStatus(label("loadingDiff"), { pending: true }),
+    });
+    setActiveSessionSource({ ...resolvedSource });
+  }, [label, overwriteConflict, resolvedSource]);
+  const renderedCodeViewOptions = codeViewOptions(state.options, appearance);
+  renderedCodeViewOptions.onGutterUtilityClick = comments.onGutterUtilityClick as any;
+  if (state.editMode) {
+    renderedCodeViewOptions.loadDiffFiles = loadDiffFiles;
+  }
 
   const renderCommentAnnotation = (annotation: CommentAnnotation, item: DiffItem) => {
     const metadata = annotation.metadata;
@@ -378,7 +539,6 @@ export function App({ config, initialStatus }: ConfigProps) {
     );
   };
 
-  const diffStreamComplete = Number.isFinite(state.metrics?.completedAt) && (state.metrics?.completedAt ?? 0) > 0;
   const commentEntries = sidebarCommentEntries(state.items, state.comments, diffStreamComplete);
   const selectCommentEntry = (entry: SidebarCommentEntry) => {
     if (entry.itemId == null) {
@@ -447,6 +607,7 @@ export function App({ config, initialStatus }: ConfigProps) {
       <Toolbar
         config={config}
         transport={transport}
+        editingReady={editingReady}
         label={label}
         onCopyGitApply={async () => {
           try {
@@ -458,6 +619,9 @@ export function App({ config, initialStatus }: ConfigProps) {
         }}
         onJump={scrollToItem}
         onNavigate={(url) => {
+          if (blockForUnsavedEdits()) {
+            return;
+          }
           setStatus(createDiffViewerStatus(label("loadingDiff"), { pending: true }));
           // Session cleanup is best-effort and can wait on WebKit's reply path.
           // Do not make source/repository/base selection wait for it: navigation
@@ -467,6 +631,9 @@ export function App({ config, initialStatus }: ConfigProps) {
         }}
         activeSessionSource={resolvedSessionSource ?? activeSessionSource}
         onSelectSessionSource={(source) => {
+          if (blockForUnsavedEdits()) {
+            return;
+          }
           const currentSource = resolvedSessionSource ?? activeSessionSource;
           const selectedSource = source.kind === "branch"
             && (currentSource?.kind !== "branch" || source.baseRef == null)
@@ -484,14 +651,39 @@ export function App({ config, initialStatus }: ConfigProps) {
           setActiveSessionSource(selectedSource);
         }}
         onReload={async () => {
+          if (blockForUnsavedEdits()) {
+            return;
+          }
           await closeActiveSession();
           window.location.reload();
         }}
+        onDiscardEdits={discardEdits}
+        onSaveEdits={() => void saveAndRefreshDiff()}
         onSetLayout={setLayout}
+        onToggleEditing={() => state.editMode ? endEditing() : beginEditing()}
         dispatch={dispatch}
         state={state}
       />
       <section id="content" style={{ "--cmux-diff-files-width": `${state.filesWidth}px` } as React.CSSProperties}>
+        <EditFeedback
+          error={state.editFeedbackError}
+          label={label}
+          message={state.editFeedback}
+          recovery={state.editFeedbackRecovery}
+          saving={state.editSaving}
+          onCompare={() => dispatch({ type: "set-edit-conflict-open", open: true })}
+          onOverwrite={() => void overwriteAndRefreshDiff()}
+          onRetry={() => void saveAndRefreshDiff()}
+        />
+        {state.editConflictOpen && state.editSaveConflict ? (
+          <SaveConflictDialog
+            conflict={state.editSaveConflict}
+            label={label}
+            saving={state.editSaving}
+            onClose={() => dispatch({ type: "set-edit-conflict-open", open: false })}
+            onOverwrite={() => void overwriteAndRefreshDiff()}
+          />
+        ) : null}
         <FilesSidebarBackdrop
           label={label}
           onClose={() => closeFileSearch(dispatch)}
@@ -515,19 +707,23 @@ export function App({ config, initialStatus }: ConfigProps) {
               highlighterOptions={highlighterOptions}
             >
               <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
-              <CodeView
-                ref={codeViewRef}
-                className="code-view-root"
-                containerRef={viewerContainerRef}
-                items={state.items}
-                onScroll={handleCodeViewScroll}
-                options={renderedCodeViewOptions}
-                renderHeaderMetadata={(item) => (
-                  <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
-                )}
-                renderAnnotation={(annotation, item) =>
-                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
-              />
+              <EditProvider createEditor={createPierreEditor}>
+                <CodeView
+                  ref={codeViewRef}
+                  className="code-view-root"
+                  containerRef={viewerContainerRef}
+                  editorOptions={editorOptions}
+                  items={state.items}
+                  onItemEditChange={(item, file) => onItemEditChange(item as DiffItem, file)}
+                  onScroll={handleCodeViewScroll}
+                  options={renderedCodeViewOptions}
+                  renderHeaderMetadata={(item) => (
+                    <DiffHeaderMetadata fileDiff={(item as DiffItem).fileDiff} label={label} />
+                  )}
+                  renderAnnotation={(annotation, item) =>
+                    renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)}
+                />
+              </EditProvider>
             </WorkerPoolContextProvider>
           ) : null}
         </main>
@@ -565,6 +761,112 @@ export function FilesSidebarBackdrop({
       title={label("hideFileSearch")}
       onClick={onClose}
     />
+  );
+}
+
+export function EditFeedback({
+  error,
+  label,
+  message,
+  onCompare,
+  onOverwrite,
+  onRetry,
+  recovery,
+  saving,
+}: {
+  error: boolean;
+  label: DiffViewerLabelResolver;
+  message: string;
+  onCompare(): void;
+  onOverwrite(): void;
+  onRetry(): void;
+  recovery: EditFeedbackRecovery;
+  saving: boolean;
+}) {
+  if (message === "") {
+    return null;
+  }
+  return (
+    <section
+      id="edit-feedback"
+      aria-live={error ? "assertive" : "polite"}
+      data-error={error ? "true" : "false"}
+      role={error ? "alert" : "status"}
+    >
+      <span className="edit-feedback-message">{message}</span>
+      {recovery !== "none" ? (
+        <span className="edit-feedback-actions">
+          {recovery === "conflict" ? (
+            <>
+              <button type="button" disabled={saving} onClick={onCompare}>{label("compare")}</button>
+              <button type="button" disabled={saving} onClick={onOverwrite}>{label("overwrite")}</button>
+            </>
+          ) : (
+            <button type="button" disabled={saving} onClick={onRetry}>{label("retry")}</button>
+          )}
+        </span>
+      ) : null}
+    </section>
+  );
+}
+
+export function SaveConflictDialog({
+  conflict,
+  label,
+  onClose,
+  onOverwrite,
+  saving,
+}: {
+  conflict: EditSaveConflict;
+  label: DiffViewerLabelResolver;
+  onClose(): void;
+  onOverwrite(): void;
+  saving: boolean;
+}) {
+  return (
+    <div id="edit-conflict-backdrop">
+      <section
+        id="edit-conflict-dialog"
+        aria-describedby="edit-conflict-path"
+        aria-labelledby="edit-conflict-title"
+        aria-modal="true"
+        role="dialog"
+      >
+        <header className="edit-conflict-header">
+          <div>
+            <h2 id="edit-conflict-title">{label("editConflictTitle")}</h2>
+            <p id="edit-conflict-path">{conflict.path}</p>
+          </div>
+          <button
+            autoFocus
+            className="edit-conflict-close"
+            type="button"
+            aria-label={label("close")}
+            title={label("close")}
+            disabled={saving}
+            onClick={onClose}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+        </header>
+        <div className="edit-conflict-comparison">
+          <section className="edit-conflict-pane">
+            <h3>{label("editConflictDisk")}</h3>
+            <pre tabIndex={0}>{conflict.diskContents}</pre>
+          </section>
+          <section className="edit-conflict-pane">
+            <h3>{label("editConflictDraft")}</h3>
+            <pre tabIndex={0}>{conflict.draftContents}</pre>
+          </section>
+        </div>
+        <footer className="edit-conflict-footer">
+          <button type="button" disabled={saving} onClick={onClose}>{label("close")}</button>
+          <button className="edit-conflict-overwrite" type="button" disabled={saving} onClick={onOverwrite}>
+            {label("overwrite")}
+          </button>
+        </footer>
+      </section>
+    </div>
   );
 }
 
@@ -722,26 +1024,34 @@ function Toolbar({
   activeSessionSource,
   config,
   dispatch,
+  editingReady,
   label,
   onCopyGitApply,
+  onDiscardEdits,
   onJump,
   onNavigate,
+  onSaveEdits,
   onSelectSessionSource,
   onReload,
   onSetLayout,
+  onToggleEditing,
   state,
   transport,
 }: {
   activeSessionSource: DiffSource | null;
   config: DiffViewerConfig;
   dispatch: React.Dispatch<AppAction>;
+  editingReady: boolean;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
+  onDiscardEdits: () => void;
   onJump: (itemId: string) => void;
   onNavigate: (url: string) => void;
+  onSaveEdits: () => void;
   onSelectSessionSource: (source: DiffSource) => void;
   onReload: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
+  onToggleEditing: () => void;
   state: AppState;
   transport: DiffTransport | null;
 }) {
@@ -763,6 +1073,9 @@ function Toolbar({
     { id: "layout-toggle" as const, width: TOOLBAR_ICON_SLOT },
     ...(externalURL ? [{ id: "external-link" as const, width: TOOLBAR_ICON_SLOT }] : []),
   ];
+  const editControlCount = isEditableSessionSource(activeSessionSource)
+    ? (state.editMode ? 3 : 1)
+    : 0;
   const overflow =
     toolbarWidth == null
       ? new Set<string>()
@@ -774,7 +1087,9 @@ function Toolbar({
             // after, overlap; the CSS clip covers any residual under-estimate. The
             // repo select is always in the bar now, so reserve its slot too (it
             // shrinks in place rather than overflowing).
-            reserved: TOOLBAR_ALWAYS_PRESENT_WIDTH + (hasRepoSelect(payload) ? TOOLBAR_REPO_SELECT_MIN : 0),
+            reserved: TOOLBAR_ALWAYS_PRESENT_WIDTH
+              + (hasRepoSelect(payload) ? TOOLBAR_REPO_SELECT_MIN : 0)
+              + editControlCount * TOOLBAR_ICON_SLOT,
             items: overflowItems,
           }).overflow,
         );
@@ -830,6 +1145,46 @@ function Toolbar({
             <Icon name={state.options.layout} />
           </button>
         ) : null}
+        {isEditableSessionSource(activeSessionSource) ? (
+          <button
+            id="edit-toggle"
+            className="toolbar-icon"
+            type="button"
+            title={state.editMode ? label("disableEditing") : label("enableEditing")}
+            aria-label={state.editMode ? label("disableEditing") : label("enableEditing")}
+            aria-pressed={state.editMode}
+            disabled={!editingReady || state.editSaving || (state.editMode && state.dirtyItemIds.length > 0)}
+            onClick={onToggleEditing}
+          >
+            <Icon name="pencil" />
+          </button>
+        ) : null}
+        {state.editMode ? (
+          <>
+            <button
+              id="save-edits"
+              className="toolbar-icon"
+              type="button"
+              title={label("saveEdits")}
+              aria-label={label("saveEdits")}
+              disabled={state.editSaving || state.dirtyItemIds.length === 0}
+              onClick={onSaveEdits}
+            >
+              <Icon name="save" />
+            </button>
+            <button
+              id="discard-edits"
+              className="toolbar-icon"
+              type="button"
+              title={label("discardEdits")}
+              aria-label={label("discardEdits")}
+              disabled={state.editSaving || state.dirtyItemIds.length === 0}
+              onClick={onDiscardEdits}
+            >
+              <Icon name="discard" />
+            </button>
+          </>
+        ) : null}
         <button
           id="options-button"
           className="toolbar-icon"
@@ -865,9 +1220,14 @@ function Toolbar({
           externalURL={externalURL}
           label={label}
           onCopyGitApply={onCopyGitApply}
+          onDiscardEdits={onDiscardEdits}
           onReload={onReload}
+          onSaveEdits={onSaveEdits}
           onSetLayout={onSetLayout}
+          onToggleEditing={onToggleEditing}
           state={state}
+          editingReady={editingReady}
+          editingSupported={isEditableSessionSource(activeSessionSource)}
         />
       ) : null}
     </header>
@@ -1197,25 +1557,63 @@ export function JumpSelect({
 
 function OptionsMenu({
   dispatch,
+  editingReady,
+  editingSupported,
   externalURL,
   label,
   onCopyGitApply,
+  onDiscardEdits,
   onReload,
+  onSaveEdits,
   onSetLayout,
+  onToggleEditing,
   state,
 }: {
   dispatch: React.Dispatch<AppAction>;
+  editingReady: boolean;
+  editingSupported: boolean;
   externalURL: string | null;
   label: DiffViewerLabelResolver;
   onCopyGitApply: () => void;
+  onDiscardEdits: () => void;
   onReload: () => void;
+  onSaveEdits: () => void;
   onSetLayout: (layout: DiffViewerLayout) => void;
+  onToggleEditing: () => void;
   state: AppState;
 }) {
   const toggle = (key: keyof DiffViewerOptions) => dispatch({ type: "set-option", key, value: !state.options[key] });
   return (
     <div id="options-menu" aria-label={label("options")}>
       <MenuButton icon="refresh" label={label("refresh")} onClick={onReload} />
+      {editingSupported ? (
+        <>
+          <MenuButton
+            checked={state.editMode}
+            disabled={!editingReady || state.editSaving || (state.editMode && state.dirtyItemIds.length > 0)}
+            icon="pencil"
+            label={state.editMode ? label("disableEditing") : label("enableEditing")}
+            onClick={onToggleEditing}
+          />
+          {state.editMode ? (
+            <>
+              <MenuButton
+                disabled={state.editSaving || state.dirtyItemIds.length === 0}
+                icon="save"
+                label={label("saveEdits")}
+                onClick={onSaveEdits}
+              />
+              <MenuButton
+                disabled={state.editSaving || state.dirtyItemIds.length === 0}
+                icon="discard"
+                label={label("discardEdits")}
+                onClick={onDiscardEdits}
+              />
+            </>
+          ) : null}
+          <div className="menu-separator" />
+        </>
+      ) : null}
       <MenuButton checked={state.options.wordWrap} icon="wrap" label={state.options.wordWrap ? label("disableWordWrap") : label("enableWordWrap")} onClick={() => toggle("wordWrap")} />
       <MenuButton checked={state.options.collapsed} icon={state.options.collapsed ? "expand" : "collapse"} label={state.options.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs")} onClick={() => toggle("collapsed")} />
       <div className="menu-separator" />
@@ -1263,11 +1661,13 @@ function OptionsMenu({
 
 function MenuButton({
   checked,
+  disabled,
   icon,
   label,
   onClick,
 }: {
   checked?: boolean;
+  disabled?: boolean;
   icon: Parameters<typeof Icon>[0]["name"];
   label: string;
   onClick: () => void;
@@ -1277,6 +1677,7 @@ function MenuButton({
       type="button"
       className="menu-item"
       aria-pressed={checked == null ? undefined : checked}
+      disabled={disabled}
       onClick={onClick}
     >
       <Icon name={icon} />
@@ -1625,6 +2026,7 @@ function useRenderDiff(
   latestState: React.MutableRefObject<AppState>,
   onPatchURL: (url: string) => void,
   activeSessionRef: React.MutableRefObject<ActiveDiffSession | null>,
+  onActiveSession: (session: ActiveDiffSession | null) => void,
   closeActiveSession: () => Promise<void>,
   sessionSource: DiffSource | null,
   onResolvedSessionSource: (source: DiffSource) => void,
@@ -1665,6 +2067,7 @@ function useRenderDiff(
             return;
           }
           activeSessionRef.current = openedSession;
+          onActiveSession(openedSession);
           onResolvedSessionSource(result.value.source);
           patchURL = result.value.patch.id;
         }
@@ -1739,7 +2142,7 @@ function useRenderDiff(
       window.removeEventListener("pagehide", handlePageHide);
       void closeActiveSession();
     };
-  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
+  }, [activeSessionRef, closeActiveSession, config, dispatch, label, latestState, onActiveSession, onPatchURL, onResolvedSessionSource, sessionSource, transport]);
 }
 
 function closeDiffSession(transport: DiffTransport, session: ActiveDiffSession): Promise<void> {
@@ -1910,6 +2313,9 @@ function usePendingReplacement(
 function usePageDataAttributes(state: AppState) {
   useEffect(() => {
     document.body.dataset.filesHidden = state.filesVisible ? "false" : "true";
+    document.body.dataset.diffEditing = state.editMode ? "true" : "false";
+    document.body.dataset.diffDirtyCount = String(state.dirtyItemIds.length);
+    document.body.dataset.diffSaveState = state.editSaving ? "saving" : state.editFeedbackError ? "error" : "idle";
     document.body.dataset.loading = state.status.loading ? "true" : "false";
     document.documentElement.dataset.layout = state.options.layout;
     document.documentElement.dataset.wordWrap = String(state.options.wordWrap);

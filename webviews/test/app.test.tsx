@@ -84,6 +84,51 @@ test("custom-scheme pending pages wait for native navigation without HTTP pollin
   expect(dom.window.document.documentElement.dataset.cmuxDiffWait).toBeUndefined();
 });
 
+test("editing controls are limited to worktree-backed diff sources", async () => {
+  dom = createDom();
+  installDomGlobals(dom, () => {
+    throw new Error("unexpected fetch");
+  });
+
+  renderApp(
+    <App
+      config={{
+        payload: {
+          sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+          statusMessage: "Rendered diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  const editToggle = dom.window.document.getElementById("edit-toggle") as HTMLButtonElement;
+  expect(editToggle).toBeTruthy();
+  expect(editToggle.disabled).toBe(true);
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => menuButton("Enable editing") != null);
+  expect(menuButton("Enable editing")?.disabled).toBe(true);
+
+  flushSync(() => root?.unmount());
+  root = null;
+  renderApp(
+    <App
+      config={{
+        payload: {
+          sessionSource: { kind: "staged", repoRoot: "/tmp/repo" },
+          statusMessage: "Rendered diff",
+        },
+      }}
+      initialStatus={createDiffViewerStatus("Rendered diff", { loading: false, statusOnly: true })}
+    />,
+  );
+
+  expect(dom.window.document.getElementById("edit-toggle")).toBeNull();
+  dom.window.document.getElementById("options-button")?.click();
+  await waitFor(() => dom?.window.document.getElementById("options-menu") != null);
+  expect(menuButton("Enable editing")).toBeUndefined();
+});
+
 test("custom-scheme pending pages stream exactly one typed Rust session", async () => {
   dom = createDom("cmux-diff-viewer://0123456789abcdef/branch.html");
   const requests: any[] = [];
@@ -696,6 +741,11 @@ function renderApp(element: React.ReactNode): void {
 function copyGitApplyButton(): HTMLButtonElement | undefined {
   return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
     .find((button) => button.textContent?.includes("Copy git apply command"));
+}
+
+function menuButton(label: string): HTMLButtonElement | undefined {
+  return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
+    .find((button) => button.textContent?.includes(label));
 }
 
 function contentFilesWidth(): string | undefined {
