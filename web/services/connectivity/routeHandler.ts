@@ -21,6 +21,21 @@ export async function handleConnectivitySync(
   request: Request,
   dependencies: ConnectivityRouteDependencies = {},
 ): Promise<Response> {
+  return handleConnectivitySyncMethod(request, "sync", dependencies);
+}
+
+export async function handleScopedConnectivitySync(
+  request: Request,
+  dependencies: ConnectivityRouteDependencies = {},
+): Promise<Response> {
+  return handleConnectivitySyncMethod(request, "syncScoped", dependencies);
+}
+
+async function handleConnectivitySyncMethod(
+  request: Request,
+  method: "sync" | "syncScoped",
+  dependencies: ConnectivityRouteDependencies,
+): Promise<Response> {
   const verify = dependencies.verify ?? verifyRequest;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
@@ -35,13 +50,22 @@ export async function handleConnectivitySync(
 
   try {
     const response = dependencies.authority
-      ? await Effect.runPromise(dependencies.authority.sync(user.id, body.value))
-      : await Effect.runPromise(
-        Effect.gen(function* () {
-          const authority = yield* ConnectivityAuthority;
-          return yield* authority.sync(user.id, body.value);
-        }).pipe(Effect.provide(dependencies.runtime ?? ConnectivityAuthorityRuntime)),
-      );
+      ? method === "sync"
+        ? await Effect.runPromise(dependencies.authority.sync(user.id, body.value))
+        : await Effect.runPromise(dependencies.authority.syncScoped(user.id, body.value))
+      : method === "sync"
+        ? await Effect.runPromise(
+          Effect.gen(function* () {
+            const authority = yield* ConnectivityAuthority;
+            return yield* authority.sync(user.id, body.value);
+          }).pipe(Effect.provide(dependencies.runtime ?? ConnectivityAuthorityRuntime)),
+        )
+        : await Effect.runPromise(
+          Effect.gen(function* () {
+            const authority = yield* ConnectivityAuthority;
+            return yield* authority.syncScoped(user.id, body.value);
+          }).pipe(Effect.provide(dependencies.runtime ?? ConnectivityAuthorityRuntime)),
+        );
     return connectivityJsonResponse(response, 200);
   } catch (error) {
     const expected = irohExpectedError(error);

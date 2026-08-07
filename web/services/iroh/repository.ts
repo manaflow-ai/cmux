@@ -30,6 +30,7 @@ import {
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
+import type { IrohDiscoveryScope } from "./discoveryScope";
 
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
@@ -111,6 +112,7 @@ export type IrohRepositoryShape = {
   readonly discoverySnapshot: (input: {
     readonly userId: string;
     readonly now: Date;
+    readonly scope?: IrohDiscoveryScope;
   }) => Effect.Effect<{
     readonly bindings: IrohBindingRecord[];
     readonly lanDiscoveryGeneration: number;
@@ -571,6 +573,43 @@ function makeLiveRepository(): IrohRepositoryShape {
           .where(and(
             eq(irohEndpointBindings.userId, input.userId),
             isNull(irohEndpointBindings.revokedAt),
+            input.scope
+              ? or(
+                and(
+                  eq(
+                    irohEndpointBindings.deviceUuid,
+                    input.scope.localBinding.deviceId,
+                  ),
+                  eq(
+                    irohEndpointBindings.appInstanceId,
+                    input.scope.localBinding.appInstanceId,
+                  ),
+                  eq(irohEndpointBindings.tag, input.scope.localBinding.tag),
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.localBinding.platform,
+                  ),
+                ),
+                and(
+                  eq(
+                    irohEndpointBindings.platform,
+                    input.scope.peerBindings.platform,
+                  ),
+                  input.scope.peerBindings.tags
+                    ? inArray(
+                      sql<string>`lower(${irohEndpointBindings.tag})`,
+                      [...input.scope.peerBindings.tags],
+                    )
+                    : undefined,
+                  input.scope.peerBindings.pairingEnabled === undefined
+                    ? undefined
+                    : eq(
+                      irohEndpointBindings.pairingEnabled,
+                      input.scope.peerBindings.pairingEnabled,
+                    ),
+                ),
+              )
+              : undefined,
           ))
           .orderBy(asc(irohEndpointBindings.id));
         return {
