@@ -599,6 +599,45 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func persistentBindingOnlyRestoreTracksStartupCommandUntilPromptReturns() throws {
+        let fixture = try makeRelayedFixture()
+        let suiteName = "cmux-remote-resume-lifecycle-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let socketPath = reserveRemoteRestoreSocket()
+        defer { cleanupRemoteRestoreSocket(socketPath) }
+
+        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        defer { restoredWorkspace.teardownAllPanels() }
+        let restoredIDs = restoredWorkspace.restoreSessionSnapshot(fixture.snapshot)
+        let restoredSurfaceID = try #require(restoredIDs[fixture.surfaceID])
+
+        #expect(
+            restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID]
+                == .autoResumeCommandRunning
+        )
+        let runningBinding = try #require(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
+        )
+        #expect(runningBinding.autoResume == true)
+
+        restoredWorkspace.updatePanelShellActivityState(
+            panelId: restoredSurfaceID,
+            state: .promptIdle
+        )
+
+        #expect(restoredWorkspace.restoredAgentResumeStatesByPanelId[restoredSurfaceID] == nil)
+        let retiredBinding = try #require(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredSurfaceID }?.terminal?.resumeBinding
+        )
+        #expect(retiredBinding.autoResume == false)
+    }
+
+    @Test
     func mismatchedRemoteBindingNeverFallsBackToLocalExecution() throws {
         let fixture = try makeRelayedFixture()
         let mismatchedSnapshot = try snapshotByReplacingRemoteContext(
@@ -824,8 +863,13 @@ struct RemoteResumeBindingTests {
         let remoteResult = try v2Result(requestData: rewrittenData)
         let remoteBinding = try #require(remoteResult["resume_binding"] as? [String: Any])
 
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        #expect(
+            snapshot.panels.first { $0.id == surfaceID }?.terminal?.wasAgentRunning == true
+        )
+
         return (
-            workspace.sessionSnapshot(includeScrollback: false),
+            snapshot,
             workspace.id,
             surfaceID,
             remotePTYSessionID,
