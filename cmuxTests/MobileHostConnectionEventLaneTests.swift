@@ -540,31 +540,6 @@ extension MobileHostAuthorizationTests {
         #expect(queue.count == 2)
     }
 
-    @Test func testEventQueueReportsSimulatorFrameShedding() {
-        let queue = MobileHostConnectionEventQueue(
-            maximumEventCount: 1,
-            maximumByteCount: 1_000_000
-        )
-        queue.updateSubscribedTopics(["simulator.frame"])
-        let frame = Data(repeating: 0x61, count: 16)
-        #expect(queue.enqueue(
-            topic: "simulator.frame", coalesceKey: "sim-1",
-            isFullRenderGridFrame: false, frame: frame
-        ).admitted)
-
-        let newest = queue.enqueue(
-            topic: "simulator.frame", coalesceKey: "sim-1",
-            isFullRenderGridFrame: false, frame: frame
-        )
-
-        #expect(newest.admitted)
-        #expect(newest.shedEventCount == 1)
-        #expect(newest.shedByteCount == 16)
-        #expect(newest.simulatorFrameShedPanelIDs == ["sim-1"])
-        #expect(newest.renderGridResyncSurfaceIDs.isEmpty)
-        #expect(queue.count == 1)
-    }
-
     @Test func testEventQueueOverflowOnNonDroppableTopicRequestsClose() {
         let queue = MobileHostConnectionEventQueue(
             maximumEventCount: 1,
@@ -726,6 +701,34 @@ extension MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
+}
+
+@Suite
+struct MobileHostSimulatorFrameQueueDiagnosticsTests {
+    @Test func simulatorFrameSheddingReportsSafeCounters() {
+        let queue = MobileHostConnectionEventQueue(
+            maximumEventCount: 1,
+            maximumByteCount: 1_000_000
+        )
+        queue.updateSubscribedTopics(["simulator.frame"])
+        let frame = Data(repeating: 0x61, count: 16)
+        #expect(queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        ).admitted)
+
+        let newest = queue.enqueue(
+            topic: "simulator.frame", coalesceKey: "sim-1",
+            isFullRenderGridFrame: false, frame: frame
+        )
+
+        #expect(newest.admitted)
+        #expect(newest.shedEventCount == 1)
+        #expect(newest.shedByteCount == 16)
+        #expect(newest.simulatorFrameShedPanelIDs == ["sim-1"])
+        #expect(newest.renderGridResyncSurfaceIDs.isEmpty)
+        #expect(queue.count == 1)
+    }
 }
 
 /// A byte transport whose `send` never completes on its own: it models a
