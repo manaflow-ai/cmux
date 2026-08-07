@@ -867,6 +867,8 @@
       "concepts": "Concepts",
       "anchorTitle": "Espace de travail d'ancrage",
       "anchorDesc": "Chaque groupe est détenu par exactement un espace de travail appelé l'ancrage. L'en-tête du groupe dans la barre latérale est la représentation de l'ancrage — il n'y a pas de ligne distincte pour celui-ci. Cliquer sur la zone du nom de l'en-tête met le focus sur les panneaux de l'ancrage ; cliquer sur le chevron bascule le repliement.",
+      "anchorNew": "L'ancrage d'un groupe est toujours un espace de travail entièrement nouveau au moment de la création ; ni le regroupement d'une sélection ni la création d'un groupe ne promeuvent jamais l'un de vos espaces de travail existants au rôle d'ancrage. (La fermeture ultérieure d'un ancrage promeut toutefois le premier membre restant du groupe ; voir ci-dessous.) Le répertoire de travail de l'ancrage est hérité du premier espace de travail sélectionné lors du regroupement d'une sélection, ou de l'espace de travail actif lors de la création via la CLI sans --cwd.",
+      "anchorClose": "La fermeture de l'espace de travail d'ancrage ferme uniquement cet espace de travail et promeut le premier membre restant du groupe (le premier encore présent dans l'ordre du groupe) comme nouvel ancrage. Le groupe et ses autres membres restent ainsi intacts (le membre promu affiche alors le nom du groupe comme en-tête). Lorsque l'ancrage est le seul espace de travail du groupe, le groupe est supprimé. Pour transformer un groupe en espaces de travail non groupés, utilisez Dissocier les espaces de travail ; pour fermer tous les espaces de travail d'un groupe, utilisez Supprimer le groupe.",
       "identityTitle": "Identité du groupe",
       "identityDesc": "Un groupe possède un nom, une icône (un SF Symbol, par défaut folder.fill) et une couleur personnalisée facultative. Ceux-ci sont indépendants des personnalisations propres à l'espace de travail d'ancrage. La couleur et l'icône de l'ancrage sont initialisées à partir du groupe lors de la création, mais elles peuvent ensuite diverger.",
       "pinningTitle": "Épinglage",
@@ -957,7 +959,6 @@
         "terminal": {
           "sessionContentMaxWidth": "Largeur maximale facultative, en points, pour le contenu du terminal et du chat d’agent intégré. Définissez false pour utiliser toute la largeur du volet.",
           "sessionContentAlignment": "Position horizontale du contenu du terminal et du chat d’agent intégré lorsque sessionContentMaxWidth est activé.",
-          "autoRetryAgentSessions": "Reprend automatiquement une session d’agent gérée lorsque sa commande active se termine avec un état d’erreur non nul qui n’est pas causé par un signal. Les tentatives sont limitées et utilisent un délai exponentiel ; les fins normales et les arrêts explicites de l’utilisateur ne sont jamais relancés.",
           "copyOnSelect": "Lorsque la valeur est true, le texte sélectionné dans le terminal est copié dans le presse-papiers système quand la sélection est validée. Lorsque la valeur est false, cmux n’émet pas de remplacement Ghostty copy-on-select; la configuration et les valeurs par défaut de Ghostty contrôlent le comportement du presse-papiers de sélection.",
           "scrollSpeed": "Multiplicateur appliqué aux déplacements de la molette de défilement et du pavé tactile dans le terminal. Les valeurs plus élevées font défiler plus vite, les plus basses plus lentement.",
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
@@ -1409,7 +1410,16 @@
     "changelog": {
       "title": "Changelog",
       "metaDescription": "Notes de version et historique des versions de cmux. Nouvelles fonctionnalités, corrections de bugs et changements pour le terminal macOS natif.",
-      "metaTitle": "Journal des modifications"
+      "metaTitle": "Journal des modifications",
+      "versionTitle": "cmux {version} · Journal des modifications",
+      "releaseNavLabel": "Versions proches de cmux {version}",
+      "sections": {
+        "added": "Ajouts",
+        "changed": "Modifications",
+        "fixed": "Corrections",
+        "removed": "Suppressions",
+        "contributors": "Contributeurs"
+      }
     },
     "navItems": {
       "gettingStarted": "Premiers pas",
@@ -3527,7 +3537,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard."
+    "billingUnavailable": "La facturation n'est pas disponible pour le moment. Réessayez plus tard.",
+    "signedOutNotice": "Vous n'êtes pas connecté. Connectez-vous pour voir votre forfait actuel ou restaurer un achat existant.",
+    "signedOutSignIn": "Se connecter"
   },
   "platforms": {
     "macos": "macOS",
@@ -3561,7 +3573,6 @@
     "title": "cmux pour {platform}",
     "tagline": "Un navigateur Chromium et un espace de travail pour agents, conçus ensemble.",
     "logoAlt": "Icône de l’application cmux",
-    "portableCta": "ZIP portable",
     "featuresTitle": "Conçu pour le travail avec des agents",
     "features": {
       "chromium": {
@@ -3583,7 +3594,7 @@
     },
     "installTitle": "Installation",
     "releaseTitle": "Versions et mises à jour",
-    "releaseBody": "Ces liens pointent toujours vers la dernière version stable sur <github>GitHub Releases</github>. cmux vérifie les manifestes de mise à jour signés avant d’installer une mise à jour.",
+    "releaseBody": "Ces liens pointent toujours vers la dernière version nightly sur <github>GitHub Releases</github>. cmux vérifie les manifestes de mise à jour signés avant d’installer une mise à jour.",
     "sourceLink": "Voir le code source sur GitHub",
     "otherPlatform": "cmux pour {platform}",
     "macLink": "Terminal cmux pour Mac",
@@ -3593,6 +3604,7 @@
       "metaDescription": "Téléchargez cmux pour Windows x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
       "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et les conventions clavier familières de Windows.",
       "primaryCta": "Télécharger le programme d’installation (.exe)",
+      "secondaryCta": "ZIP portable",
       "requirements": "Windows 10 ou version ultérieure · x64",
       "installBody": "Exécutez le programme d’installation et suivez les instructions de Windows. Choisissez le ZIP portable si vous préférez conserver cmux dans un dossier sans installation à l’échelle du système."
     },
@@ -3601,9 +3613,41 @@
       "metaTitle": "Télécharger cmux pour Linux",
       "metaDescription": "Téléchargez cmux pour Linux x64 : un navigateur Chromium et un espace de travail pour agents, gratuits et open source, avec des onglets par tâche et des surfaces de terminal.",
       "subtitle": "Une version x64 native avec des onglets Chromium, des espaces de travail cmux et des surfaces de terminal intégrées.",
-      "primaryCta": "Télécharger le .deb",
-      "requirements": "Debian ou Ubuntu · x64",
-      "installBody": "Téléchargez le paquet Debian et installez-le avec votre gestionnaire de paquets. Choisissez le ZIP portable pour une installation par utilisateur et les mises à jour dans l’application."
+      "primaryCta": "Télécharger le programme d’installation avec mise à jour automatique (.run)",
+      "secondaryCta": "Paquet Debian (.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "Exécutez une seule fois le programme d’installation pour votre compte utilisateur. Il installe cmux dans ~/.local sans droits root et active les mises à jour signées dans l’application. Si vous souhaitez que votre gestionnaire de paquets gère les mises à jour, choisissez plutôt le paquet Debian."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "Bienvenue dans cmux Pro 🎉",
+      "fallbackName": "ami",
+      "greeting": "Bonjour {name},",
+      "thanks": "Merci d’avoir rejoint cmux Pro ! Nous peaufinons encore l’expérience Pro complète. L’accès au cloud arrive bientôt.",
+      "cloudStatus": "Lors du lancement de l’accès au cloud, nous ajouterons à votre compte des crédits d’utilisation calculés selon votre nombre de mois d’abonnement.",
+      "currentBenefit": "En attendant, votre avantage Pro est l’accès anticipé à cmux sur iOS. Inscrivez-vous avec le lien ci-dessous, puis Apple vous enverra votre invitation TestFlight une fois l’inscription terminée.",
+      "testflightLink": "S’inscrire à TestFlight : {url}",
+      "testflightLinkLabel": "S’inscrire à TestFlight",
+      "signoff": "Ravis de vous compter parmi nous !\nL’équipe cmux"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro est actif",
+    "title": "Bienvenue dans cmux Pro",
+    "body": "Les fonctionnalités Pro sont encore en cours de développement. L’accès au cloud arrive bientôt, avec des crédits d’utilisation cumulés pour chaque mois d’abonnement. Aujourd’hui, Pro inclut l’accès à cmux iOS via TestFlight.",
+    "done": "Accéder au tableau de bord",
+    "steps": {
+      "iosApp": {
+        "title": "App cmux pour iOS",
+        "body": "Utilisez cmux sur votre téléphone.",
+        "action": "Rejoindre la bêta iOS"
+      },
+      "billing": {
+        "title": "Gérer votre abonnement",
+        "body": "Consultez votre abonnement, vos factures et les options de résiliation.",
+        "action": "Gérer l’abonnement"
+      }
     }
   }
 }

@@ -37,10 +37,6 @@ uint64_t CmuxAtomicUInt64LoadRelaxed(const CmuxAtomicUInt64Storage *storage) {
     return atomic_load_explicit(&storage->value, memory_order_relaxed);
 }
 
-uint64_t CmuxAtomicUInt64LoadAcquire(const CmuxAtomicUInt64Storage *storage) {
-    return atomic_load_explicit(&storage->value, memory_order_acquire);
-}
-
 void CmuxAtomicUInt64StoreRelaxed(CmuxAtomicUInt64Storage *storage, uint64_t value) {
     atomic_store_explicit(&storage->value, value, memory_order_relaxed);
 }
@@ -65,18 +61,35 @@ uint64_t CmuxAtomicUInt64AdvanceRelaxed(CmuxAtomicUInt64Storage *storage) {
     return UINT64_MAX;
 }
 
-uint64_t CmuxAtomicUInt64AdvanceRelease(CmuxAtomicUInt64Storage *storage) {
+bool CmuxAtomicUInt64IncrementIfBelow(
+    CmuxAtomicUInt64Storage *storage,
+    uint64_t upperBound
+) {
     uint64_t current = atomic_load_explicit(&storage->value, memory_order_relaxed);
-    while (current != UINT64_MAX) {
-        uint64_t next = current + 1;
+    while (current < upperBound) {
         if (atomic_compare_exchange_weak_explicit(
                 &storage->value,
                 &current,
-                next,
-                memory_order_release,
-                memory_order_relaxed)) {
-            return next;
+                current + 1,
+                memory_order_acq_rel,
+                memory_order_acquire)) {
+            return true;
         }
     }
-    return UINT64_MAX;
+    return false;
+}
+
+bool CmuxAtomicUInt64DecrementIfPositive(CmuxAtomicUInt64Storage *storage) {
+    uint64_t current = atomic_load_explicit(&storage->value, memory_order_relaxed);
+    while (current > 0) {
+        if (atomic_compare_exchange_weak_explicit(
+                &storage->value,
+                &current,
+                current - 1,
+                memory_order_acq_rel,
+                memory_order_acquire)) {
+            return true;
+        }
+    }
+    return false;
 }

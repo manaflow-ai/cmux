@@ -43,6 +43,7 @@ extension MobileShellComposite {
         }
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
+            cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
             pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
             terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)
@@ -82,6 +83,7 @@ extension MobileShellComposite {
         // content under a barrier; only the surface-destroying resets clear it.
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         let token = UUID()
@@ -267,6 +269,7 @@ extension MobileShellComposite {
         terminalRenderGridBaselineReplayBarrierTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierTokensInFlightBySurfaceID.removeValue(forKey: surfaceID)
         restoreTerminalPreBarrierBaselineIfNeeded(surfaceID: surfaceID)
+        cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalInputDroppedRenderGridSurfaceIDs.remove(surfaceID)
         MobileDebugLog.anchormux("terminal.output.replay_barrier_fail_open surface=\(surfaceID) reason=\(reason)")

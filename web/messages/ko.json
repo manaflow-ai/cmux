@@ -867,6 +867,8 @@
       "concepts": "개념",
       "anchorTitle": "앵커 워크스페이스",
       "anchorDesc": "모든 그룹은 앵커라고 하는 정확히 하나의 워크스페이스가 소유합니다. 사이드바의 그룹 헤더가 앵커를 나타내며, 앵커를 위한 별도의 행은 없습니다. 헤더의 이름 영역을 클릭하면 앵커의 패널에 포커스가 가고, 셰브론을 클릭하면 접기가 전환됩니다.",
+      "anchorNew": "그룹의 앵커는 그룹을 만들 때 항상 완전히 새로운 워크스페이스입니다. 선택 항목을 그룹화하거나 그룹을 만들 때 기존 워크스페이스 중 하나를 앵커로 승격하지 않습니다. (나중에 앵커를 닫으면 그룹에서 첫 번째로 남은 구성원이 승격됩니다. 아래를 참조하세요.) 선택 항목을 그룹화할 때는 처음 선택한 워크스페이스의 작업 디렉터리를, --cwd 없이 CLI에서 만들 때는 활성 워크스페이스의 작업 디렉터리를 앵커가 상속합니다.",
+      "anchorClose": "앵커 워크스페이스를 닫으면 해당 워크스페이스만 닫히고 그룹에서 첫 번째로 남은 구성원(그룹 순서상 아직 남아 있는 구성원 중 가장 앞선 구성원)이 새 앵커로 승격되므로 그룹과 다른 구성원은 그대로 유지됩니다(승격된 구성원은 이후 헤더에 그룹 이름을 표시합니다). 앵커가 그룹의 유일한 워크스페이스이면 그룹이 제거됩니다. 그룹을 그룹화되지 않은 워크스페이스로 펼치려면 작업 공간 그룹 해제를 사용하고, 그룹의 모든 워크스페이스를 닫으려면 그룹 삭제를 사용하세요.",
       "identityTitle": "그룹 정체성",
       "identityDesc": "그룹에는 이름, 아이콘(SF Symbol, 기본값 folder.fill), 선택적 사용자 정의 색상이 있습니다. 이들은 앵커 워크스페이스 자체의 사용자 정의와 독립적입니다. 앵커의 색상과 아이콘은 생성 시 그룹에서 시드되지만, 이후에는 서로 달라질 수 있습니다.",
       "pinningTitle": "고정",
@@ -957,7 +959,6 @@
         "terminal": {
           "sessionContentMaxWidth": "터미널 및 내장 에이전트 채팅 콘텐츠의 선택적 최대 너비(포인트)입니다. 전체 패널 너비를 사용하려면 false로 설정하세요.",
           "sessionContentAlignment": "sessionContentMaxWidth가 활성화된 경우 터미널 및 내장 에이전트 채팅 콘텐츠의 가로 배치입니다.",
-          "autoRetryAgentSessions": "관리되는 에이전트 세션의 활성 명령이 0이 아닌 비신호 오류 상태로 종료되면 세션을 자동으로 재개합니다. 재시도 횟수는 제한되며 지수 백오프를 사용합니다. 정상 완료 및 사용자의 명시적 종료는 절대 재시도하지 않습니다.",
           "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
           "scrollSpeed": "터미널 스크롤 휠과 트랙패드 이동량에 적용되는 배율입니다. 값이 클수록 빠르게 스크롤되고, 작을수록 느리게 스크롤됩니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
@@ -1406,7 +1407,16 @@
     "changelog": {
       "title": "변경 로그",
       "metaDescription": "cmux 릴리스 노트 및 버전 히스토리. 네이티브 macOS 터미널의 새로운 기능, 버그 수정, 변경 사항.",
-      "metaTitle": "변경 내역"
+      "metaTitle": "변경 내역",
+      "versionTitle": "cmux {version} · 변경 내역",
+      "releaseNavLabel": "cmux {version} 전후 릴리스",
+      "sections": {
+        "added": "추가",
+        "changed": "변경",
+        "fixed": "수정",
+        "removed": "제거",
+        "contributors": "기여자"
+      }
     },
     "navItems": {
       "gettingStarted": "시작하기",
@@ -3522,7 +3532,9 @@
     }
   },
   "pricing": {
-    "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요."
+    "billingUnavailable": "지금은 결제를 사용할 수 없습니다. 나중에 다시 시도해 주세요.",
+    "signedOutNotice": "로그인되어 있지 않습니다. 로그인하여 현재 요금제를 확인하거나 기존 구매를 복원하세요.",
+    "signedOutSignIn": "로그인"
   },
   "platforms": {
     "macos": "macOS",
@@ -3556,7 +3568,6 @@
     "title": "{platform}용 cmux",
     "tagline": "Chromium 브라우저와 에이전트 작업 공간을 하나로 만들었습니다.",
     "logoAlt": "cmux 앱 아이콘",
-    "portableCta": "포터블 ZIP",
     "featuresTitle": "에이전트 작업을 위한 설계",
     "features": {
       "chromium": {
@@ -3578,7 +3589,7 @@
     },
     "installTitle": "설치",
     "releaseTitle": "릴리스 및 업데이트",
-    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 안정 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
+    "releaseBody": "이 링크는 항상 <github>GitHub Releases</github>의 최신 나이틀리 버전을 가리킵니다. cmux는 업데이트를 설치하기 전에 서명된 업데이트 매니페스트를 확인합니다.",
     "sourceLink": "GitHub에서 소스 보기",
     "otherPlatform": "{platform}용 cmux",
     "macLink": "Mac용 cmux 터미널",
@@ -3588,6 +3599,7 @@
       "metaDescription": "Windows x64용 cmux를 다운로드하세요. 작업 중심 탭과 터미널 화면을 갖춘 무료 오픈 소스 Chromium 브라우저이자 에이전트 작업 공간입니다.",
       "subtitle": "Chromium 탭, cmux 워크스페이스, 익숙한 Windows 키보드 사용 방식을 갖춘 네이티브 x64 빌드입니다.",
       "primaryCta": "설치 프로그램(.exe) 다운로드",
+      "secondaryCta": "포터블 ZIP",
       "requirements": "Windows 10 이상 · x64",
       "installBody": "설치 프로그램을 실행하고 Windows 안내를 따르세요. 시스템 전체에 설치하지 않고 폴더에 cmux를 보관하려면 포터블 ZIP을 선택하세요."
     },
@@ -3596,9 +3608,41 @@
       "metaTitle": "Linux용 cmux 다운로드",
       "metaDescription": "Linux x64용 cmux를 다운로드하세요. 작업 중심 탭과 터미널 화면을 갖춘 무료 오픈 소스 Chromium 브라우저이자 에이전트 작업 공간입니다.",
       "subtitle": "Chromium 탭, cmux 워크스페이스, 통합 터미널 화면을 갖춘 네이티브 x64 빌드입니다.",
-      "primaryCta": ".deb 다운로드",
-      "requirements": "Debian 또는 Ubuntu · x64",
-      "installBody": "Debian 패키지를 다운로드하여 패키지 관리자로 설치하세요. 사용자별 설치와 앱 내 업데이트가 필요하면 포터블 ZIP을 선택하세요."
+      "primaryCta": "자동 업데이트 설치 프로그램(.run) 다운로드",
+      "secondaryCta": "Debian 패키지(.deb)",
+      "requirements": "Linux · x64",
+      "installBody": "사용자별 설치 프로그램을 한 번 실행하세요. root 권한 없이 ~/.local에 설치되며 서명된 앱 내 업데이트가 활성화됩니다. 패키지 관리자로 업데이트를 관리하려면 대신 Debian 패키지를 선택하세요."
+    }
+  },
+  "emails": {
+    "proWelcome": {
+      "subject": "cmux Pro에 오신 것을 환영합니다 🎉",
+      "fallbackName": "회원님",
+      "greeting": "안녕하세요, {name}님!",
+      "thanks": "cmux Pro에 가입해 주셔서 감사합니다! 아직 전체 Pro 경험을 다듬고 있으며, Cloud 액세스도 곧 제공할 예정입니다.",
+      "cloudStatus": "Cloud 액세스가 출시되면 구독한 개월 수에 따라 계정에 사용 크레딧을 추가해 드립니다.",
+      "currentBenefit": "그동안 제공되는 Pro 혜택은 cmux iOS 조기 액세스입니다. 아래 링크에서 등록하면 완료 후 Apple에서 TestFlight 초대를 보내드립니다.",
+      "testflightLink": "TestFlight 등록: {url}",
+      "testflightLinkLabel": "TestFlight 등록",
+      "signoff": "함께해 주셔서 기쁩니다!\ncmux 팀"
+    }
+  },
+  "appProWelcome": {
+    "eyebrow": "cmux Pro 활성화됨",
+    "title": "cmux Pro에 오신 것을 환영합니다",
+    "body": "Pro 기능은 아직 개발 중입니다. Cloud 액세스가 곧 제공되며, 구독을 유지한 매월 사용 크레딧이 적립됩니다. 현재 Pro에는 TestFlight를 통한 cmux iOS 액세스가 포함됩니다.",
+    "done": "대시보드로 이동",
+    "steps": {
+      "iosApp": {
+        "title": "cmux iOS 앱",
+        "body": "휴대폰에서 cmux를 사용하세요.",
+        "action": "iOS 베타 참여"
+      },
+      "billing": {
+        "title": "요금제 관리",
+        "body": "요금제, 청구서 및 해지 옵션을 확인하세요.",
+        "action": "요금제 관리"
+      }
     }
   }
 }

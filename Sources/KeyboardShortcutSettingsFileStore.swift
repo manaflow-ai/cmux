@@ -115,9 +115,13 @@ final class CmuxSettingsFileStore {
 
     /// Returns whether the reload posted `didChangeNotification`, so callers
     /// that must guarantee a notification can post one without double-firing.
+    /// When provided, `notificationSourceURL` identifies the reload's post.
     @discardableResult
-    func reload() -> Bool {
-        reload(applyLiveDefaultSideEffects: true)
+    func reload(notificationSourceURL: URL? = nil) -> Bool {
+        reload(
+            applyLiveDefaultSideEffects: true,
+            notificationSourceURL: notificationSourceURL
+        )
     }
 
     func applyDeferredManagedDefaultSideEffects() {
@@ -125,7 +129,10 @@ final class CmuxSettingsFileStore {
     }
 
     @discardableResult
-    private func reload(applyLiveDefaultSideEffects: Bool) -> Bool {
+    private func reload(
+        applyLiveDefaultSideEffects: Bool,
+        notificationSourceURL: URL? = nil
+    ) -> Bool {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -161,7 +168,10 @@ final class CmuxSettingsFileStore {
             || previousState.managedShortcutActions != resolved.managedShortcutActions
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
-            KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
+            KeyboardShortcutSettings.notifySettingsFileDidChange(
+                center: notificationCenter,
+                sourceURL: notificationSourceURL
+            )
             return true
         }
         return false
@@ -1529,7 +1539,6 @@ final class CmuxSettingsFileStore {
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
-            var agentSessionAutoRetryDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
@@ -1549,9 +1558,6 @@ final class CmuxSettingsFileStore {
 
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
                     agentSessionAutoResumeDidChange = true
-                }
-                if change.defaultsKey == AgentSessionAutoRetrySettings.autoRetryAgentSessionsKey {
-                    agentSessionAutoRetryDidChange = true
                 }
                 if change.defaultsKey == AgentHibernationSettings.enabledKey ||
                     change.defaultsKey == AgentHibernationSettings.idleSecondsKey ||
@@ -1577,11 +1583,6 @@ final class CmuxSettingsFileStore {
 
             if agentSessionAutoResumeDidChange {
                 AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-            if agentSessionAutoRetryDidChange {
-                AgentSessionAutoRetrySettings(
-                    notificationCenter: notificationCenter
-                ).notifyDidChange()
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)

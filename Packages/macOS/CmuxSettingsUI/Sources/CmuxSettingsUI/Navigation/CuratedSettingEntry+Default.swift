@@ -112,15 +112,6 @@ extension Array where Element == CuratedSettingEntry {
             ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
-            .init(
-                section: .terminal,
-                id: "agent-auto-retry",
-                title: String(localized: "settings.terminal.agentAutoRetry", defaultValue: "Retry Failed Agent Sessions"),
-                synonyms: String(
-                    localized: "settings.search.alias.setting.terminal.agent-auto-retry",
-                    defaultValue: "terminal.autoRetryAgentSessions auto retry resume error failure transport api rate limit overloaded agents claude codex"
-                )
-            ),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),
             .init(section: .terminal, id: "agent-hibernation-max", title: "Max Live Agent Terminals", synonyms: "terminal.agentHibernation.maxLiveTerminals max live agent terminals limit count hibernate"),
@@ -212,7 +203,60 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
 
             // Mobile
-            .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
+            .init(
+                section: .mobile,
+                id: "pairDevice",
+                title: String(localized: "settings.mobile.pairDevice", defaultValue: "Tailscale Pairing"),
+                synonyms: """
+                pair pairing add device qr qr code scan iphone ipad ios mobile \
+                tailscale connect onboarding sign in
+                """
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-forwarding",
+                title: String(
+                    localized: "settings.mobile.phonePush.forwarding",
+                    defaultValue: "Forward Notifications to iPhone"
+                ),
+                detailText: [
+                    String(
+                        localized: "settings.mobile.phonePush.forwarding.subtitleOn",
+                        defaultValue: "Sends local agent alerts from this Mac to cmux on your iPhone and iPad."
+                    ),
+                    String(
+                        localized: "settings.mobile.phonePush.forwarding.subtitleOff",
+                        defaultValue: "Stops this Mac from sending local agent alerts to mobile devices."
+                    ),
+                ].joined(separator: " "),
+                synonyms: "push notifications iphone ipad mobile forwarding agent alerts forwardNotificationsToPhone"
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-mode",
+                title: String(
+                    localized: "settings.mobile.phonePush.mode",
+                    defaultValue: "When to Send"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.phonePush.mode.subtitle",
+                    defaultValue: "Always sends every local agent alert. Away mode waits until this Mac is locked, asleep, or idle."
+                ),
+                synonyms: "push notification forwarding always only when away locked asleep idle forwardNotificationsToPhoneMode"
+            ),
+            .init(
+                section: .mobile,
+                id: "phone-push-hide-content",
+                title: String(
+                    localized: "settings.mobile.phonePush.hideContent",
+                    defaultValue: "Hide Notification Content"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.phonePush.hideContent.subtitle",
+                    defaultValue: "Sends a generic message instead of agent and terminal text."
+                ),
+                synonyms: "push notification privacy hide content generic message terminal text forwardNotificationsHideContent"
+            ),
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),

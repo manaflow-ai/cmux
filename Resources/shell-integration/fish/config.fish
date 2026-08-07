@@ -41,8 +41,10 @@ if test "$_cmux_integration_enabled" != 0
         CMUX_SOCKET_ENABLE \
         CMUX_SOCKET_MODE \
         CMUX_SOCKET_PATH \
+        CMUX_SSH_ATTEMPT_ID \
         CMUX_TAB_ID \
         CMUX_TAG \
+        CMUX_TERMINAL_LIFECYCLE_ID \
         CMUX_WORKSPACE_ID
     set -g _CMUX_TMUX_SURFACE_SCOPED_KEYS CMUX_PANEL_ID CMUX_SURFACE_ID
 
@@ -240,17 +242,30 @@ if test "$_cmux_integration_enabled" != 0
         "$relay_cli" rpc "$method" "$params" >/dev/null 2>&1 &
     end
 
+    function _cmux_relay_rpc --argument-names method params
+        _cmux_socket_uses_remote_relay; or return 1
+        set -l relay_cli (_cmux_relay_cli_path)
+        test -n "$relay_cli"; or return 1
+        set -l response ("$relay_cli" rpc "$method" "$params" 2>/dev/null); or return 1
+        set response (string join '' -- $response)
+        string match -q '*"ok":false*' -- "$response"; and return 1
+        string match -q '*"ok": false*' -- "$response"; and return 1
+        return 0
+    end
+
     function _cmux_report_tty_via_relay
         _cmux_socket_uses_remote_relay; or return 1
         test -n "$_CMUX_TTY_NAME"; or return 1
+        test -n "$CMUX_TERMINAL_LIFECYCLE_ID"; or return 1
+        test -n "$CMUX_SSH_ATTEMPT_ID"; or return 1
         set -l workspace_id (_cmux_relay_workspace_id); or return 1
         set -l tty_name_json (_cmux_json_escape "$_CMUX_TTY_NAME")
-        set -l params "{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\""
+        set -l params "{\"workspace_id\":\"$workspace_id\",\"tty_name\":\"$tty_name_json\",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\",\"attempt_id\":\"$CMUX_SSH_ATTEMPT_ID\""
         if test -n "$CMUX_PANEL_ID"
             set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
         end
         set params "$params}"
-        _cmux_relay_rpc_bg surface.report_tty "$params"
+        _cmux_relay_rpc surface.report_tty "$params"
     end
 
     function _cmux_report_pwd_via_relay --argument-names pwd
@@ -301,15 +316,21 @@ if test "$_cmux_integration_enabled" != 0
     end
 
     function _cmux_install_cli_command_shim --argument-names command_name wrapper_path
-        set -l tmp_root /tmp
-        if set -q TMPDIR; and test -n "$TMPDIR"
-            set tmp_root "$TMPDIR"
-        end
         set -l surface_component "$fish_pid"
         if set -q CMUX_SURFACE_ID; and test -n "$CMUX_SURFACE_ID"
             set surface_component "$CMUX_SURFACE_ID"
         end
-        set -l shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        set -l shim_root ""
+        if set -q CMUX_CLAUDE_WRAPPER_SHIM_ROOT
+            set shim_root (string trim -r -c / -- "$CMUX_CLAUDE_WRAPPER_SHIM_ROOT")
+        end
+        if test -z "$shim_root"; or not string match -q "*/cmux-cli-shims/$surface_component" -- "$shim_root"
+            set -l tmp_root /tmp
+            if set -q TMPDIR; and test -n "$TMPDIR"
+                set tmp_root "$TMPDIR"
+            end
+            set shim_root "$tmp_root/cmux-cli-shims/$surface_component"
+        end
         set -l shim_path "$shim_root/$command_name"
         mkdir -p "$shim_root" >/dev/null 2>&1; or return 0
         begin
@@ -410,8 +431,10 @@ if test "$_cmux_integration_enabled" != 0
             set -g _CMUX_TTY_REPORTED 1
             _cmux_send_bg "report_tty $_CMUX_TTY_NAME --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
         else if _cmux_socket_uses_remote_relay
+            # Treat the first relay report as a readiness barrier. Latch only
+            # after acknowledgement so later prompts retry transient failures.
+            _cmux_report_tty_via_relay; or return 0
             set -g _CMUX_TTY_REPORTED 1
-            _cmux_report_tty_via_relay
         end
     end
 

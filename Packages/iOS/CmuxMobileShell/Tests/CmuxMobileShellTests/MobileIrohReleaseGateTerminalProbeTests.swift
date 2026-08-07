@@ -1,5 +1,6 @@
 #if DEBUG
 import CMUXMobileCore
+import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 import Testing
@@ -44,6 +45,46 @@ struct MobileIrohReleaseGateTerminalProbeTests {
         let probe = MobileIrohReleaseGateTerminalProbe(marker: marker)
 
         #expect(probe.command.range(of: Data(marker.utf8)) == nil)
+    }
+
+    @Test
+    func renderGridEventProbeObservesMarkerWithoutOwningMountedTerminalSink() throws {
+        let surfaceID = "terminal-release-gate"
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: surfaceID,
+            stateSeq: 1,
+            columns: marker.count,
+            rows: 1,
+            full: false,
+            clearedRows: [0],
+            rowSpans: [
+                .init(row: 0, column: 0, text: marker),
+            ]
+        )
+        let event = MobileEventEnvelope(
+            topic: "terminal.render_grid",
+            payloadJSON: try JSONEncoder().encode(frame),
+            streamID: nil
+        )
+        let probe = MobileIrohReleaseGateRenderGridProbe(
+            surfaceID: surfaceID,
+            marker: marker
+        )
+
+        #expect(probe.consume(event))
+        #expect(!probe.consume(MobileEventEnvelope(
+            topic: "terminal.render_grid",
+            payloadJSON: try JSONEncoder().encode(frame.withSurfaceID("other-terminal")),
+            streamID: nil
+        )))
+    }
+}
+
+private extension MobileTerminalRenderGridFrame {
+    func withSurfaceID(_ surfaceID: String) -> Self {
+        var copy = self
+        copy.surfaceID = surfaceID
+        return copy
     }
 }
 #endif
