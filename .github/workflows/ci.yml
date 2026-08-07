@@ -163,6 +163,9 @@ jobs:
       - name: Validate isolated app-host home cleanup
         run: bash tests/test_ci_app_host_home_cleanup.sh
 
+      - name: Validate app-host runner identity guard
+        run: bash tests/test_ci_app_host_runner_identity.sh
+
       - name: Validate cmux profiling support scripts
         run: ./tests/test_start_cmux_profiling.sh
 
