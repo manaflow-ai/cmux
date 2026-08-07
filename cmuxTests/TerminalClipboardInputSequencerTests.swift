@@ -292,6 +292,26 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["replacement-input"])
     }
 
+    @Test("pre-admission teardown discards input from the dying surface")
+    func preAdmissionTeardownDiscardsDyingSurfaceInput() async {
+        let sequencer = TerminalClipboardInputSequencer<String, Int>(
+            maximumBufferedEvents: 8
+        )
+        var delivered: [String] = []
+
+        let reservationAccepted = await Task.detached {
+            sequencer.reserveRequestAdmission(id: 1, onOverflow: {})
+        }.value
+        #expect(reservationAccepted)
+        #expect(sequencer.shouldDefer("dying-surface-input", epoch: 7))
+
+        sequencer.cancelReservedRequest(id: 1, currentEpoch: 7) {
+            delivered.append($0)
+        }
+
+        #expect(delivered.isEmpty)
+    }
+
     @Test("confirmation keeps input queued and reports one logical completion")
     func confirmationKeepsInputQueued() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
