@@ -7155,8 +7155,10 @@ struct WebViewRepresentable: NSViewRepresentable {
         // portal will bind against an anchor with no real window and WKWebView will
         // fall into a hidden/unrendered state.
         guard host.window != nil else { return }
+        var installedConstraints = false
         if anchorView.superview !== host {
             anchorView.removeFromSuperview()
+            anchorView.frame = host.bounds
             anchorView.translatesAutoresizingMaskIntoConstraints = false
             host.addSubview(anchorView)
             NSLayoutConstraint.activate([
@@ -7165,7 +7167,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                 anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
                 anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             ])
+            installedConstraints = true
         } else if anchorView.translatesAutoresizingMaskIntoConstraints {
+            anchorView.frame = host.bounds
             anchorView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 anchorView.topAnchor.constraint(equalTo: host.topAnchor),
@@ -7173,8 +7177,14 @@ struct WebViewRepresentable: NSViewRepresentable {
                 anchorView.leadingAnchor.constraint(equalTo: host.leadingAnchor),
                 anchorView.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             ])
+            installedConstraints = true
         }
-        host.layoutSubtreeIfNeeded()
+        if installedConstraints {
+            // updateNSView can run inside SwiftUI's render transaction. Forcing the
+            // hosting view to lay out here re-enters that transaction; seed usable
+            // geometry above, then leave the real constraint pass to AppKit.
+            host.needsLayout = true
+        }
     }
 
     private func schedulePortalLifecycleVisibilityUpdate(
