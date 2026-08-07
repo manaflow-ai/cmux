@@ -2602,6 +2602,18 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!functions.contains("/usr/bin/lockf -s -t 1 9"))
     }
 
+    @Test func sharedTmpRecoveryFallbackIsScopedToCurrentUser() {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(functions.contains("cmux_ssh_auth_recovery_user_id=$(/usr/bin/id -u"))
+        #expect(
+            functions.contains(
+                "cmux-ssh-auth-recovery.$cmux_ssh_auth_recovery_user_id"
+            )
+        )
+    }
+
     @Test func completedAuthenticationCleanupDrainsLongLivedRecoveryQueue() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
