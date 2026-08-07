@@ -3117,6 +3117,40 @@
         }
       }
     },
+    "diagnostics.session.parentCloseAcknowledged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parent close acknowledged"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "親接続のクローズを確認しました"
+          }
+        }
+      }
+    },
+    "diagnostics.session.postCloseCleanupCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Post-close cleanup completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クローズ後のクリーンアップが完了しました"
+          }
+        }
+      }
+    },
     "diagnostics.session.remoteClosed": {
       "extractionState": "manual",
       "localizations": {
@@ -3130,6 +3164,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモート側が閉じました"
+          }
+        }
+      }
+    },
+    "diagnostics.session.replacementDialStarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replacement dial started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代替接続のダイヤルを開始しました"
+          }
+        }
+      }
+    },
+    "diagnostics.session.retirementStarted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirement started"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リタイアを開始しました"
           }
         }
       }

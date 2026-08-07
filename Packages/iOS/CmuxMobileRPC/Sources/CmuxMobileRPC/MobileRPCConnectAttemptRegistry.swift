@@ -17,6 +17,9 @@ public actor MobileRPCConnectAttemptRegistry {
         [MobileRPCConnectAttemptKey: MobileRPCConnectRouteState] = [:]
     private var activeUntrackedLeaseIDs: Set<UUID> = []
     private var untrackedPhysicalCleanupTasks: [UUID: Task<Void, Never>] = [:]
+    /// Late task bookkeeping after its parent transport has acknowledged close.
+    /// These receipts are observable ownership, but consume no route admission.
+    private var postCloseCleanupTasks: [UUID: Task<Void, Never>] = [:]
 
     /// Creates an empty registry.
     public init() {}
@@ -101,6 +104,16 @@ public actor MobileRPCConnectAttemptRegistry {
         routeStates[key] = state
     }
 
+    func trackPostCloseCleanup(
+        operation: @escaping @Sendable () async -> Void
+    ) {
+        let cleanupID = UUID()
+        postCloseCleanupTasks[cleanupID] = Task.detached { [weak self] in
+            await operation()
+            await self?.postCloseCleanupDidFinish(cleanupID)
+        }
+    }
+
     public func resetRouteHealthForNetworkChange() {
         // Current main keeps only active leases and physical cleanup debt. Those
         // are ownership facts, not route-health strikes, so a network change must
@@ -126,6 +139,10 @@ public actor MobileRPCConnectAttemptRegistry {
 
     private func untrackedPhysicalCleanupDidFinish(_ cleanupID: UUID) {
         untrackedPhysicalCleanupTasks[cleanupID] = nil
+    }
+
+    private func postCloseCleanupDidFinish(_ cleanupID: UUID) {
+        postCloseCleanupTasks[cleanupID] = nil
     }
 
     private var unresolvedPhysicalCleanupCount: Int {

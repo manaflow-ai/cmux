@@ -98,6 +98,52 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func closeDoesNotWaitForChildStreamCleanup() async throws {
+        let receive = TestGatedStopIrohReceiveStream(
+            buffer: CmxIrohAdmissionAckCodec().encodeFrame(
+                .acceptedPendingNatTraversal
+            ) + admissionFrame(status: 3)
+        )
+        let control = CmxIrohBidirectionalStream(
+            receiveStream: receive,
+            sendStream: TestIrohSendStream()
+        )
+        let connection = TestIrohConnection(
+            remoteIdentity: remoteIdentity,
+            bidirectionalStreams: [control]
+        )
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: [.connection(connection)]
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(),
+            credential: credential
+        )
+        try await session.connect()
+        let completion = TestAsyncCompletionProbe()
+
+        let close = Task {
+            await session.close()
+            await completion.complete()
+        }
+        await receive.waitUntilStopStarted()
+        // The stop gate stays held, so child-stream cleanup is provably
+        // blocked. close() completing within the bound proves it returned
+        // without waiting for that cleanup; a regression times out here.
+        try await Self.waitUntil { await completion.isComplete() }
+        let parentClosedBeforeChildCleanup =
+            await connection.observedCloseCallCount() == 1
+
+        await receive.releaseStop()
+        await close.value
+
+        #expect(parentClosedBeforeChildCleanup)
+    }
+
+    @Test
     func repeatedConnectDoesNotRepeatNatTraversalAuthorization() async throws {
         let control = controlStream(decision: .accepted)
         let connection = TestIrohConnection(
@@ -558,6 +604,17 @@ struct CmxIrohClientSessionTests {
             source: .native,
             privacyScope: .publicInternet
         )
+    }
+
+    private static func waitUntil(
+        _ condition: @escaping @Sendable () async -> Bool
+    ) async throws {
+        for _ in 0 ..< 1_000 {
+            if await condition() { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        struct TimedOut: Error {}
+        throw TimedOut()
     }
 
     func tailscaleHint() throws -> CmxIrohPathHint {
