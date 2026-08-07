@@ -1,6 +1,6 @@
 public import Foundation
 
-final class CmuxTUIUpdateSink: @unchecked Sendable {
+final class CmuxTUIUpdateSink: Sendable {
     let continuation: AsyncStream<Void>.Continuation
 
     init(_ continuation: AsyncStream<Void>.Continuation) {

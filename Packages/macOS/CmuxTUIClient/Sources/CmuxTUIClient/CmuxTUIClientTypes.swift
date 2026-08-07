@@ -59,6 +59,16 @@ public struct CmuxTUIRenderEvent: Sendable {
     }
 }
 
+public struct CmuxTUIRenderEventBatch: Sendable {
+    public let events: [CmuxTUIRenderEvent]
+    public let hasMore: Bool
+
+    public init(events: [CmuxTUIRenderEvent], hasMore: Bool) {
+        self.events = events
+        self.hasMore = hasMore
+    }
+}
+
 public struct CmuxTUITerminalSnapshot: Sendable {
     public let diagnostics: String
     public let didExit: Bool

@@ -1,8 +1,87 @@
 public import Foundation
 
-public actor CmuxTUITerminal {
-    private static let maximumRenderPayloadBytes = 32 * 1_048_576
+private let cmuxTUIRenderMaximumEventCount = 256
+private let cmuxTUIRenderMaximumBatchPayloadBytes = 8 * 1_048_576
+private let cmuxTUIRenderMaximumEventPayloadBytes = 32 * 1_048_576
 
+typealias CmuxTUIRenderEventCopy = (
+    _ descriptor: inout CmuxTUIRenderEventDescriptor,
+    _ buffer: UnsafeMutablePointer<UInt8>?,
+    _ capacity: Int
+) -> Bool
+
+func drainCmuxTUIRenderEventBatch(
+    maximumEventCount: Int = cmuxTUIRenderMaximumEventCount,
+    maximumBatchPayloadBytes: Int = cmuxTUIRenderMaximumBatchPayloadBytes,
+    maximumEventPayloadBytes: Int = cmuxTUIRenderMaximumEventPayloadBytes,
+    copyNext: CmuxTUIRenderEventCopy
+) throws -> CmuxTUIRenderEventBatch {
+    precondition(maximumEventCount > 0)
+    precondition(maximumBatchPayloadBytes > 0)
+    precondition(maximumEventPayloadBytes > 0)
+
+    var events: [CmuxTUIRenderEvent] = []
+    events.reserveCapacity(min(maximumEventCount, 32))
+    var payloadBytes = 0
+
+    while events.count < maximumEventCount {
+        var descriptor = CmuxTUIRenderEventDescriptor()
+        guard copyNext(&descriptor, nil, 0) else {
+            return CmuxTUIRenderEventBatch(events: events, hasMore: false)
+        }
+        guard descriptor.payloadLength >= 0,
+              descriptor.payloadLength <= maximumEventPayloadBytes else {
+            throw CmuxTUIClientError.invalidRenderEvent(
+                "render payload exceeds the native client limit"
+            )
+        }
+        if !events.isEmpty,
+           descriptor.payloadLength > maximumBatchPayloadBytes - payloadBytes {
+            return CmuxTUIRenderEventBatch(events: events, hasMore: true)
+        }
+
+        var payload = Data()
+        if descriptor.payloadLength > 0 {
+            payload = Data(count: descriptor.payloadLength)
+            let copied = payload.withUnsafeMutableBytes { bytes in
+                copyNext(
+                    &descriptor,
+                    bytes.bindMemory(to: UInt8.self).baseAddress,
+                    bytes.count
+                )
+            }
+            guard copied else {
+                throw CmuxTUIClientError.invalidRenderEvent(
+                    "render payload changed before the native client could copy it"
+                )
+            }
+        }
+        guard let kind = CmuxTUIRenderEvent.Kind(rawValue: descriptor.kind) else {
+            throw CmuxTUIClientError.invalidRenderEvent(
+                "unknown native render event kind: \(descriptor.kind)"
+            )
+        }
+        events.append(
+            CmuxTUIRenderEvent(
+                kind: kind,
+                geometry: CmuxTUITerminalGeometry(
+                    columns: descriptor.columns,
+                    rows: descriptor.rows
+                ),
+                payload: payload
+            )
+        )
+        payloadBytes += payload.count
+        if events.count == maximumEventCount
+            || payloadBytes >= maximumBatchPayloadBytes {
+            return CmuxTUIRenderEventBatch(events: events, hasMore: true)
+        }
+    }
+
+    return CmuxTUIRenderEventBatch(events: events, hasMore: true)
+}
+
+public actor CmuxTUITerminal {
     private let library: CmuxTUIClientLibrary
     private var raw: OpaquePointer?
     private var updateSink: CmuxTUIUpdateSink?
@@ -52,58 +131,22 @@ public actor CmuxTUITerminal {
         return CmuxTUIUpdateSubscription(generation: generation, stream: pair.stream)
     }
 
-    public func drainRenderEvents() throws -> [CmuxTUIRenderEvent] {
-        guard let raw else { return [] }
+    public func drainRenderEventBatch() throws -> CmuxTUIRenderEventBatch {
+        guard let raw else {
+            return CmuxTUIRenderEventBatch(events: [], hasMore: false)
+        }
         // Carry the opaque handle across Data's closure as a plain value.
         // Swift 6.2 otherwise treats the actor-isolated pointer capture as a
         // potential concurrent access even though this method never suspends.
         let rawAddress = UInt(bitPattern: raw)
-        var result: [CmuxTUIRenderEvent] = []
-        while true {
-            var descriptor = CmuxTUIRenderEventDescriptor()
-            guard library.copyNextRenderEvent(
-                terminal: raw,
+        return try drainCmuxTUIRenderEventBatch { descriptor, buffer, capacity in
+            library.copyNextRenderEvent(
+                terminal: OpaquePointer(bitPattern: rawAddress),
                 descriptor: &descriptor,
-                buffer: nil,
-                capacity: 0
-            ) else {
-                break
-            }
-            guard let kind = CmuxTUIRenderEvent.Kind(rawValue: descriptor.kind) else {
-                if descriptor.payloadLength > 0 { break }
-                continue
-            }
-            guard descriptor.payloadLength >= 0,
-                  descriptor.payloadLength <= Self.maximumRenderPayloadBytes else {
-                throw CmuxTUIClientError.invalidRenderEvent(
-                    "render payload exceeds the native client limit"
-                )
-            }
-            var payload = Data()
-            if descriptor.payloadLength > 0 {
-                payload = Data(count: descriptor.payloadLength)
-                let copied = payload.withUnsafeMutableBytes { bytes in
-                    library.copyNextRenderEvent(
-                        terminal: OpaquePointer(bitPattern: rawAddress),
-                        descriptor: &descriptor,
-                        buffer: bytes.bindMemory(to: UInt8.self).baseAddress,
-                        capacity: bytes.count
-                    )
-                }
-                guard copied else { break }
-            }
-            result.append(
-                CmuxTUIRenderEvent(
-                    kind: kind,
-                    geometry: CmuxTUITerminalGeometry(
-                        columns: descriptor.columns,
-                        rows: descriptor.rows
-                    ),
-                    payload: payload
-                )
+                buffer: buffer,
+                capacity: capacity
             )
         }
-        return result
     }
 
     public func snapshot() -> CmuxTUITerminalSnapshot {

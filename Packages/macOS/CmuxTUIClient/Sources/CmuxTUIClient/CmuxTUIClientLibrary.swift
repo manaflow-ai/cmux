@@ -10,6 +10,42 @@ struct CmuxTUIRenderEventDescriptor {
     var payloadLength: Int = 0
 }
 
+let cmuxTUIStringMaximumPayloadBytes = 16 * 1_048_576
+let cmuxTUIStringMaximumAttempts = 4
+
+func copyBoundedCString(
+    maximumPayloadBytes: Int = cmuxTUIStringMaximumPayloadBytes,
+    maximumAttempts: Int = cmuxTUIStringMaximumAttempts,
+    _ copy: (_ buffer: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
+) -> String? {
+    guard maximumPayloadBytes >= 0,
+          maximumPayloadBytes < Int.max,
+          maximumAttempts > 0 else {
+        return nil
+    }
+    let maximumCapacity = maximumPayloadBytes + 1
+    let initialLength = copy(nil, 0)
+    guard initialLength >= 0, initialLength < maximumCapacity else { return nil }
+    var capacity = initialLength + 1
+
+    for _ in 0..<maximumAttempts {
+        var buffer = [CChar](repeating: 0, count: capacity)
+        let actual = copy(&buffer, buffer.count)
+        guard actual >= 0 else { return nil }
+        if actual < buffer.count {
+            return String(
+                decoding: buffer.prefix(actual).map { UInt8(bitPattern: $0) },
+                as: UTF8.self
+            )
+        }
+        guard actual < maximumCapacity else { return nil }
+        capacity = actual + 1
+    }
+    return nil
+}
+
+// The dlopen handle and resolved function table are immutable after init. The
+// Rust client synchronizes the pointed-to handles used by concurrent actors.
 final class CmuxTUIClientLibrary: @unchecked Sendable {
     private typealias ABIVersion = @convention(c) () -> UInt32
     private typealias Connect = @convention(c) (
@@ -357,18 +393,7 @@ final class CmuxTUIClientLibrary: @unchecked Sendable {
     private func copyString(
         _ copy: (_ buffer: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
     ) -> String {
-        var capacity = copy(nil, 0) + 1
-        while true {
-            var buffer = [CChar](repeating: 0, count: max(1, capacity))
-            let actual = copy(&buffer, buffer.count)
-            if actual < buffer.count {
-                return String(
-                    decoding: buffer.prefix(actual).map { UInt8(bitPattern: $0) },
-                    as: UTF8.self
-                )
-            }
-            capacity = actual + 1
-        }
+        copyBoundedCString(copy) ?? ""
     }
 
     private static let libraryFileName = "libcmux_terminal_client.dylib"
