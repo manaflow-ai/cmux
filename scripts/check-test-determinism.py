@@ -576,20 +576,6 @@ def _assigned_reference_for_url(
     return assignment.group(1)
 
 
-def _reference_is_reassigned(
-    text: str,
-    reference: str,
-) -> bool:
-    """Whether executable code in text overwrites the reference."""
-    pattern = re.compile(
-        rf"(?<![\w.$]){re.escape(reference)}\s*(?::[^=]+)?=(?!=)"
-    )
-    return any(
-        _quoted_string_span_containing(text, match.start()) is None
-        for match in pattern.finditer(text)
-    )
-
-
 def _reference_match_is_executable(
     text: str,
     match: re.Match[str],
@@ -622,6 +608,37 @@ def _reference_match_is_executable(
     return False
 
 
+def _reference_pattern(reference: str) -> re.Pattern[str]:
+    """Pattern for a standalone reference read, including property prefixes."""
+    return re.compile(
+        rf"(?<![\w.$]){re.escape(reference)}(?![\w$:=])"
+    )
+
+
+def _range_uses_reference(
+    text: str,
+    reference: str,
+    start: int,
+    end: int,
+    path_suffix: str,
+) -> bool:
+    """Whether executable code in a source range reads the reference."""
+    if path_suffix == ".sh":
+        shell_reference = re.compile(
+            rf"\$(?:\{{{re.escape(reference)}\}}|"
+            rf"{re.escape(reference)}(?![A-Za-z0-9_]))"
+        )
+        for match in shell_reference.finditer(text, start, end):
+            span = _quoted_string_span_containing(text, match.start())
+            if span is None or span[2] != "'":
+                return True
+
+    return any(
+        _reference_match_is_executable(text, match, path_suffix)
+        for match in _reference_pattern(reference).finditer(text, start, end)
+    )
+
+
 def _network_call_uses_reference(
     line: str,
     verb_match: re.Match[str],
@@ -630,9 +647,7 @@ def _network_call_uses_reference(
     path_suffix: str,
 ) -> bool:
     """Whether a network call directly consumes the assigned reference."""
-    reference_pattern = re.compile(
-        rf"(?<![\w.$]){re.escape(reference)}(?![\w$:=])"
-    )
+    reference_pattern = _reference_pattern(reference)
     if verb_match.group(0).lower() == "curl":
         shell_arguments = line[verb_match.end():segment_end]
         if path_suffix == ".sh":
@@ -685,6 +700,60 @@ def _network_call_uses_reference(
             close_parenthesis,
         )
     )
+
+
+def _network_call_uses_derived_reference(
+    line: str,
+    boundaries: list[int],
+    initial_reference: str,
+    url_segment: int,
+    active_verb_matches: list[tuple[re.Match[str], int]],
+    path_suffix: str,
+) -> bool:
+    """Trace URL-derived references until one is consumed by a network call."""
+    active_references = {initial_reference}
+    final_segment = len(boundaries)
+    for segment_index in range(url_segment + 1, final_segment + 1):
+        segment_start, segment_end = _statement_segment_bounds(
+            line,
+            boundaries,
+            segment_index,
+        )
+        segment = line[segment_start:segment_end]
+        assignment = _ASSIGNED_REFERENCE.match(segment)
+        if assignment is not None:
+            assigned_reference = assignment.group(1)
+            rhs_start = segment_start + assignment.end()
+            derives_from_public_url = any(
+                _range_uses_reference(
+                    line,
+                    reference,
+                    rhs_start,
+                    segment_end,
+                    path_suffix,
+                )
+                for reference in active_references
+            )
+            if derives_from_public_url:
+                active_references.add(assigned_reference)
+            else:
+                active_references.discard(assigned_reference)
+
+        for verb_match, verb_segment in active_verb_matches:
+            if verb_segment != segment_index:
+                continue
+            if any(
+                _network_call_uses_reference(
+                    line,
+                    verb_match,
+                    reference,
+                    segment_end,
+                    path_suffix,
+                )
+                for reference in active_references
+            ):
+                return True
+    return False
 
 
 def detect_live_network_host(
@@ -745,32 +814,15 @@ def detect_live_network_host(
         )
         if reference is None:
             continue
-        _assignment_start, assignment_end = _statement_segment_bounds(
+        if _network_call_uses_derived_reference(
             line,
             boundaries,
+            reference,
             url_segment,
-        )
-        for verb_match, verb_segment in active_verb_matches:
-            if verb_segment <= url_segment:
-                continue
-            if _reference_is_reassigned(
-                line[assignment_end:verb_match.start()],
-                reference,
-            ):
-                continue
-            _verb_start, verb_end = _statement_segment_bounds(
-                line,
-                boundaries,
-                verb_segment,
-            )
-            if _network_call_uses_reference(
-                line,
-                verb_match,
-                reference,
-                verb_end,
-                path_suffix,
-            ):
-                return True
+            active_verb_matches,
+            path_suffix,
+        ):
+            return True
     return False
 
 
