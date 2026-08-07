@@ -374,8 +374,6 @@ final class ClaudeHookSessionStore {
             let turnIsTerminal = normalizedTurnId.map { terminalTurnId in
                 terminalPromptTurnSet(from: record).contains(terminalTurnId)
             } ?? false
-            let turnHasDeferredSettlement =
-                deferredSettlementsByTurn[turnKey] != nil
             switch eventName {
             case "SubagentStart":
                 if let normalizedWorkId,
@@ -425,28 +423,9 @@ final class ClaudeHookSessionStore {
             } else {
                 activeWorkIdsByTurn[turnKey] = activeWorkIds.sorted()
             }
-            if eventName == "SubagentStop",
-               turnIsTerminal || turnHasDeferredSettlement,
-               activeWorkIds.isEmpty {
-                // A provisional Stop is terminal evidence for structured-work
-                // recovery even though prompt freshness stays active until its
-                // settled replay. Once that turn drains every retained id, its
-                // final completion clears a bounded-id overflow without
-                // latching the session forever.
-                overflowTurnKeys.remove(turnKey)
-            }
-            if eventName == "SubagentStop",
-               turnIsTerminal || turnHasDeferredSettlement,
-               activeWorkIdsByTurn.isEmpty,
-               overflowTurnKeys.isEmpty,
-               deferredSettlementsByTurn.keys.allSatisfy({ $0 == turnKey }) {
-                // The session-wide marker represents unretained turns after
-                // the turn-key bound was crossed. A terminal drain with no
-                // other retained work or settlement is the only safe local
-                // recovery boundary; process replacement/exit remains the
-                // fallback when that boundary never arrives.
-                record.hasBackgroundWorkTurnOverflow = nil
-            }
+            // Overflow means at least one work or turn identity was dropped.
+            // Draining retained identities cannot prove the dropped work ended,
+            // so only authoritative process/session cleanup clears these latches.
             let deferredSettlement: AgentDeferredTurnSettlement?
             let activeWorkCount = activeWorkIds.count
                 + (overflowTurnKeys.contains(turnKey) ? 1 : 0)
@@ -31720,7 +31699,13 @@ export default CMUXSessionRestore;
             env: env
         )
 #endif
-        let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        let pidKey: String
+        switch def.integration.lifecycleProcessOwnershipScope {
+        case .session:
+            pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
+        case .sharedProcess:
+            pidKey = "\(def.statusKey).process"
+        }
         var didSendFeedTelemetry = false
         // Destructive session teardown shared by a genuine (non-turn-boundary)
         // `session-end` and the dedicated `session-finalize` action: consume the

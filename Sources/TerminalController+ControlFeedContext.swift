@@ -29,6 +29,8 @@ extension TerminalController: ControlFeedContext {
     func v2AgentAttentionBegin(
         params: [String: Any]
     ) -> V2CallResult {
+        let observationEpochValue = params["observation_epoch"]
+        let observationEpoch = agentAttentionEpoch(observationEpochValue)
         guard let source = agentAttentionSource(params["source"]),
               let sessionId = agentAttentionOpaqueID(params["session_id"]),
               let observationId = agentAttentionOpaqueID(
@@ -36,7 +38,8 @@ extension TerminalController: ControlFeedContext {
               ),
               let scopeId = agentAttentionOpaqueID(params["scope_id"]),
               let workspaceId = agentAttentionUUID(params["workspace_id"]),
-              let generation = agentAttentionProcessGeneration(params) else {
+              let generation = agentAttentionProcessGeneration(params),
+              observationEpochValue == nil || observationEpoch != nil else {
             return .err(
                 code: "invalid_params",
                 message: String(
@@ -53,7 +56,8 @@ extension TerminalController: ControlFeedContext {
             scopeId: scopeId,
             workspaceId: workspaceId,
             surfaceId: agentAttentionUUID(params["surface_id"]),
-            processGeneration: generation
+            processGeneration: generation,
+            observationEpoch: observationEpoch
         )
         return .ok(["status": began ? "began" : "ignored"])
     }
@@ -61,9 +65,12 @@ extension TerminalController: ControlFeedContext {
     func v2AgentAttentionEnd(
         params: [String: Any]
     ) -> V2CallResult {
+        let boundaryEpochValue = params["boundary_epoch"]
+        let boundaryEpoch = agentAttentionEpoch(boundaryEpochValue)
         guard let source = agentAttentionSource(params["source"]),
               let sessionId = agentAttentionOpaqueID(params["session_id"]),
-              let generation = agentAttentionProcessGeneration(params)
+              let generation = agentAttentionProcessGeneration(params),
+              boundaryEpochValue == nil || boundaryEpoch != nil
         else {
             return .err(
                 code: "invalid_params",
@@ -81,7 +88,8 @@ extension TerminalController: ControlFeedContext {
                 params["observation_id"]
             ),
             scopeId: agentAttentionOpaqueID(params["scope_id"]),
-            processGeneration: generation
+            processGeneration: generation,
+            boundaryEpoch: boundaryEpoch
         )
         return .ok([
             "status": "ended",
@@ -114,6 +122,15 @@ extension TerminalController: ControlFeedContext {
             return nil
         }
         return UUID(uuidString: value)
+    }
+
+    private func agentAttentionEpoch(_ raw: Any?) -> UInt64? {
+        guard let value = raw as? String,
+              !value.isEmpty,
+              value.utf8.allSatisfy({ (48 ... 57).contains($0) }) else {
+            return nil
+        }
+        return UInt64(value)
     }
 
     private func agentAttentionProcessGeneration(

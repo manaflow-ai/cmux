@@ -8,13 +8,19 @@ nonisolated struct AgentObservedAttentionConclusionLedger {
     private var keys: Set<AgentObservedAttentionConclusionKey> = []
     private var insertionOrder: [AgentObservedAttentionConclusionKey] = []
     private var insertionOrderHead = 0
+    private var latestBoundaryEpochs:
+        [AgentObservedAttentionConclusionKey: UInt64] = [:]
+    private var boundaryInsertionOrder:
+        [AgentObservedAttentionConclusionKey] = []
+    private var boundaryInsertionOrderHead = 0
 
     mutating func record(
         source: String,
         sessionId: String?,
         observationId: String?,
         scopeId: String?,
-        processGeneration: AgentPIDProcessIdentity
+        processGeneration: AgentPIDProcessIdentity,
+        boundaryEpoch: UInt64? = nil
     ) {
         guard let sessionId else { return }
         if let observationId {
@@ -37,6 +43,14 @@ nonisolated struct AgentObservedAttentionConclusionLedger {
                 )
             )
         }
+        if let boundaryEpoch {
+            recordBoundary(
+                source: source,
+                sessionId: sessionId,
+                processGeneration: processGeneration,
+                epoch: boundaryEpoch
+            )
+        }
     }
 
     func contains(
@@ -44,9 +58,21 @@ nonisolated struct AgentObservedAttentionConclusionLedger {
         sessionId: String,
         observationId: String,
         scopeId: String,
-        processGeneration: AgentPIDProcessIdentity
+        processGeneration: AgentPIDProcessIdentity,
+        observationEpoch: UInt64? = nil
     ) -> Bool {
-        keys.contains(
+        if let observationEpoch,
+           let boundaryEpoch = latestBoundaryEpochs[
+               .processBoundary(
+                   source: source,
+                   sessionId: sessionId,
+                   generation: processGeneration
+               )
+           ],
+           observationEpoch <= boundaryEpoch {
+            return true
+        }
+        return keys.contains(
             .observation(
                 source: source,
                 sessionId: sessionId,
@@ -61,6 +87,37 @@ nonisolated struct AgentObservedAttentionConclusionLedger {
                 generation: processGeneration
             )
         )
+    }
+
+    private mutating func recordBoundary(
+        source: String,
+        sessionId: String,
+        processGeneration: AgentPIDProcessIdentity,
+        epoch: UInt64
+    ) {
+        let key = AgentObservedAttentionConclusionKey.processBoundary(
+            source: source,
+            sessionId: sessionId,
+            generation: processGeneration
+        )
+        if let previous = latestBoundaryEpochs[key] {
+            latestBoundaryEpochs[key] = max(previous, epoch)
+            return
+        }
+        latestBoundaryEpochs[key] = epoch
+        boundaryInsertionOrder.append(key)
+        while latestBoundaryEpochs.count > Self.maximumCount,
+              boundaryInsertionOrderHead < boundaryInsertionOrder.count {
+            let expired = boundaryInsertionOrder[boundaryInsertionOrderHead]
+            boundaryInsertionOrderHead += 1
+            latestBoundaryEpochs.removeValue(forKey: expired)
+        }
+        if boundaryInsertionOrderHead >= Self.maximumCount,
+           boundaryInsertionOrderHead * 2
+                >= boundaryInsertionOrder.count {
+            boundaryInsertionOrder.removeFirst(boundaryInsertionOrderHead)
+            boundaryInsertionOrderHead = 0
+        }
     }
 
     private mutating func insert(

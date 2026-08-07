@@ -73,6 +73,18 @@ public nonisolated enum BuiltInAgentIntegration: String, CaseIterable, Hashable,
         }
     }
 
+    /// The lifecycle identity that owns this integration's process generation.
+    public var lifecycleProcessOwnershipScope: AgentLifecycleProcessOwnershipScope {
+        switch self {
+        case .amp, .claude:
+            .sharedProcess
+        case .antigravity, .campfire, .codebuddy, .codex, .copilot, .cursor,
+             .factory, .gemini, .grok, .hermesAgent, .kiro, .kimi, .omp,
+             .opencode, .pi, .qoder, .rovodev:
+            .session
+        }
+    }
+
     /// The user-facing integration name.
     public var displayName: String {
         switch self {

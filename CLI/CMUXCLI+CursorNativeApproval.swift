@@ -44,6 +44,7 @@ extension CMUXCLI {
             return
         }
 
+        let observationEpoch = DispatchTime.now().uptimeNanoseconds
         var arguments = [
             executablePath,
             "--socket", socketPath,
@@ -56,6 +57,7 @@ extension CMUXCLI {
             "--workspace-id", workspaceId,
             "--session-id", sessionId,
             "--expected-tool-call-id", expectedToolCallId,
+            "--observation-epoch", String(observationEpoch),
         ]
         if let surfaceId = normalizedHookValue(surfaceId),
            UUID(uuidString: surfaceId) != nil {
@@ -125,12 +127,14 @@ extension CMUXCLI {
             return
         }
 
+        let boundaryEpoch = DispatchTime.now().uptimeNanoseconds
         let params: [String: Any] = [
             "source": BuiltInAgentIntegration.cursor.feedSourceName,
             "session_id": sessionId,
             "pid": processIdentity.pid,
             "pid_start_seconds": processIdentity.startSeconds,
             "pid_start_microseconds": processIdentity.startMicroseconds,
+            "boundary_epoch": String(boundaryEpoch),
         ]
         sendBestEffortAgentAttentionV2Message(
             method: "agent.attention.end",
@@ -282,7 +286,13 @@ extension CMUXCLI {
               let workspaceId = UUID(uuidString: workspaceIdValue),
               let sessionId = Self.nativeAttentionOpaqueIdentifier(
                   optionValue(commandArgs, name: "--session-id")
-              ) else {
+              ),
+              let observationEpochValue = optionValue(
+                  commandArgs,
+                  name: "--observation-epoch"
+              ),
+              let observationEpoch = UInt64(observationEpochValue)
+        else {
             throw CLIError(
                 message: String(
                     localized: "agent_attention.invalid_observer_arguments",
@@ -316,6 +326,7 @@ extension CMUXCLI {
             "pid": processIdentity.pid,
             "pid_start_seconds": processIdentity.startSeconds,
             "pid_start_microseconds": processIdentity.startMicroseconds,
+            "observation_epoch": String(observationEpoch),
         ]
         if let surfaceIdValue = optionValue(commandArgs, name: "--surface-id"),
            let surfaceId = UUID(uuidString: surfaceIdValue) {
