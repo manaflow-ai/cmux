@@ -208,6 +208,7 @@ pub const CreatePaneOptions = resource.CreatePaneOptions;
 pub const Direction = resource.Direction;
 pub const SplitOptions = resource.SplitOptions;
 pub const MoveDestination = resource.MoveDestination;
+pub const TerminalProjectOptions = resource.TerminalProjectOptions;
 pub const TerminalMouseKind = resource.TerminalMouseKind;
 pub const BrowserKeyKind = resource.BrowserKeyKind;
 pub const BrowserMouseKind = resource.BrowserMouseKind;

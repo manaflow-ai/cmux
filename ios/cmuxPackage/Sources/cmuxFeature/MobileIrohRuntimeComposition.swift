@@ -225,8 +225,6 @@ public final class MobileIrohRuntimeComposition:
     private var relayPolicyService: CmxIrohRelayPolicyService?
     private var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
     private var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
-    private var consumedDiscoveryRuntimeID: ObjectIdentifier?
-    private var consumedDiscoveryGeneration: UInt64 = 0
     private var relayPolicyEndpointID: CmxIrohPeerIdentity?
     private var relayPolicyObservationTask: Task<Void, Never>?
     private var relayPolicyRefreshTask: Task<Void, Never>?
@@ -592,21 +590,6 @@ public final class MobileIrohRuntimeComposition:
             ))
             return []
         }
-        let runtimeID = ObjectIdentifier(runtime)
-        var generation = await runtime.liveDiscoverySnapshotGeneration()
-        guard self.runtime === runtime else { return [] }
-        if generation > 0,
-           consumedDiscoveryRuntimeID != runtimeID
-            || generation > consumedDiscoveryGeneration {
-            consumedDiscoveryRuntimeID = runtimeID
-            consumedDiscoveryGeneration = generation
-            let candidates = await routeCatalog.liveMacCandidates(
-                preferredTag: tag,
-                compatibleWith: discoveryCompatibilityPolicy
-            )
-            recordDiscoveryOutcome(candidateCount: candidates.count)
-            return candidates
-        }
         let refreshOutcome = await runtime.refreshLiveDiscoveryOutcome()
         guard refreshOutcome == .refreshed else {
             guard self.runtime === runtime else { return [] }
@@ -616,10 +599,7 @@ public final class MobileIrohRuntimeComposition:
             }
             return []
         }
-        generation = await runtime.liveDiscoverySnapshotGeneration()
         guard self.runtime === runtime else { return [] }
-        consumedDiscoveryRuntimeID = runtimeID
-        consumedDiscoveryGeneration = generation
         let candidates = await routeCatalog.liveMacCandidates(
             preferredTag: tag,
             compatibleWith: discoveryCompatibilityPolicy

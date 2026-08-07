@@ -26,7 +26,7 @@ import {
   isValidIdempotencyKey,
 } from "./internal/text.js";
 
-const PROTOCOL = "cmux.protocol/1";
+const PROTOCOL = "cmux.protocol/2";
 const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const STREAM_OPEN_CLEANUP_TIMEOUT_MS = 1_000;

@@ -20,7 +20,7 @@ import StackAuth
 public struct MobileAuthComposition {
     /// The shared auth orchestrator the UI binds to.
     public let coordinator: AuthCoordinator
-    /// The push registration service (off by default).
+    /// The push registration service, activated after notification permission.
     public let pushRegistration: PushRegistrationService
     /// The resolved configuration (used for diagnostics + push API base URL).
     public let config: AuthConfig
