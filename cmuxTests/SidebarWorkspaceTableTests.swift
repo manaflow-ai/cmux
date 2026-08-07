@@ -497,13 +497,13 @@ struct SidebarWorkspaceTableTests {
     ) -> SidebarWorkspaceTableRowConfiguration {
 #if DEBUG
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: colorScheme,
+            environment: .sidebarTableTestValues(colorScheme: colorScheme),
             globalFontMagnificationPercent: fontMagnificationPercent,
             lazyContractProbe: SidebarLazyContractProbe()
         )
 #else
         let environment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: colorScheme,
+            environment: .sidebarTableTestValues(colorScheme: colorScheme),
             globalFontMagnificationPercent: fontMagnificationPercent
         )
 #endif

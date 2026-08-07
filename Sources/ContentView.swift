@@ -10660,7 +10660,7 @@ struct VerticalTabsSidebar: View, Equatable {
     @Environment(\.minimalModeInvalidationProbe) private var minimalModeInvalidationProbe
     @Environment(\.sidebarLazyContractProbe) private var sidebarLazyContractProbe
 #endif
-    @Environment(\.colorScheme) private var sidebarColorScheme
+    @Environment(\.self) private var sidebarEnvironment
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var sidebarGlobalFontMagnificationPercent
 
     // The provider to actually render. Built-in views are always honored; only
@@ -11023,13 +11023,13 @@ struct VerticalTabsSidebar: View, Equatable {
         } ?? []
 #if DEBUG
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
+            environment: sidebarEnvironment,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent,
             lazyContractProbe: sidebarLazyContractProbe
         )
 #else
         let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: sidebarColorScheme,
+            environment: sidebarEnvironment,
             globalFontMagnificationPercent: sidebarGlobalFontMagnificationPercent
         )
 #endif

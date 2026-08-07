@@ -2,6 +2,7 @@ import AppKit
 import CmuxSettings
 import CmuxSidebar
 import CmuxWorkspaces
+import SwiftUI
 import Testing
 @testable import cmux_DEV
 
@@ -10,7 +11,7 @@ import Testing
 struct SidebarWorkspaceRowSuspensionTests {
     private static var tableEnvironment: SidebarWorkspaceTableEnvironmentSnapshot {
         SidebarWorkspaceTableEnvironmentSnapshot(
-            colorScheme: .dark,
+            environment: .sidebarTableTestValues(colorScheme: .dark),
             globalFontMagnificationPercent: 100,
             lazyContractProbe: SidebarLazyContractProbe()
         )
