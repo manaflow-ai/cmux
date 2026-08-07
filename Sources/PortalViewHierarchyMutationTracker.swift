@@ -45,7 +45,8 @@ final class PortalViewHierarchyMutationTracker: NSObject {
     /// branch stays on the fast path without a full cache rebuild.
     static func recordInsertion(
         parentView: NSView,
-        insertedView: NSView
+        insertedView: NSView,
+        previousWindow: NSWindow?
     ) {
         guard let window = parentView.window,
               let tracker = tracker(for: window, createIfNeeded: false),
@@ -54,7 +55,8 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         }
         tracker.recordInsertion(
             parentView: parentView,
-            insertedView: insertedView
+            insertedView: insertedView,
+            cameFromSameWindow: previousWindow === window
         )
     }
 
@@ -75,6 +77,7 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         parentView: NSView,
         oldView: NSView,
         newView: NSView,
+        newViewPreviousWindow: NSWindow?,
         parentWindow: NSWindow?
     ) {
         guard let window = parentWindow,
@@ -85,7 +88,8 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         tracker.recordReplacement(
             parentView: parentView,
             oldView: oldView,
-            newView: newView
+            newView: newView,
+            newViewCameFromSameWindow: newViewPreviousWindow === window
         )
     }
 
@@ -180,7 +184,8 @@ final class PortalViewHierarchyMutationTracker: NSObject {
 
     private func recordInsertion(
         parentView: NSView,
-        insertedView: NSView
+        insertedView: NSView,
+        cameFromSameWindow: Bool
     ) {
         guard !isSorting(parentView: parentView) else { return }
         guard let parentState = currentNodeState(for: parentView) else {
@@ -194,7 +199,10 @@ final class PortalViewHierarchyMutationTracker: NSObject {
             return
         }
 
-        if let insertedState = currentNodeState(for: insertedView) {
+        // A node-state proof is reusable only while the subtree stayed in this
+        // window, where every hierarchy mutation passed through this tracker.
+        if cameFromSameWindow,
+           let insertedState = currentNodeState(for: insertedView) {
             if insertedState.containsSplitView {
                 markDirty()
             }
@@ -226,7 +234,12 @@ final class PortalViewHierarchyMutationTracker: NSObject {
         }
     }
 
-    private func recordReplacement(parentView: NSView, oldView: NSView, newView: NSView) {
+    private func recordReplacement(
+        parentView: NSView,
+        oldView: NSView,
+        newView: NSView,
+        newViewCameFromSameWindow: Bool
+    ) {
         guard !isSorting(parentView: parentView) else { return }
         guard currentNodeState(for: parentView) != nil else {
             if isCurrentRegisteredRoot(oldView) || isCurrentRegisteredRoot(newView) {
@@ -234,7 +247,11 @@ final class PortalViewHierarchyMutationTracker: NSObject {
             }
             return
         }
-        recordInsertion(parentView: parentView, insertedView: newView)
+        recordInsertion(
+            parentView: parentView,
+            insertedView: newView,
+            cameFromSameWindow: newViewCameFromSameWindow
+        )
     }
 
     private func recordSubviewsReplacement(parentView: NSView, newSubviews: [NSView]) {

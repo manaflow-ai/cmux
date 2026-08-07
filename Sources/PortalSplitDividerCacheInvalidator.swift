@@ -10,10 +10,12 @@ private typealias PortalSubviewComparator = @convention(c) (
 private extension NSView {
     @objc(cmux_portalAddSubview:)
     func cmux_portalAddSubview(_ subview: NSView) {
+        let previousWindow = subview.window
         cmux_portalAddSubview(subview)
         PortalViewHierarchyMutationTracker.recordInsertion(
             parentView: self,
-            insertedView: subview
+            insertedView: subview,
+            previousWindow: previousWindow
         )
     }
 
@@ -23,10 +25,12 @@ private extension NSView {
         positioned place: NSWindow.OrderingMode,
         relativeTo otherView: NSView?
     ) {
+        let previousWindow = subview.window
         cmux_portalAddSubview(subview, positioned: place, relativeTo: otherView)
         PortalViewHierarchyMutationTracker.recordInsertion(
             parentView: self,
-            insertedView: subview
+            insertedView: subview,
+            previousWindow: previousWindow
         )
     }
 
@@ -69,11 +73,13 @@ private extension NSView {
 
     @objc func cmux_portalReplaceSubview(_ oldView: NSView, with newView: NSView) {
         let parentWindow = window
+        let newViewPreviousWindow = newView.window
         cmux_portalReplaceSubview(oldView, with: newView)
         PortalViewHierarchyMutationTracker.recordReplacement(
             parentView: self,
             oldView: oldView,
             newView: newView,
+            newViewPreviousWindow: newViewPreviousWindow,
             parentWindow: parentWindow
         )
     }
