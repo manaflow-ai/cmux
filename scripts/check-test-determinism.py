@@ -380,6 +380,9 @@ def _quote_delimiter_at(line: str, quote_index: int) -> str:
 # Whole-file network candidates are one-shot inputs whose source keys dominate
 # cache memory. Cache only small repeated launcher/chunk inputs.
 _LEXER_CACHE_SOURCE_LIMIT = 16 * 1024
+_C_STYLE_BLOCK_COMMENT_SUFFIXES = frozenset(
+    {".swift", ".ts", ".tsx", ".js", ".mjs"}
+)
 
 
 def _line_comment_marker_length(
@@ -427,6 +430,25 @@ def _lexical_positions(
     while index < len(line):
         kind, brace_depth, delimiter = contexts[-1]
         character = line[index]
+
+        if kind == "block-comment":
+            if path_suffix == ".swift" and line.startswith("/*", index):
+                comments[index : index + 2] = b"\x01\x01"
+                contexts[-1] = (kind, brace_depth + 1, delimiter)
+                index += 2
+                continue
+            if line.startswith("*/", index):
+                comments[index : index + 2] = b"\x01\x01"
+                if brace_depth == 1:
+                    contexts.pop()
+                else:
+                    contexts[-1] = (kind, brace_depth - 1, delimiter)
+                index += 2
+                continue
+            if character != "\n":
+                comments[index] = True
+            index += 1
+            continue
 
         if kind == "string-text":
             if character == "\\":
@@ -499,6 +521,15 @@ def _lexical_positions(
             executable[index] = True
             contexts.pop()
             index += 1
+            continue
+
+        if (
+            path_suffix in _C_STYLE_BLOCK_COMMENT_SUFFIXES
+            and line.startswith("/*", index)
+        ):
+            comments[index : index + 2] = b"\x01\x01"
+            contexts.append(("block-comment", 1, ""))
+            index += 2
             continue
 
         comment_marker_length = _line_comment_marker_length(
