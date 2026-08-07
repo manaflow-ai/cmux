@@ -32,7 +32,7 @@ enum MainWindowPersistenceRouteSnapshot {
     var selectedWorkspaceId: UUID? {
         switch self {
         case .live(let route):
-            route.tabManager.selectedTabId
+            return route.tabManager.selectedTabId
         case .frozen(_, let snapshot):
             guard let index = snapshot.tabManager.selectedWorkspaceIndex,
                   snapshot.tabManager.workspaces.indices.contains(index) else {
