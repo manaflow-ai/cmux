@@ -29,6 +29,12 @@ struct MobileIrohConnectionCheckSection: View {
             .accessibilityIdentifier("MobileIrohRunConnectionCheck")
 
             if let report {
+                LabeledContent(
+                    L10n.string("mobile.iroh.check.path", defaultValue: "Active Route"),
+                    value: selectedPath(report.selectedPath)
+                )
+                .accessibilityIdentifier("MobileIrohConnectionCheckPath")
+
                 ForEach(report.stages) { stage in
                     LabeledContent(stageTitle(stage.kind)) {
                         Label(stageStatus(stage.status), systemImage: stageSymbol(stage.status))
@@ -53,6 +59,16 @@ struct MobileIrohConnectionCheckSection: View {
                     }
                     .accessibilityIdentifier("MobileIrohShareRelayAllowlist")
                 }
+                ShareLink(item: supportReportText(report)) {
+                    Label(
+                        L10n.string(
+                            "mobile.iroh.check.shareReport",
+                            defaultValue: "Share Connection Report"
+                        ),
+                        systemImage: "square.and.arrow.up"
+                    )
+                }
+                .accessibilityIdentifier("MobileIrohShareConnectionReport")
             }
         } header: {
             Text(L10n.string(
@@ -80,6 +96,57 @@ struct MobileIrohConnectionCheckSection: View {
 
     private var safeRelayOrigins: [String] {
         CmxIrohRelayOrigin.canonicalOrigins(from: relayURLs)
+    }
+
+    private func supportReportText(_ report: CmxIrohConnectionCheckReport) -> String {
+        var lines = [
+            L10n.string(
+                "mobile.iroh.check.report.header",
+                defaultValue: "cmux Connection Report"
+            ),
+            "\(L10n.string("mobile.iroh.check.path", defaultValue: "Active Route")): \(selectedPath(report.selectedPath))",
+        ]
+        lines.append(contentsOf: report.stages.map {
+            "\(stageTitle($0.kind)): \(stageStatus($0.status))"
+        })
+        if report.recommendation != .none {
+            lines.append(
+                "\(L10n.string("mobile.iroh.check.report.action", defaultValue: "Suggested Action")): \(recommendation(report.recommendation))"
+            )
+        }
+        if !safeRelayOrigins.isEmpty {
+            lines.append("")
+            lines.append(relayAllowlistText)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func selectedPath(_ path: CmxIrohSelectedTransportPath) -> String {
+        switch path {
+        case .unavailable:
+            L10n.string("mobile.iroh.check.path.unavailable", defaultValue: "No Live Route")
+        case .direct:
+            L10n.string("mobile.iroh.check.path.direct", defaultValue: "Direct Peer-to-Peer")
+        case .privateNetwork:
+            L10n.string("mobile.iroh.check.path.private", defaultValue: "LAN or Private VPN")
+        case let .managedRelay(provider, region):
+            String(
+                format: L10n.string(
+                    "mobile.iroh.check.path.managedRelay",
+                    defaultValue: "cmux Relay (%1$@, %2$@)"
+                ),
+                provider,
+                region
+            )
+        case let .customRelay(displayName, _, _):
+            String(
+                format: L10n.string(
+                    "mobile.iroh.check.path.customRelay",
+                    defaultValue: "Custom Relay (%1$@)"
+                ),
+                displayName
+            )
+        }
     }
 
     private func stageTitle(_ kind: CmxIrohConnectionCheckReport.StageKind) -> String {

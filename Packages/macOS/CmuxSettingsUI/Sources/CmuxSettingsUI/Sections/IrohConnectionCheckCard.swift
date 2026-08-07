@@ -43,6 +43,16 @@ struct IrohConnectionCheckCard: View {
 
     @ViewBuilder
     private func resultRows(_ report: CmxIrohConnectionCheckReport) -> some View {
+        SettingsCardDivider()
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:networking:connectionCheck:path",
+            String(localized: "settings.networking.check.path", defaultValue: "Active Route")
+        ) {
+            Text(selectedPath(report.selectedPath))
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("SettingsIrohConnectionCheckPath")
+        }
         ForEach(report.stages.filter { $0.status != .notApplicable }) { stage in
             SettingsCardDivider()
             SettingsCardRow(
@@ -78,6 +88,25 @@ struct IrohConnectionCheckCard: View {
                 .accessibilityIdentifier("SettingsIrohShareRelayAllowlist")
             }
         }
+        SettingsCardDivider()
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:networking:connectionCheck:shareReport",
+            String(
+                localized: "settings.networking.check.shareReport",
+                defaultValue: "Connection Report"
+            )
+        ) {
+            ShareLink(item: supportReportText(report)) {
+                Label(
+                    String(localized: "settings.networking.check.share", defaultValue: "Share…"),
+                    systemImage: "square.and.arrow.up"
+                )
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityIdentifier("SettingsIrohShareConnectionReport")
+        }
     }
 
     private var activeRelayURLs: [String] {
@@ -98,6 +127,66 @@ struct IrohConnectionCheckCard: View {
 
     private var safeRelayOrigins: [String] {
         CmxIrohRelayOrigin.canonicalOrigins(from: activeRelayURLs)
+    }
+
+    private func supportReportText(_ report: CmxIrohConnectionCheckReport) -> String {
+        var lines = [
+            String(
+                localized: "settings.networking.check.report.header",
+                defaultValue: "cmux Connection Report"
+            ),
+            "\(String(localized: "settings.networking.check.path", defaultValue: "Active Route")): \(selectedPath(report.selectedPath))",
+        ]
+        lines.append(contentsOf: report.stages.filter { $0.status != .notApplicable }.map {
+            "\(stageTitle($0.kind)): \(stageStatus($0.status))"
+        })
+        if report.recommendation != .none {
+            lines.append(
+                "\(String(localized: "settings.networking.check.report.action", defaultValue: "Suggested Action")): \(recommendation(report.recommendation))"
+            )
+        }
+        if !safeRelayOrigins.isEmpty {
+            lines.append("")
+            lines.append(relayAllowlistText)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func selectedPath(_ path: CmxIrohSelectedTransportPath) -> String {
+        switch path {
+        case .unavailable:
+            String(
+                localized: "settings.networking.check.path.unavailable",
+                defaultValue: "No Live Route"
+            )
+        case .direct:
+            String(
+                localized: "settings.networking.check.path.direct",
+                defaultValue: "Direct Peer-to-Peer"
+            )
+        case .privateNetwork:
+            String(
+                localized: "settings.networking.check.path.private",
+                defaultValue: "LAN or Private VPN"
+            )
+        case let .managedRelay(provider, region):
+            String(
+                format: String(
+                    localized: "settings.networking.check.path.managedRelay",
+                    defaultValue: "cmux Relay (%1$@, %2$@)"
+                ),
+                provider,
+                region
+            )
+        case let .customRelay(displayName, _, _):
+            String(
+                format: String(
+                    localized: "settings.networking.check.path.customRelay",
+                    defaultValue: "Custom Relay (%1$@)"
+                ),
+                displayName
+            )
+        }
     }
 
     private func stageTitle(_ kind: CmxIrohConnectionCheckReport.StageKind) -> String {

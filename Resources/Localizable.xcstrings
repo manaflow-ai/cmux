@@ -265259,6 +265259,42 @@
         }
       }
     },
+    "settings.networking.check.path": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Active Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "アクティブな経路" } }
+    } },
+    "settings.networking.check.path.unavailable": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "No Live Route" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "有効な経路なし" } }
+    } },
+    "settings.networking.check.path.direct": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Direct Peer-to-Peer" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "ピアツーピア直接接続" } }
+    } },
+    "settings.networking.check.path.private": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "LAN or Private VPN" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "LAN またはプライベート VPN" } }
+    } },
+    "settings.networking.check.path.managedRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Relay (%1$@, %2$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux リレー（%1$@、%2$@）" } }
+    } },
+    "settings.networking.check.path.customRelay": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Custom Relay (%1$@)" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "カスタムリレー（%1$@）" } }
+    } },
+    "settings.networking.check.shareReport": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "接続レポート" } }
+    } },
+    "settings.networking.check.report.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "cmux Connection Report" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "cmux 接続レポート" } }
+    } },
+    "settings.networking.check.report.action": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Suggested Action" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "推奨される対応" } }
+    } },
     "settings.networking.check.shareAllowlist": { "extractionState": "manual", "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "IT Relay Allowlist" } },
       "ja": { "stringUnit": { "state": "translated", "value": "IT リレー許可リスト" } }

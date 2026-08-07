@@ -25,8 +25,10 @@ final class SettingsNetworkingBehaviorUITests: SettingsUITestCase {
                 window.staticTexts["Encrypted Transport"].exists
                     && window.staticTexts["Relay Policy"].exists
                     && window.staticTexts["Relay Reachability"].exists
+                    && window.descendants(matching: .any)["SettingsIrohConnectionCheckPath"].exists
+                    && window.descendants(matching: .any)["SettingsIrohShareConnectionReport"].exists
             },
-            "Running the check should publish transport, relay policy, and relay reachability stages"
+            "Running the check should publish its route, staged result, and safe support report"
         )
     }
 }

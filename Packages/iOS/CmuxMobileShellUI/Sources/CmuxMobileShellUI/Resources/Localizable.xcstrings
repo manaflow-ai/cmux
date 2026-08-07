@@ -887,6 +887,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "自動" } }
       }
     },
+    "mobile.iroh.private.advanced" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Advanced Private Addresses" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "詳細設定：プライベートアドレス" } }
+      }
+    },
     "mobile.iroh.private.custom.add" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -946,8 +953,8 @@
     "mobile.iroh.private.footer" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Private addresses stay on this device and are fallback paths only. cmux pins the Mac's broker-authenticated Iroh EndpointID and current UDP port; an address never proves identity." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "プライベートアドレスはこのデバイス内にのみ保存され、フォールバック経路としてのみ使用されます。cmuxはブローカーが認証したMacのIroh EndpointIDと現在のUDPポートを固定します。アドレス自体を本人確認には使用しません。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Most people do not need private addresses. Use them only when IT provides a route that automatic LAN, VPN, and relay discovery cannot find. They remain end-to-end encrypted and never prove identity by themselves." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "通常、プライベートアドレスの設定は不要です。LAN、VPN、リレーの自動検出で見つからない経路をIT部門から指定された場合にのみ使用してください。通信はエンドツーエンドで暗号化され、アドレス自体を本人確認には使用しません。" } }
       }
     },
     "mobile.iroh.private.lan" : {
@@ -1285,6 +1292,42 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
       }
     },
+    "mobile.iroh.check.path" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Active Route" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "アクティブな経路" } }
+    } },
+    "mobile.iroh.check.path.unavailable" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "No Live Route" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "有効な経路なし" } }
+    } },
+    "mobile.iroh.check.path.direct" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Direct Peer-to-Peer" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "ピアツーピア直接接続" } }
+    } },
+    "mobile.iroh.check.path.private" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "LAN or Private VPN" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "LAN またはプライベート VPN" } }
+    } },
+    "mobile.iroh.check.path.managedRelay" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux Relay (%1$@, %2$@)" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux リレー（%1$@、%2$@）" } }
+    } },
+    "mobile.iroh.check.path.customRelay" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Custom Relay (%1$@)" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "カスタムリレー（%1$@）" } }
+    } },
+    "mobile.iroh.check.shareReport" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Share Connection Report" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続レポートを共有" } }
+    } },
+    "mobile.iroh.check.report.header" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "cmux Connection Report" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "cmux 接続レポート" } }
+    } },
+    "mobile.iroh.check.report.action" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Suggested Action" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "推奨される対応" } }
+    } },
     "mobile.iroh.check.shareAllowlist" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Share IT Allowlist" } },
       "ja" : { "stringUnit" : { "state" : "translated", "value" : "IT 許可リストを共有" } }
