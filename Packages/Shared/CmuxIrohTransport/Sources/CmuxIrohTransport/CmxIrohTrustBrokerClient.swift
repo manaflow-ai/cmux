@@ -538,7 +538,9 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 )
                 guard response.protocolVersion
                         == CmxConnectivitySyncResponse.scopedProtocolVersion,
-                      response.discoveryScope == discoveryScope else {
+                      response.discoveryScope == discoveryScope,
+                      !response.changed
+                        || response.snapshotScopeComplete == true else {
                     throw CmxIrohTrustBrokerClientError.invalidResponse
                 }
                 return response

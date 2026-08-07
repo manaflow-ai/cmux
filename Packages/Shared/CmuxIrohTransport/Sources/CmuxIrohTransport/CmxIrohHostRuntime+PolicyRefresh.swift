@@ -435,8 +435,11 @@ extension CmxIrohHostRuntime {
             .parse(binding.lastSeenAt)?
             .addingTimeInterval(CmxIrohPathHint.maximumPrivateHintTTL)
         let pathHintExpiry = binding.pathHints.compactMap(\.expiresAt).min()
+        // A stale authoritative timestamp cannot safely arm an immediate
+        // renewal: another stale success would otherwise spin registration.
         let expiry = [bindingFreshnessExpiry, pathHintExpiry]
             .compactMap { $0 }
+            .filter { $0 > now }
             .min()
         guard let expiry else { return nil }
         let remaining = expiry.timeIntervalSince(now)

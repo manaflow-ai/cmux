@@ -2209,7 +2209,7 @@ public final class MobileIrohRuntimeComposition:
     ) -> [String]? {
         switch policy {
         case .development(let expectedInstanceTag):
-            [expectedInstanceTag.lowercased()]
+            [expectedInstanceTag]
         case .official:
             ["default", "nightly"]
         case nil:
