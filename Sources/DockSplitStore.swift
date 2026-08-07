@@ -15,6 +15,11 @@ import WebKit
 @MainActor
 @Observable
 final class DockSplitStore: BonsplitDelegate {
+    private struct PendingTerminalTitleUpdate {
+        let title: String
+        weak var sourceSurface: TerminalSurface?
+    }
+
     let workspaceId: UUID
     let bonsplitController: BonsplitController
 
@@ -50,7 +55,13 @@ final class DockSplitStore: BonsplitDelegate {
     @ObservationIgnored private var activeTerminalFontSizeChangeInheritanceContext:
         TerminalFontSizeChangeInheritanceContext?
     var panelCancellables: [UUID: AnyCancellable] = [:]
+    @ObservationIgnored private var pendingTerminalTitleUpdates:
+        [UUID: PendingTerminalTitleUpdate] = [:]
+    @ObservationIgnored private let terminalTitleUpdateCoalescer:
+        NotificationBurstCoalescer
     @ObservationIgnored var detachedSurfaceTransfersByPanelId: [UUID: Workspace.DetachedSurfaceTransfer] = [:]
+    @ObservationIgnored var restoredPanelTitleBoundariesByPanelId:
+        [UUID: RestoredPanelTitleBoundary] = [:]
     /// Live agent runtime owned by Dock panels. The matching transfer snapshot
     /// is kept in sync so the state survives Dock-to-workspace moves.
     @ObservationIgnored var agentRuntimeByPanelId: [UUID: Workspace.DetachedAgentRuntimeState] = [:]
@@ -255,6 +266,7 @@ final class DockSplitStore: BonsplitDelegate {
         baseDirectoryProvider: @escaping () -> String?,
         remoteBrowserSettingsProvider: @escaping () -> DockRemoteBrowserSettings = { .local },
         browserAvailabilityProvider: @escaping () -> Bool = { BrowserAvailabilitySettings.isEnabled() },
+        terminalTitleUpdateCoalescer: NotificationBurstCoalescer? = nil,
         settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard),
         agentSessionAutoResumeDefaults: UserDefaults = .standard,
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
@@ -265,6 +277,8 @@ final class DockSplitStore: BonsplitDelegate {
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider
+        self.terminalTitleUpdateCoalescer =
+            terminalTitleUpdateCoalescer ?? NotificationBurstCoalescer()
         self.settings = settings
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.terminalWorkingDirectoryResolver = terminalWorkingDirectoryResolver
@@ -468,7 +482,7 @@ final class DockSplitStore: BonsplitDelegate {
             websiteDataStore: websiteDataStore
         ) else { return nil }
         let previousFocus = focus ? nil : focusedDockPaneSelection()
-        guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId, tracksTerminalTitle: true) else {
+        guard let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: paneId) else {
             return nil
         }
         recordExplicitPanelCreation()
@@ -529,7 +543,7 @@ final class DockSplitStore: BonsplitDelegate {
             // Empty tree: place into the root pane rather than splitting.
             let previousFocus = focus ? nil : focusedDockPaneSelection()
             guard let rootPane = bonsplitController.allPaneIds.first,
-                  let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane, tracksTerminalTitle: true) else {
+                  let tabId = attachPanelAsTab(panel, kind: kind, title: panel.displayTitle, inPane: rootPane) else {
                 return nil
             }
             recordExplicitPanelCreation()
@@ -566,7 +580,7 @@ final class DockSplitStore: BonsplitDelegate {
             discardPanelOwnershipAndClose(panelId: panel.id)
             return nil
         }
-        installSubscription(for: panel, tracksTerminalTitle: true)
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         recordExplicitPanelCreation()
         if focus {
@@ -869,8 +883,7 @@ final class DockSplitStore: BonsplitDelegate {
         _ panel: any Panel,
         kind: DockSurfaceKind,
         title: String,
-        inPane paneId: PaneID?,
-        tracksTerminalTitle: Bool
+        inPane paneId: PaneID?
     ) -> TabID? {
         panels[panel.id] = panel
         guard let tabId = bonsplitController.createTab(
@@ -885,14 +898,14 @@ final class DockSplitStore: BonsplitDelegate {
             return nil
         }
         surfaceIdToPanelId[tabId] = panel.id
-        installSubscription(for: panel, tracksTerminalTitle: tracksTerminalTitle)
+        installSubscription(for: panel)
         applyVisibility(to: panel)
         return tabId
     }
 
     // MARK: - Tab metadata subscriptions
 
-    func installSubscription(for panel: any Panel, tracksTerminalTitle: Bool) {
+    func installSubscription(for panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
             configureAgentHibernationResume(for: terminal)
         }
@@ -933,25 +946,112 @@ final class DockSplitStore: BonsplitDelegate {
                 )
             }
             panelCancellables[panel.id] = cancellable
-        } else if tracksTerminalTitle, let terminal = panel as? TerminalPanel {
-            let cancellable = terminal.$title
-                .removeDuplicates()
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self, weak terminal] _ in
-                    guard let self, let terminal, let tabId = self.surfaceId(forPanelId: terminal.id),
-                          let existing = self.bonsplitController.tab(tabId) else { return }
-                    // Skip the @Observable mutation when the resolved title is
-                    // unchanged, so a terminal re-emitting the same title does not
-                    // re-render the Dock tree.
-                    let resolvedTitle = terminal.displayTitle
-                    guard !existing.hasCustomTitle,
-                          existing.title != resolvedTitle else {
-                        return
-                    }
-                    self.bonsplitController.updateTab(tabId, title: resolvedTitle)
-                }
-            panelCancellables[panel.id] = cancellable
+        } else {
+            panelCancellables.removeValue(forKey: panel.id)
         }
+    }
+
+    /// Keeps the live terminal model and its non-custom Bonsplit tab on one
+    /// title mutation path. Callers that synchronously adopt a Ghostty title
+    /// invoke this directly; the publisher remains the fallback for other
+    /// terminal title writers.
+    private func synchronizeTerminalTabTitle(_ terminal: TerminalPanel) {
+        guard let tabId = surfaceId(forPanelId: terminal.id),
+              let existing = bonsplitController.tab(tabId) else {
+            return
+        }
+        let resolvedTitle = terminal.displayTitle
+        guard !existing.hasCustomTitle,
+              existing.title != resolvedTitle else {
+            return
+        }
+        bonsplitController.updateTab(tabId, title: resolvedTitle)
+    }
+
+    /// Applies an admitted Dock terminal title to the model and its tab in the
+    /// same main-actor turn.
+    func applyResolvedTerminalTitle(_ title: String, to terminal: TerminalPanel) {
+        terminal.updateTitle(title)
+        synchronizeTerminalTabTitle(terminal)
+    }
+
+    /// Applies every admitted title currently waiting on the Dock's bounded
+    /// coalescer. Persistence and transfer boundaries call this before reading
+    /// title metadata so their snapshots include the latest accepted value.
+    func flushPendingTerminalTitleUpdates() {
+        terminalTitleUpdateCoalescer.flushNow()
+        applyPendingTerminalTitleUpdates()
+    }
+
+    /// Preserves shell-state/title ordering for one surface without forcing
+    /// unrelated Dock terminals through the same early flush.
+    func flushPendingTerminalTitleUpdate(panelId: UUID) {
+        guard let update = pendingTerminalTitleUpdates.removeValue(
+            forKey: panelId
+        ) else {
+            return
+        }
+        applyPendingTerminalTitleUpdate(update, panelId: panelId)
+    }
+
+    /// Drops an update captured from a panel lifecycle that is ending.
+    func discardPendingTerminalTitleUpdate(panelId: UUID) {
+        pendingTerminalTitleUpdates.removeValue(forKey: panelId)
+    }
+
+    private func enqueueTerminalTitleUpdate(
+        _ title: String,
+        terminal: TerminalPanel
+    ) {
+        pendingTerminalTitleUpdates[terminal.id] = PendingTerminalTitleUpdate(
+            title: title,
+            sourceSurface: terminal.surface
+        )
+        terminalTitleUpdateCoalescer.signal(
+            delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)
+        ) { [weak self] in
+            self?.applyPendingTerminalTitleUpdates()
+        }
+    }
+
+    private func applyPendingTerminalTitleUpdates() {
+        guard !pendingTerminalTitleUpdates.isEmpty else { return }
+        let updates = pendingTerminalTitleUpdates
+        pendingTerminalTitleUpdates.removeAll(keepingCapacity: true)
+        for (panelId, update) in updates {
+            applyPendingTerminalTitleUpdate(update, panelId: panelId)
+        }
+    }
+
+    private func applyPendingTerminalTitleUpdate(
+        _ update: PendingTerminalTitleUpdate,
+        panelId: UUID
+    ) {
+        guard let sourceSurface = update.sourceSurface,
+              let terminal = panels[panelId] as? TerminalPanel,
+              terminal.surface === sourceSurface else {
+            return
+        }
+        applyResolvedTerminalTitle(update.title, to: terminal)
+    }
+
+    @discardableResult
+    func applyTerminalTitleChange(_ change: GhosttyTitleChange) -> Bool {
+        guard change.tabId == workspaceId,
+              let terminal = panels[change.surfaceId] as? TerminalPanel,
+              change.matches(sourceSurface: terminal.surface) else {
+            return false
+        }
+        let title = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return true }
+        guard shouldApplyRestoredPanelTitle(
+            panelId: change.surfaceId,
+            rawTitle: title
+        ) else {
+            return true
+        }
+        enqueueTerminalTitleUpdate(title, terminal: terminal)
+        return true
     }
 
     // MARK: - BonsplitDelegate
@@ -1123,9 +1223,6 @@ final class DockSplitStore: BonsplitDelegate {
         for (index, entry) in created.enumerated() {
             let definition = entry.definition
             let panel = entry.panel
-            // Config terminals carry a user-supplied title; keep it static
-            // (don't track the live process title) to match Dock's prior look.
-            let tracksTitle = definition.kind == .browser
 
             if let previousPanelId, let sourcePaneId = paneId(forPanelId: previousPanelId) {
                 // Divider = the height share of everything already placed above
@@ -1155,10 +1252,10 @@ final class DockSplitStore: BonsplitDelegate {
                     discardPanelOwnershipAndClose(panelId: panel.id)
                     continue
                 }
-                installSubscription(for: panel, tracksTerminalTitle: tracksTitle)
+                installSubscription(for: panel)
                 applyVisibility(to: panel)
             } else {
-                guard attachPanelAsTab(panel, kind: definition.kind, title: definition.title, inPane: rootPaneId, tracksTerminalTitle: tracksTitle) != nil else {
+                guard attachPanelAsTab(panel, kind: definition.kind, title: definition.title, inPane: rootPaneId) != nil else {
                     continue
                 }
             }

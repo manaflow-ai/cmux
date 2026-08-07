@@ -146,9 +146,16 @@ public final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Unique identity for this terminal process generation.
     ///
-    /// Respawning a logical surface constructs a new ``TerminalSurface`` with
-    /// the same ``id`` but a different lifecycle identity.
-    public let terminalLifecycleId: UUID
+    /// Agent hibernation retains this model while replacing its child runtime,
+    /// so the identity advances when that runtime is retired. The registry
+    /// mirrors the current value under its synchronous validation lock.
+    @MainActor public private(set) var terminalLifecycleId: UUID
+
+    /// Retires the child generation before a retained surface spawns another.
+    @MainActor
+    func advanceTerminalLifecycleForRuntimeReplacement() {
+        terminalLifecycleId = registry.advanceTerminalLifecycle(for: self)
+    }
 
     /// The owning workspace id.
     public private(set) var tabId: UUID
@@ -555,7 +562,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.surfaceView = views.surfaceView
         self.paneHost = views.paneHost
         preparePaneHost(self.paneHost)
-        registry.register(self)
+        registry.register(
+            self,
+            terminalLifecycleID: terminalLifecycleId
+        )
         self.paneHost.attachSurface(self)
 
         let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -737,8 +747,8 @@ extension TerminalSurface: TerminalSurfaceControlling {
 }
 
 // The engine's surface registry tracks surfaces behind the cross-domain
-// TerminalSurfacing seam; TerminalSurface satisfies it with its immutable
-// `id` and `focusPlacement`.
+// TerminalSurfacing seam; lifecycle generations are registered separately so
+// the registry never reads mutable model state from a socket worker thread.
 extension TerminalSurface: TerminalSurfacing {}
 
 /// Transports the hidden bootstrap window from a nonisolated `deinit` to the

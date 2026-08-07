@@ -34,4 +34,85 @@ struct SocketFastPathStateTests {
         #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
         #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
     }
+
+    @Test func removedPanelPublishesItsInitialStateWhenTheIDIsReused() {
+        let state = SocketFastPathState()
+        let workspace = UUID()
+        let otherWorkspace = UUID()
+        let panel = UUID()
+        let otherPanel = UUID()
+
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: otherPanel, state: "promptIdle"))
+        #expect(state.shouldPublishShellActivity(workspaceId: otherWorkspace, panelId: panel, state: "promptIdle"))
+
+        state.removeShellActivity(panelIds: [panel])
+
+        #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
+        #expect(state.shouldPublishShellActivity(workspaceId: otherWorkspace, panelId: panel, state: "promptIdle"))
+        #expect(!state.shouldPublishShellActivity(workspaceId: workspace, panelId: otherPanel, state: "promptIdle"))
+    }
+
+    @Test func replacementTerminalGenerationPublishesTheSameState() {
+        let state = SocketFastPathState()
+        let workspace = UUID()
+        let panel = UUID()
+        let oldLifecycle = UUID()
+        let replacementLifecycle = UUID()
+
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: oldLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: oldLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: replacementLifecycle,
+            state: "promptIdle"
+        ))
+    }
+
+    @Test func replacementTerminalGenerationOverwritesThePreviousDedupeSlot() {
+        let state = SocketFastPathState(maxTrackedShellStates: 2)
+        let workspace = UUID()
+        let panel = UUID()
+        let otherPanel = UUID()
+        let oldLifecycle = UUID()
+        let replacementLifecycle = UUID()
+
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: oldLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: replacementLifecycle,
+            state: "promptIdle"
+        ))
+        #expect(state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: otherPanel,
+            state: "promptIdle"
+        ))
+
+        // Replacing one process must not consume a second cache slot for the
+        // same logical surface and evict its current-generation state.
+        #expect(!state.shouldPublishShellActivity(
+            workspaceId: workspace,
+            panelId: panel,
+            terminalLifecycleID: replacementLifecycle,
+            state: "promptIdle"
+        ))
+    }
 }

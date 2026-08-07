@@ -225,6 +225,9 @@ _cmux_report_shell_activity_state_via_relay() {
     if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
     fi
+    if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+        params+=",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
+    fi
     params+="}"
     _cmux_relay_rpc_bg "surface.report_shell_state" "$params"
 }
@@ -740,7 +743,11 @@ _cmux_report_shell_activity_state() {
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     if _cmux_socket_is_unix; then
-        _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        local payload="report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+        if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+            payload+=" --terminal-lifecycle-id=$CMUX_TERMINAL_LIFECYCLE_ID"
+        fi
+        _cmux_send_bg "$payload"
     else
         _cmux_report_shell_activity_state_via_relay "$state" || _CMUX_SHELL_ACTIVITY_LAST=""
     fi

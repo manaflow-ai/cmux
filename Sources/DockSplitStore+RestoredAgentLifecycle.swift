@@ -5,6 +5,7 @@ import Foundation
 
 extension DockSplitStore {
     func clearSessionRestoreState(panelId: UUID) {
+        discardPendingTerminalTitleUpdate(panelId: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
@@ -15,18 +16,20 @@ extension DockSplitStore {
         replacedCachedTransferAgentSessionPanelIds.remove(panelId)
         restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
         agentRuntimeByPanelId.removeValue(forKey: panelId)
+        restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard let terminal = panels[panelId] as? TerminalPanel else { return }
+        flushPendingTerminalTitleUpdate(panelId: panelId)
         let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
         if previousState != state,
-           let pendingTitle = advanceTransferredRestoredPanelTitleBoundary(
+           let pendingTitle = advanceRestoredPanelTitleBoundary(
                panelId: panelId,
                state: state
            ) {
-            terminal.updateTitle(pendingTitle)
+            applyResolvedTerminalTitle(pendingTitle, to: terminal)
         }
         let restoredAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
 
@@ -51,25 +54,79 @@ extension DockSplitStore {
         }
     }
 
-    /// Keeps a Workspace-owned restore boundary coherent while its live panel
-    /// temporarily belongs to a Dock.
-    private func advanceTransferredRestoredPanelTitleBoundary(
+    /// Starts title admission for a terminal rebuilt directly inside this Dock.
+    func armRestoredPanelTitleBoundary(
+        panelId: UUID,
+        internallySeededInput: String?
+    ) {
+        let boundary = RestoredPanelTitleBoundary(
+            internallySeededInput: internallySeededInput,
+            shellState: (panels[panelId] as? TerminalPanel)?.shellActivity.state
+                ?? .unknown
+        )
+        storeRestoredPanelTitleBoundary(
+            boundary.isReleased ? nil : boundary,
+            panelId: panelId
+        )
+    }
+
+    /// Advances either a Dock-owned boundary or one carried by a transferred panel.
+    private func advanceRestoredPanelTitleBoundary(
         panelId: UUID,
         state: PanelShellActivityState
     ) -> String? {
-        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
-              var boundary = transfer.restoredPanelTitleBoundary else {
+        guard var boundary = restoredPanelTitleBoundariesByPanelId[panelId] else {
             return nil
         }
         let pendingTitle = boundary.observe(shellState: state)
-        transfer.restoredPanelTitleBoundary = boundary.isReleased ? nil : boundary
-        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        storeRestoredPanelTitleBoundary(
+            boundary.isReleased ? nil : boundary,
+            panelId: panelId
+        )
         return pendingTitle
+    }
+
+    /// Returns whether a normalized raw PTY title crossed the active restore boundary.
+    func shouldApplyRestoredPanelTitle(panelId: UUID, rawTitle: String) -> Bool {
+        guard var boundary = restoredPanelTitleBoundariesByPanelId[panelId] else {
+            return true
+        }
+        let shouldApply = boundary.shouldApply(rawTitle: rawTitle)
+        storeRestoredPanelTitleBoundary(
+            boundary.isReleased ? nil : boundary,
+            panelId: panelId
+        )
+        return shouldApply
+    }
+
+    private func storeRestoredPanelTitleBoundary(
+        _ boundary: RestoredPanelTitleBoundary?,
+        panelId: UUID
+    ) {
+        if let boundary {
+            restoredPanelTitleBoundariesByPanelId[panelId] = boundary
+        } else {
+            restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
+        }
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId] else {
+            return
+        }
+        transfer.restoredPanelTitleBoundary = boundary
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
     }
 
     func adoptSessionRestoreState(from detached: Workspace.DetachedSurfaceTransfer) {
         invalidatedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
         replacedCachedTransferAgentSessionPanelIds.remove(detached.panelId)
+        storeRestoredPanelTitleBoundary(
+            detached.restoredPanelTitleBoundary,
+            panelId: detached.panelId
+        )
+        if let shellActivityState = detached.shellActivityState {
+            (detached.panel as? TerminalPanel)?.updateShellActivityState(
+                shellActivityState
+            )
+        }
         restoredAgentLifecycle.seedTransferredState(
             panelId: detached.panelId,
             snapshot: detached.restorableAgent,

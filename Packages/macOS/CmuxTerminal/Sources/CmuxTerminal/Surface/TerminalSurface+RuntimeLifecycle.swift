@@ -313,6 +313,13 @@ extension TerminalSurface {
         agentHibernationRuntimeTeardownReservation = nil
         _ = fontSizeLineageSnapshot()
         mobileViewportFontFitState = nil
+        if !runtimeSurfaceSuspendedForAgentHibernation {
+            // End the child-process generation at the successful suspension
+            // boundary. The registry advances first, synchronously rejecting
+            // delayed reports before this main-actor model exports the token
+            // to the replacement runtime.
+            advanceTerminalLifecycleForRuntimeReplacement()
+        }
         runtimeSurfaceSuspendedForAgentHibernation = true
         backgroundSurfaceStartQueued = false
         backgroundSurfaceStartSource = .normal

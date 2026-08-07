@@ -352,7 +352,9 @@ class TerminalController {
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID], paneIds: [UUID] = []) {
-        for surfaceId in Set(surfaceIds) {
+        let uniqueSurfaceIds = Set(surfaceIds)
+        socketFastPathState.removeShellActivity(panelIds: uniqueSurfaceIds)
+        for surfaceId in uniqueSurfaceIds {
             v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
             v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
             v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)

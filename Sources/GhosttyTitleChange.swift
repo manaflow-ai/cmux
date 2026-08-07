@@ -41,7 +41,10 @@ struct GhosttyTitleChange: Equatable, Sendable {
         return info
     }
 
+    /// Accepts only title events that identify the surface that emitted them.
+    /// Missing identity must fail closed because panel IDs survive respawns.
     func matches(sourceSurface: AnyObject) -> Bool {
-        sourceSurfaceIdentifier.map { $0 == ObjectIdentifier(sourceSurface) } ?? true
+        guard let sourceSurfaceIdentifier else { return false }
+        return sourceSurfaceIdentifier == ObjectIdentifier(sourceSurface)
     }
 }
