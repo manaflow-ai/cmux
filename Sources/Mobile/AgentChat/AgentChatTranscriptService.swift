@@ -112,8 +112,19 @@ final class AgentChatTranscriptService {
 
     let registry: AgentChatSessionRegistry
     let resolver: AgentChatTranscriptResolver
-    private var tailers: [String: AgentChatTranscriptTailer] = [:]
-    private let hasEventSubscribers: @MainActor () -> Bool
+    let artifactIndex: AgentChatArtifactIndex
+    let artifactGalleryOrderingCache: ChatArtifactGalleryOrderingCache
+    let artifactGalleryRowCountCache: ChatArtifactGalleryRowCountCache
+    let artifactCaptureCoordinator: AgentArtifactCaptureCoordinator?
+    let isAutomaticArtifactCaptureEnabled: @MainActor @Sendable () -> Bool
+    var automaticArtifactCaptureWasEnabled: Bool
+    var artifactCaptureTasks: [String: (
+        token: UUID,
+        task: Task<Void, Never>?,
+        pending: (@Sendable () async -> Void)?
+    )] = [:]
+    var tailers: [String: AgentChatTranscriptTailer] = [:]
+    let hasEventSubscribers: @MainActor () -> Bool
     private let emitEventPayload: @MainActor ([String: Any]) -> Void
     private let now: () -> Date
     /// Drives the live agent-prose streaming preview.
@@ -129,7 +140,7 @@ final class AgentChatTranscriptService {
     /// Sessions whose transcript could not be resolved cheaply; skipped until
     /// authoritative bindings arrive or an explicit history request retries.
     /// Hook delivery never runs Codex's recursive fallback scan.
-    private var failedResolutions: Set<String> = []
+    var failedResolutions: Set<String> = []
     private let fallbackResolutionCoordinator: AgentChatFallbackTranscriptResolutionCoordinator
     private var endedListability = AgentChatEndedTranscriptListabilityCache()
 
@@ -160,6 +171,11 @@ final class AgentChatTranscriptService {
         emitEventPayload: @escaping @MainActor ([String: Any]) -> Void = { payload in
             MobileHostService.emitEvent(topic: AgentChatTranscriptService.eventTopic, payload: payload)
         },
+        artifactIndex: AgentChatArtifactIndex = AgentChatArtifactIndex(),
+        artifactGalleryOrderingCache: ChatArtifactGalleryOrderingCache = ChatArtifactGalleryOrderingCache(),
+        artifactGalleryRowCountCache: ChatArtifactGalleryRowCountCache = ChatArtifactGalleryRowCountCache(maximumAge: 2),
+        artifactCaptureCoordinator: AgentArtifactCaptureCoordinator? = nil,
+        isAutomaticArtifactCaptureEnabled: @escaping @MainActor @Sendable () -> Bool = { true },
         now: @escaping () -> Date = { Date() },
         fallbackTranscriptPathResolver: AgentChatFallbackTranscriptResolutionCoordinator.Resolver? = nil,
         fallbackResolutionTimeout: Duration = .seconds(3)
@@ -168,6 +184,12 @@ final class AgentChatTranscriptService {
         self.resolver = resolver
         self.hasEventSubscribers = hasEventSubscribers
         self.emitEventPayload = emitEventPayload
+        self.artifactIndex = artifactIndex
+        self.artifactGalleryOrderingCache = artifactGalleryOrderingCache
+        self.artifactGalleryRowCountCache = artifactGalleryRowCountCache
+        self.artifactCaptureCoordinator = artifactCaptureCoordinator
+        self.isAutomaticArtifactCaptureEnabled = isAutomaticArtifactCaptureEnabled
+        self.automaticArtifactCaptureWasEnabled = artifactCaptureCoordinator != nil && isAutomaticArtifactCaptureEnabled()
         self.now = now
         self.fallbackResolutionCoordinator = AgentChatFallbackTranscriptResolutionCoordinator(
             transcriptResolver: resolver,
@@ -216,9 +238,7 @@ final class AgentChatTranscriptService {
         return Array(rows.suffix(proseStreamingSnapshotMaxRows))
     }
 
-    /// A `(session, surface)` resume re-bind cmux authored during session
-    /// restore, buffered until the service is live (restore can run before app
-    /// setup assigns this service, so a direct call would be a silent no-op).
+    /// A cmux-authored resume re-bind buffered until the service is live.
     private struct PendingResumeIntent {
         let sessionID: String
         let source: String
@@ -307,14 +327,11 @@ final class AgentChatTranscriptService {
         default:
             break
         }
-        // Tail eagerly only while someone is listening, and never for an
-        // ended session (its transcript can no longer grow; recreating the
-        // tailer here would undo the ended-state eviction).
-        if record.state != .ended,
-           hasEventSubscribers() {
-            ensureTailer(for: record) {
-                resolver.boundedTranscriptPath(for: record)
-            }
+        // Tail eagerly while chat delivery or automatic artifact capture needs
+        // transcript completion, and never for an ended session (its transcript
+        // can no longer grow; recreating the tailer would undo ended-state eviction).
+        if record.state != .ended {
+            ensureTailerForEagerObservation(for: record)
         }
         // Drive the live prose-streaming preview off the turn lifecycle: a
         // prompt starts the in-flight turn, Stop ends it.
@@ -335,6 +352,7 @@ final class AgentChatTranscriptService {
             }
         case .stop, .sessionEnd:
             endProseTurn(sessionID: record.sessionID)
+            scheduleArtifactCapture(for: record)
         default:
             break
         }
@@ -446,13 +464,6 @@ final class AgentChatTranscriptService {
     }
 
     /// Serves one history page, starting the session's tailer on demand.
-    ///
-    /// - Parameters:
-    ///   - sessionID: The session to read.
-    ///   - beforeSeq: Strict upper bound, or `nil` for the newest page.
-    ///   - limit: Page size cap.
-    /// - Returns: The page, or `nil` when the session or transcript is
-    ///   unknown.
     func history(sessionID: String, beforeSeq: Int?, limit: Int) async -> ChatHistoryPage? {
         guard let record = registry.record(sessionID: sessionID) else { return nil }
         // A user opening the chat is the right moment to retry a previously
@@ -471,6 +482,7 @@ final class AgentChatTranscriptService {
             } else {
                 fallbackPath = await fallbackResolutionCoordinator.resolve(for: record)
             }
+            guard !Task.isCancelled else { return nil }
             guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
             failedResolutions.remove(sessionID)
             guard let resolvedTailer = ensureTailer(for: currentRecord, resolvePath: {
@@ -511,6 +523,20 @@ final class AgentChatTranscriptService {
     }
 
     // MARK: - Internals
+
+    @discardableResult
+    func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
+        if let existing = tailers[record.sessionID] {
+            return existing
+        }
+        guard !failedResolutions.contains(record.sessionID),
+              let boundedPath = resolver.boundedTranscriptPath(for: record) else {
+            // Eager observation must not cache a missing bounded path as a
+            // failed explicit-history lookup. A later hook can still provide it.
+            return nil
+        }
+        return ensureTailer(for: record) { boundedPath }
+    }
 
     @discardableResult
     private func ensureTailer(
@@ -555,7 +581,7 @@ final class AgentChatTranscriptService {
         return tailer
     }
 
-    private func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
+    func publishBatch(_ batch: AgentChatTranscriptTailer.Batch, sessionID: String) {
         #if DEBUG
         cmuxDebugLog(
             "agentChat.transcript.batch session=\(sessionID.prefix(8)) "
@@ -585,6 +611,9 @@ final class AgentChatTranscriptService {
         updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
+            if let completedRecord = registry.record(sessionID: sessionID) {
+                scheduleArtifactCapture(for: completedRecord)
+            }
         }
     }
 
@@ -639,6 +668,7 @@ final class AgentChatTranscriptService {
             failedResolutions.remove(record.sessionID)
         }
         if stateChanged, record.state == .ended {
+            scheduleArtifactCapture(for: record)
             fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
             // The transcript can no longer grow; stop any live preview loop so
             // an agent that exits without a Stop hook doesn't leak the poll task.
@@ -651,12 +681,10 @@ final class AgentChatTranscriptService {
                 Task { await tailer.stop() }
             }
         }
-        guard hasEventSubscribers() else { return }
         if transcriptBecameAvailable, record.state != .ended {
-            ensureTailer(for: record) {
-                resolver.boundedTranscriptPath(for: record)
-            }
+            ensureTailerForEagerObservation(for: record)
         }
+        guard hasEventSubscribers() else { return }
         if record.state == .ended, !endedRecordIsListable {
             emit(frame: ChatSessionEventFrame(sessionID: record.sessionID, event: .sessionRemoved(version: record.version)))
             return
@@ -675,6 +703,8 @@ final class AgentChatTranscriptService {
     private func handleRecordRemoval(_ record: AgentChatSessionRecord) {
         fallbackResolutionCoordinator.cancel(sessionID: record.sessionID)
         endProseTurn(sessionID: record.sessionID)
+        removeArtifactCaptureSession(sessionID: record.sessionID)
+        Task { await artifactGalleryOrderingCache.remove(indexID: record.sessionID) }
         latestTranscriptSeqBySessionID[record.sessionID] = nil
         if let tailer = tailers.removeValue(forKey: record.sessionID) {
             Task { await tailer.stop() }

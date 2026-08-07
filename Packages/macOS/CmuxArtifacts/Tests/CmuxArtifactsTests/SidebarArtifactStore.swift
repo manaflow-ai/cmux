@@ -1,0 +1,109 @@
+import Foundation
+@testable import CmuxArtifacts
+
+actor SidebarArtifactStore: ArtifactStoring {
+    let root: URL
+    private var nodes: [ArtifactNode]
+    private var searchResults: [ArtifactSearchResult] = []
+    private var continuations: [AsyncStream<Void>.Continuation] = []
+    private(set) var lastQuery: String?
+    private(set) var snapshotCount = 0
+    private var suspendsNextLocate = false
+    private var locateIsSuspended = false
+    private var locateStarted: CheckedContinuation<Void, Never>?
+    private var locateRelease: CheckedContinuation<Void, Never>?
+
+    init(root: URL, nodes: [ArtifactNode]) {
+        self.root = root.standardizedFileURL
+        self.nodes = nodes
+    }
+
+    func setSearchResults(_ results: [ArtifactSearchResult]) {
+        searchResults = results
+    }
+
+    func replaceNodes(_ nodes: [ArtifactNode], notify: Bool) {
+        self.nodes = nodes
+        if notify { continuations.forEach { $0.yield(()) } }
+    }
+
+    func waitUntilWatching() async -> Bool {
+        for _ in 0..<100 {
+            if !continuations.isEmpty { return true }
+            // Bounded test deadline while the model starts its watcher task.
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return !continuations.isEmpty
+    }
+
+    func settledSnapshotCount() async -> Int {
+        // Bounded test deadline that lets an already-buffered watcher event run.
+        try? await Task.sleep(for: .milliseconds(100))
+        return snapshotCount
+    }
+
+    func suspendNextLocate() {
+        suspendsNextLocate = true
+    }
+
+    func waitUntilLocateStarts() async {
+        guard !locateIsSuspended else { return }
+        await withCheckedContinuation { continuation in
+            locateStarted = continuation
+        }
+    }
+
+    func releaseLocate() {
+        locateRelease?.resume()
+        locateRelease = nil
+    }
+
+    func locateProjectRoot(startingAt: URL) async -> URL {
+        if suspendsNextLocate {
+            suspendsNextLocate = false
+            locateIsSuspended = true
+            locateStarted?.resume()
+            locateStarted = nil
+            await withCheckedContinuation { continuation in
+                locateRelease = continuation
+            }
+            locateIsSuspended = false
+        }
+        return root
+    }
+    func configuration(projectRoot: URL) -> ArtifactCaptureConfiguration { .defaultValue }
+    func snapshot(projectRoot: URL) -> ArtifactSnapshot {
+        snapshotCount += 1
+        return ArtifactSnapshot(
+            projectRoot: root,
+            filesystemRoot: root.appendingPathComponent(".cmux", isDirectory: true),
+            nodes: nodes,
+            isTruncated: false
+        )
+    }
+
+    func search(projectRoot: URL, query: String) -> [ArtifactSearchResult] {
+        lastQuery = query
+        return searchResults
+    }
+
+    func importFile(
+        sourceURL: URL,
+        context: ArtifactCaptureContext,
+        provenance: ArtifactProvenance,
+        configuration: ArtifactCaptureConfiguration,
+        capturedAt: Date
+    ) throws -> ArtifactImportOutcome {
+        throw ArtifactStoreError.sourceNotRegularFile(sourceURL.path)
+    }
+
+    func resolve(projectRoot: URL, name: String) throws -> ArtifactNode {
+        throw ArtifactStoreError.artifactNotFound(name)
+    }
+
+    func changes(projectRoot: URL) -> AsyncStream<Void> {
+        let pair = AsyncStream<Void>.makeStream()
+        continuations.append(pair.continuation)
+        return pair.stream
+    }
+}

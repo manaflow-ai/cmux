@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxArtifacts
 import CmuxSettings
 import SwiftUI
 import Testing
@@ -62,6 +63,7 @@ struct HiddenRightSidebarContentMountingTests {
         )
         defer { window.orderOut(nil) }
 
+        let artifactRepository = LocalArtifactRepository()
         let rootView = RightSidebarPanelView(
             tabManager: TabManager(),
             fileExplorerStore: FileExplorerStore(),
@@ -70,8 +72,12 @@ struct HiddenRightSidebarContentMountingTests {
             titlebarHeight: 36,
             windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
+            artifactWorkspace: nil,
+            artifactStore: artifactRepository,
+            artifactCaptureService: ArtifactCaptureService(store: artifactRepository),
             onResumeSession: nil,
             onOpenFilePreview: { _ in },
+            onOpenArtifact: { _ in },
             onOpenAsPane: { _ in },
             onClose: {}
         )

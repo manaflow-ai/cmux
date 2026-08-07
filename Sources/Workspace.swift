@@ -2105,14 +2105,20 @@ final class Workspace: Identifiable, ObservableObject {
     enum BrowserPanelCreationPolicy {
         case userInitiated
         case automationPreload
+        case artifactPreview
         case restoration
 
         var permitsCreationWhenBrowserDisabled: Bool {
-            self == .restoration
+            self == .restoration || self == .artifactPreview
         }
 
         var preloadsInitialNavigationInBackground: Bool {
             self == .automationPreload
+        }
+
+        func contentMode(initialURL: URL?) -> BrowserPanelContentMode {
+            guard self == .artifactPreview, let initialURL else { return .standard }
+            return .artifactHTMLPreview(documentURL: initialURL)
         }
     }
 
@@ -8524,6 +8530,7 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            contentMode: creationPolicy.contentMode(initialURL: url),
             websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
@@ -8640,6 +8647,7 @@ final class Workspace: Identifiable, ObservableObject {
             bypassRemoteProxy: bypassRemoteProxy,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
+            contentMode: creationPolicy.contentMode(initialURL: url),
             websiteDataStore: websiteDataStore
         )
         configureBrowserPanel(browserPanel)
@@ -9505,6 +9513,10 @@ final class Workspace: Identifiable, ObservableObject {
               let browserPanel = browserPanel(for: panelId),
               browserPanel.shouldPersistSessionSnapshot(),
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
+            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
+            return
+        }
+        guard browserPanel.contentMode.allowsSessionPersistence else {
             pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
             return
         }

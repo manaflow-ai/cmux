@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Project Files"
+  short_description: "Read and write local agent Notes and Artifacts"
+  default_prompt: "Use $cmux-project-files to save and retrieve project Notes and Artifacts through the cmux CLI."

@@ -58,6 +58,8 @@ extension TerminalController {
             return await v2MobileChatArtifactThumbnail(params: params)
         case "mobile.chat.artifact.list":
             return await v2MobileChatArtifactList(params: params)
+        case "mobile.chat.artifact.save":
+            return await v2MobileChatArtifactSave(params: params)
         case "mobile.chat.artifact.gallery":
             return await v2MobileChatArtifactGallery(params: params)
         default:

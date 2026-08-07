@@ -160,6 +160,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:mobile:iOSPairingHost",
         "setting:mobile:iOSPairingPort",
         "setting:mobile:iOSPairingDisplayName",
+        "setting:betaFeatures:artifacts",
         "setting:betaFeatures:feed",
         "setting:betaFeatures:dock",
         "setting:betaFeatures:customSidebars",

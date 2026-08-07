@@ -8,15 +8,43 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
     public let provenance: ChatArtifactProvenance
     /// Last transcript sequence that mentioned, attached, or edited the path.
     public let lastReferencedSeq: Int
+    /// Most recent transcript occurrence that authorizes capture, if any.
+    public let captureAuthorization: ChatArtifactCaptureAuthorization?
 
     /// Stable identity used by ordering and paging.
     public var id: String { path }
 
-    /// Creates an indexed reference.
+    /// Creates an indexed reference from one provenance-bearing occurrence.
+    ///
+    /// Created and attached provenance authorizes capture at `lastReferencedSeq`.
+    /// Use ``init(path:provenance:lastReferencedSeq:captureAuthorization:)``
+    /// when aggregate provenance and the latest authorization differ.
     public init(path: String, provenance: ChatArtifactProvenance, lastReferencedSeq: Int) {
+        self.init(
+            path: path,
+            provenance: provenance,
+            lastReferencedSeq: lastReferencedSeq,
+            captureAuthorization: provenance.captureAuthorization(sequence: lastReferencedSeq)
+        )
+    }
+
+    /// Creates an indexed reference with independently tracked display provenance and capture authorization.
+    ///
+    /// - Parameters:
+    ///   - path: Canonical display path.
+    ///   - provenance: Highest-precedence provenance observed for the path.
+    ///   - lastReferencedSeq: Last transcript sequence that mentioned the path.
+    ///   - captureAuthorization: Most recent capture-authorizing occurrence, if any.
+    public init(
+        path: String,
+        provenance: ChatArtifactProvenance,
+        lastReferencedSeq: Int,
+        captureAuthorization: ChatArtifactCaptureAuthorization?
+    ) {
         self.path = path
         self.provenance = provenance
         self.lastReferencedSeq = lastReferencedSeq
+        self.captureAuthorization = captureAuthorization
     }
 
     /// Derives one record per canonical path identity from parsed transcript messages.
@@ -48,11 +76,11 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             var textOccurrences: [String] = []
             switch message.kind {
             case .fileEdit(let edit):
-                structuredOccurrences = [(edit.filePath, .created)]
+                structuredOccurrences = [(edit.filePath, .referenced)]
             case .attachment(let attachment):
                 structuredOccurrences = attachment.hostPath.map { [($0, .attached)] } ?? []
             case .toolUse(let toolUse):
-                let provenance: ChatArtifactProvenance = Self.isFileMutationTool(toolUse.toolName)
+                let provenance: ChatArtifactProvenance = toolUse.authorizesCreatedArtifactProvenance
                     ? .created
                     : .referenced
                 structuredOccurrences = (toolUse.referencedPaths ?? []).map { ($0, provenance) }
@@ -133,31 +161,19 @@ public struct ChatArtifactIndexedReference: Sendable, Equatable, Codable, Identi
             canonicalPathByLexicalPath[path] = canonicalPath
         }
         let previous = byPath[canonicalPath]
+        let candidateAuthorization = provenance.captureAuthorization(sequence: seq)
+        let captureAuthorization: ChatArtifactCaptureAuthorization?
+        if let previousAuthorization = previous?.captureAuthorization,
+           let candidateAuthorization {
+            captureAuthorization = previousAuthorization.latest(with: candidateAuthorization)
+        } else {
+            captureAuthorization = previous?.captureAuthorization ?? candidateAuthorization
+        }
         byPath[canonicalPath] = ChatArtifactIndexedReference(
             path: canonicalPath,
-            provenance: Self.higherPrecedence(previous?.provenance, provenance),
-            lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq)
+            provenance: previous?.provenance.preferred(over: provenance) ?? provenance,
+            lastReferencedSeq: max(previous?.lastReferencedSeq ?? Int.min, seq),
+            captureAuthorization: captureAuthorization
         )
-    }
-
-    private static func isFileMutationTool(_ toolName: String) -> Bool {
-        let normalized = toolName.split(separator: ".").last.map(String.init) ?? toolName
-        return normalized.lowercased() == "apply_patch"
-    }
-
-    private static func higherPrecedence(
-        _ lhs: ChatArtifactProvenance?,
-        _ rhs: ChatArtifactProvenance
-    ) -> ChatArtifactProvenance {
-        guard let lhs else { return rhs }
-        return Self.rank(lhs) <= Self.rank(rhs) ? lhs : rhs
-    }
-
-    private static func rank(_ provenance: ChatArtifactProvenance) -> Int {
-        switch provenance {
-        case .created: 0
-        case .attached: 1
-        case .referenced: 2
-        }
     }
 }

@@ -431,7 +431,7 @@ struct ChatArtifactGalleryTests {
                 seq: 30,
                 role: .agent,
                 timestamp: timestamp,
-                kind: .fileEdit(ChatFileEdit(filePath: "/tmp/shared.txt", operation: .write))
+                kind: successfulMutation("/tmp/shared.txt")
             ),
             ChatMessage(
                 id: "late-read",
@@ -506,10 +506,7 @@ struct ChatArtifactGalleryTests {
                 seq: 2,
                 role: .agent,
                 timestamp: timestamp,
-                kind: .fileEdit(ChatFileEdit(
-                    filePath: "/private/tmp/report.png",
-                    operation: .edit
-                ))
+                kind: successfulMutation("/private/tmp/report.png")
             ),
         ]
         let records = ChatArtifactIndexedReference.derive(from: messages)
@@ -527,11 +524,7 @@ struct ChatArtifactGalleryTests {
             seq: 1,
             role: .agent,
             timestamp: Date(timeIntervalSince1970: 0),
-            kind: .toolUse(ChatToolUse(
-                toolName: "functions.apply_patch",
-                summary: "patch",
-                referencedPaths: ["Sources/App.swift"]
-            ))
+            kind: successfulMutation("Sources/App.swift")
         )
         let record = try #require(ChatArtifactIndexedReference.derive(
             from: [message],
@@ -605,5 +598,12 @@ struct ChatArtifactGalleryTests {
         }
         #expect(pages == 3)
         #expect(paths == (1...8).reversed().map { "/tmp/page-\($0).txt" })
+    }
+    private func successfulMutation(_ path: String) -> ChatMessageKind {
+        .toolUse(ChatToolUse(
+            toolName: "apply_patch", summary: "patch",
+            status: .succeeded,
+            referencedPaths: [path], artifactMutationAuthorized: true
+        ))
     }
 }

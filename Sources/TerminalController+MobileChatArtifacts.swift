@@ -1,12 +1,7 @@
 import CmuxAgentChat
+import CmuxArtifacts
 import CmuxSettings
 import Foundation
-
-private enum TerminalControllerChatArtifactIndexProvider {
-    static let shared = AgentChatArtifactIndex()
-    static let ordering = ChatArtifactGalleryOrderingCache()
-    static let rowCounts = ChatArtifactGalleryRowCountCache(maximumAge: 2)
-}
 
 extension TerminalController {
     func v2MobileChatArtifactGallery(params: [String: Any]) async -> V2CallResult {
@@ -45,7 +40,10 @@ extension TerminalController {
             let pageSize = min(max(v2Int(params, "page_size") ?? 60, 1), 100)
             let query = v2RawString(params, "query")
             let includeDirectories = v2Bool(params, "include_directories") ?? false
-            let orderedItems = await TerminalControllerChatArtifactIndexProvider.ordering.ordered(
+            guard let service = agentChatTranscriptService else {
+                return mobileChatArtifactError(.notFound, path: "")
+            }
+            let orderedItems = await service.artifactGalleryOrderingCache.ordered(
                 indexedSession.snapshot.artifacts,
                 indexID: indexedSession.sessionID,
                 generation: indexedSession.snapshot.generation
@@ -74,17 +72,17 @@ extension TerminalController {
         sessionID: String
     ) async throws -> (sessionID: String, snapshot: AgentChatArtifactIndex.Snapshot)? {
         guard let service = agentChatTranscriptService,
-              let record = service.sessionRecord(sessionID: sessionID),
-              let transcriptPath = service.resolver.transcriptPath(for: record) else {
+              let resolved = try await service.resolvedTranscript(sessionID: sessionID) else {
             return nil
         }
-        let snapshot = try await TerminalControllerChatArtifactIndexProvider.shared.snapshot(
-            sessionID: record.sessionID,
-            agentKind: record.agentKind,
-            transcriptPath: transcriptPath,
-            workingDirectory: record.workingDirectory
+        let snapshot = try await service.artifactIndex.snapshot(
+            sessionID: resolved.record.sessionID,
+            agentKind: resolved.record.agentKind,
+            transcriptPath: resolved.path,
+            workingDirectory: resolved.record.workingDirectory
         )
-        return (record.sessionID, snapshot)
+        service.scheduleIndexedArtifactCapture(record: resolved.record, snapshot: snapshot)
+        return (resolved.record.sessionID, snapshot)
     }
 
     /// Returns the stat-filtered count for the gallery's default landing view.
@@ -99,7 +97,8 @@ extension TerminalController {
         // the sweep is existence-only over the raw snapshot, runs off the
         // caller inside the cache actor, and concurrent misses on the same
         // (session, generation, filters) key share one computation.
-        await TerminalControllerChatArtifactIndexProvider.rowCounts.total(
+        guard let service = agentChatTranscriptService else { return 0 }
+        return await service.artifactGalleryRowCountCache.total(
             sessionID: sessionID,
             generation: generation,
             includeDirectories: includeDirectories,
@@ -248,26 +247,66 @@ extension TerminalController {
         }
     }
 
-    private enum ChatArtifactOperation {
+    func v2MobileChatArtifactSave(params: [String: Any]) async -> V2CallResult {
+        let resolution = await mobileChatArtifactResolution(params: params, operation: .save)
+        guard case .success(let resolved) = resolution else {
+            return resolution.failureResult
+        }
+        return await v2MobileChatArtifactSave(resolved: resolved)
+    }
+
+    func v2MobileChatArtifactSave(resolved: ResolvedChatArtifact) async -> V2CallResult {
+        guard let service = agentChatTranscriptService else {
+            return mobileChatArtifactError(.notFound, path: resolved.requestedPath)
+        }
+        do {
+            guard let captureContext = resolved.authorizedCaptureContext else {
+                throw AgentArtifactCaptureSaveError.rejected
+            }
+            let result = try await service.saveArtifact(
+                context: captureContext,
+                sourceURL: URL(fileURLWithPath: resolved.canonicalPath, isDirectory: false)
+            )
+            return .ok(ChatArtifactWire.payload(result) ?? [:])
+        } catch {
+            return .err(
+                code: "artifact_save_failed",
+                message: String(
+                    localized: "mobile.chat.artifact.error.saveFailed",
+                    defaultValue: "The file could not be saved to this project’s Artifacts."
+                ),
+                data: ["path": resolved.requestedPath]
+            )
+        }
+    }
+
+    enum ChatArtifactOperation: Sendable {
         case file
         case list
+        case save
 
         var indexOperation: AgentChatArtifactIndex.Operation {
             switch self {
-            case .file:
+            case .file, .save:
                 return .file
             case .list:
                 return .list
             }
         }
+
+        var resolvesCaptureProject: Bool {
+            if case .save = self { return true }
+            return false
+        }
     }
 
-    private struct ResolvedChatArtifact: Sendable {
+    struct ResolvedChatArtifact: Sendable {
+        let authorizedCaptureContext: ArtifactCaptureContext?
         let requestedPath: String
         let canonicalPath: String
     }
 
-    private enum ChatArtifactResolution {
+    enum ChatArtifactResolution {
         case success(ResolvedChatArtifact)
         case failure(V2CallResult)
 
@@ -281,7 +320,7 @@ extension TerminalController {
         }
     }
 
-    private func mobileChatArtifactResolution(
+    func mobileChatArtifactResolution(
         params: [String: Any],
         operation: ChatArtifactOperation
     ) async -> ChatArtifactResolution {
@@ -301,25 +340,32 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             return .failure(.err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil))
         }
-        guard let record = service.sessionRecord(sessionID: sessionID) else {
-            return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
-        }
-        guard let transcriptPath = service.resolver.transcriptPath(for: record) else {
+        let resolved: (record: AgentChatSessionRecord, path: String)
+        do {
+            guard let transcript = try await service.resolvedTranscript(sessionID: sessionID) else {
+                return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
+            }
+            resolved = transcript
+        } catch {
             return .failure(mobileChatArtifactError(.notFound, path: requestedPath))
         }
         do {
-            let pathResult = try await TerminalControllerChatArtifactIndexProvider.shared.canonicalPath(
-                sessionID: record.sessionID,
-                agentKind: record.agentKind,
-                transcriptPath: transcriptPath,
-                workingDirectory: record.workingDirectory,
+            let pathResult = try await service.artifactIndex.canonicalPath(
+                sessionID: resolved.record.sessionID,
+                agentKind: resolved.record.agentKind,
+                transcriptPath: resolved.path,
+                workingDirectory: resolved.record.workingDirectory,
                 requestedPath: requestedPath,
                 operation: operation.indexOperation,
                 directoryAccessMode: mobileArtifactDirectoryAccessMode()
             )
             switch pathResult {
             case .success(let canonicalPath):
+                let captureContext = operation.resolvesCaptureProject
+                    ? await service.artifactCaptureContext(for: resolved.record)
+                    : nil
                 return .success(ResolvedChatArtifact(
+                    authorizedCaptureContext: captureContext,
                     requestedPath: requestedPath,
                     canonicalPath: canonicalPath
                 ))

@@ -137,6 +137,10 @@ extension TerminalControllerSocketSecurityTests {
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
             ),
             (
+                "right_sidebar set artifacts --no-focus",
+                RightSidebarRemoteRequest(command: .setMode(.artifacts, focus: false), target: RightSidebarRemoteTarget())
+            ),
+            (
                 "right_sidebar sessions",
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
             ),

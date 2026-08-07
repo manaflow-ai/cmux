@@ -1,5 +1,6 @@
 import AppKit
 import CmuxAppKitSupportUI
+import CmuxArtifacts
 import CmuxAuthRuntime
 import CmuxBrowser
 import CmuxCommandPalette
@@ -774,7 +775,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// Strongly-held observers for every active TabManager. Each observer owns
     /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
-    private let agentChatTranscriptService = AgentChatTranscriptService()
+    let artifactRepository = LocalArtifactRepository()
+    lazy var artifactCaptureService = ArtifactCaptureService(store: artifactRepository)
+    private lazy var agentArtifactCaptureCoordinator = AgentArtifactCaptureCoordinator(captureService: artifactCaptureService)
+    private lazy var agentChatTranscriptService = AgentChatTranscriptService(
+        registry: AgentChatSessionRegistry(),
+        artifactCaptureCoordinator: agentArtifactCaptureCoordinator,
+        isAutomaticArtifactCaptureEnabled: {
+            RightSidebarBetaFeatureSettings.isArtifactsEnabled()
+        }
+    )
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
     /// main window's `NSHostingView` itself, so it injects this into the
@@ -791,7 +801,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var shortcutMonitor: Any?
     private var shortcutDefaultsObserver: NSObjectProtocol?
     private var menuBarVisibilityObserver: NSObjectProtocol?
-    private var mobileHostSettingsObserver: NSObjectProtocol?
+    private var runtimeServiceSettingsObserver: NSObjectProtocol?
     private var reloadConfigurationMenuItemRefreshScheduled = false
     /// Orchestrates per-window cmux config-store reloads + window-title refresh.
     /// Holds `self` weakly through the environment seam to avoid a retain cycle.
@@ -2228,7 +2238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ensureMobileWorkspaceListObserver(for: tabManager)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start()
-        installMobileHostSettingsObserver()
+        installRuntimeServiceSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
         startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
@@ -6377,6 +6387,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceId: UUID?,
         useLastTurnSource: Bool,
         sessionId: String?,
+        patchFileURL: URL? = nil,
         focus: Bool = true
     ) -> Bool {
         let process = Process()
@@ -6384,11 +6395,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var arguments = [
             "--socket", socketPath,
             "diff",
-            useLastTurnSource ? "--last-turn" : "--unstaged",
+        ]
+        if let patchFileURL {
+            arguments.append(patchFileURL.path)
+        } else {
+            arguments.append(useLastTurnSource ? "--last-turn" : "--unstaged")
+        }
+        arguments.append(contentsOf: [
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
             "--focus", focus ? "true" : "false",
-        ]
+        ])
         if let surfaceId {
             arguments.append(contentsOf: ["--surface", surfaceId.uuidString])
         }
@@ -9014,7 +9031,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let root = ContentView(
             updateViewModel: updateViewModel,
             windowId: windowId,
-            titlebarControlsLayoutModel: titlebarControlsLayoutModel
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+            artifactStore: artifactRepository,
+            artifactCaptureService: artifactCaptureService
         )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)
@@ -9458,21 +9477,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         syncMenuBarExtraVisibility(defaults: defaults)
     }
 
-    private func installMobileHostSettingsObserver() {
-        guard mobileHostSettingsObserver == nil else { return }
-        mobileHostSettingsObserver = NotificationCenter.default.addObserver(
+    private func installRuntimeServiceSettingsObserver() {
+        guard runtimeServiceSettingsObserver == nil else { return }
+        runtimeServiceSettingsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.syncMobileHostService()
+                self?.syncRuntimeServicesToSettings()
             }
         }
     }
 
-    private func syncMobileHostService() {
+    private func syncRuntimeServicesToSettings() {
         MobileHostService.shared.syncToSettings()
+        agentChatTranscriptService.reconcileAutomaticArtifactCaptureAvailability()
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {

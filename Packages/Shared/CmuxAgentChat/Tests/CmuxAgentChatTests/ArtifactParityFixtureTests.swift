@@ -184,11 +184,11 @@ struct ArtifactParityFixtureTests {
         )
     }
 
-    @Test("Created provenance survives later prose while sequence advances")
+    @Test("Unresolved mutation provenance remains referenced while sequence advances")
     func provenanceAndSequence() throws {
         let fixture = try ArtifactParityFixture.load(.claude)
         let artifact = try #require(fixture.artifact(path: "/private/tmp/parity/RANK-created.txt"))
-        #expect(artifact.provenance == .created)
+        #expect(artifact.provenance == .referenced)
         #expect(artifact.lastReferencedSeq == 2)
     }
 

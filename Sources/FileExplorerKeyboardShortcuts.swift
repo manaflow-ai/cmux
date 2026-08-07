@@ -68,7 +68,7 @@ extension FileExplorerSearchResultsTableView {
 extension FileExplorerSearchField {
     func handleOpenSelectionShortcut(_ event: NSEvent) -> Bool {
         if (currentEditor() as? NSTextView)?.hasMarkedText() == true { return false }
-        guard !RightSidebarKeyboardNavigation.isPlainPrintableText(event) else { return false }
+        guard !event.isPlainRightSidebarPrintableText else { return false }
         guard event.isFileExplorerOpenSelectionShortcut(in: fileExplorerPanelPlacement) else { return false }
         onCommit?()
         return true
