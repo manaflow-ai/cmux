@@ -10747,7 +10747,7 @@ struct VerticalTabsSidebar: View, Equatable {
             // or a mirrored destination so no process-wide identity survives.
             set: { newValue in
                 if let newValue {
-                    dragState.activateDragging(tabId: newValue)
+                    _ = dragState.activateDragging(tabId: newValue)
                 } else {
                     dragState.finishDrag()
                 }
@@ -10917,13 +10917,25 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func activateSidebarInteractions() {
         if !pointerInteractionMonitor.isActive {
-            pointerInteractionMonitor.start { workspaceId in
+            pointerInteractionMonitor.start(onMiddleClickWorkspace: { workspaceId in
                 guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
 #if DEBUG
                 cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
                 tabManager.closeWorkspaceWithConfirmation(workspace)
-            }
+            }, onBeginWorkspaceDrag: { workspaceId, sourceView, event, draggingFrame, dragImage in
+#if DEBUG
+                cmuxDebugLog("sidebar.nativeDrag tab=\(workspaceId.uuidString.prefix(5))")
+#endif
+                return dragState.beginNativeDragging(
+                    tabId: workspaceId,
+                    pasteboardItem: SidebarTabDragPayload(tabId: workspaceId).pasteboardItem(),
+                    sourceView: sourceView,
+                    event: event,
+                    draggingFrame: draggingFrame,
+                    dragImage: dragImage
+                )
+            })
         }
         if showModifierHoldHints {
             modifierKeyMonitor.setHostWindow(observedWindow)
@@ -10931,10 +10943,9 @@ struct VerticalTabsSidebar: View, Equatable {
         } else {
             modifierKeyMonitor.stop()
         }
-        dragState.clearDrag()
+        dragState.dismissPresentation()
         isBonsplitWorkspaceDropTargetCollectionActive = false
         isWorkspaceReorderDropTargetCollectionActive = false
-        dragState.isSimulated = false
         #if DEBUG
         AppDelegate.shared?.sidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
         #endif
@@ -10949,10 +10960,9 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         modifierKeyMonitor.stop()
         dragAutoScrollController.stop()
-        dragState.clearDrag()
+        dragState.dismissPresentation()
         isBonsplitWorkspaceDropTargetCollectionActive = false
         isWorkspaceReorderDropTargetCollectionActive = false
-        dragState.isSimulated = false
         #if DEBUG
         AppDelegate.shared?.sidebarDragStateRegistry.unregister(windowId: windowId)
         #endif
@@ -12109,6 +12119,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     )
                 }
             }
+            .coordinateSpace(name: SidebarPointerInteractionMonitor.coordinateSpaceName)
+            .sidebarPointerEventHost(pointerInteractionMonitor)
             .background(
                 SidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
@@ -12743,13 +12755,20 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+        .sidebarPointerFrameReporting(
+            onFrameChange: { [pointerInteractionMonitor, workspaceId = row.workspaceId] frame in
+                pointerInteractionMonitor.updateFrame(
+                    frame,
+                    for: .workspace(workspaceId),
+                    workspaceId: workspaceId
+                )
+            },
+            onDisappear: { [pointerInteractionMonitor, workspaceId = row.workspaceId] in
+                pointerInteractionMonitor.removeFrame(for: .workspace(workspaceId))
+            }
+        )
         .safeHelp(row.title)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
-        }
-        .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
             orderedRows: dropRows,
@@ -12822,12 +12841,19 @@ struct VerticalTabsSidebar: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .sidebarPointerFrameReporting(
+            onFrameChange: { [pointerInteractionMonitor, workspaceId = row.workspaceId] frame in
+                pointerInteractionMonitor.updateFrame(
+                    frame,
+                    for: .workspace(workspaceId),
+                    workspaceId: workspaceId
+                )
+            },
+            onDisappear: { [pointerInteractionMonitor, workspaceId = row.workspaceId] in
+                pointerInteractionMonitor.removeFrame(for: .workspace(workspaceId))
+            }
+        )
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
-        }
-        .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
             orderedRows: dropRows,
@@ -13426,35 +13452,37 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: UUID? = nil) -> Bool {
-        if dragState.draggedTabId != nil {
-            return true
-        }
-        // A lifecycle exit clears the coordinator and all window presentation.
-        // If AppKit still delivers a drop callback afterward, its pasteboard id
-        // is ground truth that the physical session can be recovered.
-        guard let dragId = dragState.currentWorkspaceDragId ?? pasteboardWorkspaceId else {
+        // AppKit's retained source callback is the only authority that ends a
+        // drag. Pasteboard data may confirm that live session's identity, but
+        // residual data must never recreate a session after the callback.
+        guard let dragId = dragState.currentWorkspaceDragId else {
 #if DEBUG
             cmuxDebugLog("sidebar.drag.activate rejected reason=noDragId")
 #endif
             return false
         }
+        guard pasteboardWorkspaceId == nil || pasteboardWorkspaceId == dragId else {
+#if DEBUG
+            cmuxDebugLog("sidebar.drag.activate rejected reason=payloadMismatch")
+#endif
+            return false
+        }
+        if dragState.draggedTabId == dragId {
+            return true
+        }
         if tabManager.tabs.contains(where: { $0.id == dragId }) {
-            // Local drag whose state was cleared while the native session
-            // kept running: the still-delivering drop callbacks prove the
-            // drag is alive, so re-arm instead of rejecting every update
-            // (which left the rest of the drag indicator-less and made the
-            // final drop a silent no-op).
+            // A source view can rebuild while AppKit keeps its drag alive. The
+            // registry session preserves source ownership across that rebuild.
             let isSourceGroupAnchor = tabManager.workspaceGroups.contains {
                 $0.anchorWorkspaceId == dragId
             }
-            guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
+            guard !SidebarWorkspaceDragActivationPolicy().shouldRejectMirroring(
                 isLocalWorkspace: true,
                 isSourceGroupAnchor: isSourceGroupAnchor
             ) else {
                 return false
             }
-            dragState.beginDragging(tabId: dragId)
-            return true
+            return dragState.activateDragging(tabId: dragId)
         }
         guard let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: dragId) else {
             return false
@@ -13462,14 +13490,14 @@ struct VerticalTabsSidebar: View, Equatable {
         let isSourceGroupAnchor = sourceManager.workspaceGroups.contains {
             $0.anchorWorkspaceId == dragId
         }
-        guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
+        guard !SidebarWorkspaceDragActivationPolicy().shouldRejectMirroring(
             isLocalWorkspace: false,
             isSourceGroupAnchor: isSourceGroupAnchor
         ) else {
             return false
         }
+        guard dragState.activateDragging(tabId: dragId) else { return false }
         dragState.foreignDraggedIsPinned = sourceManager.tabs.first { $0.id == dragId }?.isPinned ?? false
-        dragState.activateDragging(tabId: dragId)
         return true
     }
 
@@ -14317,13 +14345,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             },
             checklist: checklistActions,
-            onDragStart: {
-#if DEBUG
-                cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
-#endif
-                dragState.beginDragging(tabId: tabId)
-                return SidebarTabDragPayload(tabId: tabId).provider()
-            },
             bonsplitSourceWorkspaceId: { bonsplitTabId in
                 AppDelegate.shared?.locateBonsplitSurface(tabId: bonsplitTabId)?.workspaceId
             },
@@ -14381,6 +14402,9 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in
                 pointerInteractionMonitor.removeFrame(for: rowId)
+            },
+            onPointerDragEligibilityChange: { [pointerInteractionMonitor] isEnabled in
+                pointerInteractionMonitor.setWorkspaceDragEnabled(isEnabled, for: rowId)
             }
         )
         }
@@ -15634,8 +15658,6 @@ struct TabItemView: View, Equatable {
             guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
             workspaceFinderDirectoryOpenRequest = nil
         }
-        .sidebarRowDragGate(isEditing: isEditing, actions.onDragStart)
-        .internalOnlyTabDrag()
         .modifier(SidebarBonsplitWorkspaceRowDropModifier(
             isEnabled: isBonsplitWorkspaceDropActive,
             targetWorkspaceId: workspaceId,
@@ -15646,6 +15668,12 @@ struct TabItemView: View, Equatable {
         ))
         .onTapGesture {
             if !isEditing { updateSelection() }
+        }
+        .onAppear {
+            actions.onPointerDragEligibilityChange(!isEditing)
+        }
+        .onChange(of: isEditing) { _, isEditing in
+            actions.onPointerDragEligibilityChange(!isEditing)
         }
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
@@ -16494,7 +16522,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     /// so the existing drop-indicator and frame-anchor machinery —
     /// all gated on `draggedTabId != nil` — activate unchanged. The id matches
     /// no local row, so no row dims. The coordinator clears every mirror on
-    /// mouse-up, and `performDrop` clears it on a successful drop.
+    /// AppKit source completion, and `performDrop` clears it on a successful drop.
     private func activateForeignDragIfNeeded() {
         guard dragState.draggedTabId == nil,
               let foreignId = dragState.currentWorkspaceDragId,

@@ -271,7 +271,7 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
-    func hidingRetiresNativeReorderSession() async {
+    func hidingRetiresPresentationButDefersActiveSourceClear() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let workspaceIds = (0..<6).map { _ in UUID() }
@@ -314,19 +314,23 @@ struct SidebarWorkspaceTableSuspensionTests {
 
         #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
         #expect(controller.isReorderDropSessionActive)
+        controller.workspaceDragSessionDidBegin()
 
         controller.setPresentationActive(false, workspaceIds: workspaceIds)
 
         #expect(!controller.isReorderDropSessionActive)
         #expect(indicatorClears == 1)
         #expect(
-            dragClearCalls == 1,
-            "Hiding the native table must clear its source-aware workspace drag before detaching its actions."
+            dragClearCalls == 0,
+            "Hiding the source view is not evidence that AppKit ended its native drag."
         )
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(dragClearCalls == 1)
     }
 
     @Test
-    func dismantlingClearsWorkspaceDragBeforeActionsDetach() async {
+    func dismantlingDefersActiveWorkspaceDragClearUntilSourceCompletion() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let row = makeRowConfiguration()
@@ -340,13 +344,19 @@ struct SidebarWorkspaceTableSuspensionTests {
             selectedScrollTargetWorkspaceId: nil
         )
         await flushStagedTableMutations()
+        controller.workspaceDragSessionDidBegin()
 
         controller.dismantleContainerView(container)
 
         #expect(
-            dragClearCalls == 1,
-            "Dismantling the native table must clear its source-aware workspace drag before detaching its actions."
+            dragClearCalls == 0,
+            "Dismantling must retain the source controller until AppKit's terminal callback."
         )
+        #expect(container.tableView.activeWorkspaceDragController === controller)
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(dragClearCalls == 1)
+        #expect(container.tableView.activeWorkspaceDragController == nil)
     }
 
     @Test
@@ -355,7 +365,6 @@ struct SidebarWorkspaceTableSuspensionTests {
         let source = SidebarDragState(workspaceDragRegistry: registry)
         let destination = SidebarDragState(workspaceDragRegistry: registry)
         let workspaceId = UUID()
-        source.isSimulated = true
         source.beginDragging(tabId: workspaceId)
         #expect(destination.mirrorDragging(tabId: workspaceId))
         defer { source.clearDrag() }

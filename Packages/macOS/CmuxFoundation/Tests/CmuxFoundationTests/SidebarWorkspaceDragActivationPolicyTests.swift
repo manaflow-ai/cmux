@@ -5,23 +5,23 @@ import Testing
 @Suite struct SidebarWorkspaceDragActivationPolicyTests {
     private let policy = SidebarWorkspaceDragActivationPolicy()
 
-    @Test func localGroupAnchorCanRecoverFromTheActiveNativeSession() {
-        #expect(!policy.shouldRejectRecovery(
+    @Test func localGroupAnchorCanMirrorTheActiveNativeSession() {
+        #expect(!policy.shouldRejectMirroring(
             isLocalWorkspace: true,
             isSourceGroupAnchor: true
         ))
     }
 
     @Test func foreignGroupAnchorRemainsRejected() {
-        #expect(policy.shouldRejectRecovery(
+        #expect(policy.shouldRejectMirroring(
             isLocalWorkspace: false,
             isSourceGroupAnchor: true
         ))
     }
 
     @Test(arguments: [true, false])
-    func regularWorkspaceRecoveryRemainsAllowed(isLocalWorkspace: Bool) {
-        #expect(!policy.shouldRejectRecovery(
+    func regularWorkspaceMirroringRemainsAllowed(isLocalWorkspace: Bool) {
+        #expect(!policy.shouldRejectMirroring(
             isLocalWorkspace: isLocalWorkspace,
             isSourceGroupAnchor: false
         ))

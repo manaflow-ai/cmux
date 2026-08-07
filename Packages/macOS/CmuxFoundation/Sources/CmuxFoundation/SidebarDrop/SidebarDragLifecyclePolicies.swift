@@ -18,15 +18,13 @@ public struct SidebarShortcutHintFreezePolicy {
     }
 }
 
-/// Decides whether a native sidebar drag whose transient state was cleared
-/// may be recovered from the workspace id still carried by AppKit's active
-/// pasteboard session.
+/// Decides whether a sidebar may mirror an active native workspace drag.
 public struct SidebarWorkspaceDragActivationPolicy: Sendable {
     public init() {}
 
     /// Group anchors cannot move across windows because moving only the anchor
     /// would dissolve the source group and strand its members.
-    public func shouldRejectRecovery(
+    public func shouldRejectMirroring(
         isLocalWorkspace: Bool,
         isSourceGroupAnchor: Bool
     ) -> Bool {

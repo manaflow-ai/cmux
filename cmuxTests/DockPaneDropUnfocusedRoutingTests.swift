@@ -232,7 +232,6 @@ struct DockPaneDropUnfocusedRoutingTests {
             let dragState = SidebarDragState(
                 workspaceDragRegistry: appDelegate.sidebarWorkspaceDragRegistry
             )
-            dragState.isSimulated = true
             dragState.beginDragging(tabId: workspaceId)
             defer { dragState.clearDrag() }
             #expect(appDelegate.sidebarWorkspaceDragRegistry.currentWorkspaceId == workspaceId)

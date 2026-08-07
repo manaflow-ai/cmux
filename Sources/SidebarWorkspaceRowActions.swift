@@ -44,7 +44,6 @@ struct SidebarWorkspaceRowActions {
     let openPullRequest: (URL) -> Void
     let openPort: (Int) -> Void
     let checklist: SidebarWorkspaceChecklistActions
-    let onDragStart: () -> NSItemProvider
     let bonsplitSourceWorkspaceId: (UUID) -> UUID?
     let moveBonsplitTabToWorkspace: (BonsplitTabDragPayload.Transfer, UUID) -> Bool
     let syncAfterBonsplitDrop: () -> Void
@@ -56,6 +55,7 @@ struct SidebarWorkspaceRowActions {
     let onContextMenuDisappear: () -> Void
     let onPointerFrameChange: (CGRect) -> Void
     let onPointerFrameDisappear: () -> Void
+    let onPointerDragEligibilityChange: (Bool) -> Void
 }
 
 /// Binds parent-owned action capabilities to one lazily realized row input.

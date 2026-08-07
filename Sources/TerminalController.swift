@@ -10845,9 +10845,6 @@ class TerminalController {
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-            // Mark the drag as simulator-driven so the coordinator does not
-            // install physical mouse lifecycle monitors for a synthetic drag.
-            dragState.isSimulated = true
             dragState.beginDragging(tabId: fromTabId)
             return true
         }
@@ -10885,7 +10882,6 @@ class TerminalController {
         v2MainSync {
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
             dragState.clearDrag()
-            dragState.isSimulated = false
         }
 
         if aborted {
