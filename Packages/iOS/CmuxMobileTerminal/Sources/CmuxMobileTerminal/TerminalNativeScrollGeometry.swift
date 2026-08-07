@@ -29,6 +29,19 @@ struct TerminalNativeScrollGeometry: Equatable, Sendable {
         explicitlyRequested || (!isInteracting && !hasPendingScroll)
     }
 
+    /// Fail-closed geometry for a confirmed primary screen whose authoritative
+    /// boundary has not arrived yet: zero scrollable range, so gestures rubber
+    /// band without emitting best-effort wheel deltas outside real history.
+    static func zeroRange(cellHeight: CGFloat, viewportHeight: CGFloat) -> TerminalNativeScrollGeometry {
+        TerminalNativeScrollGeometry(
+            totalRows: 0,
+            viewportOffsetRows: 0,
+            visibleRows: 0,
+            cellHeight: max(cellHeight, 1),
+            viewportHeight: viewportHeight
+        )
+    }
+
     var maximumRowOffset: UInt64 {
         totalRows > visibleRows ? totalRows - visibleRows : 0
     }

@@ -1841,15 +1841,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var terminalNativeScrollGeometry: TerminalNativeScrollGeometry? {
-        guard let nativeScrollBoundary else { return nil }
         let cellHeight = cellPixelSize.height / max(preferredScreenScale, 1)
-        guard cellHeight > 0 else { return nil }
+        let viewportHeight = max(scrollMechanicsView.bounds.height, 1)
+        guard let nativeScrollBoundary, cellHeight > 0 else {
+            // A confirmed primary screen without authoritative bounds fails
+            // closed: zero-range rubber band, never unbounded wheel deltas.
+            return TerminalNativeScrollGeometry.zeroRange(
+                cellHeight: cellHeight,
+                viewportHeight: viewportHeight
+            )
+        }
         return TerminalNativeScrollGeometry(
             totalRows: nativeScrollBoundary.totalRows,
             viewportOffsetRows: nativeScrollBoundary.viewportOffsetRows,
             visibleRows: nativeScrollBoundary.visibleRows,
             cellHeight: cellHeight,
-            viewportHeight: max(scrollMechanicsView.bounds.height, 1)
+            viewportHeight: viewportHeight
         )
     }
 
@@ -1864,20 +1871,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Parameter screen: The active screen from the authoritative render-grid frame.
     public func setNativeScrollScreen(_ screen: MobileTerminalRenderGridFrame.Screen) {
         guard nativeScrollScreen != screen else { return }
+        // The boundary is kept: the scrollbar action for the output that
+        // triggered this flip can land on the main actor one hop before the
+        // flip itself, and discarding it here would fail the primary screen
+        // closed until the next output.
         nativeScrollScreen = screen
-        nativeScrollBoundary = nil
         lastScrollMechanicsOffsetY = nil
         lastScrollMechanicsEffectiveOffsetY = nil
         configureScrollMechanicsView(syncToAuthoritativeOffset: true)
     }
 
     func updateNativeScrollBoundary(total: UInt64, offset: UInt64, len: UInt64) {
-        guard nativeScrollScreen == .primary else { return }
+        // Stored regardless of screen mode so boundary/flip arrival order
+        // never drops authoritative bounds; only a confirmed primary screen
+        // reconfigures the bounded scroll view from them.
         nativeScrollBoundary = TerminalNativeScrollGeometry.Boundary(
             totalRows: total,
             viewportOffsetRows: offset,
             visibleRows: len
         )
+        guard nativeScrollScreen == .primary else { return }
         configureScrollMechanicsView(syncToAuthoritativeOffset: false)
     }
 
@@ -1896,7 +1909,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.transform = CGAffineTransform(translationX: 0, y: translationY)
     }
 
-    private func settleBoundedScrollMechanicsIfPossible() {
+    /// Internal for `GhosttySurfaceView+LocalScrollbackScroll.swift`: a drained
+    /// local-apply pump re-runs the idle resync its in-flight flag deferred.
+    func settleBoundedScrollMechanicsIfPossible() {
         guard nativeScrollScreen == .primary,
               let geometry = terminalNativeScrollGeometry else { return }
         let rawOffset = scrollMechanicsView.contentOffset.y

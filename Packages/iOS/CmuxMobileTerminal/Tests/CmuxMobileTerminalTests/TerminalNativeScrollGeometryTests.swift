@@ -79,6 +79,56 @@ struct TerminalNativeScrollGeometryTests {
         #expect(returning.contentTranslationY == -8)
     }
 
+    @Test("appended history extends the range without moving a held viewport")
+    func appendedOutputPreservesHeldViewport() {
+        let before = TerminalNativeScrollGeometry(
+            totalRows: 100,
+            viewportOffsetRows: 40,
+            visibleRows: 20,
+            cellHeight: 20,
+            viewportHeight: 400
+        )
+        let after = TerminalNativeScrollGeometry(
+            totalRows: 160,
+            viewportOffsetRows: 40,
+            visibleRows: 20,
+            cellHeight: 20,
+            viewportHeight: 400
+        )
+
+        #expect(after.authoritativeContentOffsetY == before.authoritativeContentOffsetY)
+        #expect(after.maximumContentOffsetY > before.maximumContentOffsetY)
+    }
+
+    @Test("primary screen without authoritative bounds fails closed")
+    func zeroRangeFailsClosed() {
+        let geometry = TerminalNativeScrollGeometry.zeroRange(
+            cellHeight: 20,
+            viewportHeight: 400
+        )
+
+        #expect(geometry.maximumContentOffsetY == 0)
+        #expect(geometry.contentHeight == 400)
+        #expect(geometry.authoritativeContentOffsetY == 0)
+
+        let overdrag = geometry.sample(rawOffsetY: 48, previousEffectiveOffsetY: 0)
+        #expect(overdrag.effectiveOffsetY == 0)
+        #expect(overdrag.rowDelta == 0)
+        #expect(overdrag.contentTranslationY == -48)
+    }
+
+    @Test("zero-range geometry survives a zero cell height")
+    func zeroRangeToleratesZeroCellHeight() {
+        let geometry = TerminalNativeScrollGeometry.zeroRange(
+            cellHeight: 0,
+            viewportHeight: 400
+        )
+
+        let sample = geometry.sample(rawOffsetY: -30, previousEffectiveOffsetY: 0)
+        #expect(sample.rowDelta == 0)
+        #expect(sample.contentTranslationY == 30)
+    }
+
     @Test("pending precise scroll prevents stale authoritative resync")
     func pendingScrollDefersResync() {
         #expect(!TerminalNativeScrollGeometry.shouldSynchronize(

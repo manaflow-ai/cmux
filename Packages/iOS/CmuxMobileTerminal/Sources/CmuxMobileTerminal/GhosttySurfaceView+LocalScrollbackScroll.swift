@@ -68,6 +68,12 @@ extension GhosttySurfaceView {
                 self.drawForWakeup()
                 self.scheduleVisibleArtifactCountUpdate()
                 self.pumpLocalScrollbackScroll()
+                if !self.localScrollApplyInFlight {
+                    // The in-flight flag deferred idle resync while this batch
+                    // applied; a drained pump must run the settle it blocked,
+                    // because no further scrollbar action is guaranteed.
+                    self.settleBoundedScrollMechanicsIfPossible()
+                }
             }
         }
     }
