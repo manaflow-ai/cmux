@@ -9,7 +9,7 @@ import Testing
 #endif
 
 @MainActor
-@Suite("Terminal clipboard input sequencing")
+@Suite("Terminal clipboard input sequencing", .serialized)
 struct TerminalClipboardInputSequencerTests {
     @Test("reserved clipboard read queues input before main-actor admission")
     func reservedClipboardReadQueuesInputBeforeAdmission() async {
@@ -216,7 +216,11 @@ struct TerminalClipboardInputSequencerTests {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
             maximumBufferedEvents: 8
         )
-        let request = makeReadRequest(label: "ordered-input")
+        let (request, pasteboard) = makeReadRequest(label: "ordered-input")
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
         var started = operation.startedEvents().makeAsyncIterator()
         var delivered: [String] = []
 
@@ -446,11 +450,11 @@ struct TerminalClipboardInputSequencerTests {
 
     private func makeReadRequest(
         label: String
-    ) -> TerminalPasteboardReadRequest {
+    ) -> (TerminalPasteboardReadRequest, NSPasteboard) {
         let pasteboard = NSPasteboard(
             name: .init("cmux-tests-input-sequence-\(label)-\(UUID().uuidString)")
         )
         pasteboard.clearContents()
-        return TerminalPasteboardReadRequest(pasteboard: pasteboard)
+        return (TerminalPasteboardReadRequest(pasteboard: pasteboard), pasteboard)
     }
 }

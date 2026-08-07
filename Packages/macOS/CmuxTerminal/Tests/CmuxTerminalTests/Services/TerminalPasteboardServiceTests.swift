@@ -402,7 +402,7 @@ struct ImageMaterializationTests {
             temporaryDirectory: ownedDir
         )
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: CocoaError(.fileReadInvalidFileName)) {
             try service.adoptTemporaryImageFile(
                 outside,
                 from: workerDir
@@ -444,13 +444,13 @@ struct ImageMaterializationTests {
             temporaryDirectory: ownedDir
         )
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: CocoaError(.fileReadInvalidFileName)) {
             try service.adoptTemporaryImageFile(
                 symlink,
                 from: workerDir
             )
         }
-        #expect(throws: (any Error).self) {
+        #expect(throws: CocoaError(.fileReadCorruptFile)) {
             try service.adoptTemporaryImageFile(
                 text,
                 from: workerDir
@@ -494,7 +494,7 @@ struct ImageMaterializationTests {
             temporaryDirectory: destinationLink
         )
 
-        #expect(throws: (any Error).self) {
+        #expect(throws: CocoaError(.fileWriteInvalidFileName)) {
             try service.adoptTemporaryImageFile(
                 source,
                 from: workerDir

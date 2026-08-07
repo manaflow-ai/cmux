@@ -49,6 +49,10 @@ struct TerminalImageTransferConcurrencyTests {
         }
 
         let materializedData = try Data(contentsOf: materializedURL)
+        // AppKit marks the provider callback NS_SWIFT_NONISOLATED and does not
+        // promise a callback executor. The process boundary is the invariant:
+        // either synthetic payload proves provider resolution happened outside
+        // cmux's main thread before the worker returned the materialized file.
         #expect(
             materializedData == mainThreadData
                 || materializedData == backgroundThreadData
@@ -130,7 +134,8 @@ struct TerminalImageTransferConcurrencyTests {
         }
         let oversizedText = String(
             repeating: "x",
-            count: 16 * 1024 * 1024 + 1
+            count: TerminalPastePreparationWorkerTextPayload.maximumByteCount
+                + 1
         )
         pasteboard.setString(oversizedText, forType: .string)
 

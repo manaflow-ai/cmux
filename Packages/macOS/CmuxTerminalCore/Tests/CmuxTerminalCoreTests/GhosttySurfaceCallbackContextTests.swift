@@ -252,10 +252,12 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
                 return true
             },
             onInvalidation: { _, _ in
-                invalidatedSurfaceAddress = boundSurfaceAddress
+                invalidatedSurfaceAddress = context
+                    .runtimeClipboardSurfaceAddress
             }
         ))
         #expect(context.commitRuntimeClipboardRequest(37))
+        #expect(!context.bindRuntimeClipboardSurface(replacementSurface))
 
         context.invalidateRuntimeClipboardRequests(
             completingNativeRequests: true
@@ -263,6 +265,55 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
 
         #expect(reservedAdmissionCount.loadRelaxed() == 1)
         #expect(invalidatedSurfaceAddress == UInt(bitPattern: originalSurface))
+    }
+
+    @Test @MainActor
+    func registrationBeforeSurfaceBindingDoesNotReserveAdmission() {
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: FakeSurfaceHost(),
+            surfaceController: FakeSurfaceController()
+        )
+        let reservedAdmissionCount = AtomicUInt64Generation()
+
+        #expect(!context.registerRuntimeClipboardRequest(
+            id: 39,
+            reserveAdmission: {
+                _ = reservedAdmissionCount.advanceRelaxed()
+                return true
+            },
+            onInvalidation: { _, _ in }
+        ))
+
+        #expect(reservedAdmissionCount.loadRelaxed() == 0)
+    }
+
+    @Test @MainActor
+    func attachingTaskAfterInvalidationRejectsAndCancelsIt() async throws {
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: FakeSurfaceHost(),
+            surfaceController: FakeSurfaceController()
+        )
+        let surface = try #require(ghostty_surface_t(bitPattern: 0x29))
+        #expect(context.bindRuntimeClipboardSurface(surface))
+        #expect(context.registerRuntimeClipboardRequest(
+            id: 40,
+            onInvalidation: { _, _ in }
+        ))
+        context.invalidateRuntimeClipboardRequests(
+            completingNativeRequests: false
+        )
+        let observedCancellation = AtomicBooleanGate(false)
+        let task = Task {
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                observedCancellation.storeRelease(true)
+            }
+        }
+
+        #expect(!context.attachRuntimeClipboardTask(task, requestID: 40))
+        await task.value
+        #expect(observedCancellation.loadAcquire())
     }
 
     @Test @MainActor

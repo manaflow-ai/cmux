@@ -102,6 +102,17 @@ struct HTMLPlainTextParserTests {
         #expect(parser.plainText(from: html) == "Visible")
     }
 
+    @Test("keeps template text hidden when an unquoted attribute ends in slash")
+    func omitsTemplateWithTrailingSlashInUnquotedAttribute() {
+        let parser = HTMLPlainTextParser()
+        let html = """
+        <template data-url=https://example.com/>hidden</template>
+        <div>Visible</div>
+        """
+
+        #expect(parser.plainText(from: html) == "Visible")
+    }
+
     @Test("preserves visible text around malformed angle brackets")
     func preservesVisibleTextAroundMalformedAngleBrackets() {
         let parser = HTMLPlainTextParser()
