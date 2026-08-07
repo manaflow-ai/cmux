@@ -35,30 +35,30 @@ struct CustomSidebarMountDecisionTests {
     }
 
     @Test("a loopback .url mounts as a page")
-    func loadableURLFileMountsAsWeb() throws {
+    func loadableURLFileMountsAsWeb() async throws {
         let dir = try directory()
         let url = try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
 
         #expect(
-            CustomSidebarMountDecision(fileURL: url)
+            await CustomSidebarMountDecision.deciding(fileURL: url)
                 == .web(.remote(URL(string: "http://127.0.0.1:8787/")!))
         )
     }
 
     @Test("an .html document mounts as a page")
-    func htmlMountsAsWeb() throws {
+    func htmlMountsAsWeb() async throws {
         let dir = try directory()
         let url = try write("<!doctype html>", to: dir, as: "board.html")
 
-        #expect(CustomSidebarMountDecision(fileURL: url) == .web(.document(url)))
+        #expect(await CustomSidebarMountDecision.deciding(fileURL: url) == .web(.document(url)))
     }
 
     @Test("a .swift file mounts as interpreted")
-    func swiftMountsAsInterpreted() throws {
+    func swiftMountsAsInterpreted() async throws {
         let dir = try directory()
         let url = try write("Text(\"hi\")", to: dir, as: "board.swift")
 
-        #expect(CustomSidebarMountDecision(fileURL: url) == .interpreted(url))
+        #expect(await CustomSidebarMountDecision.deciding(fileURL: url) == .interpreted(url))
     }
 
     // The finding, stated as behaviour: each of these is a `.url` the web path rejects, and none of
@@ -76,45 +76,45 @@ struct CustomSidebarMountDecisionTests {
             "{\"version\":1,\"root\":{\"type\":\"text\",\"text\":\"pwn\"}}",
         ]
     )
-    func rejectedURLFileMountsAsUnavailable(contents: String) throws {
+    func rejectedURLFileMountsAsUnavailable(contents: String) async throws {
         let dir = try directory()
         let url = try write(contents, to: dir, as: "board.url")
 
-        #expect(CustomSidebarMountDecision(fileURL: url) == .unavailable)
+        #expect(await CustomSidebarMountDecision.deciding(fileURL: url) == .unavailable)
     }
 
     @Test("an unrecognised extension mounts as nothing")
-    func unknownExtensionMountsAsUnavailable() throws {
+    func unknownExtensionMountsAsUnavailable() async throws {
         let dir = try directory()
         let url = try write("Text(\"hi\")", to: dir, as: "board.txt")
 
-        #expect(CustomSidebarMountDecision(fileURL: url) == .unavailable)
+        #expect(await CustomSidebarMountDecision.deciding(fileURL: url) == .unavailable)
     }
 
     @Test("an uppercase extension mounts as nothing, matching the classifier")
-    func uppercaseExtensionMountsAsUnavailable() throws {
+    func uppercaseExtensionMountsAsUnavailable() async throws {
         let dir = try directory()
         let url = try write("<!doctype html>", to: dir, as: "board.HTML")
 
-        #expect(CustomSidebarMountDecision(fileURL: url) == .unavailable)
+        #expect(await CustomSidebarMountDecision.deciding(fileURL: url) == .unavailable)
     }
 
     @Test("a name resolving to nothing mounts as nothing")
-    func missingFileMountsAsUnavailable() {
-        #expect(CustomSidebarMountDecision(fileURL: nil) == .unavailable)
+    func missingFileMountsAsUnavailable() async {
+        #expect(await CustomSidebarMountDecision.deciding(fileURL: nil) == .unavailable)
     }
 
     /// The end-to-end claim: a rejected `.url` whose bytes are valid sidebar DSL never reaches a
     /// state the interpreter would render, so no action of its can ever be dispatched.
     @Test("a rejected .url carrying sidebar DSL never produces an interpreted render state")
-    func rejectedURLFileNeverReachesInterpreter() throws {
+    func rejectedURLFileNeverReachesInterpreter() async throws {
         let dir = try directory()
         let dsl = """
         {"version":1,"root":{"type":"text","text":"pwn"}}
         """
         let url = try write(dsl, to: dir, as: "board.url")
 
-        #expect(CustomSidebarMountDecision(fileURL: url) == .unavailable)
+        #expect(await CustomSidebarMountDecision.deciding(fileURL: url) == .unavailable)
 
         // And even if something did hand the file straight to the model, the model refuses it
         // rather than decoding it as a sidebar document.
@@ -123,5 +123,41 @@ struct CustomSidebarMountDecisionTests {
         if case .json = model.state {
             Issue.record("a .url file was decoded as a declarative sidebar document")
         }
+    }
+
+    // MARK: - Deciding without reading
+
+    /// The half a caller may run inline. Every extension whose kind follows from its name answers
+    /// immediately; a `.url` answers `nil`, so a caller has no way to accidentally decide one from
+    /// its name alone.
+    @Test(
+        "an extension-decided kind needs no filesystem access, and agrees with the full decision",
+        arguments: [
+            "board.swift",
+            "board.json",
+            "board.html",
+            "board.txt",
+            "board.HTML",
+        ]
+    )
+    func decidedWithoutReadingAgrees(name: String) async throws {
+        let dir = try directory()
+        let url = try write("<!doctype html>", to: dir, as: name)
+        let inline = CustomSidebarMountDecision.decidedWithoutReading(fileURL: url)
+
+        #expect(inline != nil)
+        #expect(inline == (await CustomSidebarMountDecision.deciding(fileURL: url)))
+
+        // And the same answer without the file existing at all, which is what proves no read.
+        let missing = URL(fileURLWithPath: "/nonexistent-\(UUID().uuidString)/\(name)")
+        #expect(CustomSidebarMountDecision.decidedWithoutReading(fileURL: missing) != nil)
+    }
+
+    @Test("a .url file cannot be decided without reading it")
+    func urlFileCannotBeDecidedInline() throws {
+        let dir = try directory()
+        let url = try write("http://127.0.0.1:8787/\n", to: dir, as: "board.url")
+
+        #expect(CustomSidebarMountDecision.decidedWithoutReading(fileURL: url) == nil)
     }
 }

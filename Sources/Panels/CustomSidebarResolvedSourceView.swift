@@ -17,32 +17,56 @@ import SwiftUI
 /// sidebar" for the rail and the pane, which is the same reason the extension order lives in
 /// ``CustomSidebarSource``.
 ///
+/// The content closure is handed an already-decided mount, never a file to inspect. Deciding means
+/// probing the sidebars directory and, for a `.url` file, reading it — and this view's content
+/// re-evaluates about once a second, so doing that work here would be a per-second main-thread
+/// stall. The observer does it off the main thread and publishes the result.
+///
 /// The observer is keyed to the name it was built with, so a call site that can change names must
 /// apply `.id(name)` to rebuild it.
 struct CustomSidebarResolvedSourceView<Content: View>: View {
     @State private var observer: CustomSidebarWebReloadObserver
-    private let content: (URL?, CustomSidebarWebReloadToken) -> Content
+    private let content: (CustomSidebarMountDecision, CustomSidebarWebReloadToken) -> Content
 
     /// Creates the scope for one sidebar name.
     ///
     /// - Parameters:
     ///   - sidebarName: The sidebar to resolve and answer reload requests for.
-    ///   - content: Renders the currently resolved file. Receives `nil` once every file backing the
-    ///     name is gone, so a caller can decide between an error state and its last known file
-    ///     rather than having that choice made for it.
+    ///   - fallbackFileURL: What to mount while the name resolves to nothing. A pane passes the file
+    ///     it was opened on, so a sidebar being edited in place — briefly absent from disk — keeps
+    ///     rendering instead of blanking. The rail passes `nil`, since it is switched away entirely
+    ///     when its sidebar stops resolving.
+    ///   - content: Renders the decided mount. Receives `.unavailable` when the name resolves to
+    ///     nothing usable, so a rejected web source cannot fall through to the interpreter.
     init(
         sidebarName: String,
-        @ViewBuilder content: @escaping (URL?, CustomSidebarWebReloadToken) -> Content
+        fallbackFileURL: URL? = nil,
+        @ViewBuilder content: @escaping (CustomSidebarMountDecision, CustomSidebarWebReloadToken) -> Content
     ) {
-        _observer = State(initialValue: CustomSidebarWebReloadObserver(sidebarName: sidebarName) { name in
-            CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name)
-        })
+        _observer = State(
+            initialValue: CustomSidebarWebReloadObserver(
+                sidebarName: sidebarName,
+                fallbackFileURL: fallbackFileURL
+            ) { name in
+                CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name)
+            }
+        )
         self.content = content
     }
 
     var body: some View {
-        content(observer.resolvedFileURL, observer.reloadToken)
-            .onAppear { observer.start() }
-            .onDisappear { observer.stop() }
+        Group {
+            if let decision = observer.mountDecision {
+                content(decision, observer.reloadToken)
+            } else {
+                // Before the first resolution lands there is no honest answer yet. Rendering nothing
+                // for that moment beats the alternatives: an error state would flash on every
+                // healthy mount, and the interpreter is the lane a rejected web source must never
+                // reach.
+                Color.clear
+            }
+        }
+        .onAppear { observer.start() }
+        .onDisappear { observer.stop() }
     }
 }

@@ -38,17 +38,61 @@ public enum CustomSidebarSource: Equatable, Sendable {
     /// while discovery reads whatever is on disk, so a folded `board.HTML` is a file the CLI lists
     /// and then cannot open on a case-sensitive volume. Refusing it outright keeps every path in
     /// agreement on every filesystem.
+    ///
+    /// - Important: This reads the file for a `.url` source, so it blocks. A caller on the main
+    ///   actor must go through ``classifying(fileURL:)`` instead.
     public static func classify(fileURL: URL) -> CustomSidebarSource? {
+        switch classifyWithoutReading(fileURL: fileURL) {
+        case let .decided(source):
+            return source
+        case let .needsURLFileRead(urlFileURL):
+            guard let url = CustomSidebarWebSource.remoteURL(fromURLFile: urlFileURL) else { return nil }
+            return .web(.remote(url))
+        }
+    }
+
+    /// Classifies an already-resolved custom sidebar file without blocking.
+    ///
+    /// Same answer as ``classify(fileURL:)``, reached without holding up the caller: the `.url`
+    /// branch is the only one that touches the filesystem, and this runs it off the caller's
+    /// executor. `static func … async` on a non-actor type is nonisolated, so awaiting it from the
+    /// main actor moves the read to the global executor (SE-0338) rather than onto the main thread.
+    ///
+    /// - Important: If this module ever adopts the `NonisolatedNonsendingByDefault` upcoming
+    ///   feature, this flips to running on the *caller's* actor and must be annotated `@concurrent`
+    ///   to keep the read off the main thread.
+    ///
+    /// - Parameter fileURL: The file the sidebar name resolved to.
+    public static func classifying(fileURL: URL) async -> CustomSidebarSource? {
+        classify(fileURL: fileURL)
+    }
+
+    /// How far a file can be classified from its name alone.
+    ///
+    /// Every recognised extension except `.url` is decided by the extension: the file's *bytes*
+    /// never change what it is. `.url` is the exception — it names a page, so the answer is inside
+    /// it — and separating the two is what lets a caller that must not block (a SwiftUI `body`, the
+    /// main actor) take the free answer immediately and defer only the read.
+    public enum NonBlockingClassification: Equatable, Sendable {
+        /// Decided from the extension. `nil` for an unrecognised one.
+        case decided(CustomSidebarSource?)
+        /// A `.url` file. The associated value is that file; reading it decides the source.
+        case needsURLFileRead(URL)
+    }
+
+    /// Classifies as far as the extension allows, without touching the filesystem.
+    ///
+    /// - Parameter fileURL: The file the sidebar name resolved to.
+    public static func classifyWithoutReading(fileURL: URL) -> NonBlockingClassification {
         switch fileURL.pathExtension {
         case "swift", "json":
-            return .interpreted(fileURL)
+            return .decided(.interpreted(fileURL))
         case "html":
-            return .web(.document(fileURL))
+            return .decided(.web(.document(fileURL)))
         case "url":
-            guard let url = CustomSidebarWebSource.remoteURL(fromURLFile: fileURL) else { return nil }
-            return .web(.remote(url))
+            return .needsURLFileRead(fileURL)
         default:
-            return nil
+            return .decided(nil)
         }
     }
 }

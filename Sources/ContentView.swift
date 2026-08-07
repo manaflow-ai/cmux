@@ -10339,8 +10339,15 @@ enum CmuxExtensionSidebarSelection {
     /// `SettingCatalog` twice (via ``isEnabled``/``customSidebarsEnabled``) and
     /// enumerates the custom-sidebars directory. Those are far too expensive to
     /// run on every SwiftUI body pass; doing so was the multiplier behind the
-    /// ~100% CPU re-render loop in issue #5970. Only cheap static lookups and at
-    /// most two `fileExists` probes run here, so it is safe for the body.
+    /// ~100% CPU re-render loop in issue #5970.
+    ///
+    /// What remains for the body is cheap static lookups plus, for a custom
+    /// selection only, up to four exact-name probes — one per recognised
+    /// extension — of a single directory entry each. It deliberately does not
+    /// classify what it finds: a `.url` file's target lives in its bytes, and
+    /// reading those on a body pass is the stall this check exists to avoid.
+    /// Deciding what the resolved file *mounts as* belongs to
+    /// ``CustomSidebarWebReloadObserver``, which does it off the main thread.
     ///
     /// The input must be ``effectiveProviderId``'s output: that already routes a
     /// hosted/custom selection back to the default sidebar while its feature gate
@@ -12058,13 +12065,22 @@ struct VerticalTabsSidebar: View, Equatable {
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
                   let customSidebarName = CmuxExtensionSidebarSelection.customSidebarName(
                       forProviderId: effectiveExtensionSidebarProviderId
-                  ),
-                  CmuxExtensionSidebarSelection.customSidebarFileURL(forName: customSidebarName) != nil {
+                  ) {
             // Resolved by *name* on every reload rather than captured once, so `cmux sidebar reload`
             // reaches a hosted page and a precedence flip (`board.html` gaining a `board.swift`, or
             // losing it) switches renderer under the live rail.
-            CustomSidebarResolvedSourceView(sidebarName: customSidebarName) { resolvedURL, reloadToken in
-                customSidebarRailContent(fileURL: resolvedURL, reloadToken: reloadToken)
+            //
+            // Whether the name resolves to anything is decided by
+            // `resolvesToDefaultSidebar(effectiveProviderId:)`, which is what routes a custom
+            // selection here in the first place; re-probing the filesystem in this builder asked the
+            // same question a second time, on the body's hot path. The observer publishes
+            // `.unavailable` if the file goes away under a live rail, and that renders nothing.
+            //
+            // No fallback file: unlike a pane, the rail is switched away entirely when its sidebar
+            // stops resolving, so a last-known file here would outlive the selection that justified
+            // it.
+            CustomSidebarResolvedSourceView(sidebarName: customSidebarName) { decision, reloadToken in
+                customSidebarRailContent(decision: decision, reloadToken: reloadToken)
             }
             .id(customSidebarName)
         } else {
@@ -12093,10 +12109,10 @@ struct VerticalTabsSidebar: View, Equatable {
     /// metric changes.
     @ViewBuilder
     private func customSidebarRailContent(
-        fileURL: URL?,
+        decision: CustomSidebarMountDecision,
         reloadToken: CustomSidebarWebReloadToken
     ) -> some View {
-        switch CustomSidebarMountDecision(fileURL: fileURL) {
+        switch decision {
         case let .web(webSource):
             CustomSidebarWebView(
                 source: webSource,

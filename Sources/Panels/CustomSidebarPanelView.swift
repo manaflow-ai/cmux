@@ -76,15 +76,21 @@ struct CustomSidebarPanelView: View {
         if !isVisibleInUI {
             Color.clear
         } else {
-            CustomSidebarResolvedSourceView(sidebarName: panel.name) { resolvedURL, reloadToken in
-                resolvedContent(fileURL: resolvedURL ?? panel.fileURL, reloadToken: reloadToken)
+            CustomSidebarResolvedSourceView(
+                sidebarName: panel.name,
+                fallbackFileURL: panel.fileURL
+            ) { decision, reloadToken in
+                resolvedContent(decision: decision, reloadToken: reloadToken)
             }
         }
     }
 
     @ViewBuilder
-    private func resolvedContent(fileURL: URL, reloadToken: CustomSidebarWebReloadToken) -> some View {
-        switch CustomSidebarMountDecision(fileURL: fileURL) {
+    private func resolvedContent(
+        decision: CustomSidebarMountDecision,
+        reloadToken: CustomSidebarWebReloadToken
+    ) -> some View {
+        switch decision {
         case let .web(webSource):
             CustomSidebarWebView(source: webSource, reloadToken: reloadToken)
         case let .interpreted(interpretedURL):
