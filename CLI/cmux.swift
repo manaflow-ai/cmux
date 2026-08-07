@@ -32674,14 +32674,6 @@ export default CMUXSessionRestore;
     /// "All" view even when no permission/plan/question event fires.
     /// Failures are swallowed.
     func sendBestEffortFeedTelemetry(socketPath: String, line: String, socketPassword: String?) {
-        sendBestEffortFeedTelemetry(socketPath: socketPath, lines: [line], socketPassword: socketPassword)
-    }
-
-    /// One connect + auth for the whole batch: feed hooks that emit a
-    /// second line (the native-approval-prompt notify/clear) must not pay a
-    /// second connection and Keychain/password lookup per tool event.
-    func sendBestEffortFeedTelemetry(socketPath: String, lines: [String], socketPassword: String?) {
-        guard !lines.isEmpty else { return }
         let oneWayClient = SocketClient(path: socketPath)
         defer { oneWayClient.close() }
         do {
@@ -32692,12 +32684,56 @@ export default CMUXSessionRestore;
                 socketPath: socketPath,
                 responseTimeout: 0.05
             )
-            for line in lines {
-                try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
-            }
+            try oneWayClient.sendOneWay(command: line, writeTimeout: 0.05)
         } catch {
             return
         }
+    }
+
+    /// How long the feed hook waits for the app to acknowledge a
+    /// native-approval-prompt notify/clear before giving up and returning.
+    static let feedAttentionAcknowledgeTimeoutSeconds: TimeInterval = 2
+
+    /// Sends the pane-attention command (permission notify / resolved
+    /// clear) request/response, AWAITING the app's `OK`, then fires the
+    /// nonessential feed frame one-way on the same connection.
+    ///
+    /// Awaiting the attention line is what makes cross-process hook
+    /// ordering real: one-way writes return before the app's detached
+    /// per-connection worker has enqueued the mutation, so a completed
+    /// hook process is no proof its clear was applied — a delayed clear
+    /// could then erase a NEWER request's live notification (#9592's
+    /// silence, reintroduced). Codex runs these feed hooks synchronously,
+    /// so blocking this process until the app acknowledges the mutation
+    /// (same request/response contract Claude's and Hermes' hooks use for
+    /// `clear_notifications`/`notify_target_async`) guarantees the next
+    /// hook's process starts only after this mutation is in the app's
+    /// ordered lane. Failures never propagate: the hook always returns
+    /// `{}` after the bounded wait.
+    private func sendBestEffortFeedAttentionThenTelemetry(
+        socketPath: String,
+        attentionLine: String,
+        telemetryLine: String,
+        socketPassword: String?
+    ) {
+        let attentionClient = SocketClient(path: socketPath)
+        defer { attentionClient.close() }
+        do {
+            try attentionClient.connectWithoutRetry(responseTimeout: 0.05)
+            try authenticateClientIfNeeded(
+                attentionClient,
+                explicitPassword: socketPassword,
+                socketPath: socketPath,
+                responseTimeout: 0.05
+            )
+        } catch {
+            return
+        }
+        _ = try? attentionClient.send(
+            command: attentionLine,
+            responseTimeout: Self.feedAttentionAcknowledgeTimeoutSeconds
+        )
+        _ = try? attentionClient.sendOneWay(command: telemetryLine, writeTimeout: 0.05)
     }
 
     private func sendFeedTelemetry(
@@ -34973,21 +35009,35 @@ export default CMUXSessionRestore;
             } else {
                 promptLine = nil
             }
-            // The attention signal goes FIRST: the feed frame can be large
-            // and its best-effort write can fail under backpressure, and a
-            // failed write must never swallow the permission notification —
-            // that would recreate the silent-blocked-agent bug (#9592).
+            // The attention signal goes FIRST and is AWAITED (bounded): the
+            // app must acknowledge the notify/clear before this synchronous
+            // hook returns and codex fires its next event, or a delayed
+            // clear could erase a newer request's live notification. The
+            // feed frame stays one-way: it is nonessential telemetry, and a
+            // failed write must never swallow the permission notification.
             if let client {
                 if let promptLine {
-                    _ = try? client.sendOneWay(command: promptLine, writeTimeout: 0.05)
+                    _ = try? client.send(
+                        command: promptLine,
+                        responseTimeout: Self.feedAttentionAcknowledgeTimeoutSeconds
+                    )
                 }
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
-                sendBestEffortFeedTelemetry(
-                    socketPath: socketPath,
-                    lines: (promptLine.map { [$0] } ?? []) + [line],
-                    socketPassword: socketPassword
-                )
+                if let promptLine {
+                    sendBestEffortFeedAttentionThenTelemetry(
+                        socketPath: socketPath,
+                        attentionLine: promptLine,
+                        telemetryLine: line,
+                        socketPassword: socketPassword
+                    )
+                } else {
+                    sendBestEffortFeedTelemetry(
+                        socketPath: socketPath,
+                        line: line,
+                        socketPassword: socketPassword
+                    )
+                }
             }
             print("{}")
             return
