@@ -81,6 +81,7 @@ struct FeedPanelView: View {
             FeedListView(
                 filter: filter,
                 items: viewModel.items,
+                sessionTitlesByWorkstream: viewModel.sessionTitlesByWorkstream,
                 hasMorePersistedItems: viewModel.hasMorePersistedItems,
                 isLoadingOlderItems: viewModel.isLoadingOlderItems,
                 onLoadOlderItems: viewModel.loadOlderItems
@@ -162,6 +163,7 @@ private struct FeedSecondaryFilterButton: View {
 private struct FeedListView: View {
     let filter: FeedPanelView.Filter
     let items: [WorkstreamItem]
+    let sessionTitlesByWorkstream: [String: String]
     let hasMorePersistedItems: Bool
     let isLoadingOlderItems: Bool
     let onLoadOlderItems: () -> Void
@@ -398,29 +400,12 @@ private struct FeedListView: View {
     }
 
     private func filtered(_ items: [WorkstreamItem]) -> [WorkstreamItem] {
-        let base: [WorkstreamItem]
         switch filter {
         case .actionable:
-            base = items.filter { $0.kind.isActionable }
+            return FeedPanelViewModel.actionableItems(items)
         case .activity:
-            // Actionable kinds + todos + stop. Tool use, user prompts,
-            // assistant messages, session markers, and raw
-            // notifications are intentionally excluded — they're too
-            // noisy for a sidebar and already visible in the agent's
-            // terminal or the cmux notification system. Stop events
-            // render a "reply to Claude" textbox so the user can
-            // nudge Claude without switching focus to the terminal.
-            base = items.filter { item in
-                item.kind.isActionable
-                    || item.kind == .todos
-                    || item.kind == .stop
-            }
+            return FeedPanelViewModel.activityItems(items)
         }
-        // Newest first. Status isn't a sort key — resolved items stay
-        // in the chronological slot where they arrived so the user's
-        // mental map of "this was the second request I got" doesn't
-        // get shuffled when they answer it.
-        return Array(base.reversed())
     }
 
     private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
@@ -428,6 +413,7 @@ private struct FeedListView: View {
         return filtered(items).map { item in
             FeedItemSnapshot(
                 item: item,
+                sessionTitle: sessionTitlesByWorkstream[item.workstreamId],
                 userPromptEcho: lastPromptByWorkstream[item.workstreamId]
             )
         }
@@ -897,6 +883,7 @@ struct FeedItemSnapshot: Equatable {
     let source: WorkstreamSource
     let kind: WorkstreamKind
     let title: String?
+    let sessionTitle: String?
     let cwd: String?
     let createdAt: Date
     let status: WorkstreamStatus
@@ -907,12 +894,17 @@ struct FeedItemSnapshot: Equatable {
     /// context, even when the agent payload doesn't carry it directly.
     let userPromptEcho: String?
 
-    init(item: WorkstreamItem, userPromptEcho: String? = nil) {
+    init(
+        item: WorkstreamItem,
+        sessionTitle: String? = nil,
+        userPromptEcho: String? = nil
+    ) {
         self.id = item.id
         self.workstreamId = item.workstreamId
         self.source = item.source
         self.kind = item.kind
         self.title = item.title
+        self.sessionTitle = sessionTitle
         self.cwd = item.cwd
         self.createdAt = item.createdAt
         self.status = item.status
@@ -1115,27 +1107,37 @@ struct FeedItemRow: View, Equatable {
         let questionHeader = questionHeaderForTitle
         if !promptLine.isEmpty {
             let detail = [questionHeader, promptLine].compactMap { $0 }.joined(separator: " · ")
-            if let cwd = snapshot.cwd, !cwd.isEmpty {
-                return "\(cwdBasename(cwd)) · \(detail)"
+            if let sessionTitle {
+                return "\(sessionTitle) · \(detail)"
             }
             return detail
         }
         if let questionHeader {
-            if let cwd = snapshot.cwd, !cwd.isEmpty {
-                return "\(cwdBasename(cwd)) · \(questionHeader)"
+            if let sessionTitle {
+                return "\(sessionTitle) · \(questionHeader)"
             }
             return questionHeader
         }
         if let title = snapshot.title, !title.isEmpty {
-            if let cwd = snapshot.cwd, !cwd.isEmpty {
-                return "\(cwdBasename(cwd)) · \(title)"
+            if let sessionTitle {
+                return "\(sessionTitle) · \(title)"
             }
             return title
         }
-        if let cwd = snapshot.cwd, !cwd.isEmpty {
-            return "\(cwdBasename(cwd)) · \(kindLabel.capitalized)"
+        if let sessionTitle {
+            return "\(sessionTitle) · \(kindLabel.capitalized)"
         }
         return kindLabel.capitalized
+    }
+
+    private var sessionTitle: String? {
+        let liveTitle = snapshot.sessionTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !liveTitle.isEmpty {
+            return liveTitle
+        }
+        guard let cwd = snapshot.cwd, !cwd.isEmpty else { return nil }
+        return cwdBasename(cwd)
     }
 
     private var questionHeaderForTitle: String? {
@@ -3647,7 +3649,7 @@ private struct FlowLayout: Layout {
     }
 }
 
-/// Renders a Stop event (Claude finished a turn and is waiting for
+/// Renders a Stop event (the agent finished a turn and is waiting for
 /// the next user prompt). Shows a text field + Send button that
 /// types the reply into the agent's terminal surface and presses
 /// Return — so the user can reply without switching focus.
@@ -3680,14 +3682,14 @@ private struct StopActionArea: View {
                 Image(systemName: "checkmark.circle")
                     .cmuxFont(size: 10)
                     .foregroundColor(.secondary)
-                Text(String(localized: "feed.stop.label", defaultValue: "Claude finished — reply to continue"))
+                Text(String(localized: "feed.stop.label", defaultValue: "Agent finished — reply to continue"))
                     .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
             }
             FeedInlineTextField(
                 text: replyBinding,
                 focusRequest: focusRequest == 0 ? nil : focusRequest,
-                placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to Claude…"),
+                placeholder: String(localized: "feed.stop.placeholder", defaultValue: "Reply to agent…"),
                 isEnabled: true,
                 font: replyFont,
                 onFocus: onFocusRow,
@@ -3716,7 +3718,7 @@ private struct StopActionArea: View {
                 requestReplyFocus()
             }
             FeedButton(
-                label: String(localized: "feed.stop.send", defaultValue: "Send to Claude"),
+                label: String(localized: "feed.stop.send", defaultValue: "Send to agent"),
                 leadingIcon: "arrow.up.circle.fill",
                 kind: canSend ? .primary : .soft,
                 size: .medium,

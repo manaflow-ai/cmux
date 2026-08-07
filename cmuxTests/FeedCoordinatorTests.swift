@@ -33,7 +33,7 @@ struct FeedCoordinatorTests {
             payload: .stop(reason: nil)
         )
 
-        let visible = FeedPresentation.activityItems([
+        let visible = FeedPanelViewModel.activityItems([
             firstStop,
             secondStop,
             otherSession,
@@ -58,7 +58,7 @@ struct FeedCoordinatorTests {
             payload: .userPrompt(text: "continue")
         )
 
-        #expect(FeedPresentation.activityItems([oldStop, resumedPrompt]).isEmpty)
+        #expect(FeedPanelViewModel.activityItems([oldStop, resumedPrompt]).isEmpty)
 
         let currentStop = feedItem(
             id: "00000000-0000-0000-0000-000000000013",
@@ -68,7 +68,7 @@ struct FeedCoordinatorTests {
             payload: .stop(reason: nil)
         )
         #expect(
-            FeedPresentation.activityItems([oldStop, resumedPrompt, currentStop]).map(\.id)
+            FeedPanelViewModel.activityItems([oldStop, resumedPrompt, currentStop]).map(\.id)
                 == [currentStop.id]
         )
     }
@@ -101,24 +101,24 @@ struct FeedCoordinatorTests {
             status: .resolved(.permission(.once), at: Date(timeIntervalSince1970: 180))
         )
 
-        #expect(FeedPresentation.actionableItems([pending, resolved]).map(\.id) == [pending.id])
+        #expect(FeedPanelViewModel.actionableItems([pending, resolved]).map(\.id) == [pending.id])
     }
 
     @Test func feedSessionTitlePrefersSurfaceThenWorkspace() {
         #expect(
-            FeedSessionTitlePolicy.preferredTitle(
+            FeedCoordinator.preferredSessionTitle(
                 surfaceTitle: "Jero",
                 workspaceTitle: "Scope"
             ) == "Jero"
         )
         #expect(
-            FeedSessionTitlePolicy.preferredTitle(
+            FeedCoordinator.preferredSessionTitle(
                 surfaceTitle: "  ",
                 workspaceTitle: "Retrieval"
             ) == "Retrieval"
         )
         #expect(
-            FeedSessionTitlePolicy.preferredTitle(
+            FeedCoordinator.preferredSessionTitle(
                 surfaceTitle: nil,
                 workspaceTitle: nil
             ) == nil

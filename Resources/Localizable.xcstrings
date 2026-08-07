@@ -115972,13 +115972,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claude finished — reply to continue"
+            "value": "Agent finished — reply to continue"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claudeが完了しました。続行するには返信してください"
+            "value": "エージェントが完了しました。続行するには返信してください"
           }
         }
       }
@@ -115989,13 +115989,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reply to Claude…"
+            "value": "Reply to agent…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claudeへの返信…"
+            "value": "エージェントへの返信…"
           }
         }
       }
@@ -116006,13 +116006,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send to Claude"
+            "value": "Send to agent"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Claudeへ送信"
+            "value": "エージェントへ送信"
           }
         }
       }

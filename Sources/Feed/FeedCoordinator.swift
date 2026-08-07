@@ -863,7 +863,7 @@ extension FeedCoordinator {
 
     /// Resolves `workstreamId` to a `(workspace, surface)` pair and
     /// types the user's `text` into that surface, followed by Return.
-    /// Used by Stop-kind cards so the user can reply to Claude from
+    /// Used by Stop-kind cards so the user can reply to the agent from
     /// the Feed without switching focus to the terminal.
     @MainActor
     @discardableResult
@@ -879,6 +879,43 @@ extension FeedCoordinator {
             text: text
         )
         return true
+    }
+
+    /// Resolves the live cmux surface or workspace name for a Feed session.
+    @MainActor
+    func sessionDisplayTitle(workstreamId: String) -> String? {
+        guard let parsed = FeedJumpResolver.parse(workstreamId),
+              let target = FeedJumpResolver.lookup(agent: parsed.agent, sessionId: parsed.sessionId),
+              let workspaceId = UUID(uuidString: target.workspaceId),
+              let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return nil
+        }
+
+        let surfaceTitle: String? = {
+            guard let surfaceId = UUID(uuidString: target.surfaceId) else { return nil }
+            if workspace.panels[surfaceId] != nil {
+                return workspace.panelCustomTitles[surfaceId]
+            }
+            guard let panelId = workspace.panelIdFromSurfaceId(TabID(uuid: surfaceId)) else {
+                return nil
+            }
+            return workspace.panelCustomTitles[panelId]
+        }()
+        return Self.preferredSessionTitle(
+            surfaceTitle: surfaceTitle,
+            workspaceTitle: workspace.customTitle ?? workspace.title
+        )
+    }
+
+    static func preferredSessionTitle(surfaceTitle: String?, workspaceTitle: String?) -> String? {
+        for candidate in [surfaceTitle, workspaceTitle] {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 }
 
