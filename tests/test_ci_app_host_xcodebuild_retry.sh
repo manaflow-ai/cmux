@@ -576,7 +576,7 @@ if [ "$missing_swift_classifier_status" -ne 1 ]; then
   exit 1
 fi
 
-for authoritative_failure_status in 123 124; do
+for authoritative_failure_status in 123 124 127; do
   set +e
   bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
     "$authoritative_failure_status" "$EXPECTED_FAILURE_OUTPUT" \

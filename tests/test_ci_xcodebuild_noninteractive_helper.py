@@ -17,6 +17,7 @@ HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
 SWIFT_TESTING_FAILED_EXIT_CODE = 123
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
+TOTAL_TIMEOUT_EXIT_CODE = 127
 
 
 def main() -> int:
@@ -115,6 +116,42 @@ def main() -> int:
         print(heartbeat_result.stdout, end="")
         print(heartbeat_result.stderr, end="", file=sys.stderr)
         print("FAIL: helper did not emit recurring heartbeats for a quiet child")
+        return 1
+
+    total_timeout_child = textwrap.dedent(
+        """
+        import time
+
+        for index in range(10):
+            print(f"active={index}", flush=True)
+            time.sleep(0.05)
+        """
+    )
+    total_timeout_result = subprocess.run(
+        [sys.executable, str(HELPER), sys.executable, "-c", total_timeout_child],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env={
+            **os.environ,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "1",
+            "CMUX_XCODEBUILD_NONINTERACTIVE_TOTAL_TIMEOUT_SECONDS": "0.2",
+        },
+    )
+    if total_timeout_result.returncode != TOTAL_TIMEOUT_EXIT_CODE:
+        print(total_timeout_result.stdout, end="")
+        print(total_timeout_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: continuously active output must not extend the total deadline, "
+            f"got {total_timeout_result.returncode}"
+        )
+        return 1
+    if "Total timed out after 0.2s" not in total_timeout_result.stderr:
+        print(total_timeout_result.stdout, end="")
+        print(total_timeout_result.stderr, end="", file=sys.stderr)
+        print("FAIL: helper did not report total timeout")
         return 1
 
     post_test_env = {
