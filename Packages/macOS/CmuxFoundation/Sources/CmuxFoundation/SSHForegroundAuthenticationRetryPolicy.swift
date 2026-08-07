@@ -1601,7 +1601,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             "cmux_ssh_auth_group_published=1",
             "if [ -e \"$cmux_ssh_auth_group_cancel_file\" ]; then exit 143; fi",
             "unset CMUX_SSH_AUTH_GROUP_DIR",
-            "/usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command))",
+            "( exec {cmux_ssh_auth_group_anchor_guard_fd}>&-; exec /usr/bin/env LC_ALL=C LANG=C /bin/zsh -fc \(shellQuote(command)) )",
             "cmux_ssh_auth_group_status=$?",
             "cmux_ssh_auth_group_handoff",
             "exit \"$cmux_ssh_auth_group_status\"",
