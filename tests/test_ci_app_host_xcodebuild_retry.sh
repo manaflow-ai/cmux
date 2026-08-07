@@ -16,13 +16,17 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   attempt_lease="${TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE:-}"
   attempt_lease_state=missing
   if [ -f "$attempt_lease" ]; then
-    for inherited_descriptor in /dev/fd/*; do
-      case "${inherited_descriptor##*/}" in 0|1|2) continue ;; esac
-      if [ "$inherited_descriptor" -ef "$attempt_lease" ]; then
-        attempt_lease_state=inherited
-        break
-      fi
-    done
+    if [ "${CMUX_MOCK_INHERIT_ATTEMPT_LEASE:-0}" = "1" ]; then
+      attempt_lease_state=inherited
+    else
+      for inherited_descriptor in /dev/fd/*; do
+        case "${inherited_descriptor##*/}" in 0|1|2) continue ;; esac
+        if [ "$inherited_descriptor" -ef "$attempt_lease" ]; then
+          attempt_lease_state=inherited
+          break
+        fi
+      done
+    fi
     if [ "$attempt_lease_state" != "inherited" ] && /usr/bin/python3 -c '
 import fcntl
 import os
@@ -115,6 +119,47 @@ trap cleanup EXIT
 
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcodebuild"
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/fake-lsof"
+
+run_fake_lease_probe() {
+  local fixture="$1"
+  local lease_path="$2"
+  local inherit_lease="${3:-0}"
+  local capture_prefix="$TMP_DIR/$fixture"
+  : > "$capture_prefix-args.log"
+  : > "$capture_prefix-test-runner.log"
+  : > "$capture_prefix-parent.log"
+  : > "$capture_prefix-home.log"
+  CMUX_CAPTURE_XCODEBUILD_ARGS="$capture_prefix-args.log" \
+  CMUX_CAPTURE_TEST_RUNNER_ENV="$capture_prefix-test-runner.log" \
+  CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$capture_prefix-parent.log" \
+  CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$capture_prefix-home.log" \
+  CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+  CMUX_MOCK_XCODEBUILD_MODE=success \
+  CMUX_MOCK_INHERIT_ATTEMPT_LEASE="$inherit_lease" \
+  TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE="$lease_path" \
+    "$TMP_DIR/xcodebuild" test > "$capture_prefix-output.log" 2>&1
+  LEASE_PROBE_STATE="$(awk -F '|' 'END { print $11 }' "$capture_prefix-home.log")"
+}
+
+inherited_probe_lease="$TMP_DIR/inherited-probe.lease"
+: > "$inherited_probe_lease"
+chmod 600 "$inherited_probe_lease"
+run_fake_lease_probe inherited-probe "$inherited_probe_lease" 1
+inherited_probe_state="$LEASE_PROBE_STATE"
+
+failed_probe_lease="$TMP_DIR/failed-probe.lease"
+: > "$failed_probe_lease"
+chmod 000 "$failed_probe_lease"
+run_fake_lease_probe failed-probe "$failed_probe_lease"
+failed_probe_state="$LEASE_PROBE_STATE"
+chmod 600 "$failed_probe_lease"
+
+if [ "$inherited_probe_state" != "inherited" ] \
+  || [ "$failed_probe_state" != "probe-failed" ]; then
+  echo "FAIL: lease probe must distinguish inherited=$inherited_probe_state and failed=$failed_probe_state"
+  exit 1
+fi
+
 BASH32_BIN_DIR="$TMP_DIR/bash32-bin"
 mkdir -p "$BASH32_BIN_DIR"
 ln -s /bin/bash "$BASH32_BIN_DIR/bash"
