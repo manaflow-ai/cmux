@@ -365,6 +365,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
         cmux_ssh_auth_resume_signaled_processes() {
           if [ -s "$cmux_ssh_auth_signaled_groups" ]; then
             while IFS= read -r cmux_ssh_auth_group; do
+              if [ -n "${cmux_ssh_auth_deadline_millis:-}" ]; then
+                cmux_ssh_auth_deadline_allows_signal || return 1
+              fi
               case "$cmux_ssh_auth_group" in ''|0|*[!0-9]*) continue ;; esac
               kill -CONT -- "-$cmux_ssh_auth_group" >/dev/null 2>&1 || true
             done < "$cmux_ssh_auth_signaled_groups"
@@ -372,6 +375,9 @@ extension SSHForegroundAuthenticationRetryPolicy {
           if [ -s "$cmux_ssh_auth_signaled_processes" ]; then
             while read -r cmux_ssh_auth_pid cmux_ssh_auth_parent cmux_ssh_auth_group \
               cmux_ssh_auth_started cmux_ssh_auth_extra; do
+              if [ -n "${cmux_ssh_auth_deadline_millis:-}" ]; then
+                cmux_ssh_auth_deadline_allows_signal || return 1
+              fi
               case "$cmux_ssh_auth_pid" in ''|0|*[!0-9]*) continue ;; esac
               if [ -z "$cmux_ssh_auth_parent" ] && \
                 [ -n "${cmux_ssh_auth_frozen_processes:-}" ] && \

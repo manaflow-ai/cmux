@@ -128,7 +128,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             ? publishedAuthenticationCleanupShellCommand()
             : ":"
         let recoveryDrain = "if command -v cmux_ssh_resume_failed_auth_group_reapers >/dev/null 2>&1; then cmux_ssh_resume_failed_auth_group_reapers; fi"
-        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; \(recoveryDrain);"
+        return "if [ -n \"${CMUX_SSH_AUTH_GROUP_DIR:-}\" ]; then \(publishedCleanup); if [ ! -s \"$CMUX_SSH_AUTH_GROUP_DIR/identity\" ] && [ ! -e \"$CMUX_SSH_AUTH_GROUP_DIR/cancel\" ]; then \(processGroupStateRemovalShellCommand()); /bin/rmdir \"$CMUX_SSH_AUTH_GROUP_DIR\" 2>/dev/null || true; fi; fi; CMUX_SSH_AUTH_GROUP_DIR=; export CMUX_SSH_AUTH_GROUP_DIR; \(recoveryDrain);"
     }
 
     private func publishedAuthenticationCleanupShellCommand() -> String {
@@ -950,14 +950,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             exit 0
           fi
           cmux_ssh_auth_remove_cancel=1
-          : > "$cmux_ssh_auth_owned_processes" || exit 0
-          : > "$cmux_ssh_auth_frozen_processes" || exit 0
-          : > "$cmux_ssh_auth_signaled_groups" || exit 0
-          : > "$cmux_ssh_auth_signaled_processes" || exit 0
           cmux_ssh_auth_cleanup_started_millis="$(cmux_ssh_auth_now_millis)" || exit 0
           case "$cmux_ssh_auth_cleanup_started_millis" in ''|*[!0-9]*) exit 0 ;; esac
           cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 500))
           cmux_ssh_auth_hard_deadline_millis=$((cmux_ssh_auth_cleanup_started_millis + 2000))
+          # A prior cleanup can die after STOP but before its EXIT trap resumes
+          # the journal. Reconcile those exact identities before replacing it.
+          cmux_ssh_auth_resume_signaled_processes || exit 0
+          : > "$cmux_ssh_auth_owned_processes" || exit 0
+          : > "$cmux_ssh_auth_frozen_processes" || exit 0
+          : > "$cmux_ssh_auth_signaled_groups" || exit 0
+          : > "$cmux_ssh_auth_signaled_processes" || exit 0
           cmux_ssh_auth_cleanup_started=1
           cmux_ssh_auth_run_cleanup_transactions || exit 0
           cmux_ssh_auth_cleanup_complete=1
