@@ -3438,17 +3438,31 @@ class GhosttyApp {
                     return true
                 }
                 let preferredColorScheme = self.effectiveTerminalColorSchemePreference
-                surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
-                    preferredColorScheme: preferredColorScheme
-                )
-                self.reloadSurfaceConfiguration(
-                    target.target.surface,
+                GhosttySurfaceConfigurationRefresh.applyConfigurationReload(
+                    to: target.target.surface,
                     soft: soft,
                     source: source,
-                    preferredColorScheme: preferredColorScheme
+                    redrawReason: "surface.reloadConfig",
+                    reloadSurfaceConfiguration: { surface, soft, source in
+                        self.reloadSurfaceConfiguration(
+                            surface,
+                            soft: soft,
+                            source: source,
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    },
+                    applySurfaceColorScheme: {
+                        surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+                            preferredColorScheme: preferredColorScheme
+                        )
+                    },
+                    refreshHostBackground: {
+                        surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
+                    },
+                    forceRefresh: { reason in
+                        surfaceView.terminalSurface?.forceRefresh(reason: reason)
+                    }
                 )
-                surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
-                surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true
             }
         case GHOSTTY_ACTION_KEY_SEQUENCE:
