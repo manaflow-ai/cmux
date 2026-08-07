@@ -397,6 +397,10 @@ extension SocketListenerAcceptPolicyTests {
             XCTFail("Expected Amp resume command")
             return
         }
+        XCTAssertTrue(
+            ampResume.hasPrefix("cd -- '/tmp/amp repo' 2>/dev/null || [ ! -d '/tmp/amp repo' ] && "),
+            ampResume
+        )
         XCTAssertTrue(ampResume.contains("CMUX_AMP_WRAPPER_SHIM"), ampResume)
         XCTAssertTrue(ampResume.contains("CMUX_CUSTOM_AMP_PATH=/Users/example/.local/bin/amp"), ampResume)
         XCTAssertTrue(ampResume.contains("AMP_SETTINGS_FILE=/tmp/amp-settings.json"), ampResume)

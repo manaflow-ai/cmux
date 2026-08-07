@@ -101,7 +101,7 @@ function normalizedLaunchArgv(): string[] {
   if (raw.length > 1 && (looksLikeAmpScript(raw[1]) || looksLikeJavaScriptRuntime(raw[0]))) {
     return [resolveExecutable("amp"), ...raw.slice(2)];
   }
-  return [resolveExecutable("amp")];
+  return [resolveExecutable("amp"), ...raw.slice(1)];
 }
 
 function base64NulSeparated(values: string[]): string {

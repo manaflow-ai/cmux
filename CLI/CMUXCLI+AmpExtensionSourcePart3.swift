@@ -61,6 +61,8 @@ extension CMUXCLI {
         updateThreadPresentation(sessionId, { label, icon, color: COLOR.active });
       }
     }
+    // Request handlers must return a result. Amp gathers every plugin result and
+    // gives error/reject/synthesize/modify outcomes precedence over `allow`.
     return { action: "allow" as const };
   });
 
@@ -89,7 +91,6 @@ extension CMUXCLI {
     if (lifecycle.authoritativeState === "running") {
       updateThreadPresentation(sessionId, PRESENTATION.thinking);
     }
-    titleSubscriptions.get(sessionId)?.flush?.();
     const thread = threadFrom(event, ctx);
     resolveThreadTitle(sessionId, thread);
     // When available, authoritative thread.state owns completion so a lagging

@@ -216,7 +216,7 @@ public struct AgentRestorePlanner: Sendable {
             return arguments
         }
 
-        environment.merge(AgentResumeArgv.managedWrapperCustomExecutableEnvironment(
+        environment.merge(AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
             kind: kind,
             executablePath: request.launchCommand?.executablePath,
             arguments: request.launchCommand?.arguments ?? []

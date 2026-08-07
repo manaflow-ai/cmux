@@ -43,9 +43,16 @@ extension TerminalSurface {
         let shimDirectory = shimParentDirectory
             .appendingPathComponent(surfaceId.uuidString, isDirectory: true)
             .standardizedFileURL
+        let stagingDirectory = shimParentDirectory
+            .appendingPathComponent(".\(surfaceId.uuidString).staging.\(UUID().uuidString)", isDirectory: true)
+            .standardizedFileURL
+        defer {
+            try? fileManager.removeItem(at: stagingDirectory)
+        }
         do {
-            try fileManager.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
-            for directory in [shimParentDirectory, shimDirectory] {
+            try fileManager.createDirectory(at: shimParentDirectory, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+            for directory in [shimParentDirectory, stagingDirectory] {
                 try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
             }
         } catch {
@@ -57,12 +64,28 @@ extension TerminalSurface {
             guard let shim = installAgentCommandShim(
                 definition: definition,
                 wrapperURL: wrapperURL,
-                shimDirectory: shimDirectory,
+                stagingDirectory: stagingDirectory,
+                publishedDirectory: shimDirectory,
                 fileManager: fileManager
             ) else { continue }
             shims.append(shim)
         }
         guard !shims.isEmpty else { return nil }
+        do {
+            if fileManager.fileExists(atPath: shimDirectory.path) {
+                _ = try fileManager.replaceItemAt(
+                    shimDirectory,
+                    withItemAt: stagingDirectory,
+                    backupItemName: nil,
+                    options: []
+                )
+            } else {
+                try fileManager.moveItem(at: stagingDirectory, to: shimDirectory)
+            }
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimDirectory.path)
+        } catch {
+            return nil
+        }
         return TerminalSurfaceAgentCommandShimSet(
             directoryPath: shimDirectory.path,
             shims: shims
@@ -72,14 +95,18 @@ extension TerminalSurface {
     private static func installAgentCommandShim(
         definition: TerminalSurfaceAgentCommandShimDefinition,
         wrapperURL: URL,
-        shimDirectory: URL,
+        stagingDirectory: URL,
+        publishedDirectory: URL,
         fileManager: FileManager
     ) -> TerminalSurfaceAgentCommandShim? {
-        let shimURL = shimDirectory.appendingPathComponent(definition.commandName, isDirectory: false)
+        let stagingShimURL = stagingDirectory
+            .appendingPathComponent(definition.commandName, isDirectory: false)
+        let publishedShimURL = publishedDirectory
+            .appendingPathComponent(definition.commandName, isDirectory: false)
         let script = """
         #!/usr/bin/env bash
         cmux_wrapper=\(shellSingleQuoted(wrapperURL.path))
-        cmux_shim_root=\(shellSingleQuoted(shimDirectory.path))
+        cmux_shim_root=\(shellSingleQuoted(publishedDirectory.path))
         if [[ ! -x "$cmux_wrapper" && -n "${CMUX_BUNDLED_CLI_PATH:-}" ]]; then
             cmux_candidate="$(dirname "$CMUX_BUNDLED_CLI_PATH")/\(definition.wrapperName)"
             if [[ -x "$cmux_candidate" ]]; then
@@ -95,7 +122,7 @@ extension TerminalSurface {
                 fi
             fi
         fi
-        export \(definition.environmentVariablePrefix)_WRAPPER_SHIM=\(shellSingleQuoted(shimURL.path))
+        export \(definition.environmentVariablePrefix)_WRAPPER_SHIM=\(shellSingleQuoted(publishedShimURL.path))
         export \(definition.environmentVariablePrefix)_WRAPPER_SHIM_ROOT="$cmux_shim_root"
         if [[ -x "$cmux_wrapper" ]]; then
             exec "$cmux_wrapper" "$@"
@@ -127,14 +154,14 @@ extension TerminalSurface {
         """
 
         do {
-            try script.write(to: shimURL, atomically: true, encoding: .utf8)
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: shimURL.path)
+            try script.write(to: stagingShimURL, atomically: true, encoding: .utf8)
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: stagingShimURL.path)
             return TerminalSurfaceAgentCommandShim(
                 commandName: definition.commandName,
                 wrapperName: definition.wrapperName,
                 environmentVariablePrefix: definition.environmentVariablePrefix,
-                directoryPath: shimDirectory.path,
-                executablePath: shimURL.path
+                directoryPath: publishedDirectory.path,
+                executablePath: publishedShimURL.path
             )
         } catch {
             return nil
