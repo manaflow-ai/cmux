@@ -2,8 +2,14 @@ import Foundation
 
 extension CmuxVaultAgentRegistration {
     func processDetectedSnapshotIsRestorable(for process: VaultObservedAgentProcess) -> Bool {
-        guard id == "campfire" else { return true }
-        return process.environment["CAMPFIRE_SESSION_ROLE"] == "host"
+        switch id {
+        case "campfire":
+            return process.environment["CAMPFIRE_SESSION_ROLE"] == "host"
+        case "hermes-agent":
+            return process.isInteractiveHermesAgentInvocation
+        default:
+            return true
+        }
     }
 }
 

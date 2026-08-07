@@ -43,6 +43,16 @@ struct VaultObservedAgentProcess: Sendable {
         arguments.piCompatibleSessionID(startingAt: piCompatibleSessionArgumentStartIndex)
     }
 
+    /// Whether this Hermes process owns an interactive conversation that cmux can restore.
+    ///
+    /// The installed launcher execs Python with `hermes-agent/hermes` as its script, so the
+    /// first Hermes argument is not always at index one. Management subcommands such as
+    /// `gateway`, `doctor`, and `update` must not become resumable chat panes.
+    var isInteractiveHermesAgentInvocation: Bool {
+        guard let command = firstHermesAgentPositionalArgument else { return true }
+        return command.compare("chat", options: [.caseInsensitive, .literal]) == .orderedSame
+    }
+
     var openCodeExecutableArgumentIndex: Int? {
         if let first = arguments.first,
            Self.argumentLooksLikeOpenCode(first) {
@@ -75,6 +85,57 @@ struct VaultObservedAgentProcess: Sendable {
                 normalized == ".opencode" ||
                 normalized == "opencode-ai" ||
                 normalized == "open-code"
+        }
+    }
+
+    private var firstHermesAgentPositionalArgument: String? {
+        var index = hermesAgentArgumentStartIndex
+        while index < arguments.endIndex {
+            let argument = arguments[index]
+            if argument == "--" {
+                let nextIndex = arguments.index(after: index)
+                return nextIndex < arguments.endIndex ? arguments[nextIndex] : nil
+            }
+            guard argument.hasPrefix("-") else { return argument }
+
+            let option = argument
+                .split(separator: "=", maxSplits: 1)
+                .first
+                .map(String.init) ?? argument
+            if !argument.contains("="), Self.hermesTopLevelOptionConsumesValue(option) {
+                index = min(index + 2, arguments.endIndex)
+            } else {
+                index += 1
+            }
+        }
+        return nil
+    }
+
+    private var hermesAgentArgumentStartIndex: Int {
+        if let entrypointIndex = arguments.indices.first(where: {
+            Self.argumentLooksLikeHermesAgentEntrypoint(arguments[$0])
+        }) {
+            return arguments.index(after: entrypointIndex)
+        }
+        return arguments.isEmpty
+            ? arguments.startIndex
+            : arguments.index(after: arguments.startIndex)
+    }
+
+    private static func argumentLooksLikeHermesAgentEntrypoint(_ argument: String) -> Bool {
+        argument
+            .replacingOccurrences(of: "\\", with: "/")
+            .range(of: "hermes-agent/hermes", options: [.caseInsensitive, .literal]) != nil
+    }
+
+    private static func hermesTopLevelOptionConsumesValue(_ option: String) -> Bool {
+        switch option {
+        case "-z", "--oneshot", "-m", "--model", "--provider", "--reasoning",
+             "-t", "--toolsets", "-r", "--resume", "-c", "--continue",
+             "-s", "--skills", "--usage-file", "-p", "--profile":
+            return true
+        default:
+            return false
         }
     }
 

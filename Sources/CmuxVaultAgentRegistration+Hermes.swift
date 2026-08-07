@@ -10,7 +10,11 @@ extension CmuxVaultAgentRegistration {
                 defaultValue: "Hermes Agent"
             ),
             iconAssetName: "AgentIcons/HermesAgent",
-            detect: CmuxVaultAgentDetectRule(processNames: ["hermes", "hermes-agent"]),
+            detect: CmuxVaultAgentDetectRule(
+                processNames: ["hermes", "hermes-agent"],
+                alternateProcessNames: ["python", "python3"],
+                alternateArgvContainsAny: ["hermes-agent/hermes"]
+            ),
             sessionIdSource: .persistedStore(.hermesStateDB),
             resumeCommand: "{{executable}} --resume {{sessionId}}",
             cwd: .preserve
