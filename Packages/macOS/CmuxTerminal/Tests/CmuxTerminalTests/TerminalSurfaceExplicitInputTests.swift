@@ -166,14 +166,18 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
     }
 
-    @Test func promptSubmissionQueuesAsOneCompoundItemOnAColdSurface() {
+    @Test func promptPreparationQueuesInsideOneAppOwnedCompoundItem() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.surface.synchronizePromptInputAgentScope(
+            "agentPIDKey:codex.preparation"
+        )
 
         #expect(
             fixture.surface.sendPromptSubmission(
                 "first line\nsecond line",
                 submitKey: "return",
+                preparationKeys: ["ctrl+a", "ctrl+k", "ctrl+u"],
                 hookRecordingSource: "workspace.agent_submit"
             ) == .queued
         )
@@ -184,16 +188,41 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(pending.pasteTextItems == 0)
         #expect(pending.keyEvents == 0)
         #expect(
+            fixture.surface.pendingPromptPreparationKeyLabelsForTests
+                == [["ctrl+a", "ctrl+k", "ctrl+u"]]
+        )
+        #expect(
             pending.bytes
                 == Data("first line\nsecond line".utf8).count
+                    + "ctrl+a".utf8.count
+                    + "ctrl+k".utf8.count
+                    + "ctrl+u".utf8.count
                     + "return".utf8.count
         )
         #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
         #expect(
             fixture.surface.confirmPromptSubmission(
                 message: "first line second line"
             ) == .unmatched
         )
+    }
+
+    @Test func invalidPromptPreparationRejectsBeforeQueueMutation() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(
+            fixture.surface.sendPromptSubmission(
+                "supervisor prompt",
+                submitKey: "return",
+                preparationKeys: ["ctrl+a", "unsupported-preparation"]
+            ) == .unknownKey
+        )
+
+        #expect(fixture.surface.pendingSocketInputSnapshotForTests.items == 0)
+        #expect(!fixture.surface.hasUnconfirmedHumanPromptInput)
+        #expect(fixture.paneHost.explicitInputCount == 0)
     }
 
     @Test func promptSubmissionRejectsWithoutChangingARecordedHumanDraft() {
@@ -387,6 +416,21 @@ struct TerminalSurfaceExplicitInputTests {
 }
 
 private extension TerminalSurface {
+    var pendingPromptPreparationKeyLabelsForTests: [[String]] {
+        pendingSocketInputQueue.compactMap { item -> [String]? in
+            guard case .promptSubmission(
+                let preparationKeys,
+                _,
+                _,
+                _,
+                _
+            ) = item else {
+                return nil
+            }
+            return preparationKeys.map(\.label)
+        }
+    }
+
     var pendingSocketInputSnapshotForTests: (
         items: Int,
         bytes: Int,

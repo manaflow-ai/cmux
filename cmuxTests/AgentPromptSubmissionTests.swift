@@ -260,6 +260,10 @@ struct AgentPromptSubmissionTests {
         #expect(pending.items == 1)
         #expect(pending.keyEvents == 0)
         #expect(pending.promptSubmissionItems == 1)
+        #expect(
+            panel.surface.pendingPromptPreparationKeyLabelsForTests
+                == [["ctrl+a", "ctrl+k", "ctrl+u"]]
+        )
 
         workspace.recordAgentPID(
             key: "codex.prebinding-mobile",
