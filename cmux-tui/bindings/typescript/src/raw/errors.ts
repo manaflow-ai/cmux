@@ -20,6 +20,8 @@ export class CmuxCommandError extends CmuxError {
 }
 
 export class CmuxConnectionError extends CmuxError {}
+/** The server rejected the WebSocket credential before routing requests. */
+export class CmuxAuthenticationRejectedError extends CmuxConnectionError {}
 export class CmuxProtocolError extends CmuxError {}
 export class CmuxTimeoutError extends CmuxError {}
 export class CmuxAbortError extends CmuxError {}

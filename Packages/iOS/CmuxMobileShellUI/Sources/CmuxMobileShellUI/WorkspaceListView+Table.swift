@@ -120,9 +120,12 @@ extension WorkspaceListView {
             customizeRequest: requestWorkspaceCustomization,
             createWorkspaceInGroup: canCreateWorkspaceInGroups ? createWorkspaceInGroup : nil,
             renameWorkspaceGroup: renameWorkspaceGroup,
+            renameWorkspaceGroupRequest: requestWorkspaceGroupRename,
             setGroupPinned: setGroupPinned,
             ungroupWorkspaceGroup: ungroupWorkspaceGroup,
+            ungroupWorkspaceGroupRequest: requestWorkspaceGroupUngroup,
             deleteWorkspaceGroup: deleteWorkspaceGroup,
+            deleteWorkspaceGroupRequest: requestWorkspaceGroupDelete,
             toggleGroupCollapsed: toggleGroupCollapsed,
             showAll: {
                 filter = .all
