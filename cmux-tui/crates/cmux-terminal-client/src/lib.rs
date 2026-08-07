@@ -766,7 +766,10 @@ pub(crate) async fn connect_transport(
         ClientConnectionConfig {
             identity: StaticIdentity::generate().map_err(|error| error.to_string())?,
             expected_daemon: Some(daemon_key),
-            auth: ClientAuthMode::Invitation { id: invitation.id, secret: Zeroizing::new(invitation_secret) },
+            auth: ClientAuthMode::Invitation {
+                id: invitation.id,
+                secret: Zeroizing::new(invitation_secret),
+            },
             device_name: device_name.into(),
             session,
             lane_policy: LanePolicy::Isolated,
@@ -777,7 +780,10 @@ pub(crate) async fn connect_transport(
     .await
     .map_err(|error| format!("Noise enrollment: {error}"))?;
     let snapshot = connection.snapshot().await;
-    let path = snapshot.transport.selected_path.as_ref()
+    let path = snapshot
+        .transport
+        .selected_path
+        .as_ref()
         .map(|path| format!("{:?}", path.kind).to_lowercase())
         .unwrap_or_else(|| snapshot.transport.route.clone());
     let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
