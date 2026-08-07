@@ -1706,10 +1706,26 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             kind: RestorableAgentKind,
             registration: CmuxVaultAgentRegistration,
             executable: String,
-            cwdOption: String
+            cwdOption: String,
+            cwdArgument: String,
+            launchWorkingDirectory: String?
         )] = [
-            (.grok, .builtInGrok, "grok", "--cwd"),
-            (.kimi, .builtInKimi, "kimi", "--work-dir"),
+            (
+                .grok,
+                .builtInGrok,
+                "grok",
+                "--cwd",
+                "/Users/alice/grok-explicit-cwd",
+                "/tmp/grok-process-cwd"
+            ),
+            (
+                .kimi,
+                .builtInKimi,
+                "kimi",
+                "--work-dir",
+                "/Users/alice/kimi-explicit-cwd",
+                nil
+            ),
         ]
 
         for testCase in cases {
@@ -1721,8 +1737,8 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
                 launchCommand: AgentLaunchCommandSnapshot(
                     launcher: testCase.executable,
                     executablePath: testCase.executable,
-                    arguments: [testCase.executable, testCase.cwdOption, recordedLocalDirectory],
-                    workingDirectory: recordedLocalDirectory,
+                    arguments: [testCase.executable, testCase.cwdOption, testCase.cwdArgument],
+                    workingDirectory: testCase.launchWorkingDirectory,
                     environment: [:],
                     capturedAt: 1_777_777_777,
                     source: "process"
@@ -1737,6 +1753,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
                 ))
                 #expect(input.contains(sessionId), Comment(rawValue: input))
                 #expect(!input.contains(recordedLocalDirectory), Comment(rawValue: input))
+                #expect(!input.contains(testCase.cwdArgument), Comment(rawValue: input))
                 #expect(!input.contains(testCase.cwdOption), Comment(rawValue: input))
                 if let exactDirectory {
                     #expect(input.contains(exactDirectory), Comment(rawValue: input))
