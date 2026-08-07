@@ -531,6 +531,23 @@ if [ "$missing_swift_classifier_status" -ne 1 ]; then
   exit 1
 fi
 
+FAILED_SWIFT_TESTING_OUTPUT="$TMP_DIR/failed-swift-testing-output.log"
+printf '%s\n' \
+  'Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds' \
+  'Test run with 1 test in 1 suite failed after 0.001 seconds with 1 issue.' \
+  >"$FAILED_SWIFT_TESTING_OUTPUT"
+set +e
+bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+  125 "$FAILED_SWIFT_TESTING_OUTPUT" \
+  >"$TMP_DIR/failed-swift-classifier-output.log" 2>&1
+failed_swift_classifier_status=$?
+set -e
+if [ "$failed_swift_classifier_status" -ne 1 ]; then
+  cat "$TMP_DIR/failed-swift-classifier-output.log"
+  echo "FAIL: a failed Swift Testing phase must not inherit a clean XCTest result"
+  exit 1
+fi
+
 if ! bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
   65 "$EXPECTED_FAILURE_OUTPUT"; then
   echo "FAIL: ordinary expected XCTest failures must retain their tolerant classification"
