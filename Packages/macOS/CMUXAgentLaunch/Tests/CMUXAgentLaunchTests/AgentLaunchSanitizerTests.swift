@@ -640,5 +640,11 @@ struct AgentLaunchSanitizerTests {
                 workingDirectory: "/tmp/project"
             ) == ["qoder", "--model", "best"]
         )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "--work-dir=/tmp/project", "--model", "kimi-k2"],
+                workingDirectory: "/tmp/project"
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
     }
 }

@@ -1699,6 +1699,52 @@ struct AgentSessionAutoResumeSwiftTests {
 
 @Suite(.serialized)
 struct RemoteAgentRestoreWorkingDirectoryTests {
+    @Test func exactSelectionStripsRegisteredBuiltInRecordedCwdArguments() throws {
+        let recordedLocalDirectory = "/Users/alice/recorded-agent-cwd"
+        let trustedRemoteDirectory = "/repo-b"
+        let cases: [(
+            kind: RestorableAgentKind,
+            registration: CmuxVaultAgentRegistration,
+            executable: String,
+            cwdOption: String
+        )] = [
+            (.grok, .builtInGrok, "grok", "--cwd"),
+            (.kimi, .builtInKimi, "kimi", "--work-dir"),
+        ]
+
+        for testCase in cases {
+            let sessionId = "remote-\(testCase.executable)-session"
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: testCase.kind,
+                sessionId: sessionId,
+                workingDirectory: recordedLocalDirectory,
+                launchCommand: AgentLaunchCommandSnapshot(
+                    launcher: testCase.executable,
+                    executablePath: testCase.executable,
+                    arguments: [testCase.executable, testCase.cwdOption, recordedLocalDirectory],
+                    workingDirectory: recordedLocalDirectory,
+                    environment: [:],
+                    capturedAt: 1_777_777_777,
+                    source: "process"
+                ),
+                registration: testCase.registration
+            )
+
+            for exactDirectory in [trustedRemoteDirectory, nil] as [String?] {
+                let input = try #require(snapshot.resumeStartupInput(
+                    useLocalRestoreVerb: false,
+                    workingDirectorySelection: .exact(exactDirectory)
+                ))
+                #expect(input.contains(sessionId), Comment(rawValue: input))
+                #expect(!input.contains(recordedLocalDirectory), Comment(rawValue: input))
+                #expect(!input.contains(testCase.cwdOption), Comment(rawValue: input))
+                if let exactDirectory {
+                    #expect(input.contains(exactDirectory), Comment(rawValue: input))
+                }
+            }
+        }
+    }
+
     @MainActor
     @Test func genericDirectoryReportCannotSeedEmptyTrustRequiredRemotePanel() throws {
         let localDirectory = "/Users/alice/development"
