@@ -624,14 +624,14 @@ pub fn restrict_file(path: &Path) -> io::Result<()> {
 pub fn sync_directory(path: &Path) -> io::Result<()> {
     #[cfg(windows)]
     {
-        use std::os::windows::fs::OpenOptionsExt;
-        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x02000000;
-        OpenOptions::new()
-            .read(true)
-            .write(true)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .open(path)?
-            .sync_all()
+        if std::fs::metadata(path)?.is_dir() {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("not a directory: {}", path.display()),
+            ))
+        }
     }
     #[cfg(not(windows))]
     {
@@ -883,6 +883,22 @@ mod tests {
             terminal_pwd_to_local_path("file:///C:/Users/alice/src"),
             Some(PathBuf::from(r"C:\Users\alice\src"))
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_sync_directory_accepts_existing_directory() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-sync-directory-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+
+        sync_directory(&root).unwrap();
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
