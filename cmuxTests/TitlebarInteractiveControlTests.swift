@@ -390,6 +390,25 @@ struct SidebarEmptyAreaWindowDragTests {
         try Self.expectReplayedMouseUp(in: window, matches: up)
     }
 
+    /// Invalid thresholds fail at construction instead of encoding an unusable drag policy.
+    @Test func invalidThresholdsFailFast() async {
+        await #expect(processExitsWith: .failure) {
+            await MainActor.run {
+                _ = SidebarEmptyAreaWindowDragController(dragThreshold: -1)
+            }
+        }
+        await #expect(processExitsWith: .failure) {
+            await MainActor.run {
+                _ = SidebarEmptyAreaWindowDragController(dragThreshold: .infinity)
+            }
+        }
+        await #expect(processExitsWith: .failure) {
+            await MainActor.run {
+                _ = SidebarEmptyAreaWindowDragController(dragThreshold: .nan)
+            }
+        }
+    }
+
     /// A detached view declines the drag without consulting the injected event source.
     @Test func viewWithoutWindowIsNotADrag() {
         _ = NSApplication.shared
