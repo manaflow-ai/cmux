@@ -3199,19 +3199,22 @@ final class cmuxUITests: XCTestCase {
         )
 
         let overlay = app.otherElements["MobilePaneMapOverlay"]
+        let deckPaneMapButton = app.buttons["MobileSurfaceDeckPaneMap"]
         for cycle in 1...2 {
-            tap(app.buttons["MobileSurfaceDeckPaneMap"], in: app)
+            tap(deckPaneMapButton, in: app)
             XCTAssertTrue(
-                waitForPaneMap(overlay, in: app, toBeActive: true, timeout: 8),
+                waitForPaneMap(overlay, in: app, toBeActive: true),
                 "Pane map must open from the surface deck (cycle \(cycle))"
             )
             XCTAssertEqual(app.state, .runningForeground)
             tap(app.buttons["MobilePaneMapTile-terminal-build"], in: app)
-            // Returning to the terminal re-presents its full-screen cover and
-            // rebuilds the terminal subtree, which takes several seconds on a
-            // saturated CI runner; this is a liveness check, not a latency one.
+            // The deck lives inside the terminal's presentation, so its
+            // reappearance proves the round trip completed. This is a
+            // liveness check, not a latency one: the cover re-presentation
+            // rebuilds the terminal subtree and takes 15+ seconds on a
+            // saturated CI runner.
             XCTAssertTrue(
-                waitForPaneMap(overlay, in: app, toBeActive: false, timeout: 15),
+                deckPaneMapButton.waitForExistence(timeout: 30),
                 "Tapping a tile must return to the terminal (cycle \(cycle))"
             )
             XCTAssertEqual(app.state, .runningForeground)
@@ -3222,9 +3225,9 @@ final class cmuxUITests: XCTestCase {
         // column and crashed even though the nested stack was already gone.
         tap(app.buttons["MobileWorkspaceBackButton"], in: app)
         let docsRow = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-docs"]
-        XCTAssertTrue(docsRow.waitForExistence(timeout: 8))
+        XCTAssertTrue(docsRow.waitForExistence(timeout: 20))
         docsRow.tap()
-        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 20))
         try await Task.sleep(for: .seconds(3))
         XCTAssertEqual(
             app.state,
@@ -5460,7 +5463,12 @@ final class cmuxUITests: XCTestCase {
         _ overlay: XCUIElement,
         in app: XCUIApplication,
         toBeActive isActive: Bool,
-        timeout: TimeInterval = 4
+        // Returning to the terminal re-presents its full-screen cover and
+        // rebuilds the terminal subtree, which takes 15+ seconds on a
+        // saturated CI runner (the old stack pop restored a retained view
+        // instantly). Presence waits are wait-until, so fast runs are
+        // unaffected; negative checks pass explicit short timeouts.
+        timeout: TimeInterval = 20
     ) -> Bool {
         // The background marker spans the pane map but is intentionally behind
         // every card. Its XCUI `isHittable` value therefore depends on whether
