@@ -2206,6 +2206,89 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func activeReaperLimitIsSharedAcrossSSHStartups(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-reaper-limit-\(UUID().uuidString)", isDirectory: true)
+        let groupRoot = root.appendingPathComponent("groups", isDirectory: true)
+        let resultRoot = root.appendingPathComponent("results", isDirectory: true)
+        try fileManager.createDirectory(at: groupRoot, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: resultRoot, withIntermediateDirectories: true)
+        for index in 0..<12 {
+            let groupDirectory = groupRoot.appendingPathComponent("group.\(index)", isDirectory: true)
+            try createSecureGroupDirectory(at: groupDirectory)
+            try "anchor|group|started\n".write(
+                to: groupDirectory.appendingPathComponent("identity"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() {
+          while [ ! -e "$CMUX_TEST_RELEASE" ]; do /bin/sleep 0.01; done
+          /bin/rm -f -- "$CMUX_SSH_AUTH_GROUP_DIR/identity"
+        }
+        cmux_test_launch() {
+          cmux_test_group="$1"
+          cmux_test_result="$2"
+          (
+            CMUX_SSH_AUTH_GROUP_DIR="$cmux_test_group"
+            export CMUX_SSH_AUTH_GROUP_DIR
+            cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+            cmux_test_launched="${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}"
+            printf '%s\n' "$cmux_test_launched" > "$cmux_test_result"
+            if [ "$cmux_test_launched" = 1 ]; then
+              wait "$cmux_ssh_auth_reaper_pid"
+            fi
+          ) &
+          CMUX_TEST_LAUNCHER_PID=$!
+        }
+        cmux_test_index=0
+        for cmux_test_group in "$CMUX_TEST_GROUP_ROOT"/group.*; do
+          cmux_test_result="$CMUX_TEST_RESULT_ROOT/$cmux_test_index"
+          cmux_test_launch "$cmux_test_group" "$cmux_test_result"
+          cmux_test_result_attempt=0
+          while [ ! -s "$cmux_test_result" ] && \
+            [ "$cmux_test_result_attempt" -lt 500 ]; do
+            /bin/sleep 0.01
+            cmux_test_result_attempt=$((cmux_test_result_attempt + 1))
+          done
+          if [ ! -s "$cmux_test_result" ]; then
+            : > "$CMUX_TEST_RELEASE"
+            wait
+            exit 99
+          fi
+          cmux_test_index=$((cmux_test_index + 1))
+        done
+        cmux_test_launched_count=0
+        for cmux_test_result in "$CMUX_TEST_RESULT_ROOT"/*; do
+          cmux_test_launched_count=$((
+            cmux_test_launched_count + $(/bin/cat "$cmux_test_result")
+          ))
+        done
+        : > "$CMUX_TEST_RELEASE"
+        wait || exit 98
+        test "$cmux_test_launched_count" -eq 8 || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_GROUP_ROOT": groupRoot.path,
+                "CMUX_TEST_RELEASE": root.appendingPathComponent("release").path,
+                "CMUX_TEST_RESULT_ROOT": resultRoot.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func concurrentReaperLaunchKeepsFreshUnpublishedLockOwnedByCreator(
         shellPath: String
     ) throws {
