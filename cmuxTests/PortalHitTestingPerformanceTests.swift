@@ -517,6 +517,17 @@ struct PortalHitTestingPerformanceTests {
 
         rootView.sortSubviews({ lhs, rhs, _ in
             if lhs.frame.minX == rhs.frame.minX { return .orderedSame }
+            return lhs.frame.minX < rhs.frame.minX ? .orderedAscending : .orderedDescending
+        }, context: nil)
+
+        #expect(rootView.subviews.first === firstView)
+        #expect(
+            invalidator.isHierarchyCurrent(for: rootView),
+            "A sort that preserves identity order must not invalidate the hierarchy cache."
+        )
+
+        rootView.sortSubviews({ lhs, rhs, _ in
+            if lhs.frame.minX == rhs.frame.minX { return .orderedSame }
             return lhs.frame.minX < rhs.frame.minX ? .orderedDescending : .orderedAscending
         }, context: nil)
 
@@ -568,6 +579,50 @@ struct PortalHitTestingPerformanceTests {
         let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
         #expect(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) == nil)
         withExtendedLifetime(oldRoot) {}
+    }
+
+    @Test
+    func terminalSplitDividerCacheDoesNotReviveAfterDetachedRootMutation() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let cachedRoot = try #require(window.contentView)
+        let container = try #require(cachedRoot.superview)
+        let hostedView = CapturingView(frame: cachedRoot.bounds)
+        let host = WindowTerminalHostView(frame: container.convert(cachedRoot.bounds, from: cachedRoot))
+        host.addSubview(hostedView)
+        container.addSubview(host, positioned: .above, relativeTo: cachedRoot)
+
+        let warmPointInWindow = cachedRoot.convert(NSPoint(x: 20, y: 20), to: nil)
+        let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) === hostedView)
+
+        window.contentView = NSView(frame: cachedRoot.frame)
+
+        let splitView = CountingSplitView(frame: cachedRoot.bounds)
+        splitView.isVertical = true
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: cachedRoot.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: cachedRoot.bounds.height)))
+        splitView.setPosition(200, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        cachedRoot.addSubview(splitView)
+
+        window.contentView = cachedRoot
+
+        let dividerPointInWindow = splitView.convert(
+            NSPoint(x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5), y: splitView.bounds.midY),
+            to: nil
+        )
+        let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) == nil)
+        withExtendedLifetime(splitDelegate) {}
     }
 
     @Test
