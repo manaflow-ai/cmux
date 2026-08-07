@@ -12,8 +12,15 @@ final class MainWindowLifecycleCoordinator {
     private var recordsByWindowId: [UUID: MainWindowLifecycleRecord] = [:]
     private(set) var registeredContextsByLookupKey:
         [ObjectIdentifier: AppDelegate.MainWindowContext] = [:]
+    private let maximumFrozenOrphanRecords: Int
     private var nextOrder: UInt64 = 0
     private(set) var persistenceTopologyRevision: UInt64 = 0
+
+    init(
+        maximumFrozenOrphanRecords: Int = SessionPersistencePolicy.maxWindowsPerSnapshot
+    ) {
+        self.maximumFrozenOrphanRecords = max(0, maximumFrozenOrphanRecords)
+    }
 
     var registeredContexts: [AppDelegate.MainWindowContext] {
         Array(registeredContextsByLookupKey.values)
@@ -92,6 +99,7 @@ final class MainWindowLifecycleCoordinator {
         registeredContextsByLookupKey.removeValue(forKey: lookupKey)
         record.phase = .orphaned(route)
         recordsByWindowId[context.windowId] = record
+        trimFrozenOrphanRecordsToLimit()
         bumpPersistenceTopologyRevision()
         return true
     }
@@ -164,6 +172,7 @@ final class MainWindowLifecycleCoordinator {
         }
         record.phase = .orphaned(replacement)
         recordsByWindowId[windowId] = record
+        trimFrozenOrphanRecordsToLimit()
         bumpPersistenceTopologyRevision()
         return true
     }
@@ -179,12 +188,10 @@ final class MainWindowLifecycleCoordinator {
     }
 
     func removeRecoverableRoute(windowId: UUID) {
-        guard let record = recordsByWindowId[windowId] else { return }
-        guard case .registered = record.phase else {
-            recordsByWindowId.removeValue(forKey: windowId)
-            bumpPersistenceTopologyRevision()
-            return
-        }
+        guard let phase = recordsByWindowId[windowId]?.phase else { return }
+        if case .registered = phase { return }
+        recordsByWindowId.removeValue(forKey: windowId)
+        bumpPersistenceTopologyRevision()
     }
 
     func retireClosingRoutes(where shouldRetire: (RecoverableMainWindowRoute) -> Bool) -> Int {
@@ -207,6 +214,31 @@ final class MainWindowLifecycleCoordinator {
     private func issueOrder() -> UInt64 {
         defer { nextOrder &+= 1 }
         return nextOrder
+    }
+
+    /// Frozen routes have no live owner that can retire them later, so retain
+    /// only the newest records that can appear in one persisted snapshot.
+    private func trimFrozenOrphanRecordsToLimit() {
+        let frozenRecords = recordsByWindowId.compactMap { windowId, record -> (UUID, UInt64)? in
+            guard case .orphaned(let route) = record.phase,
+                  route.frozenWindowSnapshot != nil else {
+                return nil
+            }
+            return (windowId, record.order)
+        }
+        let excessCount = frozenRecords.count - maximumFrozenOrphanRecords
+        guard excessCount > 0 else { return }
+
+        let oldestWindowIds = frozenRecords
+            .sorted { lhs, rhs in
+                if lhs.1 != rhs.1 { return lhs.1 < rhs.1 }
+                return lhs.0.uuidString < rhs.0.uuidString
+            }
+            .prefix(excessCount)
+            .map(\.0)
+        for windowId in oldestWindowIds {
+            recordsByWindowId.removeValue(forKey: windowId)
+        }
     }
 
     private func bumpPersistenceTopologyRevision() {

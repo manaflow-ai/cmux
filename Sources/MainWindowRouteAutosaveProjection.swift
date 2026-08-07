@@ -33,8 +33,9 @@ struct MainWindowRouteAutosaveProjection: Equatable, Sendable {
         }
 
         var selectedWindowIds = Set(selected)
-        for windowId in uniqueOrderedWindowIds
-        where selected.count < limit && selectedWindowIds.insert(windowId).inserted {
+        for windowId in uniqueOrderedWindowIds {
+            guard selected.count < limit else { break }
+            guard selectedWindowIds.insert(windowId).inserted else { continue }
             selected.append(windowId)
         }
         fingerprintWindowIds = selected

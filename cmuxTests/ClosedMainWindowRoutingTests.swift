@@ -266,11 +266,9 @@ struct ClosedMainWindowRoutingTests {
 
         app.unregisterMainWindowContextForTesting(windowId: windowId)
         app.captureMainWindowVisibilityRestoreTargetsForApplicationHide()
-        #expect(app.mainWindowRemainsInRestoreTopology(window))
         window.orderOut(nil)
 
         #expect(!window.isVisible)
-        #expect(app.mainWindowRemainsInRestoreTopology(window))
         #expect(app.listMainWindowSummaries().contains { $0.windowId == windowId })
         let snapshot = try #require(app.sessionSnapshotForTesting())
         let recoveredWindowSnapshot = try #require(

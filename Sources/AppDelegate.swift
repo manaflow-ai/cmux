@@ -4647,14 +4647,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
-                // A window whose live workspaces are only remote-tmux mirrors
-                // needs live SSH control connections and should not restore as
-                // an empty shell. If local workspaces were dragged in, keep it.
-                if windowSnapshot.omitsRemoteMirrorOnlyWindow(
-                    liveWorkspaces: liveRoute.tabManager.tabs
-                ) {
-                    continue
-                }
             case .frozen(_, let frozenWindowSnapshot):
                 windowSnapshot = frozenWindowSnapshot.respectingScrollbackInclusion(
                     includeScrollback
@@ -4689,13 +4681,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for context: MainWindowContext,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionWindowSnapshot {
         sessionWindowSnapshot(
             for: registeredMainWindowRouteSnapshot(for: context),
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
     }
 
@@ -4703,12 +4698,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for route: MainWindowRouteSnapshot,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionWindowSnapshot {
         let tabManagerSnapshot = route.tabManager.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
 
         let window = route.window
@@ -4732,7 +4730,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             dock: route.dock?.sessionSnapshot(
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                    downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
             )
         )
     }
@@ -9551,10 +9551,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func captureMainWindowVisibilityRestoreTargetsForApplicationHide() {
         mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
-    }
-
-    func mainWindowRemainsInRestoreTopology(_ window: NSWindow) -> Bool {
-        mainWindowVisibilityController.windowRemainsInRestoreTopology(window)
     }
 
     func dismissMainWindowFromWindowChrome(_ window: NSWindow) {

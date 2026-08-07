@@ -50,4 +50,19 @@ enum MainWindowPersistenceRouteSnapshot {
             snapshot.dock != nil
         }
     }
+
+    /// Remote-tmux-only live windows require their active SSH control graph
+    /// and intentionally do not participate in persisted session topology.
+    var isEligibleForSessionPersistence: Bool {
+        switch self {
+        case .live(let route):
+            let workspaces = route.tabManager.tabs
+            let omitsRemoteMirrorOnlyWindow = route.dock == nil
+                && !workspaces.isEmpty
+                && workspaces.allSatisfy(\.isRemoteTmuxMirror)
+            return !omitsRemoteMirrorOnlyWindow
+        case .frozen:
+            return true
+        }
+    }
 }

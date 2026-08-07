@@ -7,14 +7,17 @@ enum MainWindowRouteDockState {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionSplitContainerSnapshot {
         switch self {
         case .live(let dock):
             return dock.sessionSnapshot(
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
-                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                    downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
             )
         case .frozen(var snapshot):
             guard !includeScrollback else { return snapshot }
