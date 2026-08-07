@@ -10,9 +10,12 @@ use crate::{
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
 const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+const AGENT_CANONICAL_NATIVE_FORMAT: &str = "cmux.agent-native.canonical.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const MAX_OPAQUE_IDENTIFIER_BYTES: usize = 512;
+const MAX_LABEL_BYTES: usize = 128;
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -41,7 +44,7 @@ pub fn agent_hook_journal_ingress(
     let mut normalized = normalized_fields(&native);
     add_agent_topology(source, native_event, terminal_id.as_ref(), &mut normalized);
     let kind = semantic_kind(source, native_event, &normalized);
-    let native = redact_sensitive_native(native);
+    let native = canonical_native_payload(source, native_event, &normalized);
     let mut subjects = Vec::with_capacity(4);
     if let Some(terminal_id) = terminal_id {
         subjects.push(JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() });
@@ -97,7 +100,65 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
             },
             "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
             "normalized":{"type":"object"},
-            "native":{}
+            "native":{
+                "type":"object",
+                "required":["format","provider","native_event","identifiers","checkpoint","topology","lifecycle"],
+                "properties":{
+                    "format":{"const":AGENT_CANONICAL_NATIVE_FORMAT},
+                    "provider":{
+                        "type":"string",
+                        "minLength":1,
+                        "maxLength":MAX_AGENT_SOURCE_BYTES,
+                        "pattern":"^[a-z0-9_-]+$"
+                    },
+                    "native_event":{"type":"string","minLength":1,"maxLength":MAX_NATIVE_EVENT_BYTES},
+                    "identifiers":{
+                        "type":"object",
+                        "properties":{
+                            "agent_session_id":{"type":"string"},
+                            "turn_id":{"type":"string"},
+                            "tool_use_id":{"type":"string"},
+                            "native_agent_id":{"type":"string"},
+                            "native_child_agent_id":{"type":"string"},
+                            "native_parent_agent_id":{"type":"string"},
+                            "native_root_agent_id":{"type":"string"},
+                            "root_agent_session_id":{"type":"string"},
+                            "parent_agent_session_id":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "checkpoint":{
+                        "type":"object",
+                        "properties":{
+                            "cwd":{"type":"string"},
+                            "transcript_path":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "topology":{
+                        "type":"object",
+                        "properties":{
+                            "agent_tree_id":{"type":"string"},
+                            "agent_node_id":{"type":"string"},
+                            "parent_agent_node_id":{"type":"string"},
+                            "agent_relation":{"type":"string"},
+                            "agent_identity_quality":{"type":"string"}
+                        },
+                        "additionalProperties":false
+                    },
+                    "lifecycle":{
+                        "type":"object",
+                        "properties":{
+                            "tool_name":{"type":"string"},
+                            "agent_name":{"type":"string"},
+                            "agent_type":{"type":"string"},
+                            "agent_depth":{"type":"integer","minimum":0}
+                        },
+                        "additionalProperties":false
+                    }
+                },
+                "additionalProperties":false
+            }
         },
         "additionalProperties":false
     });
@@ -131,51 +192,6 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
         "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
     );
     Ok(())
-}
-
-fn redact_sensitive_native(value: Value) -> Value {
-    match value {
-        Value::Object(values) => Value::Object(
-            values
-                .into_iter()
-                .map(|(key, value)| {
-                    let value = if is_sensitive_native_key(&key) {
-                        Value::String("[redacted]".into())
-                    } else {
-                        redact_sensitive_native(value)
-                    };
-                    (key, value)
-                })
-                .collect(),
-        ),
-        Value::Array(values) => {
-            Value::Array(values.into_iter().map(redact_sensitive_native).collect())
-        }
-        value => value,
-    }
-}
-
-fn is_sensitive_native_key(key: &str) -> bool {
-    let normalized = key
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect::<String>();
-    [
-        "apikey",
-        "authorization",
-        "capability",
-        "cookie",
-        "credential",
-        "password",
-        "privatekey",
-        "secret",
-        "socket",
-        "ssh",
-        "token",
-    ]
-    .into_iter()
-    .any(|needle| normalized.contains(needle))
 }
 
 fn validate_native_event(native_event: &str) -> anyhow::Result<()> {
@@ -529,9 +545,10 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
             ][..],
         ),
     ] {
-        if let Some(value) = first_string_at(native, paths) {
-            normalized
-                .insert(field.into(), Value::String(truncate_utf8(value, NORMALIZED_TEXT_BYTES)));
+        if let Some(value) = first_string_at(native, paths)
+            && let Some(value) = normalized_provider_string(field, value)
+        {
+            normalized.insert(field.into(), Value::String(value));
         }
     }
     if let Some(depth) = first_value_at(
@@ -551,6 +568,106 @@ fn normalized_fields(native: &Value) -> Map<String, Value> {
         normalized.insert("agent_depth".into(), Value::from(depth));
     }
     normalized
+}
+
+fn normalized_provider_string(field: &str, value: &str) -> Option<String> {
+    match field {
+        "message" => None,
+        "agent_session_id"
+        | "turn_id"
+        | "tool_use_id"
+        | "native_agent_id"
+        | "native_child_agent_id"
+        | "native_parent_agent_id"
+        | "native_root_agent_id"
+        | "root_agent_session_id"
+        | "parent_agent_session_id" => {
+            let value = truncate_utf8(value, MAX_OPAQUE_IDENTIFIER_BYTES);
+            safe_opaque_identifier(&value).then_some(value)
+        }
+        "cwd" | "transcript_path" => {
+            let value = truncate_utf8(value, NORMALIZED_TEXT_BYTES);
+            safe_checkpoint_path(&value).then_some(value)
+        }
+        "tool_name" | "agent_name" | "agent_type" => {
+            let value = truncate_utf8(value, MAX_LABEL_BYTES);
+            safe_label(&value).then_some(value)
+        }
+        _ => None,
+    }
+}
+
+fn safe_opaque_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_OPAQUE_IDENTIFIER_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn safe_checkpoint_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= NORMALIZED_TEXT_BYTES
+        && !value.contains("://")
+        && !value.chars().any(char::is_control)
+}
+
+fn safe_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_LABEL_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn canonical_native_payload(
+    source: &str,
+    native_event: &str,
+    normalized: &Map<String, Value>,
+) -> Value {
+    json!({
+        "format":AGENT_CANONICAL_NATIVE_FORMAT,
+        "provider":source,
+        "native_event":native_event,
+        "identifiers":canonical_field_group(normalized, &[
+            "agent_session_id",
+            "turn_id",
+            "tool_use_id",
+            "native_agent_id",
+            "native_child_agent_id",
+            "native_parent_agent_id",
+            "native_root_agent_id",
+            "root_agent_session_id",
+            "parent_agent_session_id",
+        ]),
+        "checkpoint":canonical_field_group(normalized, &[
+            "cwd",
+            "transcript_path",
+        ]),
+        "topology":canonical_field_group(normalized, &[
+            "agent_tree_id",
+            "agent_node_id",
+            "parent_agent_node_id",
+            "agent_relation",
+            "agent_identity_quality",
+        ]),
+        "lifecycle":canonical_field_group(normalized, &[
+            "tool_name",
+            "agent_name",
+            "agent_type",
+            "agent_depth",
+        ]),
+    })
+}
+
+fn canonical_field_group(normalized: &Map<String, Value>, fields: &[&str]) -> Value {
+    let mut group = Map::new();
+    for field in fields {
+        if let Some(value) = normalized.get(*field) {
+            group.insert((*field).into(), value.clone());
+        }
+    }
+    Value::Object(group)
 }
 
 fn add_agent_topology(

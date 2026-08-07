@@ -1,7 +1,6 @@
 use super::*;
 
 use crate::resource::AgentPublicId;
-use crate::workspace_registry::session_journal::{JournalAppend, append_journal_record};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -51,9 +50,8 @@ pub(super) fn apply_agent_projection_journal_record(
 pub(super) fn rebuild_agent_projections_from_journal(
     connection: &Connection,
 ) -> anyhow::Result<()> {
-    let mut projections = derive_agent_projections_from_journal(connection)?;
+    let projections = derive_agent_projections_from_journal(connection)?;
     let tx = connection.unchecked_transaction()?;
-    classify_interrupted_pi_sessions(&tx, &mut projections)?;
     tx.execute("DELETE FROM resource_agent_projections", [])?;
     for projection in projections.into_values() {
         if terminal_is_live(&tx, &projection.terminal_id)? {
@@ -295,107 +293,6 @@ fn stored_projection(
     let committed_sequence =
         u64::try_from(committed_sequence).context("agent projection revision is negative")?;
     projection_from_resource_report(committed_sequence, &json!({"result":result}))
-}
-
-fn classify_interrupted_pi_sessions(
-    transaction: &Transaction<'_>,
-    projections: &mut BTreeMap<String, AgentProjectionRow>,
-) -> anyhow::Result<()> {
-    let candidates = projections
-        .values()
-        .filter(|projection| {
-            projection.provider.as_deref() == Some("pi")
-                && projection.source_session.is_some()
-                && !matches!(projection.state.as_str(), "done" | "interrupted")
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    for projection in candidates {
-        if !terminal_is_live(transaction, &projection.terminal_id)? {
-            continue;
-        }
-        let source_session = projection.source_session.as_deref().unwrap_or_default();
-        let event_id = recovery_event_id(&projection.terminal_id, source_session);
-        if journal_event_exists(transaction, &event_id)? {
-            continue;
-        }
-        let now = unix_epoch_ms()?;
-        let session_id = transaction.query_row(
-            "SELECT value FROM meta WHERE key = 'session_public_id'",
-            [],
-            |row| row.get::<_, String>(0),
-        )?;
-        let producer = JournalProducer { kind: "recovery_policy".into(), id: "cmux-tui".into() };
-        let subjects = vec![
-            JournalSubject { kind: "session".into(), id: session_id },
-            JournalSubject { kind: "terminal".into(), id: projection.terminal_id.to_string() },
-            JournalSubject { kind: "agent_provider".into(), id: "pi".into() },
-        ];
-        let payload = json!({
-            "format":RECOVERY_FORMAT,
-            "provider":"pi",
-            "source_session":source_session,
-            "policy":"classify_only",
-            "intent":"mark_interrupted_after_host_reopen",
-            "outcome":"classified_interrupted",
-        });
-        let sequence = append_journal_record(
-            transaction,
-            &JournalAppend {
-                event_id: &event_id,
-                schema_version: 1,
-                kind: "agent.session.interrupted",
-                class: JournalClass::State,
-                replay: JournalReplayPolicy::Required,
-                occurred_at_ms: now,
-                producer: &producer,
-                authority: None,
-                causation_id: None,
-                correlation_id: Some(&event_id),
-                causation_depth: 0,
-                subjects: &subjects,
-                sensitivity: JournalSensitivity::Metadata,
-                payload: &payload,
-                content: None,
-                resource_revision: None,
-                previous_resource_revision: None,
-            },
-        )?;
-        let key = projection.terminal_id.to_string();
-        projections.insert(
-            key,
-            AgentProjectionRow {
-                terminal_id: projection.terminal_id,
-                state: "interrupted".into(),
-                source: "hook".into(),
-                updated_at_ms: now,
-                source_session: projection.source_session,
-                provider: Some("pi".into()),
-                committed_sequence: sequence,
-            },
-        );
-    }
-    Ok(())
-}
-
-fn recovery_event_id(terminal_id: &TerminalPublicId, source_session: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(b"cmux.agent-recovery.interrupted.v1\0");
-    digest.update(terminal_id.as_str().as_bytes());
-    digest.update(b"\0");
-    digest.update(source_session.as_bytes());
-    format!("event_agent_interrupted_{}", encode_bytes_hex(&digest.finalize()))
-}
-
-fn encode_bytes_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn journal_event_exists(transaction: &Transaction<'_>, event_id: &str) -> anyhow::Result<bool> {
-    Ok(transaction
-        .query_row("SELECT 1 FROM journal_event_index WHERE event_id = ?1", [event_id], |_| Ok(()))
-        .optional()?
-        .is_some())
 }
 
 fn upsert_projection(

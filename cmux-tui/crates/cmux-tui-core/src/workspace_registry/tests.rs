@@ -3516,7 +3516,7 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
 fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity() {
     let root = temp_root("agent-pi-journal-projection");
     let terminal_id = terminal_resource(TERMINAL_ONE);
-    {
+    let original_agent_projection_json = {
         let mut registry = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
         commit_terminal_topology(&mut registry, "agent-pi-journal-projection-seed");
         let ingress = crate::agent_hook_journal_ingress(
@@ -3546,13 +3546,22 @@ fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity()
         assert_eq!(agents[0].source, "hook");
         assert_eq!(agents[0].source_session.as_deref(), Some("pi-real-session-1"));
         assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+        let projection_json = registry
+            .connection
+            .query_row(
+                "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+                [terminal_id.as_str()],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap();
 
         registry.connection.execute("DELETE FROM resource_agent_projections", []).unwrap();
         assert!(
             registry.public_projections().unwrap().agents.is_empty(),
             "test must prove the projection can be rebuilt from the journal"
         );
-    }
+        projection_json
+    };
 
     let reopened = WorkspaceRegistry::open(&root, "agent-pi-journal-projection").unwrap();
     let rebuilt = reopened.public_projections().unwrap().agents;
@@ -3561,6 +3570,18 @@ fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity()
     assert_eq!(rebuilt[0].state, "working");
     assert_eq!(rebuilt[0].source, "hook");
     assert_eq!(rebuilt[0].source_session.as_deref(), Some("pi-real-session-1"));
+    let rebuilt_agent_projection_json = reopened
+        .connection
+        .query_row(
+            "SELECT result_json FROM resource_agent_projections WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap();
+    assert_eq!(
+        rebuilt_agent_projection_json, original_agent_projection_json,
+        "AgentProjection rebuild must be byte-for-byte deterministic"
+    );
     let interrupted = reopened
         .session_journal_after(0, 1024)
         .unwrap()
