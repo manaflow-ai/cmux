@@ -128,8 +128,6 @@ use std::process::Command;
 use std::process::Stdio as ProcessStdio;
 #[cfg(all(test, unix))]
 use std::process::Stdio;
-#[cfg(not(test))]
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
@@ -142,6 +140,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+#[cfg(not(test))]
+use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 
@@ -2725,26 +2725,20 @@ fn parse_ghostty_defaults_from_helper() -> Option<DefaultColors> {
     scrub_ghostty_helper_secret_environment(&mut command);
     let mut child = command.spawn().ok()?;
     let mut stdout = child.stdout.take()?;
-    let started_at = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return None;
-                }
-                let mut output = String::new();
-                stdout.read_to_string(&mut output).ok()?;
-                return Some(parse_resolved_ghostty_defaults(&output));
-            }
-            Ok(None) if started_at.elapsed() >= GHOSTTY_CONFIG_PARSE_DEADLINE => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            Ok(None) => thread::yield_now(),
-            Err(_) => return None,
+    let status = match child.wait_timeout(GHOSTTY_CONFIG_PARSE_DEADLINE).ok()? {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
         }
+    };
+    if !status.success() {
+        return None;
     }
+    let mut output = String::new();
+    stdout.read_to_string(&mut output).ok()?;
+    Some(parse_resolved_ghostty_defaults(&output))
 }
 
 #[cfg(any(not(test), all(test, unix)))]
@@ -3094,7 +3088,7 @@ fn serialize_ghostty_defaults(defaults: DefaultColors) -> String {
             CursorShape::Block => Some("block"),
             CursorShape::Underline => Some("underline"),
             CursorShape::Bar => Some("bar"),
-            CursorShape::BlockHollow => None,
+            CursorShape::BlockHollow => Some("block_hollow"),
         };
         if let Some(style) = style {
             out.push_str(&format!("cursor-style = {style}\n"));
@@ -3148,6 +3142,7 @@ fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
                 "block" => Some(CursorShape::Block),
                 "underline" => Some(CursorShape::Underline),
                 "bar" => Some(CursorShape::Bar),
+                "block_hollow" => Some(CursorShape::BlockHollow),
                 _ => None,
             };
             if style.is_some() {
@@ -3325,6 +3320,9 @@ mod tests {
         );
         assert_eq!(quoted.cursor_style, Some(CursorShape::Bar));
         assert_eq!(quoted.cursor_blink, Some(false));
+
+        let hollow = parse_ghostty_defaults("cursor-style = block_hollow\n");
+        assert_eq!(hollow.cursor_style, Some(CursorShape::BlockHollow));
     }
 
     #[test]

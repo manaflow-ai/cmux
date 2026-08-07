@@ -690,7 +690,7 @@ fn ghostty_config_helper_outputs_resolved_file_defaults() {
         "foreground = #010203\n\
          background = #040506\n\
          cursor-color = #070809\n\
-         cursor-style = underline\n\
+         cursor-style = block_hollow\n\
          cursor-style-blink = false\n\
          palette = 2=#0a0b0c\n",
     )
@@ -712,7 +712,7 @@ fn ghostty_config_helper_outputs_resolved_file_defaults() {
     assert!(stdout.contains("foreground = #010203\n"), "{stdout}");
     assert!(stdout.contains("background = #040506\n"), "{stdout}");
     assert!(stdout.contains("cursor-color = #070809\n"), "{stdout}");
-    assert!(stdout.contains("cursor-style = underline\n"), "{stdout}");
+    assert!(stdout.contains("cursor-style = block_hollow\n"), "{stdout}");
     assert!(stdout.contains("cursor-style-blink = false\n"), "{stdout}");
     assert!(stdout.contains("palette = 2=#0a0b0c\n"), "{stdout}");
 }
