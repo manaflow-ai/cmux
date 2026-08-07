@@ -85,7 +85,7 @@ if [ -e "$app_host_home" ]; then
   # The app host may replace .config with a file, a dangling symlink, or
   # nothing. Validate only its immutable parent and remove the leaf with the
   # already confirmed home instead of traversing it.
-  xdg_target="${CMUX_APP_HOST_XDG_CONFIG_HOME%/}"
+  xdg_target="${app_host_xdg_config_home%/}"
   if [ "${xdg_target##*/}" != ".config" ]; then
     echo "FAIL: app-host XDG configuration must name the isolated home .config directory" >&2
     exit 1
@@ -127,10 +127,8 @@ if [ -z "${CMUX_DERIVED_DATA_PATH:-}" ]; then
   exit 1
 fi
 runner_temp="$CMUX_RESOLVED_RUNNER_TEMP"
-derived_data_path="$(cd "$CMUX_DERIVED_DATA_PATH" 2>/dev/null && pwd -P)" || {
-  echo "FAIL: shard DerivedData directory is unavailable" >&2
-  exit 1
-}
+cmux_validate_app_host_derived_data "$CMUX_DERIVED_DATA_PATH"
+derived_data_path="$CMUX_VALIDATED_APP_HOST_DERIVED_DATA"
 case "$derived_data_path" in
   "$runner_temp"/*) ;;
   *)

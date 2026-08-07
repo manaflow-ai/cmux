@@ -61,12 +61,7 @@ chmod 700 "$app_host_receipt_dir"
 
 confirmation_tmp="$(mktemp "${app_host_confirmation_file}.tmp.XXXXXX")"
 trap 'rm -f -- "$confirmation_tmp"' EXIT
-printf 'version=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
-  "$app_host_key" \
-  "$CMUX_RESOLVED_APP_HOST_HOME" \
-  "$app_host_receipt_dir" \
-  "$app_host_cleanup_confirmation" \
-  > "$confirmation_tmp"
+cmux_app_host_confirmation_record > "$confirmation_tmp"
 chmod 600 "$confirmation_tmp"
 if ! ln -- "$confirmation_tmp" "$app_host_confirmation_file"; then
   echo "FAIL: app-host cleanup confirmation already exists" >&2

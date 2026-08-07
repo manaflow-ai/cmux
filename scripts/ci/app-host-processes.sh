@@ -28,6 +28,10 @@ cmux_select_app_host_lsof() {
   fi
 }
 
+cmux_run_app_host_lsof() {
+  "$CMUX_SELECTED_APP_HOST_LSOF" -w "$@"
+}
+
 cmux_validate_app_host_key() {
   case "$1" in
     [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
@@ -222,19 +226,16 @@ cmux_app_host_primary_executable() {
   cmux_select_app_host_lsof || return 1
 
   local output status line reported_pid first_executable
-  if output="$("$CMUX_SELECTED_APP_HOST_LSOF" -a -p "$pid" -d txt -Fn 2>&1)"; then
+  if output="$(cmux_run_app_host_lsof -a -p "$pid" -d txt -Fn)"; then
     status=0
   else
     status=$?
   fi
   if [ "$status" -ne 0 ]; then
-    if [ "$status" -eq 1 ]; then
-      case "$output" in
-        ""|"lsof: status error on $pid: No such process") return 2 ;;
-      esac
+    if [ "$status" -eq 1 ] && [ -z "$output" ]; then
+      return 2
     fi
     echo "FAIL: lsof could not inspect app-host PID $pid" >&2
-    [ -z "$output" ] || echo "$output" >&2
     return 1
   fi
 
@@ -265,9 +266,7 @@ cmux_app_host_primary_executable() {
         return 1
         ;;
     esac
-  done <<EOF
-$output
-EOF
+  done < <(printf '%s\n' "$output")
   if [ "$reported_pid" != "$pid" ] || [ -z "$first_executable" ]; then
     echo "FAIL: lsof did not return an executable vnode for app-host PID $pid" >&2
     return 1
@@ -287,8 +286,8 @@ cmux_app_host_receipt_descriptor_is_open() {
   cmux_select_app_host_lsof || return 1
 
   local output status line reported_pid reported_fd reported_path
-  if output="$("$CMUX_SELECTED_APP_HOST_LSOF" \
-    -a -p "$pid" -d "$receipt_fd" -Fn -- "$receipt_file" 2>&1)"; then
+  if output="$(cmux_run_app_host_lsof \
+    -a -p "$pid" -d "$receipt_fd" -Fn -- "$receipt_file")"; then
     status=0
   else
     status=$?
@@ -298,9 +297,6 @@ cmux_app_host_receipt_descriptor_is_open() {
       return 2
     fi
     echo "FAIL: live app-host PID $pid does not hold its process receipt" >&2
-    if [ "$status" -ne 1 ] && [ -n "$output" ]; then
-      echo "$output" >&2
-    fi
     return 1
   fi
 
@@ -338,9 +334,7 @@ cmux_app_host_receipt_descriptor_is_open() {
         return 1
         ;;
     esac
-  done <<EOF
-$output
-EOF
+  done < <(printf '%s\n' "$output")
   if [ "$reported_pid" != "$pid" ] \
     || [ "$reported_fd" != "$receipt_fd" ] \
     || [ "$reported_path" != "$receipt_file" ]; then
@@ -412,14 +406,13 @@ cmux_scan_app_host_target_pids() {
   cmux_select_app_host_lsof || return 1
 
   local output status line current_pid first_executable target_pids scoped_executable
-  if output="$("$CMUX_SELECTED_APP_HOST_LSOF" -d txt -Fn 2>&1)"; then
+  if output="$(cmux_run_app_host_lsof -d txt -Fn)"; then
     status=0
   else
     status=$?
   fi
   if [ "$status" -ne 0 ]; then
     echo "FAIL: lsof could not enumerate app-host executable vnodes" >&2
-    [ -z "$output" ] || echo "$output" >&2
     return 1
   fi
 
@@ -460,9 +453,7 @@ cmux_scan_app_host_target_pids() {
         return 1
         ;;
     esac
-  done <<EOF
-$output
-EOF
+  done < <(printf '%s\n' "$output")
   if [ -n "$current_pid" ] && [ -n "$first_executable" ]; then
     scoped_executable="${first_executable% (deleted)}"
     if cmux_app_host_executable_is_scoped \
@@ -779,14 +770,13 @@ cmux_scan_runner_app_host_targets() {
   cmux_select_app_host_lsof || return 1
 
   local output status line current_pid first_executable
-  if output="$("$CMUX_SELECTED_APP_HOST_LSOF" -d txt -Fn 2>&1)"; then
+  if output="$(cmux_run_app_host_lsof -d txt -Fn)"; then
     status=0
   else
     status=$?
   fi
   if [ "$status" -ne 0 ]; then
     echo "FAIL: lsof could not enumerate runner app-host executable vnodes" >&2
-    [ -z "$output" ] || echo "$output" >&2
     return 1
   fi
 
@@ -825,9 +815,7 @@ cmux_scan_runner_app_host_targets() {
         return 1
         ;;
     esac
-  done <<EOF
-$output
-EOF
+  done < <(printf '%s\n' "$output")
   if [ -n "$current_pid" ] && [ -n "$first_executable" ]; then
     cmux_record_runner_app_host_target \
       "$runner_root" \
@@ -911,12 +899,144 @@ cmux_find_verified_stale_app_host_receipt() {
   CMUX_STALE_APP_HOST_DERIVED_DATA="$matched_derived_data"
 }
 
+cmux_app_host_scope_metadata() {
+  local scope_path="$1"
+  local metadata
+  if metadata="$(/usr/bin/stat -f '%u %Lp' "$scope_path" 2>/dev/null)"; then
+    :
+  elif metadata="$(/usr/bin/stat -c '%u %a' "$scope_path" 2>/dev/null)"; then
+    :
+  else
+    echo "FAIL: stale app-host scope metadata is unavailable" >&2
+    return 1
+  fi
+  CMUX_APP_HOST_SCOPE_UID="${metadata%% *}"
+  CMUX_APP_HOST_SCOPE_MODE="${metadata#* }"
+}
+
+cmux_validate_terminated_stale_app_host_scope() {
+  local system_temp_root="$1"
+  local key="$2"
+  local expected_uid="$3"
+  local app_host_home="$system_temp_root/cmux-ah-$key"
+  local app_host_receipt_dir="$system_temp_root/cmux-ah-$key-receipts"
+  local confirmation_file="$system_temp_root/cmux-ah-$key.confirm"
+  cmux_validate_stale_app_host_confirmation \
+    "$confirmation_file" "$system_temp_root" "$key" || return 1
+  if [ "$CMUX_VALIDATED_STALE_APP_HOST_HOME" != "$app_host_home" ] \
+    || [ "$CMUX_VALIDATED_STALE_APP_HOST_RECEIPT_DIR" != "$app_host_receipt_dir" ] \
+    || [ "$CMUX_VALIDATED_STALE_APP_HOST_CONFIRMATION_FILE" != "$confirmation_file" ]; then
+    echo "FAIL: terminated stale app-host scope changed identity" >&2
+    return 1
+  fi
+  if [ -L "$app_host_home" ] || [ ! -d "$app_host_home" ] \
+    || [ -L "$app_host_receipt_dir" ] || [ ! -d "$app_host_receipt_dir" ] \
+    || [ -L "$confirmation_file" ] || [ ! -f "$confirmation_file" ]; then
+    echo "FAIL: terminated stale app-host scope changed type" >&2
+    return 1
+  fi
+
+  local scope_path expected_mode
+  for scope_path in \
+    "$app_host_home" "$app_host_receipt_dir" "$confirmation_file"
+  do
+    case "$scope_path" in
+      "$confirmation_file") expected_mode=600 ;;
+      *) expected_mode=700 ;;
+    esac
+    cmux_app_host_scope_metadata "$scope_path" || return 1
+    if [ "$CMUX_APP_HOST_SCOPE_UID" != "$expected_uid" ]; then
+      echo "FAIL: terminated stale app-host scope owner is not trusted" >&2
+      return 1
+    fi
+    if [ "$CMUX_APP_HOST_SCOPE_MODE" != "$expected_mode" ]; then
+      echo "FAIL: terminated stale app-host scope permissions are not private" >&2
+      return 1
+    fi
+  done
+
+  CMUX_VALIDATED_TERMINATED_APP_HOST_HOME="$app_host_home"
+  CMUX_VALIDATED_TERMINATED_APP_HOST_RECEIPT_DIR="$app_host_receipt_dir"
+  CMUX_VALIDATED_TERMINATED_APP_HOST_CONFIRMATION_FILE="$confirmation_file"
+}
+
+# Remove only old scopes that were bound to a process authenticated and
+# terminated by the caller. A current retry scope and process-free waiting
+# scopes are deliberately outside this reclamation set.
+cmux_remove_terminated_stale_app_host_scopes() {
+  local system_temp_root="$1"
+  local preserved_key="$2"
+  shift 2
+  cmux_validate_app_host_runner_root "$system_temp_root" || return 1
+  system_temp_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
+  cmux_validate_app_host_key "$preserved_key" || return 1
+  if ! type cmux_validate_stale_app_host_confirmation >/dev/null 2>&1; then
+    echo "FAIL: stale app-host confirmation validator is unavailable" >&2
+    return 1
+  fi
+
+  local current_uid key seen_keys candidate_count candidate_index scope_path
+  local app_host_home app_host_receipt_dir confirmation_file
+  local -a candidate_keys
+  current_uid="$(/usr/bin/id -u)" || {
+    echo "FAIL: stale app-host cleanup account is unavailable" >&2
+    return 1
+  }
+  seen_keys=""
+  candidate_keys=()
+  candidate_count=0
+  for key in "$@"; do
+    [ "$key" != "$preserved_key" ] || continue
+    case " $seen_keys " in
+      *" $key "*) continue ;;
+    esac
+    cmux_validate_app_host_key "$key" || return 1
+    seen_keys="${seen_keys:+$seen_keys }$key"
+    cmux_validate_terminated_stale_app_host_scope \
+      "$system_temp_root" "$key" "$current_uid" || return 1
+    candidate_keys[candidate_count]="$key"
+    candidate_count=$((candidate_count + 1))
+  done
+
+  # Every candidate is valid before the first deletion. Revalidate each scope
+  # immediately before removing its exact deterministic roots.
+  candidate_index=0
+  while [ "$candidate_index" -lt "$candidate_count" ]; do
+    key="${candidate_keys[$candidate_index]}"
+    cmux_validate_terminated_stale_app_host_scope \
+      "$system_temp_root" "$key" "$current_uid" || return 1
+    app_host_home="$CMUX_VALIDATED_TERMINATED_APP_HOST_HOME"
+    app_host_receipt_dir="$CMUX_VALIDATED_TERMINATED_APP_HOST_RECEIPT_DIR"
+    confirmation_file="$CMUX_VALIDATED_TERMINATED_APP_HOST_CONFIRMATION_FILE"
+    echo "Confirmed terminated stale app-host cleanup target: $app_host_home"
+    rm -rf -- "$app_host_home"
+    rm -rf -- "$app_host_receipt_dir"
+    rm -f -- "$confirmation_file"
+    for scope_path in \
+      "$app_host_home" "$app_host_receipt_dir" "$confirmation_file"
+    do
+      if [ -e "$scope_path" ] || [ -L "$scope_path" ]; then
+        echo "FAIL: terminated stale app-host scope remains after cleanup" >&2
+        return 1
+      fi
+    done
+    candidate_index=$((candidate_index + 1))
+  done
+  return 0
+}
+
 # Before a new test attempt, first authenticate every live runner-scoped app
 # host. Only after the complete set has matching receipts may any PID be
 # signaled. Deleted products remain verifiable through their retained vnodes.
 cmux_terminate_stale_receipted_app_hosts() {
   local runner_root="$1"
   local receipt_root="$2"
+  local preserved_key="${3:-}"
+  local reclaim_terminated_scopes=0
+  if [ "$#" -ge 3 ]; then
+    reclaim_terminated_scopes=1
+    cmux_validate_app_host_key "$preserved_key" || return 1
+  fi
   cmux_validate_app_host_runner_root "$runner_root" || return 1
   local resolved_runner_root="$CMUX_VALIDATED_APP_HOST_RUNNER_ROOT"
   cmux_validate_app_host_runner_root "$receipt_root" || return 1
@@ -980,4 +1100,12 @@ cmux_terminate_stale_receipted_app_hosts() {
     echo "FAIL: verified app-host target PID $target_pid remained live after stale cleanup" >&2
     return 1
   fi
+
+  if [ "$reclaim_terminated_scopes" -eq 1 ] \
+    && [ "$verified_count" -gt 0 ]; then
+    cmux_remove_terminated_stale_app_host_scopes \
+      "$resolved_receipt_root" "$preserved_key" "${verified_keys[@]}" \
+      || return 1
+  fi
+  return 0
 }

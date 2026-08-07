@@ -19,6 +19,45 @@ cmux_require_app_host_identity_number() {
   esac
 }
 
+cmux_compute_app_host_key() {
+  local run_id="$1"
+  local run_attempt="$2"
+  local shard="$3"
+  cmux_require_app_host_identity_number GITHUB_RUN_ID "$run_id" || return 1
+  cmux_require_app_host_identity_number GITHUB_RUN_ATTEMPT "$run_attempt" || return 1
+  cmux_require_app_host_identity_number CMUX_APP_HOST_SHARD "$shard" || return 1
+  CMUX_COMPUTED_APP_HOST_KEY="$(
+    printf '%s' "${run_id}:${run_attempt}:${shard}" \
+      | cmux_app_host_sha256 \
+      | cut -c1-12
+  )"
+  case "$CMUX_COMPUTED_APP_HOST_KEY" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *)
+      echo "FAIL: app-host identity key is invalid" >&2
+      return 1
+      ;;
+  esac
+}
+
+cmux_compute_app_host_cleanup_confirmation() {
+  local run_id="$1"
+  local run_attempt="$2"
+  local shard="$3"
+  local app_host_home="$4"
+  local app_host_receipt_dir="$5"
+  local confirmation_material
+  confirmation_material="cmux-app-host-cleanup-v2
+${run_id}
+${run_attempt}
+${shard}
+${app_host_home}
+${app_host_receipt_dir}"
+  CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION="$(
+    printf '%s' "$confirmation_material" | cmux_app_host_sha256
+  )"
+}
+
 # Derive every app-host path and cleanup capability from GitHub's immutable run
 # tuple. Published paths are assertions checked against these outputs, never an
 # authority from which the expected boundary is inferred.
@@ -35,7 +74,7 @@ cmux_resolve_app_host_identity() {
     return 1
   fi
 
-  local system_temp_root runner_temp runner_work_root app_host_key confirmation_material
+  local system_temp_root runner_temp runner_work_root app_host_key
   system_temp_root="$(cd /tmp 2>/dev/null && pwd -P)" || {
     echo "FAIL: system temporary directory is unavailable" >&2
     return 1
@@ -48,19 +87,9 @@ cmux_resolve_app_host_identity() {
     echo "FAIL: runner work root is unavailable" >&2
     return 1
   }
-  app_host_key="$(
-    printf '%s' \
-      "${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${CMUX_APP_HOST_SHARD}" \
-      | cmux_app_host_sha256 \
-      | cut -c1-12
-  )"
-  case "$app_host_key" in
-    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-    *)
-      echo "FAIL: app-host identity key is invalid" >&2
-      return 1
-      ;;
-  esac
+  cmux_compute_app_host_key \
+    "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$CMUX_APP_HOST_SHARD" || return 1
+  app_host_key="$CMUX_COMPUTED_APP_HOST_KEY"
 
   CMUX_RESOLVED_APP_HOST_KEY="$app_host_key"
   # /private/tmp survives GitHub's per-job RUNNER_TEMP cleanup. Its sticky
@@ -79,15 +108,129 @@ cmux_resolve_app_host_identity() {
   CMUX_RESOLVED_APP_HOST_RECEIPT_DIR="${system_temp_root%/}/cmux-ah-$app_host_key-receipts"
   CMUX_RESOLVED_APP_HOST_CONFIRMATION_FILE="${system_temp_root%/}/cmux-ah-$app_host_key.confirm"
 
-  confirmation_material="cmux-app-host-cleanup-v1
-${GITHUB_RUN_ID}
-${GITHUB_RUN_ATTEMPT}
-${CMUX_APP_HOST_SHARD}
-${CMUX_RESOLVED_APP_HOST_HOME}
-${CMUX_RESOLVED_APP_HOST_RECEIPT_DIR}"
-  CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION="$(
-    printf '%s' "$confirmation_material" | cmux_app_host_sha256
-  )"
+  cmux_compute_app_host_cleanup_confirmation \
+    "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$CMUX_APP_HOST_SHARD" \
+    "$CMUX_RESOLVED_APP_HOST_HOME" "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR"
+  CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION="$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION"
+}
+
+cmux_app_host_confirmation_record() {
+  printf 'version=2\nrun_id=%s\nrun_attempt=%s\nshard=%s\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+    "$GITHUB_RUN_ID" \
+    "$GITHUB_RUN_ATTEMPT" \
+    "$CMUX_APP_HOST_SHARD" \
+    "$CMUX_RESOLVED_APP_HOST_KEY" \
+    "$CMUX_RESOLVED_APP_HOST_HOME" \
+    "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR" \
+    "$CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION"
+}
+
+# Validate an old scope from its setup-authored record without sourcing it.
+# Callers must also bind the scope to a verified process receipt before removal.
+cmux_validate_stale_app_host_confirmation() {
+  local confirmation_file="$1"
+  local system_temp_root="${2%/}"
+  local expected_key="$3"
+  case "$system_temp_root" in
+    /|"")
+      echo "FAIL: stale app-host system temporary root is invalid" >&2
+      return 1
+      ;;
+    /*) ;;
+    *)
+      echo "FAIL: stale app-host system temporary root must be absolute" >&2
+      return 1
+      ;;
+  esac
+  if [ -L "$system_temp_root" ] || [ ! -d "$system_temp_root" ]; then
+    echo "FAIL: stale app-host system temporary root is unavailable" >&2
+    return 1
+  fi
+  local resolved_system_temp_root
+  resolved_system_temp_root="$(cd "$system_temp_root" 2>/dev/null && pwd -P)" || return 1
+  if [ "$resolved_system_temp_root" != "$system_temp_root" ]; then
+    echo "FAIL: stale app-host system temporary root changed identity" >&2
+    return 1
+  fi
+  case "$expected_key" in
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
+    *)
+      echo "FAIL: stale app-host key is invalid" >&2
+      return 1
+      ;;
+  esac
+
+  local expected_confirmation_file
+  expected_confirmation_file="$system_temp_root/cmux-ah-$expected_key.confirm"
+  if [ "$confirmation_file" != "$expected_confirmation_file" ] \
+    || [ -L "$confirmation_file" ] \
+    || [ ! -f "$confirmation_file" ]; then
+    echo "FAIL: stale app-host confirmation record is unavailable" >&2
+    return 1
+  fi
+
+  local line line_number record_version record_run_id record_run_attempt
+  local record_shard record_key record_home record_receipt_dir record_confirmation
+  line_number=0
+  record_version=""
+  record_run_id=""
+  record_run_attempt=""
+  record_shard=""
+  record_key=""
+  record_home=""
+  record_receipt_dir=""
+  record_confirmation=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    line_number=$((line_number + 1))
+    case "$line_number" in
+      1) record_version="${line#version=}"; [ "$line" != "$record_version" ] || record_version="" ;;
+      2) record_run_id="${line#run_id=}"; [ "$line" != "$record_run_id" ] || record_run_id="" ;;
+      3) record_run_attempt="${line#run_attempt=}"; [ "$line" != "$record_run_attempt" ] || record_run_attempt="" ;;
+      4) record_shard="${line#shard=}"; [ "$line" != "$record_shard" ] || record_shard="" ;;
+      5) record_key="${line#key=}"; [ "$line" != "$record_key" ] || record_key="" ;;
+      6) record_home="${line#home=}"; [ "$line" != "$record_home" ] || record_home="" ;;
+      7) record_receipt_dir="${line#receipt_dir=}"; [ "$line" != "$record_receipt_dir" ] || record_receipt_dir="" ;;
+      8) record_confirmation="${line#confirmation=}"; [ "$line" != "$record_confirmation" ] || record_confirmation="" ;;
+      *)
+        echo "FAIL: stale app-host confirmation has unexpected fields" >&2
+        return 1
+        ;;
+    esac
+  done < "$confirmation_file"
+  if [ "$line_number" -ne 8 ] || [ "$record_version" != "2" ]; then
+    echo "FAIL: stale app-host confirmation version is invalid" >&2
+    return 1
+  fi
+
+  cmux_compute_app_host_key \
+    "$record_run_id" "$record_run_attempt" "$record_shard" || return 1
+  if [ "$record_key" != "$expected_key" ] \
+    || [ "$record_key" != "$CMUX_COMPUTED_APP_HOST_KEY" ]; then
+    echo "FAIL: stale app-host confirmation key is invalid" >&2
+    return 1
+  fi
+  local expected_home expected_receipt_dir
+  expected_home="$system_temp_root/cmux-ah-$record_key"
+  expected_receipt_dir="$system_temp_root/cmux-ah-$record_key-receipts"
+  if [ "$record_home" != "$expected_home" ] \
+    || [ "$record_receipt_dir" != "$expected_receipt_dir" ]; then
+    echo "FAIL: stale app-host confirmation target is invalid" >&2
+    return 1
+  fi
+  cmux_compute_app_host_cleanup_confirmation \
+    "$record_run_id" "$record_run_attempt" "$record_shard" \
+    "$record_home" "$record_receipt_dir"
+  if [ "$record_confirmation" != "$CMUX_COMPUTED_APP_HOST_CLEANUP_CONFIRMATION" ]; then
+    echo "FAIL: stale app-host cleanup confirmation is invalid" >&2
+    return 1
+  fi
+
+  # shellcheck disable=SC2034 # consumed by the process helper after sourcing
+  CMUX_VALIDATED_STALE_APP_HOST_HOME="$record_home"
+  # shellcheck disable=SC2034 # consumed by the process helper after sourcing
+  CMUX_VALIDATED_STALE_APP_HOST_RECEIPT_DIR="$record_receipt_dir"
+  # shellcheck disable=SC2034 # consumed by the process helper after sourcing
+  CMUX_VALIDATED_STALE_APP_HOST_CONFIRMATION_FILE="$confirmation_file"
 }
 
 # Require XDG configuration to be the derived .config directory inside the
@@ -205,11 +348,7 @@ cmux_validate_app_host_cleanup_confirmation() {
   fi
 
   local expected_confirmation actual_confirmation
-  expected_confirmation="$(printf 'version=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s' \
-    "$CMUX_RESOLVED_APP_HOST_KEY" \
-    "$CMUX_RESOLVED_APP_HOST_HOME" \
-    "$CMUX_RESOLVED_APP_HOST_RECEIPT_DIR" \
-    "$CMUX_RESOLVED_APP_HOST_CLEANUP_CONFIRMATION")"
+  expected_confirmation="$(cmux_app_host_confirmation_record)"
   actual_confirmation="$(cat "$CMUX_APP_HOST_CONFIRMATION_FILE" 2>/dev/null)" || {
     echo "FAIL: app-host cleanup confirmation record could not be read" >&2
     return 1

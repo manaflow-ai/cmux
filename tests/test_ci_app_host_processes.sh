@@ -148,6 +148,19 @@ write_receipt() {
     > "$receipt_dir/app-host-$pid.receipt"
 }
 
+write_changed_confirmation_record() {
+  local confirmation_file="$1"
+  local record changed_record
+  record="$(cat "$confirmation_file")"
+  case "$record" in
+    *0) changed_record="${record%?}1" ;;
+    *) changed_record="${record%?}0" ;;
+  esac
+  [ "$changed_record" != "$record" ] \
+    || fail "confirmation mutation did not change the record"
+  printf '%s\n' "$changed_record" > "$confirmation_file"
+}
+
 make_scope() {
   local name="$1"
   TEST_DERIVED_DATA="$TMP_DIR/$name/Derived Data"
@@ -390,6 +403,8 @@ make_durable_scope() {
     "$DURABLE_SCOPE_KEY" "$DURABLE_SCOPE_HOME" \
     "$DURABLE_SCOPE_RECEIPT_DIR" "$DURABLE_SCOPE_CONFIRMATION" \
     > "$DURABLE_SCOPE_CONFIRMATION_FILE"
+  chmod 700 "$DURABLE_SCOPE_HOME" "$DURABLE_SCOPE_RECEIPT_DIR"
+  chmod 600 "$DURABLE_SCOPE_CONFIRMATION_FILE"
   SCOPE_CLEANUP_PATHS="${SCOPE_CLEANUP_PATHS:+$SCOPE_CLEANUP_PATHS }$DURABLE_SCOPE_HOME $DURABLE_SCOPE_RECEIPT_DIR $DURABLE_SCOPE_CONFIRMATION_FILE"
 }
 
@@ -453,5 +468,94 @@ do
   [ -e "$preserved_path" ] \
     || fail "stale recovery removed a current or waiting app-host scope"
 done
+
+# Validate every candidate before deleting the first one.
+make_durable_scope candidate-one "930003$$" 2 1 \
+  "$stale_runner_root/candidate-one/derived-data"
+candidate_one_key="$DURABLE_SCOPE_KEY"
+candidate_one_home="$DURABLE_SCOPE_HOME"
+candidate_one_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
+candidate_one_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
+make_durable_scope candidate-two "930004$$" 2 1 \
+  "$stale_runner_root/candidate-two/derived-data"
+candidate_two_key="$DURABLE_SCOPE_KEY"
+candidate_two_home="$DURABLE_SCOPE_HOME"
+candidate_two_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
+candidate_two_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
+candidate_two_record="$(cat "$candidate_two_confirmation_file")"
+write_changed_confirmation_record "$candidate_two_confirmation_file"
+if cmux_remove_terminated_stale_app_host_scopes \
+  "$system_temp_root" fedcba987654 \
+  "$candidate_one_key" "$candidate_two_key" \
+  > "$TMP_DIR/invalid-candidate.out" \
+  2> "$TMP_DIR/invalid-candidate.err"; then
+  fail "stale recovery accepted an altered confirmation"
+fi
+for preserved_path in \
+  "$candidate_one_home" "$candidate_one_receipt_dir" \
+  "$candidate_one_confirmation_file" "$candidate_two_home" \
+  "$candidate_two_receipt_dir" "$candidate_two_confirmation_file"
+do
+  [ -e "$preserved_path" ] \
+    || fail "candidate validation partially deleted a stale scope"
+done
+printf '%s\n' "$candidate_two_record" > "$candidate_two_confirmation_file"
+chmod 600 "$candidate_two_confirmation_file"
+cmux_remove_terminated_stale_app_host_scopes \
+  "$system_temp_root" fedcba987654 \
+  "$candidate_one_key" "$candidate_two_key" \
+  || fail "valid terminated scope candidates were not removed"
+
+# V1 records do not carry the tuple needed to recompute stale authority.
+make_durable_scope legacy "930005$$" 2 1 \
+  "$stale_runner_root/legacy/derived-data"
+legacy_key="$DURABLE_SCOPE_KEY"
+legacy_home="$DURABLE_SCOPE_HOME"
+legacy_receipt_dir="$DURABLE_SCOPE_RECEIPT_DIR"
+legacy_confirmation_file="$DURABLE_SCOPE_CONFIRMATION_FILE"
+legacy_record="$(cat "$legacy_confirmation_file")"
+printf 'version=1\nkey=%s\nhome=%s\nreceipt_dir=%s\nconfirmation=%s\n' \
+  "$legacy_key" "$legacy_home" "$legacy_receipt_dir" \
+  "$DURABLE_SCOPE_CONFIRMATION" > "$legacy_confirmation_file"
+if cmux_remove_terminated_stale_app_host_scopes \
+  "$system_temp_root" fedcba987654 "$legacy_key" \
+  > "$TMP_DIR/legacy-candidate.out" 2> "$TMP_DIR/legacy-candidate.err"; then
+  fail "stale recovery accepted a legacy confirmation record"
+fi
+[ -d "$legacy_home" ] \
+  || fail "stale recovery removed a V1 scope"
+printf '%s\n' "$legacy_record" > "$legacy_confirmation_file"
+chmod 600 "$legacy_confirmation_file"
+
+# Root symlinks and wrong owner identities fail closed.
+outside_scope="$TMP_DIR/outside-stale-scope"
+mkdir -p "$outside_scope"
+printf 'preserve\n' > "$outside_scope/sentinel"
+legacy_home_backup="$TMP_DIR/legacy-home-backup"
+mv "$legacy_home" "$legacy_home_backup"
+ln -s "$outside_scope" "$legacy_home"
+if cmux_remove_terminated_stale_app_host_scopes \
+  "$system_temp_root" fedcba987654 "$legacy_key" \
+  > "$TMP_DIR/symlink-candidate.out" 2> "$TMP_DIR/symlink-candidate.err"; then
+  fail "stale recovery accepted a replacement home symlink"
+fi
+grep -Fxq preserve "$outside_scope/sentinel" \
+  || fail "stale recovery followed a replacement home symlink"
+unlink "$legacy_home"
+mv "$legacy_home_backup" "$legacy_home"
+wrong_uid=$(( $(/usr/bin/id -u) + 1 ))
+if cmux_validate_terminated_stale_app_host_scope \
+  "$system_temp_root" "$legacy_key" "$wrong_uid" \
+  > "$TMP_DIR/wrong-owner.out" 2> "$TMP_DIR/wrong-owner.err"; then
+  fail "stale recovery accepted a scope owned by another UID"
+fi
+
+# Internal symlinks are unlinked with the authenticated root, not traversed.
+ln -s "$outside_scope" "$legacy_home/internal-link"
+cmux_remove_terminated_stale_app_host_scopes \
+  "$system_temp_root" fedcba987654 "$legacy_key" \
+  || fail "valid stale scope with an internal symlink was not removed"
+grep -Fxq preserve "$outside_scope/sentinel" \
+  || fail "stale recovery followed an internal home symlink"
 
 echo "PASS: app-host processes require matching receipts and executable vnodes"

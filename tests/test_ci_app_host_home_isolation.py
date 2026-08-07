@@ -378,7 +378,7 @@ def main() -> int:
     )
     require(
         APP_HOST_ISOLATION,
-        '"${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}:${CMUX_APP_HOST_SHARD}"',
+        '"${run_id}:${run_attempt}:${shard}"',
         "independent run identity derivation",
     )
     require(

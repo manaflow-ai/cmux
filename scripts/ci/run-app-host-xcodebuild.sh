@@ -95,7 +95,8 @@ kill_stale_app_host() {
   [ "${CMUX_CI_APP_HOST_ISOLATION_REQUIRED:-0}" = "1" ] || return 0
   cmux_terminate_stale_receipted_app_hosts \
     "$CMUX_RESOLVED_RUNNER_WORK_ROOT" \
-    "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT"
+    "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT" \
+    "$app_host_key"
 }
 
 validate_app_host_config_paths() {
