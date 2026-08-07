@@ -58,6 +58,35 @@ struct HermesFirstClassSupportTests {
         #expect(detected.isEmpty)
     }
 
+    @Test("A cached bare Hermes process cannot retain a snapshot without session identity")
+    func cachedBareProcessRequiresExplicitSessionIdentity() {
+        let executable = "/opt/homebrew/bin/hermes"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "cached-session",
+            workingDirectory: "/tmp/hermes repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes-agent",
+                executablePath: executable,
+                arguments: [executable, "--tui"],
+                workingDirectory: "/tmp/hermes repo",
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            ),
+            registration: CmuxVaultAgentRegistration.builtInHermes
+        )
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [executable, "--tui"],
+            environment: ["CMUX_AGENT_LAUNCH_KIND": "hermes-agent"]
+        )
+
+        #expect(
+            CachedAgentProcessIdentityValidator().currentProcess(liveProcess, matches: snapshot) == false,
+            "A long-lived Hermes process can switch sessions without changing PID or bare argv."
+        )
+    }
+
     @Test("The installed Python Hermes launcher remains live and restores through cmux")
     func installedPythonLauncherRemainsRestorable() throws {
         let fixture = try makeFixture { [StateRow("python-session", cwd: $0.path)] }

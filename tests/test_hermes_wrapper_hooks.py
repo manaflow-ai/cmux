@@ -340,9 +340,18 @@ def test_administrative_entrypoints_bypass_install(failures: list[str]) -> None:
     entrypoints = (
         ("help", ["--help"]),
         ("version", ["--version"]),
+        ("chat-help", ["chat", "--help"]),
+        ("chat-help-short", ["chat", "-h"]),
         ("sessions", ["sessions", "list"]),
         ("hooks", ["hooks", "doctor"]),
         ("doctor", ["doctor"]),
+        ("approvals", ["approvals", "list"]),
+        ("egress", ["egress", "status"]),
+        ("import-agent", ["import-agent", "--help"]),
+        ("monitoring", ["monitoring", "status"]),
+        ("skin", ["skin", "list"]),
+        ("sync", ["sync", "status"]),
+        ("future-command", ["future-administrative-command", "--help"]),
         ("option-before-admin", ["--provider", "openrouter", "sessions", "stats"]),
     )
     for label, argv in entrypoints:
