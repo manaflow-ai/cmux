@@ -1239,6 +1239,68 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
     }
 
     @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func liveReparentedReaperRetainsItsOwnerLock(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-reparented-reaper-\(UUID().uuidString)", isDirectory: true)
+        let groupDirectory = root.appendingPathComponent("group", isDirectory: true)
+        let reaperPIDFile = root.appendingPathComponent("reaper.pid")
+        let initialParentFile = root.appendingPathComponent("reaper.parent")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try createSecureGroupDirectory(at: groupDirectory)
+        try "anchor|group|started\n".write(
+            to: groupDirectory.appendingPathComponent("identity"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_terminate_owned_auth_group() { return 1; }
+        cmux_test_launch_and_exit() (
+          cmux_ssh_launch_owned_auth_group_reaper "$CMUX_SSH_AUTH_GROUP_DIR"
+          test "${CMUX_SSH_AUTH_REAPER_LAUNCHED:-0}" = 1 || exit 99
+          cmux_test_reaper_pid=$!
+          cmux_test_reaper_identity=$(cmux_ssh_auth_identity "$cmux_test_reaper_pid") || exit 98
+          printf '%s\n' "$cmux_test_reaper_pid" > "$CMUX_TEST_REAPER_PID" || exit 97
+          printf '%s\n' "${cmux_test_reaper_identity%%|*}" > "$CMUX_TEST_REAPER_PARENT" || exit 96
+        )
+        cmux_test_launch_and_exit || exit 95
+        cmux_test_reaper_pid=$(/bin/cat "$CMUX_TEST_REAPER_PID") || exit 94
+        cmux_test_initial_parent=$(/bin/cat "$CMUX_TEST_REAPER_PARENT") || exit 93
+        trap '/bin/kill -KILL "$cmux_test_reaper_pid" >/dev/null 2>&1 || true' EXIT
+        cmux_test_reparent_attempt=0
+        while [ "$cmux_test_reparent_attempt" -lt 100 ]; do
+          cmux_test_current_identity=$(cmux_ssh_auth_identity "$cmux_test_reaper_pid")
+          cmux_test_current_parent=${cmux_test_current_identity%%|*}
+          if [ -n "$cmux_test_current_identity" ] && \
+            [ "$cmux_test_current_parent" != "$cmux_test_initial_parent" ]; then break; fi
+          /bin/sleep 0.01
+          cmux_test_reparent_attempt=$((cmux_test_reparent_attempt + 1))
+        done
+        test "$cmux_test_reparent_attempt" -lt 100 || exit 92
+        /bin/kill -0 "$cmux_test_reaper_pid" 2>/dev/null || exit 91
+        if cmux_ssh_auth_reclaim_stale_reaper_lock \
+          "$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock"; then exit 90; fi
+        test -s "$CMUX_SSH_AUTH_GROUP_DIR/reaper.lock/owner" || exit 89
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_SSH_AUTH_GROUP_DIR": groupDirectory.path,
+                "CMUX_TEST_REAPER_PARENT": initialParentFile.path,
+                "CMUX_TEST_REAPER_PID": reaperPIDFile.path,
+                "TMPDIR": root.path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
     func concurrentReaperLaunchKeepsFreshUnpublishedLockOwnedByCreator(
         shellPath: String
     ) throws {
