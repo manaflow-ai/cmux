@@ -868,7 +868,11 @@ fn session_reset_state_command(session: &str, state_root: Option<&Path>) -> Stri
 
 fn session_selector_for_command(session: &str) -> String {
     match cmux_tui_core::resource::Selector::parse(session) {
-        Ok(cmux_tui_core::resource::Selector::Name(name)) if name == session => session.to_string(),
+        Ok(cmux_tui_core::resource::Selector::Name(name))
+            if name == session && !session.starts_with('-') =>
+        {
+            session.to_string()
+        }
         _ => format!("name:{session}"),
     }
 }

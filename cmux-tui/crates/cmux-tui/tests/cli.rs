@@ -340,7 +340,7 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     let state = dir.join("state");
     let home = dir.join("home");
     fs::create_dir_all(&home).unwrap();
-    let session = "schema-{found}";
+    let session = "--old-schema-{found}";
 
     drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
     let database = fs::read_dir(&state)
@@ -451,14 +451,14 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!english.contains("nothing needs to be stopped"), "{english}");
     assert!(
         english.contains(&format!(
-            "cmux session '{session}' reset-state --state '{}'",
+            "cmux session 'name:{session}' reset-state --state '{}'",
             state.display()
         )),
         "{english}"
     );
     assert!(
         !english.contains(&format!(
-            "cmux session '{session}' reset-state --state '{}' --force",
+            "cmux session 'name:{session}' reset-state --state '{}' --force",
             state.display()
         )),
         "{english}"
@@ -598,14 +598,14 @@ fn newer_workspace_schema_failure_reports_socket_specific_recovery() {
     assert!(!japanese.contains("停止は不要"), "{japanese}");
     assert!(
         japanese.contains(&format!(
-            "cmux session '{session}' reset-state --state '{}'",
+            "cmux session 'name:{session}' reset-state --state '{}'",
             state.display()
         )),
         "{japanese}"
     );
     assert!(
         !japanese.contains(&format!(
-            "cmux session '{session}' reset-state --state '{}' --force",
+            "cmux session 'name:{session}' reset-state --state '{}' --force",
             state.display()
         )),
         "{japanese}"

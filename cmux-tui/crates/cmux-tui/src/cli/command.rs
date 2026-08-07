@@ -2300,47 +2300,68 @@ struct ResetFailureAdvice {
 
 fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
     let messages = &crate::localization::catalog().session_reset;
-    let error = error.to_string();
-    if error.contains("reset confirmation is required") {
+    if reset_error_starts_with(error, &["reset confirmation is required"]) {
         ResetFailureAdvice {
             code: "session.reset_state.confirmation_required",
             reason: messages.confirmation_required,
             recovery: messages.confirmation_recovery,
         }
-    } else if error.contains("already owned by another daemon") {
-        ResetFailureAdvice {
-            code: "session.reset_state.session_running",
-            reason: messages.reason_session_running,
-            recovery: messages.recovery_session_running,
-        }
-    } else if error.contains("live or unverified hosts") {
-        ResetFailureAdvice {
-            code: "session.reset_state.terminal_hosts_live",
-            reason: messages.reason_terminal_hosts_live,
-            recovery: messages.recovery_terminal_hosts_live,
-        }
-    } else if error.contains("liveness cannot be verified") {
-        ResetFailureAdvice {
-            code: "session.reset_state.terminal_hosts_unsupported",
-            reason: messages.reason_terminal_hosts_unsupported,
-            recovery: messages.recovery_terminal_hosts_unsupported,
-        }
-    } else if error.contains("not a directory") {
+    } else if reset_error_starts_with(
+        error,
+        &[
+            "workspace state root is not a directory",
+            "workspace session state path is not a directory",
+            "terminal host state path is not a directory",
+            "private reset path is not a directory",
+            "session lock directory is not a directory",
+            "not a directory:",
+        ],
+    ) {
         ResetFailureAdvice {
             code: "session.reset_state.invalid_state_path",
             reason: messages.reason_invalid_state_path,
             recovery: messages.recovery_invalid_state_path,
         }
-    } else if ["changed during reset", "changed during fingerprint"]
-        .iter()
-        .any(|marker| error.contains(marker))
-    {
+    } else if reset_error_starts_with(
+        error,
+        &["workspace session is already owned by another daemon"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.session_running",
+            reason: messages.reason_session_running,
+            recovery: messages.recovery_session_running,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &[
+            "terminal host state still has live or unverified hosts",
+            "terminal host state has live or unverified hosts",
+        ],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_live",
+            reason: messages.reason_terminal_hosts_live,
+            recovery: messages.recovery_terminal_hosts_live,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["terminal host liveness cannot be verified on this platform"],
+    ) {
+        ResetFailureAdvice {
+            code: "session.reset_state.terminal_hosts_unsupported",
+            reason: messages.reason_terminal_hosts_unsupported,
+            recovery: messages.recovery_terminal_hosts_unsupported,
+        }
+    } else if reset_error_starts_with(
+        error,
+        &["reset path changed during reset", "reset path changed during fingerprint"],
+    ) {
         ResetFailureAdvice {
             code: "session.reset_state.state_changed",
             reason: messages.reason_state_changed,
             recovery: messages.recovery_state_changed,
         }
-    } else if error.contains("reset confirmation scan exceeds") {
+    } else if reset_error_starts_with(error, &["reset confirmation scan exceeds"]) {
         ResetFailureAdvice {
             code: "session.reset_state.state_too_large",
             reason: messages.reason_state_too_large,
@@ -2353,6 +2374,13 @@ fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
             recovery: messages.recovery_filesystem,
         }
     }
+}
+
+fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
+    error.chain().any(|cause| {
+        let cause = cause.to_string();
+        prefixes.iter().any(|prefix| cause.starts_with(prefix))
+    })
 }
 
 #[cfg(test)]
@@ -2390,6 +2418,14 @@ mod tests {
         ));
         assert_eq!(advice.code, "session.reset_state.state_too_large");
         assert!(advice.recovery.contains("reduce the scoped saved state"), "{}", advice.recovery);
+    }
+
+    #[test]
+    fn reset_failure_advice_ignores_marker_text_inside_paths() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "workspace state root is not a directory: /tmp/already owned by another daemon"
+        ));
+        assert_eq!(advice.code, "session.reset_state.invalid_state_path");
     }
 
     fn operation_catalog() -> Value {
