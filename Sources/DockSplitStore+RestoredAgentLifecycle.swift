@@ -294,6 +294,13 @@ extension DockSplitStore {
         let processIdentity =
             providedProcessIdentity
                 ?? Workspace.agentPIDProcessIdentity(pid: pid)
+        if let processIdentity,
+           let runtime = agentRuntimeByPanelId[panelId],
+           runtime.agentPIDs[key] == pid,
+           runtime.agentPIDProcessIdentities[key] == processIdentity,
+           runtime.agentPIDKeys.contains(key) {
+            return false
+        }
         agentProcessExitMonitor.cancel(
             key: Self.agentProcessObservationKey(
                 key: key,

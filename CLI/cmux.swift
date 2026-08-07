@@ -27989,7 +27989,20 @@ struct CMUXCLI {
             // parent hook process.
             timeout: 3
         )
-        if result.status == 0 {
+        let acknowledgedSettlementID: UUID? = {
+            guard result.status == 0,
+                  let data = result.stdout.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data)
+                    as? [String: Any],
+                  let rawAcknowledgement = normalizedHookValue(
+                    object["cmux_deferred_settlement_acknowledged_id"]
+                        as? String
+                  ) else {
+                return nil
+            }
+            return UUID(uuidString: rawAcknowledgement)
+        }()
+        if acknowledgedSettlementID == settlement.id {
             telemetry.breadcrumb(
                 "codex-hook.settlement.replayed",
                 data: ["has_turn_id": settlement.turnId != nil]
@@ -28001,7 +28014,9 @@ struct CMUXCLI {
             error: CLIError(
                 message: result.timedOut
                     ? "Codex settlement replay timed out"
-                    : "Codex settlement replay exited \(result.status)"
+                    : result.status == 0
+                        ? "Codex settlement replay was not acknowledged"
+                        : "Codex settlement replay exited \(result.status)"
             ),
             data: [
                 "has_turn_id": settlement.turnId != nil,
@@ -31678,6 +31693,7 @@ export default CMUXSessionRestore;
             ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
             ?? normalizedHookValue(env["PWD"]) ?? (def.name == "codex" ? normalizedHookValue(FileManager.default.currentDirectoryPath) : nil)
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        var deferredSettlementAcknowledgementID: UUID?
         let action = Self.subcommandActions[subcommand] ?? .noop
         if def.integration == .cursor {
             concludeCursorNativeApprovalObservationIfNeeded(
@@ -33055,6 +33071,7 @@ export default CMUXSessionRestore;
                     telemetry: telemetry
                 )
             }
+            deferredSettlementAcknowledgementID = deferredSettlementReplayID
 
         case .approvalResponse:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -33495,7 +33512,14 @@ export default CMUXSessionRestore;
             break
         }
 
-        print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : "{}")
+        if let deferredSettlementAcknowledgementID {
+            print(jsonString([
+                "cmux_deferred_settlement_acknowledged_id":
+                    deferredSettlementAcknowledgementID.uuidString.lowercased(),
+            ]))
+        } else {
+            print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : "{}")
+        }
     }
 
     // MARK: - Feed telemetry helper

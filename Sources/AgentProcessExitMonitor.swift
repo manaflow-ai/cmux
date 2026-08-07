@@ -24,6 +24,9 @@ final class AgentProcessExitMonitor {
         generation: AgentPIDProcessIdentity,
         onExit: @escaping @MainActor (String, AgentPIDProcessIdentity) -> Void
     ) {
+        if observationsByKey[key]?.generation == generation {
+            return
+        }
         cancel(key: key)
 
         // DispatchSource is the Darwin process-exit primitive; its callback is
