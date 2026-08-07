@@ -6780,19 +6780,14 @@ final class cmuxUITests: XCTestCase {
     /// than one point from the system-owned input-accessory bottom, or if a toggle
     /// wedges before reaching its opposite state.
     @MainActor
-    func testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame() async throws {
-        let server = try MobileSyncMockHostServer()
-        let port = try await server.start()
-        defer { server.stop() }
-
-        let app = try launchConnectedApp(
-            port: port,
-            assertStatusRows: false,
-            environment: [
-                "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
-                "CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1",
-            ]
-        )
+    func testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame() throws {
+        // Geometry proof does not require a live transport. Use the existing
+        // deterministic connected-workspace fixture so the test still mounts
+        // the production workspace detail, terminal surface, composer field,
+        // and system input accessory without inheriting loopback pairing timing.
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1",
+        ])
         defer { app.terminate() }
 
         let surface = app.otherElements["MobileTerminalSurface"]
