@@ -41,6 +41,15 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         backgroundColorHex: "#FFFFFF"
     )
 
+    static let piAction = builtInAgentAction(
+        id: "pi",
+        title: "Pi",
+        commandPrefix: "pi --",
+        systemImage: "brain.head.profile",
+        assetName: "AgentIcons/Pi",
+        backgroundColorHex: "#D0B3FF"
+    )
+
     static let builtInActions: [TextBoxSubmitAction] = [
         builtInAgentAction(
             id: "claude",
@@ -66,14 +75,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             assetName: "AgentIcons/OpenCode",
             backgroundColorHex: "#B5E48C"
         ),
-        builtInAgentAction(
-            id: "pi",
-            title: "Pi",
-            commandPrefix: "pi --",
-            systemImage: "brain.head.profile",
-            assetName: "AgentIcons/Pi",
-            backgroundColorHex: "#D0B3FF"
-        ),
+        piAction,
     ]
 
     private static func builtInAgentAction(
@@ -172,12 +174,23 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         return command.isEmpty ? nil : command
     }
 
-    func command(forPrompt prompt: String) -> String? {
+    func command(forPrompt prompt: String, surfaceId: UUID? = nil) -> String? {
         guard kind == .commandTemplate,
               let commandTemplate,
               commandTemplate.contains(Self.promptPlaceholder),
               Self.promptPlaceholdersAreUnquoted(in: commandTemplate) else {
             return nil
+        }
+        if self == Self.piAction, let surfaceId {
+            let script = "case \"$(pi --version 2>/dev/null)\" in 0.8[4-9].*|0.9[0-9].*|[1-9]*.*) exec pi --session-id \"$1\" -- \"$2\" ;; *) exec pi -- \"$2\" ;; esac"
+            return [
+                "sh",
+                "-c",
+                Self.shellQuoted(script),
+                "sh",
+                Self.shellQuoted("cmux-\(surfaceId.uuidString)"),
+                Self.shellQuoted(prompt),
+            ].joined(separator: " ")
         }
         return commandTemplate.replacingOccurrences(
             of: Self.promptPlaceholder,

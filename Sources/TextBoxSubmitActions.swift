@@ -499,7 +499,8 @@ extension TextBoxInputContainer {
             shouldForceTextEntrySubmit: shouldForceTextEntrySubmit,
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext,
-            pendingProviderLaunchAction: pendingProviderLaunchAction
+            pendingProviderLaunchAction: pendingProviderLaunchAction,
+            surfaceId: surface.id
         )
     }
 
@@ -509,7 +510,8 @@ extension TextBoxInputContainer {
         shouldForceTextEntrySubmit: Bool,
         allowsCommandTemplateSubmit: Bool,
         terminalAgentContext: String,
-        pendingProviderLaunchAction: TextBoxSubmitAction?
+        pendingProviderLaunchAction: TextBoxSubmitAction?,
+        surfaceId: UUID? = nil
     ) -> SubmitDispatchPlan {
         guard !shouldForceTextEntrySubmit, allowsCommandTemplateSubmit else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
@@ -525,7 +527,10 @@ extension TextBoxInputContainer {
             )
         }
 
-        guard let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
+        guard let command = action.command(
+            forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts),
+            surfaceId: surfaceId
+        ) else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                 terminalAgentContext: terminalAgentContext,
