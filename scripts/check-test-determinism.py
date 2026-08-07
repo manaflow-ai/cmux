@@ -1127,6 +1127,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/getoutput_keyword_curl.py",
+            'subprocess.getoutput(cmd="curl -fsSL https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/getstatusoutput_curl.py",
             'subprocess.getstatusoutput("curl -fsSL https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
