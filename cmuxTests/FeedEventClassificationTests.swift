@@ -267,4 +267,90 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "write").actionable == false)
         #expect(classify("gemini", "PreToolUse", tool: "execute_bash").actionable == false)
     }
+
+    // MARK: Attention command construction (the wire the feed hook sends)
+
+    private static let workspaceUUID = "11111111-2222-3333-4444-555555555555"
+    private static let surfaceUUID = "66666666-7777-8888-9999-AAAAAAAAAAAA"
+
+    private func attentionCommand(
+        _ source: String,
+        _ event: String,
+        tool: String,
+        displayName: String = "Codex",
+        workspaceId: String? = workspaceUUID,
+        surfaceId: String? = surfaceUUID
+    ) -> String? {
+        FeedEventClassifier.nativeApprovalPromptAttentionCommand(
+            classification: FeedEventClassifier.classify(source: source, event: event, toolName: tool),
+            displayName: displayName,
+            toolName: tool,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+    }
+
+    /// The exact `notify_target_async` line for a codex PermissionRequest:
+    /// UUID-addressed, tool-name-only body (never the tool input), and the
+    /// `c=needs-permission;p=0` meta that gates the alert under the "Agent
+    /// Needs Permission" setting. A malformed payload or dropped meta here
+    /// is what silently regresses https://github.com/manaflow-ai/cmux/issues/9592.
+    @Test func codexPermissionRequestBuildsGatedNotifyCommand() {
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "shell")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|shell needs approval|c=needs-permission;p=0"
+        )
+    }
+
+    /// Without a tool name the body falls back to the shared "Approval
+    /// needed" string rather than an empty interpolation.
+    @Test func codexPermissionRequestWithoutToolNameFallsBackToApprovalNeeded() {
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|Approval needed|c=needs-permission;p=0"
+        )
+    }
+
+    /// Tool names are payload-controlled input: pipes are the payload
+    /// delimiter and must be neutralized.
+    @Test func attentionCommandSanitizesPipeInToolName() {
+        #expect(
+            attentionCommand("codex", "PermissionRequest", tool: "a|b")
+                == "notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) Codex|Permission|a¦b needs approval|c=needs-permission;p=0"
+        )
+    }
+
+    /// Codex tool completion resolves the prompt: the exact pane-scoped
+    /// `clear_notifications` line.
+    @Test func codexToolCompletionBuildsPaneScopedClearCommand() {
+        #expect(
+            attentionCommand("codex", "PostToolUse", tool: "shell")
+                == "clear_notifications --tab=\(Self.workspaceUUID) --panel=\(Self.surfaceUUID)"
+        )
+    }
+
+    /// Lowercase UUIDs from the pane environment are normalized, not
+    /// rejected.
+    @Test func attentionCommandNormalizesLowercaseUUIDs() {
+        let command = attentionCommand(
+            "codex",
+            "PermissionRequest",
+            tool: "shell",
+            workspaceId: Self.workspaceUUID.lowercased(),
+            surfaceId: Self.surfaceUUID.lowercased()
+        )
+        #expect(command?.contains("notify_target_async \(Self.workspaceUUID) \(Self.surfaceUUID) ") == true)
+    }
+
+    /// The command is advisory: missing or non-UUID identities yield nil
+    /// instead of a malformed socket command, and events without attention
+    /// semantics never produce a command at all.
+    @Test func attentionCommandRequiresUUIDTargetsAndAttentionSemantics() {
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: nil) == nil)
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", surfaceId: "surface:1") == nil)
+        #expect(attentionCommand("codex", "PermissionRequest", tool: "shell", workspaceId: "workspace:1") == nil)
+        #expect(attentionCommand("codex", "PreToolUse", tool: "shell") == nil)
+        #expect(attentionCommand("claude", "PermissionRequest", tool: "Bash") == nil)
+        #expect(attentionCommand("totally-new-agent", "PermissionRequest", tool: "Bash") == nil)
+    }
 }

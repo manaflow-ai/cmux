@@ -433,6 +433,75 @@ struct FeedEventClassifier {
         "generate_image",
     ]
 
+    /// Builds the pane-attention V1 socket command a classified feed event
+    /// carries — the `needs-permission`-gated `notify_target_async` for a
+    /// native approval prompt, or the pane-scoped `clear_notifications` for
+    /// a resolved one. Pure so the exact wire command (UUID gating, payload
+    /// shape, gate meta) is unit-testable; the CLI feed hook sends the
+    /// returned line request/response and awaits the app's acknowledgement.
+    ///
+    /// Returns `nil` when the classification carries no attention side
+    /// effect or when either identity is missing/not a UUID: the command is
+    /// advisory and must never fail the hook.
+    ///
+    /// The notification body deliberately names only the TOOL — mirroring
+    /// the in-app Feed approval banner (`feed.notification.permission.body`)
+    /// — and never the tool input: commands can embed credentials, and
+    /// notification banners reach lock screens, paired phones, and the
+    /// recorded notification history.
+    static func nativeApprovalPromptAttentionCommand(
+        classification: FeedEventClassification,
+        displayName: String,
+        toolName: String,
+        workspaceId: String?,
+        surfaceId: String?
+    ) -> String? {
+        guard classification.notifiesNativeApprovalPrompt
+                || classification.clearsNativeApprovalPrompt else { return nil }
+        guard let workspaceRaw = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceUUID = UUID(uuidString: workspaceRaw),
+              let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let surfaceUUID = UUID(uuidString: surfaceRaw)
+        else { return nil }
+        if classification.clearsNativeApprovalPrompt {
+            return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString)"
+        }
+        let subtitle = String(
+            localized: "agent.generic.notification.subtitle.permission",
+            defaultValue: "Permission"
+        )
+        let sanitizedToolName = attentionNotificationField(toolName)
+        let body: String
+        if sanitizedToolName.isEmpty {
+            body = String(
+                localized: "agent.generic.notification.body.approvalNeeded",
+                defaultValue: "Approval needed"
+            )
+        } else {
+            body = String(
+                localized: "feed.notification.permission.body",
+                defaultValue: "\(sanitizedToolName) needs approval"
+            )
+        }
+        guard let meta = AgentHookNotifyCategory.needsPermission.metaSegment(pending: false) else {
+            return nil
+        }
+        let payload = [attentionNotificationField(displayName), attentionNotificationField(subtitle), attentionNotificationField(body)]
+            .joined(separator: "|") + "|" + meta
+        return "notify_target_async \(workspaceUUID.uuidString) \(surfaceUUID.uuidString) \(payload)"
+    }
+
+    /// Notification payload fields are pipe-delimited single lines; agent
+    /// tool names are payload-controlled input, so normalize them the same
+    /// way `notificationPayload` sanitizes its fields.
+    private static func attentionNotificationField(_ value: String) -> String {
+        value
+            .components(separatedBy: .newlines)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "|", with: "¦")
+    }
+
     /// Whether a tool mutates state and deserves an approval prompt. Exact
     /// match against ``sideEffectingTools`` for every source; the `kiro`
     /// source additionally matches its case-insensitive internal aliases.
