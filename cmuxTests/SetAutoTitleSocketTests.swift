@@ -168,6 +168,45 @@ import Testing
         }
     }
 
+    @Test func reconciliationPreservesNewerAutoPanelTitle() throws {
+        try withAutoNamingSetting(true) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+                _ = try #require(workspace.newTerminalSurface(inPane: pane, focus: false)?.id)
+                #expect(workspace.setCustomTitle("Older session topic", source: .auto))
+                #expect(workspace.setPanelCustomTitle(
+                    panelId: panelId,
+                    title: "Older session topic",
+                    source: .auto
+                ))
+                #expect(workspace.setCustomTitle("Newer session topic", source: .auto))
+                #expect(workspace.setPanelCustomTitle(
+                    panelId: panelId,
+                    title: "Newer session topic",
+                    source: .auto
+                ))
+
+                let result = try #require(call(method: "workspace.set_auto_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "panel_only_if_multiple": true,
+                    "expected_workspace_title": "Older session topic",
+                    "expected_panel_title": "Older session topic",
+                    "title": "Older session topic",
+                ])["result"] as? [String: Any])
+
+                #expect(result["workspace_applied"] as? Bool == false)
+                #expect(result["workspace_apply_skipped"] as? Bool == true)
+                #expect(result["panel_applied"] is NSNull || result["panel_applied"] == nil)
+                #expect(result["panel_apply_skipped"] as? Bool == true)
+                #expect(workspace.customTitle == "Newer session topic")
+                #expect(workspace.panelCustomTitles[panelId] == "Newer session topic")
+                #expect(workspace.panelCustomTitleSources[panelId] == .auto)
+            }
+        }
+    }
+
     @Test func notInstalledSurvivesAReportAfterSuccessfulApply() throws {
         // Regression: a missing-override pass applies a fallback title (which
         // clears stale status) and THEN reports not_installed. The order must
