@@ -1,0 +1,598 @@
+import AppKit
+import CmuxTerminal
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite("Terminal image transfer concurrency")
+struct TerminalImageTransferConcurrencyTests {
+    @MainActor
+    @Test("lazy pasteboard providers materialize through isolated preparation")
+    func lazyPasteboardProviderMaterializes() async throws {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-image-transfer-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+
+        let mainThreadData = Data("resolved-on-main".utf8)
+        let backgroundThreadData = Data("resolved-off-main".utf8)
+        let provider = PasteboardThreadSignalingDataProvider(
+            mainThreadData: mainThreadData,
+            backgroundThreadData: backgroundThreadData
+        )
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.png])
+        #expect(pasteboard.writeObjects([item]))
+
+        let preparationService = makeLivePreparationService()
+        let preparedContent = await TerminalImageTransferPlanner.prepare(
+            pasteboard: pasteboard,
+            mode: .paste,
+            using: preparationService
+        )
+        guard case .fileURLs(let fileURLs) = preparedContent,
+              let materializedURL = fileURLs.first else {
+            Issue.record("Expected the lazy image payload to be materialized")
+            return
+        }
+        defer {
+            preparationService.cleanupTransferredTemporaryFiles(
+                .fileURLs(fileURLs)
+            )
+        }
+
+        let materializedData = try Data(contentsOf: materializedURL)
+        // AppKit marks the provider callback NS_SWIFT_NONISOLATED and does not
+        // promise a callback executor. The process boundary is the invariant:
+        // either synthetic payload proves provider resolution happened outside
+        // cmux's main thread before the worker returned the materialized file.
+        #expect(
+            materializedData == mainThreadData
+                || materializedData == backgroundThreadData
+        )
+    }
+
+    @MainActor
+    @Test("existing file URLs bypass worker-file adoption")
+    func existingFileURLSurvivesWorkerTransport() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-tests-existing-file-\(UUID().uuidString).txt"
+            )
+        try Data("existing".utf8).write(to: fileURL)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-existing-file-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        #expect(pasteboard.writeObjects([fileURL as NSURL]))
+
+        let preparedContent = await TerminalImageTransferPlanner.prepare(
+            pasteboard: pasteboard,
+            mode: .paste,
+            using: makeLivePreparationService()
+        )
+
+        #expect(
+            preparedContent == .fileURLs([fileURL.standardizedFileURL])
+        )
+    }
+
+    @MainActor
+    @Test("prepared result cleanup uses the injected pasteboard owner")
+    func preparedResultCleanupUsesInjectedPasteboardOwner() throws {
+        let scratchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-tests-cleanup-owner-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let ownerDirectory = scratchDirectory.appendingPathComponent(
+            "owner",
+            isDirectory: true
+        )
+        let foreignDirectory = scratchDirectory.appendingPathComponent(
+            "foreign",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: ownerDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: foreignDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: scratchDirectory) }
+        let fileURL = ownerDirectory.appendingPathComponent("prepared.png")
+        try Data([0x1]).write(to: fileURL)
+        let owner = TerminalPasteboardService(
+            temporaryDirectory: ownerDirectory
+        )
+        let foreign = TerminalPasteboardService(
+            temporaryDirectory: foreignDirectory
+        )
+        owner.debugRegisterOwnedTemporaryImageFile(fileURL)
+        let result = TerminalPastePreparationResult.composer(
+            .attachments([
+                TextBoxPreparedAttachment(
+                    fileURL: fileURL,
+                    thumbnailPNGData: nil
+                ),
+            ])
+        )
+
+        result.cleanupTransferredTemporaryFiles(using: foreign)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+        result.cleanupTransferredTemporaryFiles(using: owner)
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    @MainActor
+    @Test("large plain text crosses the bounded worker envelope")
+    func largePlainTextCrossesWorkerEnvelope() async {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-large-text-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let largeText = String(
+            repeating: "x",
+            count: TerminalPastePreparationWorkerClient.maximumResponseSize
+                + 1_024
+        )
+        pasteboard.setString(largeText, forType: .string)
+
+        let preparedContent = await TerminalImageTransferPlanner.prepare(
+            pasteboard: pasteboard,
+            mode: .paste,
+            using: makeLivePreparationService()
+        )
+
+        guard case .insertText(let preparedText) = preparedContent else {
+            Issue.record("Expected large plain text to survive worker transport")
+            return
+        }
+        #expect(preparedText == largeText)
+    }
+
+    @MainActor
+    @Test("oversized plain text is rejected by the worker boundary")
+    func oversizedPlainTextIsRejected() async {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-oversized-text-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        let oversizedText = String(
+            repeating: "x",
+            count: TerminalPastePreparationWorkerTextPayload.maximumByteCount
+                + 1
+        )
+        pasteboard.setString(oversizedText, forType: .string)
+
+        let preparedContent = await TerminalImageTransferPlanner.prepare(
+            pasteboard: pasteboard,
+            mode: .paste,
+            using: makeLivePreparationService()
+        )
+
+        #expect(preparedContent == .reject)
+    }
+
+    @MainActor
+    @Test("accepted paste preparations execute in FIFO order without drops")
+    func pastePreparationPreservesFIFOOrder() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in }
+        )
+        var admitted = operation.admittedEvents().makeAsyncIterator()
+        var started = operation.startedEvents().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "first")
+        let secondRequest = makeReadRequest(label: "second")
+        let thirdRequest = makeReadRequest(label: "third")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == firstRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(1)
+        let firstStarted = await started.next()
+        #expect(firstStarted == firstRequest.pasteboardName)
+
+        let secondTask = Task {
+            await service.prepare(request: secondRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
+        let thirdTask = Task {
+            await service.prepare(request: thirdRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == thirdRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(3)
+
+        await operation.release(firstRequest.pasteboardName)
+        let firstResult = await firstTask.value
+        #expect(firstResult == .insertText(firstRequest.pasteboardName))
+
+        let secondStarted = await started.next()
+        #expect(secondStarted == secondRequest.pasteboardName)
+        await operation.release(secondRequest.pasteboardName)
+        let secondResult = await secondTask.value
+        #expect(secondResult == .insertText(secondRequest.pasteboardName))
+
+        let thirdStarted = await started.next()
+        #expect(thirdStarted == thirdRequest.pasteboardName)
+        #expect(await operation.snapshot().maximumActiveCount == 1)
+        #expect(
+            await operation.snapshot().startedNames
+                == [
+                    firstRequest.pasteboardName,
+                    secondRequest.pasteboardName,
+                    thirdRequest.pasteboardName,
+                ]
+        )
+
+        await operation.release(thirdRequest.pasteboardName)
+        let thirdResult = await thirdTask.value
+        #expect(thirdResult == .insertText(thirdRequest.pasteboardName))
+    }
+
+    @MainActor
+    @Test("a timed-out worker is reaped before the next paste runs")
+    func timedOutWorkerAllowsReplacement() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let failures = PastePreparationFailureProbe()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { failures.record($0) }
+        )
+        var admitted = operation.admittedEvents().makeAsyncIterator()
+        var started = operation.startedEvents().makeAsyncIterator()
+        var reportedFailures = failures.events().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "deadline-first")
+        let secondRequest = makeReadRequest(label: "deadline-second")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == firstRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(1)
+        let startedName = await started.next()
+        #expect(startedName == firstRequest.pasteboardName)
+
+        let secondTask = Task {
+            await service.prepare(request: secondRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
+
+        let firedFirstDeadline = await deadlines.fireNext()
+        #expect(firedFirstDeadline)
+        let timedOutResult = await firstTask.value
+        #expect(timedOutResult == .reject)
+        let reportedFailure = await reportedFailures.next()
+        #expect(reportedFailure == .deadlineExceeded)
+
+        let replacementStarted = await started.next()
+        #expect(replacementStarted == secondRequest.pasteboardName)
+        #expect(await operation.snapshot().maximumActiveCount == 1)
+        await operation.release(secondRequest.pasteboardName)
+        let secondResult = await secondTask.value
+        #expect(secondResult == .insertText(secondRequest.pasteboardName))
+    }
+
+    @MainActor
+    @Test("queued preparation deadline begins at admission")
+    func queuedPreparationDeadlineBeginsAtAdmission() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let failures = PastePreparationFailureProbe()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { failures.record($0) }
+        )
+        var admitted = operation.admittedEvents().makeAsyncIterator()
+        var started = operation.startedEvents().makeAsyncIterator()
+        var reportedFailures = failures.events().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "admission-deadline-first")
+        let queuedRequest = makeReadRequest(label: "admission-deadline-queued")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == firstRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(1)
+        #expect(await started.next() == firstRequest.pasteboardName)
+
+        let queuedTask = Task {
+            await service.prepare(request: queuedRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == queuedRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
+
+        #expect(await deadlines.fireLast())
+        #expect(await queuedTask.value == .reject)
+        #expect(await reportedFailures.next() == .deadlineExceeded)
+        #expect(
+            await operation.snapshot().startedNames
+                == [firstRequest.pasteboardName]
+        )
+        await operation.release(firstRequest.pasteboardName)
+        #expect(
+            await firstTask.value
+                == .insertText(firstRequest.pasteboardName)
+        )
+    }
+
+    @MainActor
+    @Test("timed-out workers remain serialized while the queue advances")
+    func timedOutWorkersRemainSerialized() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { _ in }
+        )
+        var admitted = operation.admittedEvents().makeAsyncIterator()
+        var started = operation.startedEvents().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "stuck-first")
+        let secondRequest = makeReadRequest(label: "stuck-second")
+        let thirdRequest = makeReadRequest(label: "stuck-third")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == firstRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(1)
+        let firstStarted = await started.next()
+        #expect(firstStarted == firstRequest.pasteboardName)
+
+        let secondTask = Task {
+            await service.prepare(request: secondRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
+        let thirdTask = Task {
+            await service.prepare(request: thirdRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == thirdRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(3)
+
+        let firedFirstDeadline = await deadlines.fireNext()
+        #expect(firedFirstDeadline)
+        let firstResult = await firstTask.value
+        #expect(firstResult == .reject)
+        let secondStarted = await started.next()
+        #expect(secondStarted == secondRequest.pasteboardName)
+
+        let firedSecondDeadline = await deadlines.fireNext()
+        #expect(firedSecondDeadline)
+        let secondResult = await secondTask.value
+        #expect(secondResult == .reject)
+        let thirdStarted = await started.next()
+        #expect(thirdStarted == thirdRequest.pasteboardName)
+        #expect(await operation.snapshot().maximumActiveCount == 1)
+        #expect(
+            await operation.snapshot().startedNames
+                == [
+                    firstRequest.pasteboardName,
+                    secondRequest.pasteboardName,
+                    thirdRequest.pasteboardName,
+                ]
+        )
+
+        let firedThirdDeadline = await deadlines.fireNext()
+        #expect(firedThirdDeadline)
+        let thirdResult = await thirdTask.value
+        #expect(thirdResult == .reject)
+    }
+
+    @MainActor
+    @Test("timed-out providers cannot permanently exhaust paste preparation")
+    func timedOutProvidersDoNotExhaustPastePreparation() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            maximumQueuedJobs: 1,
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { _ in }
+        )
+        var started = operation.startedEvents().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "exhaustion-first")
+        let secondRequest = makeReadRequest(label: "exhaustion-second")
+        let thirdRequest = makeReadRequest(label: "exhaustion-third")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        await deadlines.waitForArrivalCount(1)
+        #expect(await started.next() == firstRequest.pasteboardName)
+        #expect(await deadlines.fireNext())
+        #expect(await firstTask.value == .reject)
+
+        let secondTask = Task {
+            await service.prepare(request: secondRequest, mode: .paste)
+        }
+        #expect(await started.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
+        #expect(await deadlines.fireNext())
+        #expect(await secondTask.value == .reject)
+
+        await operation.release(thirdRequest.pasteboardName)
+        let thirdResult = await service.prepare(
+            request: thirdRequest,
+            mode: .paste
+        )
+        #expect(thirdResult == .insertText(thirdRequest.pasteboardName))
+
+        await operation.release(firstRequest.pasteboardName)
+        await operation.release(secondRequest.pasteboardName)
+    }
+
+    @MainActor
+    @Test("bounded queue overflow is reported explicitly")
+    func queueOverflowIsExplicit() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let failures = PastePreparationFailureProbe()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            maximumQueuedJobs: 1,
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { failures.record($0) }
+        )
+        var admitted = operation.admittedEvents().makeAsyncIterator()
+        var started = operation.startedEvents().makeAsyncIterator()
+        var reportedFailures = failures.events().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "capacity-first")
+        let secondRequest = makeReadRequest(label: "capacity-second")
+        let rejectedRequest = makeReadRequest(label: "capacity-rejected")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == firstRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(1)
+        let firstStarted = await started.next()
+        #expect(firstStarted == firstRequest.pasteboardName)
+        let secondTask = Task {
+            await service.prepare(request: secondRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == secondRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
+
+        let rejectedResult = await service.prepare(
+            request: rejectedRequest,
+            mode: .paste
+        )
+        #expect(rejectedResult == .reject)
+        let reportedFailure = await reportedFailures.next()
+        #expect(reportedFailure == .queueFull)
+
+        await operation.release(firstRequest.pasteboardName)
+        let firstResult = await firstTask.value
+        #expect(firstResult == .insertText(firstRequest.pasteboardName))
+        let secondStarted = await started.next()
+        #expect(secondStarted == secondRequest.pasteboardName)
+        await operation.release(secondRequest.pasteboardName)
+        let secondResult = await secondTask.value
+        #expect(secondResult == .insertText(secondRequest.pasteboardName))
+    }
+
+    @MainActor
+    @Test("cancelling queued preparation removes it deterministically")
+    func cancellingQueuedPreparationRemovesIt() async {
+        let operation = ControlledPastePreparationOperation()
+        let deadlines = ControlledPastePreparationDeadlines()
+        let service = TerminalImageTransferPreparationService(
+            deadline: .seconds(30),
+            deadlineSleep: { _ in try await deadlines.sleep() },
+            admissionSignal: { operation.signalAdmission($0) },
+            operation: { try await operation.run($0) },
+            cleanup: { _ in },
+            failureSignal: { _ in }
+        )
+        var admitted = operation.admittedEvents().makeAsyncIterator()
+        var started = operation.startedEvents().makeAsyncIterator()
+        let firstRequest = makeReadRequest(label: "cancel-first")
+        let cancelledRequest = makeReadRequest(label: "cancel-second")
+
+        let firstTask = Task {
+            await service.prepare(request: firstRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == firstRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(1)
+        let firstStarted = await started.next()
+        #expect(firstStarted == firstRequest.pasteboardName)
+        let cancelledTask = Task {
+            await service.prepare(request: cancelledRequest, mode: .paste)
+        }
+        #expect(await admitted.next() == cancelledRequest.pasteboardName)
+        await deadlines.waitForArrivalCount(2)
+
+        cancelledTask.cancel()
+        let cancelledResult = await cancelledTask.value
+        #expect(cancelledResult == .reject)
+        await operation.release(firstRequest.pasteboardName)
+        let firstResult = await firstTask.value
+        #expect(firstResult == .insertText(firstRequest.pasteboardName))
+        #expect(
+            await operation.snapshot().startedNames
+                == [firstRequest.pasteboardName]
+        )
+    }
+
+    @MainActor
+    private func makeLivePreparationService()
+        -> TerminalImageTransferPreparationService {
+        let pasteboardService = GhosttyApp.terminalPasteboard
+        return TerminalImageTransferPreparationService(
+            operation: { request in
+                let client = TerminalPastePreparationWorkerClient
+                    .reexecingCurrentBinary(
+                        pasteboardService: pasteboardService
+                )
+                return try await client.prepare(request)
+            },
+            cleanup: { result in
+                result.cleanupTransferredTemporaryFiles(
+                    using: pasteboardService
+                )
+            }
+        )
+    }
+
+    @MainActor
+    private func makeReadRequest(label: String) -> TerminalPasteboardReadRequest {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-paste-lane-\(label)-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        return TerminalPasteboardReadRequest(pasteboard: pasteboard)
+    }
+}

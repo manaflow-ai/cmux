@@ -189,6 +189,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                 // and IO joins are surface-owned, so separate surfaces may tear down
                 // concurrently. This bounds blocked native workers at two without
                 // letting one stuck pane strand another admitted pane.
+                await Self.invalidateRuntimeClipboardRequestsBeforeFree(request)
                 Task {
                     await self.observeTimeout(id: request.id)
                 }
@@ -220,6 +221,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                     Task {
                         await self.observeTimeout(id: request.id)
                     }
+                    await Self.invalidateRuntimeClipboardRequestsBeforeFree(request)
                     self.freeNativeSurface(request)
                     await self.finishFree(request)
                     await self.complete(id: request.id)
@@ -234,6 +236,19 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             return nil
         }
         return queuedRequests.removeFirst()
+    }
+
+    private nonisolated static func invalidateRuntimeClipboardRequestsBeforeFree(
+        _ request: TerminalSurfaceRuntimeTeardownRequest
+    ) async {
+        if request.callbackContext != nil {
+            await MainActor.run {
+                request.callbackContext?.takeUnretainedValue()
+                    .invalidateRuntimeClipboardRequests(
+                        completingNativeRequests: true
+                    )
+            }
+        }
     }
 
     private nonisolated func freeNativeSurface(

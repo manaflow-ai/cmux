@@ -6,6 +6,58 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalSurfaceExplicitInputTests {
+    private enum ProgrammaticInput: CaseIterable, Sendable {
+        case pasteText
+        case keyText
+        case namedKey
+        case parsedInput
+        case bindingAction
+        case mobileScroll
+        case mobileClick
+
+        @MainActor
+        func send(to surface: TerminalSurface) {
+            switch self {
+            case .pasteText:
+                _ = surface.sendText("hello")
+            case .keyText:
+                _ = surface.sendKeyText("x")
+            case .namedKey:
+                _ = surface.sendNamedKey("enter")
+            case .parsedInput:
+                _ = surface.sendInputResult("hello")
+            case .bindingAction:
+                _ = surface.performBindingAction("scroll_to_bottom")
+            case .mobileScroll:
+                surface.mobileScroll(deltaLines: 1, col: 0, row: 0)
+            case .mobileClick:
+                surface.mobileClick(col: 0, row: 0)
+            }
+        }
+    }
+
+    @Test(
+        "programmatic input waits for a runtime clipboard read",
+        arguments: ProgrammaticInput.allCases
+    )
+    func programmaticInputWaitsForRuntimeClipboardRead(
+        _ input: ProgrammaticInput
+    ) {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+        fixture.nativeView.shouldDeferRuntimeInput = true
+
+        input.send(to: fixture.surface)
+
+        #expect(fixture.nativeView.deferredRuntimeInputs.count == 1)
+        #expect(
+            fixture.nativeView.deferredRuntimeInputBytes.allSatisfy { $0 > 0 }
+        )
+        fixture.nativeView.shouldDeferRuntimeInput = false
+        fixture.nativeView.deferredRuntimeInputs.removeFirst()()
+        #expect(fixture.nativeView.deferredRuntimeInputs.isEmpty)
+    }
+
     @Test func pasteTextNotifiesPaneHostBeforeQueueingOnAColdSurface() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
@@ -125,7 +177,11 @@ struct TerminalSurfaceExplicitInputTests {
         initialInput: String? = nil,
         preparePaneHost: @Sendable @MainActor (any TerminalSurfacePaneHosting) -> Void = { _ in },
         onAttach: (() -> Void)? = nil
-    ) -> (surface: TerminalSurface, paneHost: FakeTerminalSurfacePaneHost) {
+    ) -> (
+        surface: TerminalSurface,
+        paneHost: FakeTerminalSurfacePaneHost,
+        nativeView: FakeTerminalSurfaceNativeView
+    ) {
         let nativeView = FakeTerminalSurfaceNativeView(
             frame: NSRect(x: 0, y: 0, width: 800, height: 600)
         )
@@ -162,7 +218,7 @@ struct TerminalSurfaceExplicitInputTests {
                 scrollbackReplayEnvironmentKey: "CMUX_TEST_SCROLLBACK_REPLAY"
             )
         )
-        return (surface, paneHost)
+        return (surface, paneHost, nativeView)
     }
 
     private func fakeRuntimeSurface() -> ghostty_surface_t {

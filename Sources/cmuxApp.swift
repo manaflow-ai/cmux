@@ -16,9 +16,11 @@ import UniformTypeIdentifiers
 import CmuxTerminal
 
 /// The process entry point. When the binary is launched with a worker flag
-/// (the app re-executes its own binary that way so a crash in the Simulator,
-/// interpreter, or renderer kills only the worker process), run that worker
-/// loop instead of the app:
+/// (the app re-executes its own binary so a crash or hang in paste preparation,
+/// the Simulator, interpreter, or renderer kills only the worker process), run
+/// that worker instead of the app:
+/// - the paste worker resolves providers and prepares images before any app or
+///   SwiftUI startup;
 /// - the Simulator worker owns private frameworks and remote display state;
 /// - the render worker hosts its own faceless AppKit session and shares the
 ///   rendered layer tree with the host;
