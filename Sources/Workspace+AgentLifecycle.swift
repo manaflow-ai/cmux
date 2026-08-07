@@ -282,14 +282,17 @@ extension Workspace {
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: detached.panelId)
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
         lifecycle: AgentHibernationLifecycleState,
         processGeneration: AgentPIDProcessIdentity? = nil
-    ) {
+    ) -> Bool {
         let targetPanelId = panelId ?? focusedPanelId
-        guard let targetPanelId, panels[targetPanelId] != nil else { return }
+        guard let targetPanelId, panels[targetPanelId] != nil else {
+            return false
+        }
         let accepted = sidebarAgentRuntimeObservation.setAgentHookLifecycle(
             key: key,
             panelId: targetPanelId,
@@ -300,6 +303,7 @@ extension Workspace {
         if accepted, !AgentHibernationLifecycleStatusKeys(rawValue: key).isManual {
             recordAgentLifecycleChange(panelId: targetPanelId)
         }
+        return accepted
     }
 
     func beginAgentFeedAttention(

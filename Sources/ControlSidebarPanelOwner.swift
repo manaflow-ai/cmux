@@ -178,29 +178,44 @@ enum ControlSidebarPanelOwner {
         return String(key[..<dotIndex])
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
         lifecycle: AgentHibernationLifecycleState,
         processGeneration: AgentPIDProcessIdentity? = nil
-    ) {
+    ) -> Bool {
+        let targetPanelId: UUID?
+        let accepted: Bool
         switch self {
         case .workspace(let workspace):
-            workspace.setAgentLifecycle(
+            targetPanelId = panelId ?? workspace.focusedPanelId
+            accepted = workspace.setAgentLifecycle(
                 key: key,
                 panelId: panelId,
                 lifecycle: lifecycle,
                 processGeneration: processGeneration
             )
         case .dock(let dock):
-            guard let panelId else { return }
-            dock.setAgentLifecycle(
+            guard let panelId else { return false }
+            targetPanelId = panelId
+            accepted = dock.setAgentLifecycle(
                 key: key,
                 panelId: panelId,
                 lifecycle: lifecycle,
                 processGeneration: processGeneration
             )
         }
+        if accepted, let targetPanelId {
+            FeedCoordinator.shared.reconcileObservedAgentAttention(
+                workspaceId: id,
+                panelId: targetPanelId,
+                statusKey: key,
+                lifecycle: lifecycle,
+                processGeneration: processGeneration
+            )
+        }
+        return accepted
     }
 
     @discardableResult
@@ -288,6 +303,13 @@ enum ControlSidebarPanelOwner {
                     workspaceId: workspace.id,
                     panelId: panelId
                 )
+                FeedCoordinator.shared
+                    .retireObservedAgentAttentionForProcessExit(
+                        workspaceId: workspace.id,
+                        panelId: panelId,
+                        statusKey: key,
+                        processGeneration: generation
+                    )
             }
             return recorded
         case .dock(let dock):
@@ -301,6 +323,13 @@ enum ControlSidebarPanelOwner {
                     workspaceId: dock.workspaceId,
                     panelId: panelId
                 )
+                FeedCoordinator.shared
+                    .retireObservedAgentAttentionForProcessExit(
+                        workspaceId: dock.workspaceId,
+                        panelId: panelId,
+                        statusKey: key,
+                        processGeneration: generation
+                    )
             }
             return recorded
         }
