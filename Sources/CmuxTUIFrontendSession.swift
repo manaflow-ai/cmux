@@ -172,6 +172,7 @@ final class CmuxTUITerminalBinding {
     private var didRejectRenderStream = false
     private var didStart = false
     private var isShuttingDown = false
+    private let shutdownCoordinator = CmuxTUIShutdownCoordinator()
     private var errorKind: ErrorKind?
     private(set) var errorMessage: String?
     private(set) var diagnostics = ""
@@ -387,23 +388,24 @@ final class CmuxTUITerminalBinding {
     }
 
     func shutdownAndWait() async {
-        guard !isShuttingDown else { return }
-        isShuttingDown = true
-        transportFailureTask?.cancel()
-        updateTask?.cancel()
-        if let runtimeCreationFailureObserver {
-            NotificationCenter.default.removeObserver(runtimeCreationFailureObserver)
-            self.runtimeCreationFailureObserver = nil
+        await shutdownCoordinator.run { [self] in
+            isShuttingDown = true
+            transportFailureTask?.cancel()
+            updateTask?.cancel()
+            if let runtimeCreationFailureObserver {
+                NotificationCenter.default.removeObserver(runtimeCreationFailureObserver)
+                self.runtimeCreationFailureObserver = nil
+            }
+            transportForwarder.shutdown()
+            transportFailureContinuation.finish()
+            if let surface {
+                surface.onRuntimeReady = previousRuntimeReadyHandler
+            }
+            previousRuntimeReadyHandler = nil
+            await terminal.shutdown()
+            onShutdown?(id)
+            onShutdown = nil
         }
-        transportForwarder.shutdown()
-        transportFailureContinuation.finish()
-        if let surface {
-            surface.onRuntimeReady = previousRuntimeReadyHandler
-        }
-        previousRuntimeReadyHandler = nil
-        await terminal.shutdown()
-        onShutdown?(id)
-        onShutdown = nil
     }
 }
 
@@ -413,6 +415,7 @@ final class CmuxTUIFrontendSession {
     let client: CmuxTUIFrontendClient
     private(set) var bindings: [UUID: CmuxTUITerminalBinding] = [:]
     private var isShuttingDown = false
+    private let shutdownCoordinator = CmuxTUIShutdownCoordinator()
 
     private init(id: UUID = UUID(), client: CmuxTUIFrontendClient) {
         self.id = id
@@ -445,14 +448,15 @@ final class CmuxTUIFrontendSession {
     }
 
     func shutdownAndWait() async {
-        guard !isShuttingDown else { return }
-        isShuttingDown = true
-        let ownedBindings = Array(bindings.values)
-        bindings.removeAll()
-        for binding in ownedBindings {
-            await binding.shutdownAndWait()
+        await shutdownCoordinator.run { [self] in
+            isShuttingDown = true
+            let ownedBindings = Array(bindings.values)
+            bindings.removeAll()
+            for binding in ownedBindings {
+                await binding.shutdownAndWait()
+            }
+            await client.shutdown()
         }
-        await client.shutdown()
     }
 }
 

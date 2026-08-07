@@ -51,7 +51,9 @@ public actor CmuxTUIFrontendClient {
     private var updateGeneration: UInt64 = 0
     private var inFlightBlockingOperations = 0
     private var shutdownRequested = false
-    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
+    private var blockingOperationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var shutdownCompleted = false
+    private var shutdownCompletionWaiters: [CheckedContinuation<Void, Never>] = []
 
     private init(library: CmuxTUIClientLibrary, rawAddress: UInt) {
         self.library = library
@@ -202,17 +204,35 @@ public actor CmuxTUIFrontendClient {
     }
 
     public func shutdown() async {
-        guard !shutdownRequested else { return }
+        if shutdownRequested {
+            guard !shutdownCompleted else { return }
+            await withCheckedContinuation { continuation in
+                if shutdownCompleted {
+                    continuation.resume()
+                } else {
+                    shutdownCompletionWaiters.append(continuation)
+                }
+            }
+            return
+        }
         shutdownRequested = true
+        defer { finishShutdown() }
         if inFlightBlockingOperations > 0 {
             await withCheckedContinuation { continuation in
-                shutdownWaiters.append(continuation)
+                blockingOperationWaiters.append(continuation)
             }
         }
         stopUpdates()
         guard let raw else { return }
         self.raw = nil
         library.disconnectClient(raw)
+    }
+
+    private func finishShutdown() {
+        shutdownCompleted = true
+        let waiters = shutdownCompletionWaiters
+        shutdownCompletionWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
     }
 
     private func beginBlockingOperation() throws -> (CmuxTUIClientLibrary, UInt) {
@@ -227,8 +247,8 @@ public actor CmuxTUIFrontendClient {
         precondition(inFlightBlockingOperations > 0)
         inFlightBlockingOperations -= 1
         guard inFlightBlockingOperations == 0 else { return }
-        let waiters = shutdownWaiters
-        shutdownWaiters.removeAll(keepingCapacity: false)
+        let waiters = blockingOperationWaiters
+        blockingOperationWaiters.removeAll(keepingCapacity: false)
         for waiter in waiters { waiter.resume() }
     }
 
