@@ -119,8 +119,13 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Child;
+use std::process::Command;
+use std::process::Stdio;
+use std::sync::mpsc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
@@ -133,6 +138,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 
@@ -2629,14 +2635,33 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
-    let parsed = resolved_ghostty_defaults()
-        .or_else(|| {
-            let text = platform::ghostty_config_paths()
-                .iter()
-                .find_map(|path| std::fs::read_to_string(path).ok())?;
-            Some(parse_ghostty_defaults(&text))
-        })
-        .unwrap_or_default();
+    let config_paths = platform::ghostty_config_paths();
+    let theme_dirs = platform::ghostty_theme_dirs();
+    #[cfg(not(test))]
+    let helper_defaults = ghostty_defaults_from_helper();
+    #[cfg(test)]
+    let helper_defaults = GhosttyHelperDefaults::Unavailable;
+    ghostty_defaults_from_sources(config_paths, theme_dirs, helper_defaults)
+}
+
+enum GhosttyHelperDefaults {
+    Resolved(DefaultColors),
+    Unavailable,
+    TimedOut,
+}
+
+fn ghostty_defaults_from_sources(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+    helper_defaults: GhosttyHelperDefaults,
+) -> DefaultColors {
+    let parsed = match helper_defaults {
+        GhosttyHelperDefaults::Resolved(defaults) => defaults,
+        GhosttyHelperDefaults::Unavailable => {
+            parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
+        }
+        GhosttyHelperDefaults::TimedOut => DefaultColors::default(),
+    };
     resolve_ghostty_application_defaults(parsed)
 }
 
@@ -2649,19 +2674,7 @@ fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultC
     defaults
 }
 
-/// Ask Ghostty to resolve its configuration so cmux-tui inherits precisely the
-/// same theme-loading behavior as the graphical terminal. A failed or slow
-/// invocation is deliberately ignored; startup then uses the file fallback.
-fn resolved_ghostty_defaults() -> Option<DefaultColors> {
-    resolved_ghostty_defaults_from(&platform::ghostty_installations())
-}
-
-fn resolved_ghostty_defaults_from(
-    installations: &[platform::GhosttyInstallation],
-) -> Option<DefaultColors> {
-    resolved_ghostty_defaults_from_with(installations, run_ghostty_show_config)
-}
-
+#[cfg(test)]
 fn resolved_ghostty_defaults_from_with(
     installations: &[platform::GhosttyInstallation],
     mut resolve: impl FnMut(&platform::GhosttyInstallation) -> Option<String>,
@@ -2677,6 +2690,7 @@ fn resolved_ghostty_defaults_from_with(
     })
 }
 
+#[cfg(all(test, unix))]
 fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> Command {
     let mut command = Command::new(&installation.binary);
     command
@@ -2690,58 +2704,906 @@ fn ghostty_show_config_command(installation: &platform::GhosttyInstallation) -> 
     command
 }
 
-fn run_ghostty_show_config(installation: &platform::GhosttyInstallation) -> Option<String> {
-    let mut command = ghostty_show_config_command(installation);
-    let mut child = command.spawn().ok()?;
-    let deadline = Instant::now() + Duration::from_secs(2);
-    let status = loop {
-        match child.try_wait().ok()? {
-            Some(status) => break status,
-            None if Instant::now() >= deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            None => std::thread::sleep(Duration::from_millis(10)),
+/// Parse the subset of Ghostty's `key = value` config used by cmux-tui.
+///
+/// When the Ghostty executable is unavailable, a theme is only accepted if
+/// its file can be read. This preserves Ghostty's fail-soft behavior: keep
+/// looking after unreadable theme entries, then stop after the first theme
+/// that resolves successfully.
+#[cfg(test)]
+pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
+    parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
+}
+
+pub(crate) fn is_ghostty_config_helper_invocation(args: &[String]) -> bool {
+    args.first().map(String::as_str) == Some("__ghostty-config-defaults")
+}
+
+pub(crate) fn run_ghostty_config_helper() -> i32 {
+    match parse_ghostty_defaults_from_paths_result(
+        platform::ghostty_config_paths(),
+        platform::ghostty_theme_dirs(),
+    ) {
+        GhosttyConfigParseOutcome::Parsed(defaults) => {
+            print!("{}", serialize_ghostty_defaults(defaults));
+            0
+        }
+        GhosttyConfigParseOutcome::Missing => 1,
+        GhosttyConfigParseOutcome::TimedOut => 2,
+    }
+}
+
+#[cfg(not(test))]
+fn ghostty_defaults_from_helper() -> GhosttyHelperDefaults {
+    let Ok(exe) = std::env::current_exe() else {
+        return GhosttyHelperDefaults::Unavailable;
+    };
+    let mut command = Command::new(exe);
+    command
+        .arg("__ghostty-config-defaults")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(unix)]
+    command.process_group(0);
+    scrub_ghostty_helper_secret_environment(&mut command);
+    ghostty_defaults_from_helper_command(command, GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE)
+}
+
+#[cfg(any(not(test), all(test, unix)))]
+fn ghostty_defaults_from_helper_command(
+    mut command: Command,
+    parent_deadline: Duration,
+) -> GhosttyHelperDefaults {
+    let Ok(mut child) = command.spawn() else {
+        return GhosttyHelperDefaults::Unavailable;
+    };
+    let Some(stdout) = child.stdout.take() else {
+        terminate_ghostty_helper_child(child);
+        return GhosttyHelperDefaults::Unavailable;
+    };
+    let Some(output_reader) = read_ghostty_helper_output_async(stdout) else {
+        terminate_ghostty_helper_child(child);
+        return GhosttyHelperDefaults::Unavailable;
+    };
+    let status = match child.wait_timeout(parent_deadline) {
+        Ok(status) => status,
+        Err(_) => {
+            terminate_ghostty_helper_child(child);
+            return GhosttyHelperDefaults::Unavailable;
+        }
+    };
+    let status = match status {
+        Some(status) => status,
+        None => {
+            terminate_ghostty_helper_child(child);
+            return GhosttyHelperDefaults::TimedOut;
+        }
+    };
+    if !status.success() {
+        if status.code() == Some(2) {
+            return GhosttyHelperDefaults::TimedOut;
+        }
+        return GhosttyHelperDefaults::Unavailable;
+    }
+    match output_reader.wait() {
+        Some(output) => GhosttyHelperDefaults::Resolved(parse_resolved_ghostty_defaults(&output)),
+        None => GhosttyHelperDefaults::Unavailable,
+    }
+}
+
+fn read_ghostty_helper_output_async(
+    stdout: impl Read + Send + 'static,
+) -> Option<GhosttyHelperOutputReader> {
+    read_ghostty_limited_output_async(
+        stdout,
+        GHOSTTY_HELPER_OUTPUT_MAX_BYTES,
+        "cmux-tui-ghostty-helper-output",
+    )
+}
+
+fn read_ghostty_limited_output_async(
+    stdout: impl Read + Send + 'static,
+    max_bytes: u64,
+    thread_name: &'static str,
+) -> Option<GhosttyHelperOutputReader> {
+    let (sender, receiver) = mpsc::channel();
+    std::thread::Builder::new()
+        .name(thread_name.to_string())
+        .spawn(move || {
+            let _ = sender.send(read_ghostty_limited_string(stdout, max_bytes));
+        })
+        .ok()?;
+    Some(GhosttyHelperOutputReader { receiver })
+}
+
+struct GhosttyHelperOutputReader {
+    receiver: mpsc::Receiver<Option<String>>,
+}
+
+impl GhosttyHelperOutputReader {
+    fn wait(self) -> Option<String> {
+        self.receiver.recv().ok().flatten()
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn recv_timeout(&self, timeout: Duration) -> Result<Option<String>, mpsc::RecvTimeoutError> {
+        self.receiver.recv_timeout(timeout)
+    }
+}
+
+fn terminate_ghostty_helper_child(mut child: Child) {
+    #[cfg(unix)]
+    let descendant_groups = ghostty_helper_descendant_process_groups(child.id() as libc::pid_t);
+    #[cfg(unix)]
+    unsafe {
+        for group in descendant_groups {
+            // SAFETY: group IDs are read from the process table for descendants
+            // of the helper being terminated.
+            libc::killpg(group, libc::SIGKILL);
+        }
+        // SAFETY: killpg only sends SIGKILL to the helper-owned process group.
+        libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+    }
+    let _ = child.kill();
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-helper-reaper");
+}
+
+#[cfg(unix)]
+fn ghostty_helper_descendant_process_groups(root_pid: libc::pid_t) -> Vec<libc::pid_t> {
+    let Some(text) = ghostty_helper_process_table_snapshot() else {
+        return Vec::new();
+    };
+    ghostty_helper_descendant_process_groups_from_table(root_pid, &text)
+}
+
+#[cfg(unix)]
+fn ghostty_helper_process_table_snapshot() -> Option<String> {
+    let mut command = Command::new("/bin/ps");
+    command
+        .args(["-axo", "pid=,ppid=,pgid="])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .process_group(0);
+    let Ok(mut child) = command.spawn() else {
+        return None;
+    };
+    let Some(stdout) = child.stdout.take() else {
+        terminate_ghostty_process_scan_child(child);
+        return None;
+    };
+    let Some(output_reader) = read_ghostty_limited_output_async(
+        stdout,
+        GHOSTTY_PROCESS_SCAN_OUTPUT_MAX_BYTES,
+        "cmux-tui-ghostty-process-scan-output",
+    ) else {
+        terminate_ghostty_process_scan_child(child);
+        return None;
+    };
+    let status = match child.wait_timeout(GHOSTTY_PROCESS_SCAN_DEADLINE) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            terminate_ghostty_process_scan_child(child);
+            return None;
         }
     };
     if !status.success() {
         return None;
     }
-
-    let mut output = String::new();
-    child.stdout.take()?.read_to_string(&mut output).ok()?;
-    Some(output)
+    output_reader.wait()
 }
 
-/// Parse the subset of Ghostty's `key = value` config used by cmux-tui.
-///
-/// When the Ghostty executable is unavailable, a theme is only accepted if
-/// its file can be read. This preserves Ghostty's fail-soft behavior: a
-/// later theme entries are ignored, matching Ghostty's first-theme-wins
-/// behavior.
-pub(crate) fn parse_ghostty_defaults(text: &str) -> DefaultColors {
-    parse_ghostty_defaults_with_theme_dirs(text, &platform::ghostty_theme_dirs())
+#[cfg(unix)]
+fn terminate_ghostty_process_scan_child(mut child: Child) {
+    unsafe {
+        // SAFETY: this only targets the bounded process-scan child group.
+        libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+    }
+    let _ = child.kill();
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-process-scan-reaper");
 }
 
-fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
-    let mut overrides = DefaultColors::default();
-    let mut theme = None;
+fn reap_ghostty_child_after_short_wait(mut child: Child, reaper_name: &'static str) {
+    if matches!(child.wait_timeout(Duration::from_millis(10)), Ok(Some(_))) {
+        return;
+    }
+    let _ = std::thread::Builder::new().name(reaper_name.to_string()).spawn(move || {
+        let _ = child.wait();
+    });
+}
+
+#[cfg(unix)]
+fn ghostty_helper_descendant_process_groups_from_table(
+    root_pid: libc::pid_t,
+    text: &str,
+) -> Vec<libc::pid_t> {
+    let mut children = HashMap::<libc::pid_t, Vec<(libc::pid_t, libc::pid_t)>>::new();
     for line in text.lines() {
-        let line = line.trim();
-        let Some((key, value)) = line.split_once('=') else { continue };
-        if key.trim() == "theme" {
-            if theme.is_none()
-                && let Some(theme_defaults) = load_ghostty_theme(value.trim(), theme_dirs)
-            {
-                theme = Some(theme_defaults);
+        let mut parts = line.split_whitespace();
+        let Some(pid) = parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
+        let Some(ppid) = parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
+        let Some(pgid) = parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) else {
+            continue;
+        };
+        children.entry(ppid).or_default().push((pid, pgid));
+    }
+
+    let mut groups = HashSet::<libc::pid_t>::new();
+    let mut stack = vec![root_pid];
+    while let Some(parent) = stack.pop() {
+        let Some(descendants) = children.get(&parent) else {
+            continue;
+        };
+        for &(pid, pgid) in descendants {
+            stack.push(pid);
+            if pgid > 0 && pgid != root_pid {
+                groups.insert(pgid);
             }
-        } else {
-            apply_ghostty_default(&mut overrides, key.trim(), value.trim());
+        }
+    }
+    groups.into_iter().collect()
+}
+
+#[cfg(any(not(test), all(test, unix)))]
+fn scrub_ghostty_helper_secret_environment(command: &mut Command) {
+    for name in ["CMUX_MACHINE_PROVIDER_TOKEN", "CMUX_PROVIDER_WORKSPACE_AUTHORITY"] {
+        command.env_remove(name);
+    }
+}
+
+fn parse_ghostty_defaults_from_paths(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> Option<DefaultColors> {
+    match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
+        GhosttyConfigParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+    }
+}
+
+enum GhosttyConfigParseOutcome {
+    Parsed(DefaultColors),
+    Missing,
+    TimedOut,
+}
+
+fn parse_ghostty_defaults_from_paths_result(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> GhosttyConfigParseOutcome {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    parse_ghostty_defaults_from_paths_result_until(config_paths, theme_dirs, Some(deadline_at))
+}
+
+fn parse_ghostty_defaults_from_paths_result_until(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+    deadline_at: Option<Instant>,
+) -> GhosttyConfigParseOutcome {
+    for path in config_paths {
+        if ghostty_config_deadline_expired(deadline_at) {
+            return GhosttyConfigParseOutcome::TimedOut;
+        }
+        match parse_ghostty_defaults_from_path_result_until(&path, &theme_dirs, deadline_at) {
+            GhosttyConfigParseOutcome::Missing => {}
+            outcome => return outcome,
+        }
+    }
+    GhosttyConfigParseOutcome::Missing
+}
+
+#[cfg(test)]
+fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) -> DefaultColors {
+    let mut theme_candidates = Vec::new();
+    let parsed = parse_ghostty_config_text(text, None, &mut theme_candidates);
+    resolve_parsed_ghostty_defaults(theme_candidates, theme_dirs, parsed.overrides, None)
+}
+
+#[cfg(test)]
+fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
+    match parse_ghostty_defaults_from_path_result(path, theme_dirs) {
+        GhosttyConfigParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+    }
+}
+
+#[cfg(test)]
+fn parse_ghostty_defaults_from_path_result(
+    path: &Path,
+    theme_dirs: &[PathBuf],
+) -> GhosttyConfigParseOutcome {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    parse_ghostty_defaults_from_path_result_until(path, theme_dirs, Some(deadline_at))
+}
+
+fn parse_ghostty_defaults_from_path_result_until(
+    path: &Path,
+    theme_dirs: &[PathBuf],
+    deadline_at: Option<Instant>,
+) -> GhosttyConfigParseOutcome {
+    let mut theme_candidates = Vec::new();
+    let overrides = match parse_ghostty_config_file_until(path, &mut theme_candidates, deadline_at)
+    {
+        GhosttyConfigParseOutcome::Parsed(overrides) => overrides,
+        outcome => return outcome,
+    };
+    GhosttyConfigParseOutcome::Parsed(resolve_parsed_ghostty_defaults(
+        theme_candidates,
+        theme_dirs,
+        overrides,
+        deadline_at,
+    ))
+}
+
+const GHOSTTY_CONFIG_MAX_FILES: usize = 64;
+const GHOSTTY_CONFIG_MAX_DEPTH: usize = 16;
+const GHOSTTY_CONFIG_MAX_BYTES: u64 = 1024 * 1024;
+const GHOSTTY_HELPER_OUTPUT_MAX_BYTES: u64 = 64 * 1024;
+#[cfg(unix)]
+const GHOSTTY_PROCESS_SCAN_OUTPUT_MAX_BYTES: u64 = 1024 * 1024;
+const GHOSTTY_CONFIG_PARSE_DEADLINE: Duration = Duration::from_millis(250);
+#[cfg(unix)]
+const GHOSTTY_PROCESS_SCAN_DEADLINE: Duration = Duration::from_millis(150);
+// The child owns a 250 ms parse deadline. The parent starts timing before
+// spawn/exec and still needs room for setup, stdout drain, and normal exit.
+const GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE: Duration = Duration::from_millis(500);
+#[cfg(not(target_os = "macos"))]
+const GHOSTTY_DESKTOP_APPEARANCE_DEADLINE: Duration = Duration::from_millis(75);
+
+struct PendingGhosttyConfig {
+    path: PathBuf,
+    depth: usize,
+}
+
+#[cfg(test)]
+fn parse_ghostty_config_file_with_deadline(
+    path: &Path,
+    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
+    deadline: Duration,
+) -> GhosttyConfigParseOutcome {
+    parse_ghostty_config_file_until(
+        path,
+        theme_candidates,
+        Some(ghostty_config_deadline_from_now(deadline)),
+    )
+}
+
+fn parse_ghostty_config_file_until(
+    path: &Path,
+    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
+    deadline_at: Option<Instant>,
+) -> GhosttyConfigParseOutcome {
+    let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
+    let mut loaded = HashSet::new();
+    let mut files_loaded = 0usize;
+    let mut bytes_loaded = 0u64;
+    let mut loaded_root = false;
+    let mut overrides = DefaultColors::default();
+
+    while let Some(pending) = stack.pop() {
+        if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
+            return GhosttyConfigParseOutcome::TimedOut;
+        }
+        if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            continue;
+        }
+        let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
+        if !loaded.insert(identity) {
+            continue;
+        }
+        let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        let text = match read_ghostty_regular_file(&pending.path, remaining_bytes) {
+            Some(text) => text,
+            None if pending.depth == 0 && files_loaded == 0 => {
+                return GhosttyConfigParseOutcome::Missing;
+            }
+            None => continue,
+        };
+        bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
+        files_loaded += 1;
+        loaded_root |= pending.depth == 0;
+
+        let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
+        let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_candidates);
+        overlay_ghostty_defaults(&mut overrides, parsed.overrides);
+
+        for include in
+            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
+        {
+            stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
+        }
+        if ghostty_config_deadline_expired(deadline_at) {
+            return GhosttyConfigParseOutcome::TimedOut;
         }
     }
 
-    let mut defaults = theme.unwrap_or_default();
+    if loaded_root {
+        GhosttyConfigParseOutcome::Parsed(overrides)
+    } else {
+        GhosttyConfigParseOutcome::Missing
+    }
+}
+
+fn ghostty_config_deadline_from_now(deadline: Duration) -> Instant {
+    Instant::now().checked_add(deadline).unwrap_or_else(Instant::now)
+}
+
+fn ghostty_config_deadline_expired(deadline_at: Option<Instant>) -> bool {
+    deadline_at.is_some_and(|deadline_at| Instant::now() >= deadline_at)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ghostty_config_deadline_remaining(deadline_at: Option<Instant>) -> Option<Duration> {
+    deadline_at.map_or(Some(Duration::MAX), |deadline_at| Some(ghostty_duration_until(deadline_at)))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ghostty_duration_until(deadline_at: Instant) -> Duration {
+    deadline_at.checked_duration_since(Instant::now()).unwrap_or(Duration::ZERO)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn kill_ghostty_process_group(group: libc::pid_t) {
+    if group <= 0 {
+        return;
+    }
+    unsafe {
+        // SAFETY: callers pass process-group IDs that were either created by
+        // cmux-tui for short-lived helpers or discovered under those helpers.
+        libc::killpg(group, libc::SIGKILL);
+    }
+}
+
+struct ParsedGhosttyConfig {
+    overrides: DefaultColors,
+    config_files: Vec<GhosttyConfigFile>,
+}
+
+struct GhosttyThemeCandidate {
+    value: String,
+    base_dir: Option<PathBuf>,
+}
+
+struct GhosttyConfigFile {
+    path: String,
+}
+
+impl GhosttyConfigFile {
+    fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        let value = value.strip_prefix('?').unwrap_or(value);
+        let value =
+            value.strip_prefix('"').and_then(|value| value.strip_suffix('"')).unwrap_or(value);
+        if value.is_empty() { None } else { Some(Self { path: value.to_owned() }) }
+    }
+
+    fn resolve(self, base_dir: &Path) -> Option<PathBuf> {
+        if let Some(path) = expand_home_relative_path(&self.path) {
+            return Some(path);
+        }
+        let path = Path::new(&self.path);
+        if path.is_absolute() { Some(path.to_path_buf()) } else { Some(base_dir.join(path)) }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GhosttyThemeMode {
+    Light,
+    Dark,
+}
+
+impl GhosttyThemeMode {
+    fn parse(value: &std::ffi::OsStr) -> Option<Self> {
+        let value = value.to_string_lossy();
+        match value.trim_matches('"').to_ascii_lowercase().as_str() {
+            "light" => Some(Self::Light),
+            "dark" => Some(Self::Dark),
+            _ => None,
+        }
+    }
+}
+
+fn system_ghostty_theme_mode(deadline_at: Option<Instant>) -> GhosttyThemeMode {
+    system_ghostty_theme_mode_with_platform(|| platform_appearance_theme_mode(deadline_at))
+}
+
+fn system_ghostty_theme_mode_with_platform(
+    mut platform_appearance: impl FnMut() -> Option<GhosttyThemeMode>,
+) -> GhosttyThemeMode {
+    if let Some(mode) =
+        std::env::var_os("AppleInterfaceStyle").as_deref().and_then(GhosttyThemeMode::parse)
+    {
+        return mode;
+    }
+    if let Some(mode) = platform_appearance() {
+        return mode;
+    }
+    GhosttyThemeMode::Light
+}
+
+#[cfg(target_os = "macos")]
+fn platform_appearance_theme_mode(_deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    macos_appearance_theme_mode()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_appearance_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    non_macos_appearance_theme_mode(deadline_at)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn non_macos_appearance_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    if let Some(mode) = freedesktop_portal_theme_mode(deadline_at) {
+        return Some(mode);
+    }
+    if let Some(mode) = gnome_color_scheme_theme_mode(deadline_at) {
+        return Some(mode);
+    }
+    if ghostty_config_deadline_expired(deadline_at) {
+        return None;
+    }
+    if let Some(mode) = std::env::var_os("GTK_THEME")
+        .as_deref()
+        .and_then(|value| gtk_theme_name_theme_mode(&value.to_string_lossy()))
+    {
+        return Some(mode);
+    }
+    gtk_settings_paths()
+        .into_iter()
+        .find_map(|path| {
+            if ghostty_config_deadline_expired(deadline_at) {
+                return None;
+            }
+            let text = read_ghostty_regular_file(&path, 64 * 1024)?;
+            gtk_settings_theme_mode(&text)
+        })
+        .or_else(|| kde_globals_theme_mode(deadline_at))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn freedesktop_portal_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    let output = desktop_theme_command_output(
+        "gdbus",
+        &[
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+            "--method",
+            "org.freedesktop.portal.Settings.Read",
+            "org.freedesktop.appearance",
+            "color-scheme",
+        ],
+        deadline_at,
+    )?;
+    freedesktop_portal_color_scheme_theme_mode(&output)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn gnome_color_scheme_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    let output = desktop_theme_command_output(
+        "gsettings",
+        &["get", "org.gnome.desktop.interface", "color-scheme"],
+        deadline_at,
+    )?;
+    gnome_color_scheme_output_theme_mode(&output)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn desktop_theme_command_output(
+    program: &str,
+    args: &[&str],
+    deadline_at: Option<Instant>,
+) -> Option<String> {
+    let timeout =
+        ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_DESKTOP_APPEARANCE_DEADLINE);
+    if timeout.is_zero() {
+        return None;
+    }
+    let command_deadline = Instant::now() + timeout;
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    #[cfg(unix)]
+    command.process_group(0);
+    let mut child = command.spawn().ok()?;
+    #[cfg(unix)]
+    let child_group = child.id() as libc::pid_t;
+    let Some(stdout) = child.stdout.take() else {
+        terminate_ghostty_helper_child(child);
+        return None;
+    };
+    let Some(output_reader) = read_ghostty_helper_output_async(stdout) else {
+        terminate_ghostty_helper_child(child);
+        return None;
+    };
+    let status = match child.wait_timeout(timeout) {
+        Ok(Some(status)) => status,
+        Ok(None) | Err(_) => {
+            terminate_ghostty_helper_child(child);
+            return None;
+        }
+    };
+    if !status.success() {
+        return None;
+    }
+    match output_reader.recv_timeout(ghostty_duration_until(command_deadline)) {
+        Ok(output) => output,
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            #[cfg(unix)]
+            kill_ghostty_process_group(child_group);
+            let _ = output_reader.recv_timeout(Duration::from_millis(10));
+            None
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => None,
+    }
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn freedesktop_portal_color_scheme_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
+    if text.contains("uint32 1") || text.contains("<1>") {
+        return Some(GhosttyThemeMode::Dark);
+    }
+    if text.contains("uint32 2") || text.contains("<2>") {
+        return Some(GhosttyThemeMode::Light);
+    }
+    None
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn gnome_color_scheme_output_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
+    let text = text.trim().trim_matches('\'').trim_matches('"');
+    match text {
+        "prefer-dark" => Some(GhosttyThemeMode::Dark),
+        "prefer-light" => Some(GhosttyThemeMode::Light),
+        _ => None,
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn kde_globals_theme_mode(deadline_at: Option<Instant>) -> Option<GhosttyThemeMode> {
+    kde_globals_paths().into_iter().find_map(|path| {
+        if ghostty_config_deadline_expired(deadline_at) {
+            return None;
+        }
+        let text = read_ghostty_regular_file(&path, 64 * 1024)?;
+        kde_globals_text_theme_mode(&text)
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn kde_globals_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        paths.push(config_home.join("kdeglobals"));
+    }
+    if let Some(home) = platform::home_dir() {
+        let path = home.join(".config").join("kdeglobals");
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn kde_globals_text_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
+    for line in text.lines() {
+        let line = line.trim();
+        let Some((key, value)) = line.split_once('=') else { continue };
+        if key.trim() == "ColorScheme" {
+            return gtk_theme_name_theme_mode(value.trim());
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn gtk_settings_paths() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(config_home) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
+        roots.push(config_home);
+    }
+    if let Some(home) = platform::home_dir() {
+        roots.push(home.join(".config"));
+    }
+
+    let mut paths = Vec::new();
+    for root in roots {
+        for version in ["gtk-4.0", "gtk-3.0"] {
+            let path = root.join(version).join("settings.ini");
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        }
+    }
+    paths
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn gtk_settings_theme_mode(text: &str) -> Option<GhosttyThemeMode> {
+    let mut theme_name = None;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else { continue };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"');
+        match key {
+            "gtk-application-prefer-dark-theme" => match value.to_ascii_lowercase().as_str() {
+                "1" | "true" | "yes" => return Some(GhosttyThemeMode::Dark),
+                "0" | "false" | "no" => {}
+                _ => {}
+            },
+            "gtk-theme-name" => theme_name = gtk_theme_name_theme_mode(value),
+            _ => {}
+        }
+    }
+    theme_name
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn gtk_theme_name_theme_mode(value: &str) -> Option<GhosttyThemeMode> {
+    let value = value.to_ascii_lowercase();
+    if value.ends_with("dark") || value.split([':', '-', '_']).any(|part| part == "dark") {
+        return Some(GhosttyThemeMode::Dark);
+    }
+    if value.ends_with("light") || value.split([':', '-', '_']).any(|part| part == "light") {
+        return Some(GhosttyThemeMode::Light);
+    }
+    None
+}
+
+#[cfg(test)]
+fn ghostty_background_is_light(background: Rgb) -> bool {
+    let luminance = (0.299 * f64::from(background.r)
+        + 0.587 * f64::from(background.g)
+        + 0.114 * f64::from(background.b))
+        / 255.0;
+    luminance > 0.5
+}
+
+#[cfg(target_os = "macos")]
+fn macos_appearance_theme_mode() -> Option<GhosttyThemeMode> {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_void};
+    use std::ptr;
+
+    type CfTypeRef = *const c_void;
+    type CfStringRef = *const c_void;
+    type Boolean = u8;
+
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        static kCFPreferencesAnyApplication: CfStringRef;
+        static kCFPreferencesCurrentUser: CfStringRef;
+        static kCFPreferencesAnyHost: CfStringRef;
+
+        fn CFStringCreateWithCString(
+            alloc: *const c_void,
+            c_str: *const c_char,
+            encoding: u32,
+        ) -> CfStringRef;
+        fn CFPreferencesCopyValue(
+            key: CfStringRef,
+            application_id: CfStringRef,
+            user_name: CfStringRef,
+            host_name: CfStringRef,
+        ) -> CfTypeRef;
+        fn CFEqual(cf1: CfTypeRef, cf2: CfTypeRef) -> Boolean;
+        fn CFRelease(cf: CfTypeRef);
+    }
+
+    let key = CString::new("AppleInterfaceStyle").ok()?;
+    let dark = CString::new("Dark").ok()?;
+    unsafe {
+        let key_ref =
+            CFStringCreateWithCString(ptr::null(), key.as_ptr(), K_CF_STRING_ENCODING_UTF8);
+        if key_ref.is_null() {
+            return None;
+        }
+        let dark_ref =
+            CFStringCreateWithCString(ptr::null(), dark.as_ptr(), K_CF_STRING_ENCODING_UTF8);
+        if dark_ref.is_null() {
+            CFRelease(key_ref);
+            return None;
+        }
+        let value = CFPreferencesCopyValue(
+            key_ref,
+            kCFPreferencesAnyApplication,
+            kCFPreferencesCurrentUser,
+            kCFPreferencesAnyHost,
+        );
+        let mode = if !value.is_null() && CFEqual(value, dark_ref) != 0 {
+            GhosttyThemeMode::Dark
+        } else {
+            GhosttyThemeMode::Light
+        };
+        if !value.is_null() {
+            CFRelease(value);
+        }
+        CFRelease(dark_ref);
+        CFRelease(key_ref);
+        Some(mode)
+    }
+}
+
+fn parse_ghostty_config_text(
+    text: &str,
+    base_dir: Option<&Path>,
+    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
+) -> ParsedGhosttyConfig {
+    let mut overrides = DefaultColors::default();
+    let mut config_files = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some((key, value)) = line.split_once('=') else { continue };
+        match key.trim() {
+            "theme" => {
+                theme_candidates.push(GhosttyThemeCandidate {
+                    value: value.trim().to_owned(),
+                    base_dir: base_dir.map(Path::to_path_buf),
+                });
+            }
+            "window-theme" => {}
+            "config-file" => {
+                if let Some(include) = GhosttyConfigFile::parse(value) {
+                    config_files.push(include);
+                }
+            }
+            key => apply_ghostty_default(&mut overrides, key, value.trim()),
+        }
+    }
+
+    ParsedGhosttyConfig { overrides, config_files }
+}
+
+fn resolve_ghostty_theme_defaults(
+    theme_candidates: &[GhosttyThemeCandidate],
+    theme_dirs: &[PathBuf],
+    deadline_at: Option<Instant>,
+) -> DefaultColors {
+    if theme_candidates.is_empty() {
+        return DefaultColors::default();
+    }
+    if ghostty_config_deadline_expired(deadline_at) {
+        return DefaultColors::default();
+    }
+    let mut theme_mode = None;
+    for candidate in theme_candidates {
+        if ghostty_config_deadline_expired(deadline_at) {
+            return DefaultColors::default();
+        }
+        if let Some(defaults) =
+            load_ghostty_theme(candidate, theme_dirs, deadline_at, &mut theme_mode)
+        {
+            return defaults;
+        }
+    }
+    DefaultColors::default()
+}
+
+fn resolve_parsed_ghostty_defaults(
+    theme_candidates: Vec<GhosttyThemeCandidate>,
+    theme_dirs: &[PathBuf],
+    overrides: DefaultColors,
+    deadline_at: Option<Instant>,
+) -> DefaultColors {
+    let mut defaults = resolve_ghostty_theme_defaults(&theme_candidates, theme_dirs, deadline_at);
     overlay_ghostty_defaults(&mut defaults, overrides);
     defaults
 }
@@ -2757,6 +3619,49 @@ fn parse_resolved_ghostty_defaults(text: &str) -> DefaultColors {
         apply_ghostty_default(&mut defaults, key.trim(), value.trim());
     }
     defaults
+}
+
+fn serialize_ghostty_defaults(defaults: DefaultColors) -> String {
+    let mut out = String::new();
+    if let Some(color) = defaults.fg {
+        out.push_str(&format!("foreground = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.bg {
+        out.push_str(&format!("background = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.cursor {
+        out.push_str(&format!("cursor-color = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.selection_bg {
+        out.push_str(&format!("selection-background = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(color) = defaults.selection_fg {
+        out.push_str(&format!("selection-foreground = {}\n", format_ghostty_rgb(color)));
+    }
+    if let Some(style) = defaults.cursor_style {
+        let style = match style {
+            CursorShape::Block => Some("block"),
+            CursorShape::Underline => Some("underline"),
+            CursorShape::Bar => Some("bar"),
+            CursorShape::BlockHollow => Some("block_hollow"),
+        };
+        if let Some(style) = style {
+            out.push_str(&format!("cursor-style = {style}\n"));
+        }
+    }
+    if let Some(blink) = defaults.cursor_blink {
+        out.push_str(&format!("cursor-style-blink = {blink}\n"));
+    }
+    for (index, color) in defaults.palette.into_iter().enumerate() {
+        if let Some(color) = color {
+            out.push_str(&format!("palette = {index}={}\n", format_ghostty_rgb(color)));
+        }
+    }
+    out
+}
+
+fn format_ghostty_rgb(color: Rgb) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
 
 fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
@@ -2792,6 +3697,7 @@ fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
                 "block" => Some(CursorShape::Block),
                 "underline" => Some(CursorShape::Underline),
                 "bar" => Some(CursorShape::Bar),
+                "block_hollow" => Some(CursorShape::BlockHollow),
                 _ => None,
             };
             if style.is_some() {
@@ -2812,17 +3718,97 @@ fn apply_ghostty_default(defaults: &mut DefaultColors, key: &str, value: &str) {
     }
 }
 
-fn load_ghostty_theme(value: &str, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
-    let theme = value.trim_matches('"');
-    let path = if Path::new(theme).is_absolute() {
-        PathBuf::from(theme)
-    } else if Path::new(theme).file_name().is_some_and(|name| name == theme) {
-        theme_dirs.iter().map(|dir| dir.join(theme)).find(|path| path.is_file())?
-    } else {
+fn load_ghostty_theme(
+    candidate: &GhosttyThemeCandidate,
+    theme_dirs: &[PathBuf],
+    deadline_at: Option<Instant>,
+    theme_mode: &mut Option<GhosttyThemeMode>,
+) -> Option<DefaultColors> {
+    if ghostty_config_deadline_expired(deadline_at) {
         return None;
-    };
-    let text = std::fs::read_to_string(path).ok()?;
+    }
+    let value = candidate.value.trim_matches('"');
+    let theme = selected_ghostty_theme(value, deadline_at, theme_mode);
+    if ghostty_config_deadline_expired(deadline_at) {
+        return None;
+    }
+    let path = resolve_ghostty_theme_path(theme, candidate.base_dir.as_deref(), theme_dirs)?;
+    let text = read_ghostty_regular_file(&path, GHOSTTY_CONFIG_MAX_BYTES)?;
     Some(parse_resolved_ghostty_defaults(&text))
+}
+
+fn read_ghostty_regular_file(path: &Path, max_bytes: u64) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    if !metadata.file_type().is_file() || metadata.len() > max_bytes {
+        return None;
+    }
+    read_ghostty_limited_string(file, max_bytes)
+}
+
+fn read_ghostty_limited_string(reader: impl Read, max_bytes: u64) -> Option<String> {
+    let mut text = String::new();
+    reader.take(max_bytes.saturating_add(1)).read_to_string(&mut text).ok()?;
+    if text.len() as u64 > max_bytes {
+        return None;
+    }
+    Some(text)
+}
+
+fn resolve_ghostty_theme_path(
+    theme: &str,
+    base_dir: Option<&Path>,
+    theme_dirs: &[PathBuf],
+) -> Option<PathBuf> {
+    if let Some(path) = expand_home_relative_path(theme) {
+        return Some(path);
+    }
+    let path = Path::new(theme);
+    if path.is_absolute() {
+        return Some(path.to_path_buf());
+    }
+    if path.file_name().is_some_and(|name| name == theme) {
+        return theme_dirs.iter().map(|dir| dir.join(theme)).find(|path| path.is_file());
+    }
+    base_dir.map(|base_dir| base_dir.join(path))
+}
+
+fn expand_home_relative_path(value: &str) -> Option<PathBuf> {
+    let home = platform::home_dir()?;
+    match value {
+        "~" => Some(home),
+        value => value.strip_prefix("~/").map(|rest| home.join(rest)),
+    }
+}
+
+fn selected_ghostty_theme<'a>(
+    value: &'a str,
+    deadline_at: Option<Instant>,
+    theme_mode: &mut Option<GhosttyThemeMode>,
+) -> &'a str {
+    let Some((light, dark)) = conditional_ghostty_themes(value) else {
+        return value;
+    };
+    let mode = *theme_mode.get_or_insert_with(|| system_ghostty_theme_mode(deadline_at));
+    match mode {
+        GhosttyThemeMode::Light => light,
+        GhosttyThemeMode::Dark => dark,
+    }
+}
+
+fn conditional_ghostty_themes(value: &str) -> Option<(&str, &str)> {
+    let mut light = None;
+    let mut dark = None;
+    for part in value.split(',') {
+        let (key, theme) = part.split_once(':').or_else(|| part.split_once('='))?;
+        let theme = theme.trim();
+        match key.trim() {
+            "light" if !theme.is_empty() => light = Some(theme),
+            "dark" if !theme.is_empty() => dark = Some(theme),
+            _ => return None,
+        }
+    }
+    Some((light?, dark?))
 }
 
 fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColors) {
@@ -2907,6 +3893,9 @@ mod tests {
         );
         assert_eq!(quoted.cursor_style, Some(CursorShape::Bar));
         assert_eq!(quoted.cursor_blink, Some(false));
+
+        let hollow = parse_ghostty_defaults("cursor-style = block_hollow\n");
+        assert_eq!(hollow.cursor_style, Some(CursorShape::BlockHollow));
     }
 
     #[test]
@@ -3250,6 +4239,1353 @@ mod tests {
         assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
         assert_eq!(config.terminal_defaults.bg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
         assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0x77, g: 0x88, b: 0x99 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_uses_file_ghostty_defaults_without_invoking_external_resolver() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
+        let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-ghostty-startup-file-only-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        let marker = dir.join("resolver-ran");
+        let resolver = dir.join("ghostty-resolver");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "foreground = #010203\n").unwrap();
+        std::fs::write(
+            &resolver,
+            format!(
+                "#!/bin/sh\n\
+                 printf marker > '{}'\n\
+                 printf 'foreground = #aabbcc\\nbackground = #ddeeff\\n'\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("GHOSTTY_RESOURCES_DIR") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_TUI_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+
+        let config = load();
+
+        restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
+        restore_env_var("GHOSTTY_RESOURCES_DIR", old_ghostty_resources);
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let resolver_ran = marker.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(!resolver_ran, "config load must not run ghostty +show-config at startup");
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(config.terminal_defaults.bg, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_resolves_ghostty_resource_theme_without_invoking_external_resolver() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
+        let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-ghostty-startup-resource-theme-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        let resources = dir.join("resources");
+        let themes = resources.join("themes");
+        let marker = dir.join("resolver-ran");
+        let resolver = dir.join("ghostty-resolver");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "window-theme = light\n\
+             theme = dark:Dark Resource Theme, light:Light Resource Theme\n\
+             background = #444444\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Light Resource Theme"),
+            "foreground = #111111\nbackground = #222222\npalette = 1=#333333\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Dark Resource Theme"),
+            "foreground = #aaaaaa\nbackground = #bbbbbb\npalette = 1=#cccccc\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &resolver,
+            format!(
+                "#!/bin/sh\n\
+                 printf marker > '{}'\n\
+                 printf 'foreground = #ddeeff\\nbackground = #000000\\n'\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_RESOURCES_DIR", &resources) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_TUI_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+        let theme_dirs = platform::ghostty_theme_dirs();
+        assert!(theme_dirs.contains(&themes), "{theme_dirs:?}");
+
+        let config = load();
+
+        restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
+        restore_env_var("GHOSTTY_RESOURCES_DIR", old_ghostty_resources);
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let resolver_ran = marker.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(!resolver_ran, "config load must not run ghostty +show-config at startup");
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 0x11, g: 0x11, b: 0x11 }));
+        assert_eq!(config.terminal_defaults.bg, Some(Rgb { r: 0x44, g: 0x44, b: 0x44 }));
+        assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0x33, g: 0x33, b: 0x33 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_applies_ghostty_config_file_after_root_and_respects_dark_theme_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
+        let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir()
+            .join(format!("mux-ghostty-startup-include-theme-{}", std::process::id()));
+        let ghostty_dir = dir.join("ghostty");
+        let resources = dir.join("resources");
+        let themes = resources.join("themes");
+        let marker = dir.join("resolver-ran");
+        let resolver = dir.join("ghostty-resolver");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "foreground = #010101\n\
+             config-file = colors.conf\n\
+             background = #020202\n",
+        )
+        .unwrap();
+        std::fs::write(
+            ghostty_dir.join("colors.conf"),
+            "window-theme = dark\n\
+             theme = light:Light Include Theme,dark:Dark Include Theme\n\
+             background = #444444\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Light Include Theme"),
+            "foreground = #111111\nbackground = #222222\npalette = 1=#333333\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Dark Include Theme"),
+            "foreground = #aaaaaa\nbackground = #bbbbbb\npalette = 1=#cccccc\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &resolver,
+            format!(
+                "#!/bin/sh\n\
+                 printf marker > '{}'\n\
+                 printf 'foreground = #ddeeff\\nbackground = #000000\\n'\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&resolver, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_BIN", &resolver) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("GHOSTTY_RESOURCES_DIR", &resources) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_TUI_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Dark") };
+
+        let config = load();
+
+        restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
+        restore_env_var("GHOSTTY_RESOURCES_DIR", old_ghostty_resources);
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let resolver_ran = marker.exists();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(!resolver_ran, "config load must not run ghostty +show-config at startup");
+        assert_eq!(config.terminal_defaults.fg, Some(Rgb { r: 0x01, g: 0x01, b: 0x01 }));
+        assert_eq!(config.terminal_defaults.bg, Some(Rgb { r: 0x44, g: 0x44, b: 0x44 }));
+        assert_eq!(config.terminal_defaults.palette[1], Some(Rgb { r: 0xcc, g: 0xcc, b: 0xcc }));
+    }
+
+    #[test]
+    fn ghostty_fallback_theme_selection_skips_unreadable_themes() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-missing-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Readable Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_with_theme_dirs(
+            "theme = Missing Theme\n\
+             theme = Readable Theme\n",
+            std::slice::from_ref(&dir),
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+    }
+
+    #[test]
+    fn ghostty_included_config_cannot_replace_successful_root_theme() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-include-first-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        let themes = dir.join("themes");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "window-theme = light\n\
+             theme = Root Theme\n\
+             config-file = colors.conf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            ghostty_dir.join("colors.conf"),
+            "theme = Include Theme\n\
+             foreground = #303132\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Root Theme"),
+            "background = #202122\nforeground = #232425\npalette = 1=#262728\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Include Theme"),
+            "background = #909192\nforeground = #939495\npalette = 1=#969798\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[themes])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x20, g: 0x21, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x30, g: 0x31, b: 0x32 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x26, g: 0x27, b: 0x28 }));
+    }
+
+    #[test]
+    fn ghostty_parent_explicit_color_wins_over_theme_loaded_by_include() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-include-overrides-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        let themes = dir.join("themes");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "window-theme = dark\n\
+             foreground = #010203\n\
+             config-file = colors.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("colors.conf"), "theme = Include Theme\n").unwrap();
+        std::fs::write(
+            themes.join("Include Theme"),
+            "background = #202122\nforeground = #a0a1a2\npalette = 1=#232425\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[themes])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x20, g: 0x21, b: 0x22 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x23, g: 0x24, b: 0x25 }));
+    }
+
+    #[test]
+    fn ghostty_included_window_theme_does_not_control_parent_conditional_theme() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-include-window-theme-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        let themes = dir.join("themes");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&themes).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "theme = light:Root Light Theme,dark:Root Dark Theme\n\
+             config-file = colors.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("colors.conf"), "window-theme = dark\n").unwrap();
+        std::fs::write(
+            themes.join("Root Light Theme"),
+            "background = #f0f1f2\nforeground = #f3f4f5\npalette = 1=#f6f7f8\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Root Dark Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[themes])
+            .expect("config parses");
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0xf0, g: 0xf1, b: 0xf2 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xf3, g: 0xf4, b: 0xf5 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf6, g: 0xf7, b: 0xf8 }));
+    }
+
+    #[test]
+    fn ghostty_window_theme_does_not_control_conditional_terminal_theme() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-invalid-window-theme-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Light Theme"),
+            "background = #f0f1f2\nforeground = #f3f4f5\npalette = 1=#f6f7f8\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Dark Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+
+        let defaults = parse_ghostty_defaults_with_theme_dirs(
+            "window-theme = dark\n\
+             window-theme = drak\n\
+             theme = light:Light Theme,dark:Dark Theme\n",
+            std::slice::from_ref(&dir),
+        );
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0xf0, g: 0xf1, b: 0xf2 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xf3, g: 0xf4, b: 0xf5 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0xf6, g: 0xf7, b: 0xf8 }));
+    }
+
+    #[test]
+    fn ghostty_config_file_expands_required_and_optional_home_relative_paths() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_home = std::env::var_os("HOME");
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-home-include-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let home = dir.join("home");
+        let ghostty_dir = dir.join("ghostty");
+        let include_dir = home.join(".config").join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::create_dir_all(&include_dir).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "config-file = ~/.config/ghostty/colors.conf\n\
+             config-file = ?~/.config/ghostty/missing.conf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            include_dir.join("colors.conf"),
+            "foreground = #010203\nbackground = #040506\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("HOME", &home) };
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        restore_env_var("HOME", old_home);
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[test]
+    fn ghostty_relative_theme_path_uses_declaring_config_directory() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-relative-theme-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        let nested_dir = ghostty_dir.join("nested");
+        let nested_themes = nested_dir.join("themes");
+        std::fs::create_dir_all(&nested_themes).unwrap();
+        std::fs::write(ghostty_dir.join("config"), "config-file = nested/colors.conf\n").unwrap();
+        std::fs::write(nested_dir.join("colors.conf"), "theme = ./themes/custom\n").unwrap();
+        std::fs::write(
+            nested_themes.join("custom"),
+            "foreground = #111213\nbackground = #141516\npalette = 1=#171819\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x11, g: 0x12, b: 0x13 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x14, g: 0x15, b: 0x16 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x17, g: 0x18, b: 0x19 }));
+    }
+
+    #[test]
+    fn ghostty_config_file_skips_non_regular_includes() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-nonregular-include-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(ghostty_dir.join("not-a-file")).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "config-file = not-a-file\n\
+             config-file = colors.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("colors.conf"), "foreground = #010203\n").unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+    }
+
+    #[test]
+    fn ghostty_config_file_depth_limit_bounds_include_chain() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-depth-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        for index in 0..=(GHOSTTY_CONFIG_MAX_DEPTH + 2) {
+            let color = 0x10 + index as u8;
+            let include = if index < GHOSTTY_CONFIG_MAX_DEPTH + 2 {
+                format!("config-file = file{}.conf\n", index + 1)
+            } else {
+                String::new()
+            };
+            std::fs::write(
+                ghostty_dir.join(format!("file{index}.conf")),
+                format!("foreground = #{color:02x}{color:02x}{color:02x}\n{include}"),
+            )
+            .unwrap();
+        }
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("file0.conf"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+        let color = 0x10 + GHOSTTY_CONFIG_MAX_DEPTH as u8;
+
+        assert_eq!(defaults.fg, Some(Rgb { r: color, g: color, b: color }));
+    }
+
+    #[test]
+    fn ghostty_config_file_count_limit_bounds_broad_include_graph() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-file-count-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        let include_count = GHOSTTY_CONFIG_MAX_FILES + 2;
+        let mut root = String::new();
+        for index in 0..include_count {
+            root.push_str(&format!("config-file = colors{index}.conf\n"));
+            let color = 0x10 + index as u8;
+            std::fs::write(
+                ghostty_dir.join(format!("colors{index}.conf")),
+                format!("foreground = #{color:02x}{color:02x}{color:02x}\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(ghostty_dir.join("config"), root).unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+        let expected_index = GHOSTTY_CONFIG_MAX_FILES - 2;
+        let color = 0x10 + expected_index as u8;
+
+        assert_eq!(defaults.fg, Some(Rgb { r: color, g: color, b: color }));
+    }
+
+    #[test]
+    fn ghostty_config_file_size_limit_skips_oversized_includes() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-size-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "config-file = small.conf\n\
+             config-file = large.conf\n\
+             config-file = later.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("small.conf"), "foreground = #010203\n").unwrap();
+        std::fs::write(
+            ghostty_dir.join("large.conf"),
+            "background = #a0a1a2\n".repeat((GHOSTTY_CONFIG_MAX_BYTES as usize / 20) + 1),
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("later.conf"), "background = #040506\n").unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[test]
+    fn ghostty_config_parse_deadline_discards_partial_defaults() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-deadline-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        std::fs::create_dir_all(&ghostty_dir).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "background = #010203\nconfig-file = colors.conf\n",
+        )
+        .unwrap();
+        std::fs::write(ghostty_dir.join("colors.conf"), "foreground = #040506\n").unwrap();
+
+        let mut theme_candidates = Vec::new();
+        let outcome = parse_ghostty_config_file_with_deadline(
+            &ghostty_dir.join("config"),
+            &mut theme_candidates,
+            Duration::ZERO,
+        );
+        let full = parse_ghostty_defaults_from_path(&ghostty_dir.join("config"), &[])
+            .expect("config parses without deadline pressure");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(matches!(outcome, GhosttyConfigParseOutcome::TimedOut));
+        assert_eq!(full.bg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(full.fg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[test]
+    fn ghostty_theme_deadline_keeps_parsed_overrides() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-deadline-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Dark Budget Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+        let overrides = DefaultColors {
+            fg: Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }),
+            bg: Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }),
+            ..Default::default()
+        };
+
+        let loaded = resolve_parsed_ghostty_defaults(
+            vec![GhosttyThemeCandidate { value: "Dark Budget Theme".to_string(), base_dir: None }],
+            std::slice::from_ref(&dir),
+            overrides,
+            None,
+        );
+        let expired = resolve_parsed_ghostty_defaults(
+            vec![GhosttyThemeCandidate { value: "Dark Budget Theme".to_string(), base_dir: None }],
+            std::slice::from_ref(&dir),
+            overrides,
+            Some(Instant::now().checked_sub(Duration::from_millis(1)).unwrap()),
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(loaded.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+        assert_eq!(expired.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(expired.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+        assert_eq!(expired.palette[1], None);
+    }
+
+    #[test]
+    fn ghostty_file_reader_enforces_byte_limit_during_read() {
+        let text = "foreground = #010203\n";
+        assert_eq!(
+            read_ghostty_limited_string(text.as_bytes(), text.len() as u64),
+            Some(text.to_string())
+        );
+        assert_eq!(read_ghostty_limited_string(text.as_bytes(), text.len() as u64 - 1), None);
+    }
+
+    #[test]
+    fn ghostty_theme_loader_skips_non_regular_and_oversized_candidates() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-size-limit-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let ghostty_dir = dir.join("ghostty");
+        let themes = ghostty_dir.join("themes");
+        std::fs::create_dir_all(themes.join("Theme Directory")).unwrap();
+        std::fs::write(
+            ghostty_dir.join("config"),
+            "theme = Theme Directory\n\
+             theme = Huge Theme\n\
+             theme = Readable Theme\n",
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Huge Theme"),
+            "foreground = #a0a1a2\n".repeat((GHOSTTY_CONFIG_MAX_BYTES as usize / 20) + 1),
+        )
+        .unwrap();
+        std::fs::write(
+            themes.join("Readable Theme"),
+            "foreground = #010203\nbackground = #040506\n",
+        )
+        .unwrap();
+
+        let defaults = parse_ghostty_defaults_from_path(
+            &ghostty_dir.join("config"),
+            std::slice::from_ref(&themes),
+        )
+        .expect("config parses");
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_scrubs_provider_secret_environment() {
+        let output = {
+            let mut command = Command::new("/usr/bin/env");
+            command
+                .env("CMUX_MACHINE_PROVIDER_TOKEN", "edge-test-bearer")
+                .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-workspace-authority-test")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            scrub_ghostty_helper_secret_environment(&mut command);
+            command.output().unwrap()
+        };
+        assert!(output.status.success());
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!stdout.contains("CMUX_MACHINE_PROVIDER_TOKEN="), "{stdout}");
+        assert!(!stdout.contains("CMUX_PROVIDER_WORKSPACE_AUTHORITY="), "{stdout}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_cleanup_reaps_killed_child() {
+        let child = Command::new("/bin/sleep").arg("5").spawn().unwrap();
+        let pid = child.id() as libc::pid_t;
+
+        terminate_ghostty_helper_child(child);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while unix_process_exists(pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(!unix_process_exists(pid), "helper child {pid} was not reaped");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_process_scan_cleanup_reaps_killed_child() {
+        let mut command = Command::new("/bin/sleep");
+        command.arg("5").process_group(0);
+        let child = command.spawn().unwrap();
+        let pid = child.id() as libc::pid_t;
+
+        terminate_ghostty_process_scan_child(child);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while unix_process_exists(pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(!unix_process_exists(pid), "process scan child {pid} was not reaped");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_parent_deadline_allows_startup_margin() {
+        let mut command = Command::new("/bin/sh");
+        command
+            .args(["-c", "sleep 0.32; printf 'foreground=#010203\nbackground=#040506\n'"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0);
+
+        let defaults =
+            ghostty_defaults_from_helper_command(command, GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE);
+
+        let GhosttyHelperDefaults::Resolved(defaults) = defaults else {
+            panic!("helper should resolve within parent startup margin");
+        };
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn ghostty_desktop_probe_cleanup_kills_stdout_inheriting_child() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-desktop-probe-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script_path = dir.join("probe.sh");
+        let child_pid_path = dir.join("child.pid");
+        let script = format!(
+            "sleep 5 &\necho $! > {}\nprintf \"'prefer-dark'\\n\"\nexit 0\n",
+            shell_quote_path(&child_pid_path)
+        );
+        std::fs::write(&script_path, script).unwrap();
+        let script_arg = script_path.to_string_lossy().to_string();
+
+        let started_at = Instant::now();
+        let output = desktop_theme_command_output(
+            "/bin/sh",
+            &[script_arg.as_str()],
+            Some(Instant::now() + Duration::from_secs(1)),
+        );
+
+        assert_eq!(output, None);
+        assert!(
+            started_at.elapsed() < Duration::from_secs(1),
+            "desktop probe output drain was not bounded"
+        );
+
+        let child_pid = {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
+                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
+                {
+                    break pid;
+                }
+                assert!(Instant::now() < deadline, "desktop probe child pid was not written");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while unix_process_is_live(child_pid) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(
+            !unix_process_is_live(child_pid),
+            "stdout-inheriting desktop probe child {child_pid} was not killed"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_cleanup_reaps_process_group_children() {
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-process-group-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let child_pid_path = dir.join("child.pid");
+        let script = format!("sleep 5 & echo $! > '{}'; wait", child_pid_path.display());
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(script).process_group(0);
+        let child = command.spawn().unwrap();
+        let parent_pid = child.id() as libc::pid_t;
+        let child_pid = {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
+                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
+                {
+                    break pid;
+                }
+                assert!(Instant::now() < deadline, "child pid was not written");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+
+        terminate_ghostty_helper_child(child);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while (unix_process_exists(parent_pid) || unix_process_is_live(child_pid))
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
+        assert!(!unix_process_exists(child_pid), "helper child {child_pid} was not killed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_config_helper_cleanup_kills_descendant_process_groups() {
+        const CHILD_MARKER: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_GROUP";
+        const CHILD_PID_PATH: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_PID";
+        if std::env::var_os(CHILD_MARKER).is_some() {
+            let pid_path =
+                PathBuf::from(std::env::var_os(CHILD_PID_PATH).expect("child pid path set"));
+            let mut command = Command::new("/bin/sleep");
+            command.arg("5").process_group(0);
+            let mut child = command.spawn().unwrap();
+            std::fs::write(pid_path, child.id().to_string()).unwrap();
+            let _ = child.wait();
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-descendant-group-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let child_pid_path = dir.join("child.pid");
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args([
+                "--exact",
+                "config::tests::ghostty_config_helper_cleanup_kills_descendant_process_groups",
+                "--nocapture",
+            ])
+            .env(CHILD_MARKER, "1")
+            .env(CHILD_PID_PATH, &child_pid_path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0);
+        let child = command.spawn().unwrap();
+        let parent_pid = child.id() as libc::pid_t;
+        let child_pid = {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
+                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
+                {
+                    break pid;
+                }
+                assert!(Instant::now() < deadline, "descendant pid was not written");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+
+        terminate_ghostty_helper_child(child);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while (unix_process_exists(parent_pid) || unix_process_exists(child_pid))
+            && Instant::now() < deadline
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
+        assert!(
+            !unix_process_is_live(child_pid),
+            "descendant process-group child {child_pid} was not killed"
+        );
+    }
+
+    #[cfg(unix)]
+    fn unix_process_is_live(pid: libc::pid_t) -> bool {
+        if !unix_process_exists(pid) {
+            return false;
+        }
+        let Ok(output) =
+            Command::new("/bin/ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+        else {
+            return true;
+        };
+        if !output.status.success() {
+            return unix_process_exists(pid);
+        }
+        let stat = String::from_utf8_lossy(&output.stdout);
+        !stat.trim_start().starts_with('Z')
+    }
+
+    #[cfg(unix)]
+    fn unix_process_exists(pid: libc::pid_t) -> bool {
+        if unsafe { libc::kill(pid, 0) } == 0 {
+            return true;
+        }
+        std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn shell_quote_path(path: &Path) -> String {
+        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    }
+
+    #[test]
+    fn ghostty_config_helper_output_reader_drains_large_palette() {
+        let mut output = String::new();
+        for index in 0..256 {
+            output.push_str(&format!("palette.{index}=#010203\n"));
+        }
+        assert!(output.len() > 4 * 1024);
+
+        let reader =
+            read_ghostty_helper_output_async(std::io::Cursor::new(output.clone())).unwrap();
+
+        assert_eq!(reader.wait(), Some(output));
+    }
+
+    #[test]
+    fn ghostty_config_helper_output_reader_enforces_byte_limit() {
+        let output = "x".repeat(GHOSTTY_HELPER_OUTPUT_MAX_BYTES as usize + 1);
+
+        let reader = read_ghostty_helper_output_async(std::io::Cursor::new(output)).unwrap();
+
+        assert_eq!(reader.wait(), None);
+    }
+
+    #[test]
+    fn ghostty_defaults_falls_back_to_files_when_helper_is_unavailable() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-fallback-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
+
+        let defaults = ghostty_defaults_from_sources(
+            vec![config],
+            Vec::new(),
+            GhosttyHelperDefaults::Unavailable,
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn ghostty_defaults_use_helper_result_before_file_fallback() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-result-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
+        let helper = DefaultColors {
+            fg: Some(Rgb { r: 0xa0, g: 0xa1, b: 0xa2 }),
+            bg: Some(Rgb { r: 0xb0, g: 0xb1, b: 0xb2 }),
+            ..Default::default()
+        };
+
+        let defaults = ghostty_defaults_from_sources(
+            vec![config],
+            Vec::new(),
+            GhosttyHelperDefaults::Resolved(helper),
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xa0, g: 0xa1, b: 0xa2 }));
+        assert_eq!(defaults.bg, Some(Rgb { r: 0xb0, g: 0xb1, b: 0xb2 }));
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn ghostty_defaults_do_not_retry_files_after_helper_timeout() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-helper-timeout-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let config = dir.join("config");
+        std::fs::write(&config, "foreground = #010203\nbackground = #040506\n").unwrap();
+
+        let defaults = ghostty_defaults_from_sources(
+            vec![config],
+            Vec::new(),
+            GhosttyHelperDefaults::TimedOut,
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.fg, None);
+        assert_eq!(defaults.bg, None);
+        assert_eq!(defaults.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn ghostty_automatic_window_theme_uses_detected_dark_mode_for_conditional_theme() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-auto-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Light Auto Theme"),
+            "background = #f0f1f2\nforeground = #f3f4f5\npalette = 1=#f6f7f8\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Dark Auto Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Dark") };
+
+        let defaults = parse_ghostty_defaults_with_theme_dirs(
+            "window-theme = auto\n\
+             theme = light:Light Auto Theme,dark:Dark Auto Theme\n",
+            std::slice::from_ref(&dir),
+        );
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+    }
+
+    #[test]
+    fn ghostty_conditional_terminal_theme_ignores_ghostty_window_theme() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-window-ghostty-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Light Window Theme"),
+            "background = #f0f1f2\nforeground = #f3f4f5\npalette = 1=#f6f7f8\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Dark Window Theme"),
+            "background = #101112\nforeground = #131415\npalette = 1=#161718\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Dark") };
+
+        let defaults = parse_ghostty_defaults_with_theme_dirs(
+            "window-theme = ghostty\n\
+             theme = light:Light Window Theme,dark:Dark Window Theme\n",
+            std::slice::from_ref(&dir),
+        );
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0x13, g: 0x14, b: 0x15 }));
+        assert_eq!(defaults.palette[1], Some(Rgb { r: 0x16, g: 0x17, b: 0x18 }));
+    }
+
+    #[test]
+    fn ghostty_fixed_theme_selection_does_not_require_appearance_budget() {
+        let expired = Instant::now().checked_sub(Duration::from_millis(1)).unwrap();
+        let mut theme_mode = None;
+
+        let selected = selected_ghostty_theme("Monokai", Some(expired), &mut theme_mode);
+
+        assert_eq!(selected, "Monokai");
+        assert_eq!(theme_mode, None);
+    }
+
+    #[test]
+    fn ghostty_conditional_theme_selection_reuses_cached_appearance_mode() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let mut theme_mode = None;
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Dark") };
+
+        let missing = selected_ghostty_theme(
+            "light:Missing Light Theme,dark:Missing Dark Theme",
+            None,
+            &mut theme_mode,
+        );
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+        let fallback = selected_ghostty_theme(
+            "light:Light Fallback Theme,dark:Dark Fallback Theme",
+            None,
+            &mut theme_mode,
+        );
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+
+        assert_eq!(missing, "Missing Dark Theme");
+        assert_eq!(fallback, "Dark Fallback Theme");
+        assert_eq!(theme_mode, Some(GhosttyThemeMode::Dark));
+    }
+
+    #[test]
+    fn ghostty_system_theme_uses_platform_appearance() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("AppleInterfaceStyle") };
+
+        let mode = system_ghostty_theme_mode_with_platform(|| Some(GhosttyThemeMode::Light));
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+
+        assert_eq!(mode, GhosttyThemeMode::Light);
+    }
+
+    #[test]
+    fn ghostty_system_theme_uses_environment_before_platform_probe() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let mut platform_calls = 0;
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Dark") };
+
+        let mode = system_ghostty_theme_mode_with_platform(|| {
+            platform_calls += 1;
+            Some(GhosttyThemeMode::Light)
+        });
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+
+        assert_eq!(mode, GhosttyThemeMode::Dark);
+        assert_eq!(platform_calls, 0);
+    }
+
+    #[test]
+    fn ghostty_background_luminance_matches_ghostty_threshold() {
+        assert!(ghostty_background_is_light(Rgb { r: 255, g: 255, b: 255 }));
+        assert!(!ghostty_background_is_light(Rgb { r: 0, g: 0, b: 0 }));
+        assert!(!ghostty_background_is_light(Rgb { r: 0x28, g: 0x2c, b: 0x34 }));
+    }
+
+    #[test]
+    fn ghostty_non_macos_desktop_sources_detect_system_theme_mode() {
+        assert_eq!(
+            freedesktop_portal_color_scheme_theme_mode("(<'uint32 1'>,)"),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(
+            freedesktop_portal_color_scheme_theme_mode("(<uint32 2>,)"),
+            Some(GhosttyThemeMode::Light)
+        );
+        assert_eq!(
+            gnome_color_scheme_output_theme_mode("'prefer-dark'\n"),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(gnome_color_scheme_output_theme_mode("'default'\n"), None);
+        assert_eq!(
+            gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=1\n"),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(
+            gtk_settings_theme_mode(
+                "[Settings]\ngtk-application-prefer-dark-theme=false\ngtk-theme-name=Adwaita-dark\n"
+            ),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(
+            gtk_settings_theme_mode("[Settings]\ngtk-application-prefer-dark-theme=0\n"),
+            None
+        );
+        assert_eq!(
+            gtk_settings_theme_mode("[Settings]\ngtk-theme-name=Adwaita-dark\n"),
+            Some(GhosttyThemeMode::Dark)
+        );
+        assert_eq!(gtk_theme_name_theme_mode("Adwaita:dark"), Some(GhosttyThemeMode::Dark));
+        assert_eq!(gtk_theme_name_theme_mode("Yaru-light"), Some(GhosttyThemeMode::Light));
+        assert_eq!(
+            kde_globals_text_theme_mode("[General]\nColorScheme=BreezeDark\n"),
+            Some(GhosttyThemeMode::Dark)
+        );
+    }
+
+    #[test]
+    fn ghostty_window_theme_does_not_use_resolved_background_for_terminal_theme() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_apple_interface_style = std::env::var_os("AppleInterfaceStyle");
+        let dir = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-theme-source-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Light Source Theme"),
+            "background = #f0f1f2\nforeground = #f3f4f5\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Dark Source Theme"),
+            "background = #101112\nforeground = #131415\n",
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("AppleInterfaceStyle", "Light") };
+
+        let system = parse_ghostty_defaults_with_theme_dirs(
+            "window-theme = system\n\
+             background = #101112\n\
+             theme = light:Light Source Theme,dark:Dark Source Theme\n",
+            std::slice::from_ref(&dir),
+        );
+        let ghostty = parse_ghostty_defaults_with_theme_dirs(
+            "window-theme = ghostty\n\
+             background = #101112\n\
+             theme = light:Light Source Theme,dark:Dark Source Theme\n",
+            std::slice::from_ref(&dir),
+        );
+
+        restore_env_var("AppleInterfaceStyle", old_apple_interface_style);
+        let _ = std::fs::remove_dir_all(dir);
+
+        assert_eq!(system.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
+        assert_eq!(system.fg, Some(Rgb { r: 0xf3, g: 0xf4, b: 0xf5 }));
+        assert_eq!(ghostty.bg, Some(Rgb { r: 0x10, g: 0x11, b: 0x12 }));
+        assert_eq!(ghostty.fg, Some(Rgb { r: 0xf3, g: 0xf4, b: 0xf5 }));
     }
 
     #[test]
