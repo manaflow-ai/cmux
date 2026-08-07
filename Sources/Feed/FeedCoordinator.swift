@@ -669,7 +669,8 @@ extension FeedCoordinator {
         scopeId: String,
         workspaceId: UUID,
         surfaceId: UUID?,
-        processGeneration: AgentPIDProcessIdentity
+        processGeneration: AgentPIDProcessIdentity,
+        observationEpoch: UInt64? = nil
     ) -> Bool {
         guard let integration = BuiltInAgentIntegration(
             feedSourceName: source
@@ -689,7 +690,8 @@ extension FeedCoordinator {
             sessionId: sessionId,
             observationId: observationId,
             scopeId: scopeId,
-            processGeneration: processGeneration
+            processGeneration: processGeneration,
+            observationEpoch: observationEpoch
         ) else {
             return false
         }
@@ -735,6 +737,7 @@ extension FeedCoordinator {
                     observationId: nil,
                     scopeId: nil,
                     processGeneration: generation,
+                    boundaryEpoch: nil,
                     processDidExit: true
                 )
             }
@@ -752,7 +755,8 @@ extension FeedCoordinator {
         sessionId: String,
         observationId: String?,
         scopeId: String?,
-        processGeneration: AgentPIDProcessIdentity
+        processGeneration: AgentPIDProcessIdentity,
+        boundaryEpoch: UInt64? = nil
     ) -> Int {
         endObservedAgentAttention(
             source: source,
@@ -760,6 +764,7 @@ extension FeedCoordinator {
             observationId: observationId,
             scopeId: scopeId,
             processGeneration: processGeneration,
+            boundaryEpoch: boundaryEpoch,
             processDidExit: false
         )
     }
@@ -772,21 +777,21 @@ extension FeedCoordinator {
         observationId: String?,
         scopeId: String?,
         processGeneration: AgentPIDProcessIdentity,
+        boundaryEpoch: UInt64?,
         processDidExit: Bool
     ) -> Int {
         if !processDidExit {
-            // A process-wide cleanup intentionally records no tombstone: Amp
-            // and Cursor keep one plugin process alive across many turns, so
-            // a generation-wide conclusion would suppress every future
-            // approval in that process. Reorder protection belongs to the
-            // exact observation/scope conclusions emitted by post-tool and
-            // native-state adapters.
+            // Exact observation/scope conclusions protect Amp and Cursor
+            // without suppressing future approvals in their long-lived
+            // process. Cursor additionally supplies a monotonic boundary for
+            // observers that began before a process-wide turn conclusion.
             observedAttentionConclusions.record(
                 source: source,
                 sessionId: sessionId,
                 observationId: observationId,
                 scopeId: scopeId,
-                processGeneration: processGeneration
+                processGeneration: processGeneration,
+                boundaryEpoch: boundaryEpoch
             )
         }
         let matchingRecords = observedAttentionRegistry.remove { record in

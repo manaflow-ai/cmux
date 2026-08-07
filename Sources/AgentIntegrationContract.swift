@@ -4,6 +4,8 @@ typealias BuiltInAgentIntegration =
     CmuxAgentLifecycle.BuiltInAgentIntegration
 typealias AgentApprovalDetectionMechanism =
     CmuxAgentLifecycle.AgentApprovalDetectionMechanism
+typealias AgentLifecycleProcessOwnershipScope =
+    CmuxAgentLifecycle.AgentLifecycleProcessOwnershipScope
 typealias AgentAttentionOpaqueIdentifier =
     CmuxAgentLifecycle.AgentAttentionOpaqueIdentifier
 typealias AgentObservedAttentionKey =

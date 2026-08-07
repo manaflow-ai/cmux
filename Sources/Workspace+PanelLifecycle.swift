@@ -55,9 +55,12 @@ extension Workspace {
         panelId: UUID,
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?
     ) -> Set<AgentPIDProcessIdentity> {
-        // Claude's `claude_code` key identifies only a panel, not a session, so it
-        // cannot prove that a live process supersedes this cached session generation.
-        guard kind != .claude else { return [] }
+        // A shared-process key identifies the integration on this panel, not
+        // one session, so it cannot supersede an exact cached session generation.
+        guard BuiltInAgentIntegration(feedSourceName: kind.rawValue)?
+            .lifecycleProcessOwnershipScope != .sharedProcess else {
+            return []
+        }
         let key = "\(kind.rawValue).\(sessionId)"
         guard agentPIDKeysByPanelId[panelId]?.contains(key) == true,
               let pid = agentPIDs[key],

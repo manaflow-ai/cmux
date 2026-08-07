@@ -1674,6 +1674,7 @@ jobs:
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
             CmuxRemoteSession
+            CmuxAgentLifecycle
             CmuxAgentChat
             CmuxAuthRuntime
             CmuxBrowser
