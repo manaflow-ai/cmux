@@ -144,17 +144,95 @@ struct ClaudeTaskSyncHookTests {
         #expect(items.count == 51)
     }
 
+    @Test("Team task directories bind by exact task identity and remain bound")
+    func resolvesTeamTaskDirectoryByTaskIdentity() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-team")
+        defer { context.cleanup() }
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+        let sessionId = "unrelated-hook-session"
+        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path
+        )
+
+        let tasksRoot = context.root.appendingPathComponent(".claude/tasks", isDirectory: true)
+        let teamDirectory = tasksRoot.appendingPathComponent("session-team-a", isDirectory: true)
+        let neighboringDirectory = tasksRoot.appendingPathComponent("session-team-b", isDirectory: true)
+        try FileManager.default.createDirectory(at: teamDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: neighboringDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Team task","activeForm":"Running team task","status":"in_progress"}"#,
+            named: "1.json",
+            in: teamDirectory
+        )
+        try writeTask(
+            #"{"id":"1","subject":"Neighbor task","status":"pending"}"#,
+            named: "1.json",
+            in: neighboringDirectory
+        )
+
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        let createResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskCreate",
+            standardInput: #"{"session_id":"unrelated-hook-session","hook_event_name":"PostToolUse","tool_name":"TaskCreate","tool_input":{"subject":"Team task","description":"probe"},"tool_response":{"task":{"id":"1","subject":"Team task"}}}"#
+        )
+
+        #expect(!createResult.timedOut, Comment(rawValue: createResult.stderr))
+        #expect(createResult.status == 0, Comment(rawValue: createResult.stderr))
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        let createdItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
+        #expect(createdItems.compactMap { $0["text"] as? String } == ["Running team task"])
+
+        try writeTask(
+            #"{"id":"1","subject":"Team task","activeForm":"Running team task","status":"completed"}"#,
+            named: "1.json",
+            in: teamDirectory
+        )
+        let updateResult = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate",
+            standardInput: #"{"session_id":"unrelated-hook-session","hook_event_name":"PostToolUse","tool_name":"TaskUpdate","tool_input":{"taskId":"1","status":"completed"}}"#
+        )
+
+        #expect(!updateResult.timedOut, Comment(rawValue: updateResult.stderr))
+        #expect(updateResult.status == 0, Comment(rawValue: updateResult.stderr))
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        let updatedItems = try #require(reconcileRequests(in: context).last?["items"] as? [[String: Any]])
+        #expect(updatedItems.compactMap { $0["text"] as? String } == ["Team task"])
+        #expect(updatedItems.compactMap { $0["state"] as? String } == ["completed"])
+    }
+
     private func runHook(
         context: ClaudeHookLiveDeliveryHarness.Context,
         environment: [String: String],
         sessionId: String,
-        toolName: String
+        toolName: String,
+        standardInput: String? = nil
     ) -> ClaudeHookLiveDeliveryHarness.ProcessRunResult {
         ClaudeHookLiveDeliveryHarness.runHookProcess(
             context: context,
             arguments: ["hooks", "claude", "task-sync"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"PostToolUse","tool_name":"\#(toolName)"}"#
+            standardInput: standardInput
+                ?? #"{"session_id":"\#(sessionId)","hook_event_name":"PostToolUse","tool_name":"\#(toolName)"}"#
         )
     }
 
