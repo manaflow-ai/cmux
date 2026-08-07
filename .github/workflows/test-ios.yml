@@ -464,6 +464,18 @@ jobs:
               exit 0
             fi
             status="${PIPESTATUS[0]}"
+            if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+              # The stress lane keeps timing out with zero keyboard frames and
+              # the log alone cannot show what the headless device displayed
+              # (education card, permission alert, or a real key plane). Capture
+              # the live screen and the device's keyboard state for the
+              # diagnostics artifact before the retry erases the device.
+              xcrun simctl io "$SIMULATOR_ID" screenshot \
+                "$IOS_DERIVED_DATA/logs/keyboard-stress-attempt-${attempt}.png" || true
+              xcrun simctl spawn "$SIMULATOR_ID" defaults read \
+                com.apple.keyboard.preferences \
+                > "$IOS_DERIVED_DATA/logs/keyboard-prefs-attempt-${attempt}.txt" 2>&1 || true
+            fi
             if selected_tests_passed_despite_xcodebuild_status "$LOG_PATH"; then
               echo "xcodebuild exited $status after XCTest reported the selected tests passed with zero failures; treating this as a runner cleanup failure."
               exit 0
@@ -474,6 +486,17 @@ jobs:
             fi
             exit "$status"
           done
+
+      - name: Upload iOS simulator diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-simulator-${{ matrix.family }}-diagnostics
+          path: |
+            ${{ env.IOS_DERIVED_DATA }}/logs
+            ${{ env.IOS_DERIVED_DATA }}/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 3
 
   ios-tests:
     name: ios-tests
