@@ -195,12 +195,14 @@ def verify_hook_persistence(cli_path: str, root: Path, base_env: dict[str, str])
         "anthropic/claude-sonnet-4-5",
         "initial prompt should not persist",
     ]
+    captured_path = "/nix/store/omp/bin:/usr/local/bin:/usr/bin:/bin"
     hook_env = base_env.copy()
     hook_env.pop("PI_CODING_AGENT_DIR", None)
     hook_env.pop("CMUX_SOCKET_CAPABILITY", None)
     hook_env.pop("CMUX_SOCKET_PASSWORD", None)
     hook_env.update(
         {
+            "PATH": captured_path,
             "PWD": str(workspace),
             "CMUX_SOCKET_PATH": str(socket_path),
             "CMUX_WORKSPACE_ID": workspace_id,

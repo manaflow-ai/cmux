@@ -53,6 +53,9 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // other files use.
     public typealias NamedKeySendResult = CmuxTerminalCore.NamedKeySendResult
     public typealias InputSendResult = CmuxTerminalCore.InputSendResult
+    /// The result of one compound prompt paste-and-submit transaction.
+    public typealias PromptSubmissionSendResult =
+        CmuxTerminalCore.PromptSubmissionSendResult
     public typealias ClaudeCommandShim = TerminalSurfaceClaudeCommandShim
     public typealias CodexCommandShim = TerminalSurfaceCodexCommandShim
     public typealias CmuxContextEnvironment = TerminalSurfaceCmuxContextEnvironment
@@ -269,6 +272,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     var pendingSocketInputQueue: [PendingSocketInput] = []
     var pendingSocketInputBytes: Int = 0
     let maxPendingSocketInputBytes = 1_048_576
+    var promptInputLedger = TerminalPromptInputLedger()
+    var controlReturnIsPromptSubmissionBoundary = false
     var backgroundSurfaceStartQueued = false
     var backgroundSurfaceStartSource: RuntimeSurfaceCreationSource = .normal
     var paneHostAttachCreationSource: RuntimeSurfaceCreationSource = .normal

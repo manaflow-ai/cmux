@@ -1445,6 +1445,11 @@ class TerminalController {
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
+        case "workspace.agent_submit":
+            return v2Result(
+                id: request.id,
+                v2WorkspaceAgentSubmit(params: request.params)
+            )
         case "workspace.remote.pty_sessions":
             return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
         case "workspace.remote.pty_close":
@@ -2605,6 +2610,7 @@ class TerminalController {
             "workspace.reorder",
             "workspace.reorder_many",
             "workspace.prompt_submit",
+            "workspace.agent_submit",
             "workspace.rename",
             "workspace.set_auto_title",
             "workspace.group.list",
@@ -5944,6 +5950,27 @@ class TerminalController {
             v2MainSync {
                 guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+                if let workspace = tabManager.tabs.first(
+                    where: { $0.id == workspaceId }
+                ),
+                   let terminalPanel = agentPromptConfirmationPanel(
+                       in: workspace,
+                       event: event
+                   ) {
+                    let origin = terminalPanel.surface
+                        .confirmPromptSubmission(
+                            message: event.submittedPromptMessage
+                        )
+                    if case .programmatic(let source) = origin {
+                        _ = tabManager.handlePromptSubmit(
+                            workspaceId: workspaceId,
+                            message: event.submittedPromptMessage,
+                            iMessageModeEnabled: iMessageModeEnabled,
+                            source: source
+                        )
+                        return
+                    }
+                }
                 _ = tabManager.handlePromptSubmit(
                     workspaceId: workspaceId,
                     message: event.submittedPromptMessage,
@@ -14888,132 +14915,7 @@ class TerminalController {
         ])
     }
 
-    /// Deliver a composed block from the mobile composer as a bracketed paste
-    /// followed by an optional single submit key.
-    ///
-    /// This mirrors the macOS TextBox composer dispatch
-    /// (`[.pasteText(payload), .namedKey(submitKey)]`): the text goes through
-    /// `sendText` (libghostty `ghostty_surface_text`), which bracketed-pastes it
-    /// (`ESC[200~ … ESC[201~` when DECSET 2004 is active) so the agent's line
-    /// editor inserts the whole, possibly multi-line, block as literal text
-    /// instead of treating every interior newline as a submit. A single named
-    /// submit key then commits it once. The `terminal.input` path is wrong for a
-    /// composed block: `parsedSocketInputEvents` rewrites every `\n`/`\r` to a
-    /// raw CR, so an N-line message fragments into N submissions.
-    ///
-    /// `submit_key` is optional: `return`/`enter` (default) or `ctrl+enter`
-    /// submit; `none` pastes without submitting so the composer can keep editing.
-    func v2MobileTerminalPaste(params: [String: Any]) -> V2CallResult {
-        guard let text = v2RawString(params, "text"), !text.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing text", data: nil)
-        }
-        // Resolve the optional submit key up front so an unsupported value fails
-        // before any text is pasted (no partial application). The phone sends
-        // `return` as the default submit *intent*; the agent-aware upgrade to
-        // `ctrl+enter` happens below once the surface (and its agent context) is
-        // resolved, because only the Mac knows which agent is running.
-        let submitKeyRaw = (v2String(params, "submit_key") ?? "return").lowercased()
-        var submitKeyName: String?
-        var submitKeyWasReturnIntent = false
-        switch submitKeyRaw {
-        case "", "return", "enter":
-            submitKeyName = "return"
-            submitKeyWasReturnIntent = true
-        case "ctrl+enter":
-            submitKeyName = "ctrl+enter"
-        case "none":
-            submitKeyName = nil
-        default:
-            return .err(code: "invalid_params", message: "Unsupported submit_key", data: ["submit_key": submitKeyRaw])
-        }
-        if let error = mobileWorkspaceIDValidationError(params: params) {
-            return error
-        }
-        if let error = mobileTerminalAliasValidationError(params: params) {
-            return error
-        }
-        guard let resolved = mobileResolveWorkspaceAndSurface(params: params, requireTerminal: true),
-              let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalInputTarget(forPanelID: surfaceId)?.panel else {
-            return .err(code: "not_found", message: "Terminal surface not found", data: nil)
-        }
-
-        // Mirror the macOS TextBox composer's submit-key selection
-        // (`TextBoxInput.dispatchEvents`): Claude Code needs `ctrl+enter` to
-        // submit a multi-line block, while plain `return` submits a newline mid
-        // prompt. The phone cannot know the running agent, so it always asks for
-        // `return`; upgrade that intent here when the surface is Claude and the
-        // composed text spans multiple lines. Explicit `ctrl+enter`/`none` from
-        // the client are honored as-is.
-        if submitKeyWasReturnIntent {
-            submitKeyName = TextBoxAgentDetection.composedPromptSubmitKey(
-                containsNewline: text.contains("\n") || text.contains("\r"),
-                context: WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
-            )
-        }
-
-        _ = applyMobileViewportReport(params: params, terminalPanel: terminalPanel)
-
-        // Send through the TerminalPanel explicit-input wrappers (not the raw
-        // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
-        // hibernated agent terminal the same way local typing does, so a mobile
-        // composer submit cannot write into a cold surface.
-        guard terminalPanel.sendText(text) else {
-            return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
-        }
-
-        // The paste text is already accepted by the surface above. From here on a
-        // submit-key failure must NOT surface as an RPC error: the client treats
-        // any error as "nothing was sent" and keeps the composer draft, so a
-        // retry would paste the whole block a second time. Report partial
-        // success instead — `submitted: false` plus `submit_error` — so the
-        // client clears the draft (the text is sitting at the prompt) and can
-        // tell the user the submit keypress is still needed.
-        var submitted = false
-        var submitError: String?
-        if let submitKeyName {
-            let keyResult = terminalPanel.sendNamedKeyResult(submitKeyName)
-            if keyResult.accepted {
-                submitted = true
-            } else {
-                switch keyResult {
-                case .inputQueueFull:
-                    submitError = "input_queue_full"
-                case .surfaceUnavailable:
-                    submitError = "surface_unavailable"
-                case .processExited:
-                    submitError = "process_exited"
-                case .unknownKey, .sent, .queued:
-                    // .sent / .queued are accepted results and unreachable in this
-                    // else-branch; grouped here only to keep the switch exhaustive.
-                    submitError = "unknown_key"
-                }
-            }
-        }
-
-        terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalPaste")
-
-        #if DEBUG
-        cmuxDebugLog(
-            "mobile.terminal.paste workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) chars=\(text.count) submitted=\(submitted ? 1 : 0)"
-        )
-        #endif
-
-        var payload: [String: Any] = [
-            "workspace_id": resolved.workspace.id.uuidString,
-            "surface_id": terminalPanel.id.uuidString,
-            "submitted": submitted,
-        ]
-        if let submitError {
-            payload["submit_error"] = submitError
-        }
-        if let seq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceId) {
-            payload["terminal_seq"] = seq
-        }
-        return .ok(payload)
-    }
-
-    private func applyMobileViewportReport(
+    func applyMobileViewportReport(
         params: [String: Any],
         terminalPanel: TerminalPanel,
         sticky: Bool = false,

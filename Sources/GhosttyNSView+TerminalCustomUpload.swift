@@ -9,8 +9,11 @@ extension GhosttyNSView {
                 text: text
             ) ?? false
         }
-        if handledByMirror { return }
-        surface.sendText(text)
+        if handledByMirror {
+            surface.recordHumanPromptInput(.unknown)
+            return
+        }
+        _ = surface.sendText(text)
     }
 
     @discardableResult

@@ -39,6 +39,52 @@ import GhosttyKit
         #expect(PendingSocketInput.processOutput(data).estimatedBytes == 5)
         let key = PendingKeyEvent(keycode: 53, mods: GHOSTTY_MODS_NONE, label: "escape")
         #expect(PendingSocketInput.key(key).estimatedBytes == 6)
+        let preparationKeys = ["ctrl+a", "ctrl+k", "ctrl+u"].map {
+            PendingKeyEvent(
+                keycode: 0,
+                mods: GHOSTTY_MODS_CTRL,
+                label: $0
+            )
+        }
+        #expect(
+            PendingSocketInput.promptSubmission(
+                preparationKeys: preparationKeys,
+                text: data,
+                submitKey: key,
+                hookRecordingSource: "workspace.agent_submit",
+                hookConfirmedHumanInputSnapshot: nil
+            ).estimatedBytes == 29
+        )
+    }
+
+    @Test func queuedPromptCarriesAdmissionTimeHumanSnapshot() {
+        var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agent:test")
+        ledger.recordHumanInput(.unknown)
+        let snapshot = ledger.humanInputSnapshot
+        let input = PendingSocketInput.promptSubmission(
+            preparationKeys: [],
+            text: Data("prompt".utf8),
+            submitKey: PendingKeyEvent(
+                keycode: 36,
+                mods: GHOSTTY_MODS_NONE,
+                label: "return"
+            ),
+            hookRecordingSource: "workspace.prompt_submit",
+            hookConfirmedHumanInputSnapshot: snapshot
+        )
+
+        guard case .promptSubmission(
+            _,
+            _,
+            _,
+            _,
+            let queuedSnapshot
+        ) = input else {
+            Issue.record("Expected compound prompt")
+            return
+        }
+        #expect(queuedSnapshot == snapshot)
     }
 }
 

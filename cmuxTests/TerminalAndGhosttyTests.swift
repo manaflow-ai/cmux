@@ -1138,7 +1138,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(panel.surface.surface)
         panel.surface.sendInput("touch /tmp/cmux-cold-send\n")
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertGreaterThan(
             pending.items,
             0,
@@ -1159,7 +1159,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "Cold socket input that cannot fit in the pending queue must be rejected instead of evicting previously accepted input."
         )
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertGreaterThan(pending.items, 0)
         XCTAssertLessThan(pending.bytes, 1_100_000)
     }
@@ -1170,7 +1170,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         panel.surface.releaseSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("abc\u{08}"))
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertGreaterThan(
             pending.keyEvents,
             0,
@@ -1184,7 +1184,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         panel.surface.releaseSurfaceForTesting()
         XCTAssertTrue(panel.surface.sendInput("printf 'ok\\n'\n"))
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertGreaterThan(pending.items, 0)
         XCTAssertGreaterThan(
             pending.inputTextItems,
@@ -1211,7 +1211,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         let osc11 = "\u{1B}]11;#341c1c\u{1B}\\"
         XCTAssertTrue(panel.surface.sendInput(osc11))
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertEqual(
             pending.keyEvents,
             0,
@@ -1242,7 +1242,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         let command = "printf '" + String(repeating: "x", count: 360) + "'\n"
         XCTAssertTrue(panel.surface.sendInput(command))
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertGreaterThan(
             pending.inputTextItems,
             1,
@@ -1281,7 +1281,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
         XCTAssertEqual(panel.surface.sendNamedKey("enter"), .surfaceUnavailable)
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertEqual(
             pending.items,
             0,
@@ -1347,7 +1347,7 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(response, "OK")
         TerminalMutationBus.shared.drainForTesting()
 
-        let pending = panel.surface.debugPendingSocketInputForTesting()
+        let pending = panel.surface.pendingSocketInputSnapshotForTests
         XCTAssertGreaterThan(pending.items, 0)
         XCTAssertGreaterThan(
             pending.inputTextItems,

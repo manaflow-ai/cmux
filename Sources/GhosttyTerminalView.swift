@@ -4550,6 +4550,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
+        if let terminalSurface {
+            terminalSurface.recordHumanPromptInput(.unknown)
+        }
         return true
     }
     func performBindingAction(_ action: String) -> Bool {
@@ -5825,7 +5828,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // If Ghostty handled the key (action/encoding), we're done.
             // If not (e.g. `ignore` keybind), fall through to interpretKeyEvents
             // so the IME gets a chance to process this event.
-            if handled { return }
+            if handled {
+                if let terminalSurface {
+                    // Ghostty bindings are agent/config-specific. Even Ctrl-C
+                    // or Escape may mutate a composer, so only a structured
+                    // submit hook or process-identity change can clear this.
+                    terminalSurface.recordHumanPromptInput(.unknown)
+                }
+                return
+            }
         }
 
         let action = event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS
@@ -5935,11 +5946,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // entry left by an earlier suppressed repeat for the same physical key.
         imeConsumedKeyUps.remove(event.keyCode)
 
+        // Record only after app and IME handling commit this key to Ghostty's
+        // forwarding path. Input can precede agent process binding, so the
+        // ledger owns provisional human evidence until the scope is known.
+        let eventMods = modsFromEvent(event)
+        if let terminalSurface {
+            if hasMarkedText() {
+                terminalSurface.recordHumanPromptInput(.unknown)
+            } else {
+                terminalSurface.recordHumanPromptKey(
+                    keycode: UInt32(event.keyCode),
+                    mods: eventMods
+                )
+            }
+        }
+
         // Build the key event
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = action
         keyEvent.keycode = UInt32(event.keyCode)
-        keyEvent.mods = modsFromEvent(event)
+        keyEvent.mods = eventMods
         // Control and Command never contribute to text translation
         keyEvent.consumed_mods = consumedModsFromFlags(translationMods)
         keyEvent.unshifted_codepoint = unshiftedCodepointFromEvent(event)
@@ -7845,7 +7871,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            terminalSurface?.sendText(text)
+            guard let terminalSurface,
+                  terminalSurface.sendText(text) else {
+                return false
+            }
             return true
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
@@ -12168,6 +12197,9 @@ extension GhosttyNSView: NSTextInputClient {
 #endif
 
         guard !sanitizedChars.isEmpty else { return }
+        if let terminalSurface {
+            terminalSurface.recordHumanPromptInput(.unknown)
+        }
         terminalSurface?.didReceiveExplicitInput()
         // Otherwise send directly to the terminal
         recordDirectAgentHibernationTerminalInput()
