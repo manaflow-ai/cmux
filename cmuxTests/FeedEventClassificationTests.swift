@@ -19,10 +19,10 @@ import Testing
 @Suite("Feed event classification")
 struct FeedEventClassificationTests {
     private func classify(_ source: String, _ event: String, tool: String = "")
-        -> (name: String, actionable: Bool)
+        -> (name: String, actionable: Bool, notifiesNativeApprovalPrompt: Bool)
     {
         let result = FeedEventClassifier.classify(source: source, event: event, toolName: tool)
-        return (result.0, result.1)
+        return (result.hookEventName, result.isActionable, result.notifiesNativeApprovalPrompt)
     }
 
     // MARK: Hermes Agent (the reported bug)
@@ -120,6 +120,36 @@ struct FeedEventClassificationTests {
         #expect(classify("codex", "beforeShellExecution", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").name == "PreToolUse")
         #expect(classify("codex", "PermissionRequest", tool: "shell").actionable == false)
+    }
+
+    /// Codex blocks in its OWN approval reviewer when `PermissionRequest`
+    /// fires, so the feed event must stay non-actionable telemetry — but the
+    /// bridge must still raise the "Agent Needs Permission"-gated
+    /// notification, or a blocked codex seat is silent indefinitely.
+    /// https://github.com/manaflow-ai/cmux/issues/9592
+    @Test func codexPermissionRequestRaisesPermissionPromptNotification() {
+        for event in ["PermissionRequest", "permission_request"] {
+            let classification = classify("codex", event, tool: "shell")
+            #expect(classification.notifiesNativeApprovalPrompt == true)
+            // The blocking contract is unchanged: telemetry wire event, no
+            // cmux Feed approval card competing with Codex's own reviewer.
+            #expect(classification.name == "PreToolUse")
+            #expect(classification.actionable == false)
+        }
+    }
+
+    /// The permission-prompt notification is exclusive to agents that block
+    /// in their own approval UI. Blocking-capable agents (claude, gemini,
+    /// kiro) notify through the app's actionable-approval path, ordinary
+    /// telemetry never notifies, and unknown sources stay silent by default.
+    @Test func permissionPromptNotificationStaysScopedToNativeApprovalAgents() {
+        #expect(classify("claude", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
+        #expect(classify("gemini", "PreToolUse", tool: "Bash").notifiesNativeApprovalPrompt == false)
+        #expect(classify("kiro", "preToolUse", tool: "fs_write").notifiesNativeApprovalPrompt == false)
+        #expect(classify("codex", "PreToolUse", tool: "shell").notifiesNativeApprovalPrompt == false)
+        #expect(classify("codex", "PostToolUse", tool: "shell").notifiesNativeApprovalPrompt == false)
+        #expect(classify("hermes-agent", "pre_approval_request").notifiesNativeApprovalPrompt == false)
+        #expect(classify("totally-new-agent", "PermissionRequest", tool: "Bash").notifiesNativeApprovalPrompt == false)
     }
 
     @Test func codexLifecycleFeedEventsStayTelemetryAndPreserveNames() {

@@ -34722,11 +34722,13 @@ export default CMUXSessionRestore;
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
-        let (hookEventName, isActionable) = FeedEventClassifier.classify(
+        let classification = FeedEventClassifier.classify(
             source: source,
             event: rawEvent,
             toolName: toolName
         )
+        let hookEventName = classification.hookEventName
+        let isActionable = classification.isActionable
         let env = ProcessInfo.processInfo.environment
         if Self.shouldSuppressKiroFeedEvent(
             source: source,

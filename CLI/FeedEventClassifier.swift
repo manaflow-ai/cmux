@@ -17,11 +17,30 @@ import Foundation
 /// request — and unknown / future event names default to non-actionable
 /// telemetry that never notifies. Conflating a tool-start with an approval
 /// is the bug behind https://github.com/manaflow-ai/cmux/issues/4985.
+/// Resolved user-attention outcome for one raw agent hook event on the
+/// Feed bridge path.
+struct FeedEventClassification: Equatable {
+    /// The wire `hook_event_name` forwarded to the app via `feed.push`.
+    let hookEventName: String
+    /// Whether the Feed bridge blocks waiting for a user decision (and the
+    /// app may post an actionable approval card + banner).
+    let isActionable: Bool
+    /// The agent is blocked waiting for the user in its OWN approval UI
+    /// (e.g. Codex's approval reviewer). The feed event stays non-actionable
+    /// telemetry — cmux must not double-prompt — but the hook bridge must
+    /// raise the "Agent Needs Permission"-gated notification, or the blocked
+    /// agent is silent indefinitely.
+    /// https://github.com/manaflow-ai/cmux/issues/9592
+    let notifiesNativeApprovalPrompt: Bool
+}
+
 struct FeedEventClassifier {
     /// Classifies a raw agent hook event into our wire `hook_event_name`
     /// plus an `isActionable` flag that drives whether the Feed bridge
     /// blocks waiting for a user decision (and whether `FeedCoordinator`
-    /// posts a "needs approval" notification).
+    /// posts a "needs approval" notification), plus whether the bridge
+    /// itself must raise the permission-prompt notification for an agent
+    /// that blocks in its own native approval UI.
     ///
     /// - Parameters:
     ///   - source: The agent id that emitted the event (`claude`, `codex`,
@@ -29,13 +48,11 @@ struct FeedEventClassifier {
     ///   - event: The agent's raw hook event name.
     ///   - toolName: The tool the event refers to, used only for the two
     ///     tool-dependent semantics.
-    /// - Returns: The wire `hook_event_name` and whether the event is
-    ///   Feed-actionable (blocks + may notify).
     static func classify(
         source: String,
         event: String,
         toolName: String
-    ) -> (String, Bool) {
+    ) -> FeedEventClassification {
         let semantic = feedEventSemantic(source: source, event: event)
         return wireMapping(for: semantic, source: source, toolName: toolName)
     }
@@ -96,11 +113,11 @@ struct FeedEventClassifier {
 
     /// Tool names that carry their own dedicated approval wire event rather
     /// than the generic `PermissionRequest`. Returns the actionable wire
-    /// mapping for such a tool, or `nil` for ordinary tools.
-    private static func dedicatedApprovalEvent(for toolName: String) -> (String, Bool)? {
+    /// event name for such a tool, or `nil` for ordinary tools.
+    private static func dedicatedApprovalEvent(for toolName: String) -> String? {
         switch toolName {
-        case "ExitPlanMode": return ("ExitPlanMode", true)
-        case "AskUserQuestion": return ("AskUserQuestion", true)
+        case "ExitPlanMode": return "ExitPlanMode"
+        case "AskUserQuestion": return "AskUserQuestion"
         default: return nil
         }
     }
@@ -112,48 +129,64 @@ struct FeedEventClassifier {
         for semantic: FeedEventSemantic,
         source: String,
         toolName: String
-    ) -> (String, Bool) {
+    ) -> FeedEventClassification {
         switch semantic {
         case .approvalRequest:
-            return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
+            return actionable(dedicatedApprovalEvent(for: toolName) ?? "PermissionRequest")
         case .toolStartMaybeApproval:
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
-                return dedicated
+                return actionable(dedicated)
             }
             // Any tool that can mutate the environment surfaces as a
             // permission request so the user can approve/deny from the
             // Feed sidebar. Read-only tools stay non-actionable
             // telemetry so we don't flood the Actionable view.
             if Self.isSideEffectingTool(toolName, source: source) {
-                return ("PermissionRequest", true)
+                return actionable("PermissionRequest")
             }
-            return ("PreToolUse", false)
+            return telemetry("PreToolUse")
         case .toolStart:
-            return ("PreToolUse", false)
+            return telemetry("PreToolUse")
         case .toolEnd:
-            return ("PostToolUse", false)
+            return telemetry("PostToolUse")
         case .preCompact:
-            return ("PreCompact", false)
+            return telemetry("PreCompact")
         case .postCompact:
-            return ("PostCompact", false)
+            return telemetry("PostCompact")
         case .promptSubmit:
-            return ("UserPromptSubmit", false)
+            return telemetry("UserPromptSubmit")
         case .subagentStart:
-            return ("SubagentStart", false)
+            return telemetry("SubagentStart")
         case .response:
-            return ("Stop", false)
+            return telemetry("Stop")
         case .subagentResponse:
-            return ("SubagentStop", false)
+            return telemetry("SubagentStop")
         case .sessionStart:
-            return ("SessionStart", false)
+            return telemetry("SessionStart")
         case .sessionEnd:
-            return ("SessionEnd", false)
+            return telemetry("SessionEnd")
         case .statusNotification:
-            return ("Notification", false)
+            return telemetry("Notification")
         case .unknown:
             // Safe default: telemetry, no approval, no notification.
-            return ("PreToolUse", false)
+            return telemetry("PreToolUse")
         }
+    }
+
+    private static func actionable(_ hookEventName: String) -> FeedEventClassification {
+        FeedEventClassification(
+            hookEventName: hookEventName,
+            isActionable: true,
+            notifiesNativeApprovalPrompt: false
+        )
+    }
+
+    private static func telemetry(_ hookEventName: String) -> FeedEventClassification {
+        FeedEventClassification(
+            hookEventName: hookEventName,
+            isActionable: false,
+            notifiesNativeApprovalPrompt: false
+        )
     }
 
     /// Per-agent event-semantic tables. Each entry is the source of truth
