@@ -123,6 +123,15 @@ struct CLICodexHookTimeoutRegressionTests {
         try makeCodexHookExecutableShellFile(at: legacyStopScript, lines: ["#!/bin/sh", "echo '{}'"])
         try makeCodexHookExecutableShellFile(at: staleHashedScript, lines: ["#!/bin/sh", "echo '{}'"])
         try makeCodexHookExecutableShellFile(at: userScript, lines: ["#!/bin/sh", "echo user-hook"])
+        let staleDate = Date(timeIntervalSince1970: 0)
+        try FileManager.default.setAttributes(
+            [.modificationDate: staleDate],
+            ofItemAtPath: legacyStopScript.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: staleDate],
+            ofItemAtPath: staleHashedScript.path
+        )
 
         var stopGroups = try #require(hookGroups["Stop"] as? [[String: Any]])
         stopGroups.append([
@@ -180,6 +189,65 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(!FileManager.default.fileExists(atPath: legacyStopScript.path))
         #expect(!FileManager.default.fileExists(atPath: staleHashedScript.path))
         #expect(FileManager.default.fileExists(atPath: userScript.path))
+    }
+
+    @Test func codexPermissionRequestHandlerPreservesFeedTelemetryAndNeedsInputState() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-permission-handler-\(UUID().uuidString)", isDirectory: true)
+        let socketPath = makeCodexHookSocketPath("codex-permission")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 16
+        )
+
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "notification"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"session_id":"codex-permission-session","cwd":"\#(root.path)","hook_event_name":"PermissionRequest","message":"approval required"}"#,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(waitForConditionBlocking(timeout: 1) {
+            commands.snapshot().contains { command in
+                guard let object = codexHookJSONObject(command),
+                      object["method"] as? String == "feed.push",
+                      let params = object["params"] as? [String: Any],
+                      let event = params["event"] as? [String: Any] else {
+                    return false
+                }
+                return event["hook_event_name"] as? String == "PreToolUse"
+            }
+        })
+        #expect(commands.snapshot().contains {
+            $0.hasPrefix("set_agent_lifecycle codex needsInput --tab=\(workspaceId)")
+                && $0.contains("--panel=\(surfaceId)")
+        })
     }
 
     @Test func codexInstalledHookReturnsBeforeSlowCmuxCommandFinishes() throws {
@@ -327,6 +395,8 @@ struct CLICodexHookTimeoutRegressionTests {
         try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
             "cat >/dev/null",
+            "attempt=0",
+            "while [ ! -s \"$CMUX_TEST_SLEEP_PID\" ] && [ \"$attempt\" -lt 100 ]; do /bin/sleep 0.01; attempt=$((attempt + 1)); done",
             "printf done > \"$CMUX_TEST_CHILD_DONE\"",
         ])
         try makeCodexHookExecutableShellFile(at: fakeSleep, lines: [

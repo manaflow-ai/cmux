@@ -4,17 +4,22 @@ import Foundation
 extension CMUXCLI {
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
-    /// hooks for one codex invocation. Returns the arg list:
+    /// hooks for one codex invocation when no persistent cmux channel is
+    /// installed. Returns the arg list:
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
     ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<ff>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
     /// where `<ff>` is `codexFireAndForgetAgentHookShellCommand(...)` so each
     /// hook returns `{}` to codex instantly and backgrounds the real cmux call.
-    /// Requires no live socket: pure string construction from the agent def.
+    /// Before emission, an existing cmux-owned persistent hook channel is
+    /// reconciled in place and supersedes wrapper injection for this launch.
+    /// No live socket is required.
     func emitCodexWrapperInjectArgs() throws {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
+        let usesPersistentChannel = reconcileCodexPersistentHooksForWrapper()
+        let eventsToInject = usesPersistentChannel ? [] : CodexHookInjectionSchema.current.events
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
         // `command` string directly as a program instead of via a shell, so an
@@ -26,8 +31,15 @@ extension CMUXCLI {
         // hooks), not the user's ~/.codex. Any write failure falls back to the
         // inline snippet so the working path can never regress.
         let hooksDir = Self.codexHookScriptsDirectory()
+        defer {
+            Self.garbageCollectCodexHookScripts(
+                retaining: Self.currentCodexWrapperHookScriptFilenames(for: codexDef)
+                    .union(Self.installedCodexHookScriptFilenames(for: codexDef))
+            )
+        }
+        guard !eventsToInject.isEmpty else { return }
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
-        for event in CodexHookInjectionSchema.current.events {
+        for event in eventsToInject {
             let ff = Self.codexFireAndForgetAgentHookShellCommand(
                 "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
             )
@@ -114,9 +126,100 @@ extension CMUXCLI {
         }
     }
 
+    /// Names that the current wrapper schema may reference from a live session.
+    static func currentCodexWrapperHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
+        Set(CodexHookInjectionSchema.current.events.compactMap { event in
+            let body = codexFireAndForgetAgentHookShellCommand(
+                "cmux hooks codex \(event.cmuxSubcommand)",
+                for: def
+            )
+            return CodexHookScriptName(
+                contents: "#!/bin/sh\n\(body)\n",
+                subcommand: event.cmuxSubcommand
+            )?.filename
+        })
+    }
+
+    /// Cmux-generated script names referenced by the active persistent config.
+    static func installedCodexHookScriptFilenames(for def: AgentHookDef) -> Set<String> {
+        let fileURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(def.configFile, isDirectory: false)
+        guard let data = try? Data(contentsOf: fileURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any],
+              let hooksDirectory = codexHookScriptsDirectory()?.standardizedFileURL else {
+            return []
+        }
+
+        var filenames = Set<String>()
+        for value in hooks.values {
+            guard let groups = value as? [[String: Any]] else { continue }
+            for group in groups {
+                guard let handlers = group["hooks"] as? [[String: Any]] else { continue }
+                for handler in handlers {
+                    guard let command = handler["command"] as? String else { continue }
+                    let url = URL(fileURLWithPath: command, isDirectory: false)
+                    guard url.deletingLastPathComponent().standardizedFileURL == hooksDirectory,
+                          CodexHookScriptName(filename: url.lastPathComponent) != nil else {
+                        continue
+                    }
+                    filenames.insert(url.lastPathComponent)
+                }
+            }
+        }
+        return filenames
+    }
+
+    /// Removes obsolete regular files only when their names prove cmux ownership.
+    /// Live Codex sessions may still hold paths from another tagged build, and
+    /// concurrent launches can briefly overlap script generation, so collection
+    /// waits until no Codex process is running and leaves recent files alone.
+    static func garbageCollectCodexHookScripts(retaining filenames: Set<String>) {
+        guard !hasRunningCodexProcess(),
+              let directory = codexHookScriptsDirectory(),
+              let contents = try? FileManager.default.contentsOfDirectory(
+                  at: directory,
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return
+        }
+
+        let newestRemovableDate = Date().addingTimeInterval(-60)
+        for url in contents where !filenames.contains(url.lastPathComponent) {
+            let values = try? url.resourceValues(forKeys: [
+                .contentModificationDateKey,
+                .isRegularFileKey,
+            ])
+            guard CodexHookScriptName(filename: url.lastPathComponent) != nil,
+                  values?.isRegularFile == true,
+                  let modificationDate = values?.contentModificationDate,
+                  modificationDate < newestRemovableDate else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// Conservatively detects sessions that may still reference an older hook generation.
+    private static func hasRunningCodexProcess() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-x", "codex"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return true
+        }
+    }
+
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( sleep 30; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
+        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( timer=; trap \"kill \\$timer 2>/dev/null || true; wait \\$timer 2>/dev/null || true; exit 0\" HUP INT TERM; sleep 30 & timer=\"$!\"; wait \"$timer\" 2>/dev/null || true; timer=; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
         let noOp = stdinDrainingHookNoOpShellCommand
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
