@@ -371,6 +371,182 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(recordAfterStaleHook["lastEmittedNotificationFingerprint"])
     }
 
+    func testAnonymousSessionStartPublishesDurableOwnerOnlyAfterAppAcceptance() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("anonymous-app-claim")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-anonymous-app-claim-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let workspaceID = "61111111-1111-1111-1111-111111111111"
+        let surfaceID = "62222222-2222-2222-2222-222222222222"
+        let reachedReplacementClaim = DispatchSemaphore(value: 0)
+        let allowReplacementClaim = DispatchSemaphore(value: 0)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let currentAgent = Process()
+        currentAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        currentAgent.arguments = ["30"]
+        let replacementAgent = Process()
+        replacementAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        replacementAgent.arguments = ["30"]
+        try currentAgent.run()
+        try replacementAgent.run()
+        defer {
+            allowReplacementClaim.signal()
+            for process in [currentAgent, replacementAgent] where process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: 80
+        ) { line in
+            if line.hasPrefix("set_agent_lifecycle kiro unknown ") {
+                let lifecycleClaims = state.snapshot().filter {
+                    $0.hasPrefix("set_agent_lifecycle kiro unknown ")
+                }
+                if lifecycleClaims.count == 2 {
+                    reachedReplacementClaim.signal()
+                    _ = allowReplacementClaim.wait(timeout: .now() + 15)
+                }
+                return "OK:1"
+            }
+            return self.agentHookMockResponse(line: line, surfaceId: surfaceID)
+        }
+
+        func environment(pid: Int) -> [String: String] {
+            [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceID,
+                "CMUX_SURFACE_ID": surfaceID,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_KIRO_PID": String(pid),
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+                "CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS": "0",
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+                "CMUX_AGENT_MANAGED_SUBAGENT": "0",
+            ]
+        }
+        func runSessionStart(pid: Int) -> ProcessRunResult {
+            runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "kiro", "session-start"],
+                environment: environment(pid: pid),
+                standardInput: #"{"cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+                timeout: 5
+            )
+        }
+        func storedRecord() throws -> [String: Any] {
+            let storeURL = root.appendingPathComponent(
+                "claude-hook-sessions.json",
+                isDirectory: false
+            )
+            let object = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(contentsOf: storeURL))
+                    as? [String: Any]
+            )
+            let sessions = try XCTUnwrap(object["sessions"] as? [String: Any])
+            return try XCTUnwrap(sessions[surfaceID] as? [String: Any])
+        }
+
+        let currentStart = runSessionStart(pid: Int(currentAgent.processIdentifier))
+        XCTAssertFalse(currentStart.timedOut, currentStart.stderr)
+        XCTAssertEqual(currentStart.status, 0, currentStart.stderr)
+        let currentRecord = try storedRecord()
+
+        let replacementHook = Process()
+        let replacementInput = Pipe()
+        let replacementOutput = Pipe()
+        let replacementError = Pipe()
+        let replacementHookExited = expectation(description: "replacement anonymous hook exited")
+        replacementHook.executableURL = URL(fileURLWithPath: cliPath)
+        replacementHook.arguments = ["hooks", "kiro", "session-start"]
+        replacementHook.environment = environment(pid: Int(replacementAgent.processIdentifier))
+        replacementHook.standardInput = replacementInput
+        replacementHook.standardOutput = replacementOutput
+        replacementHook.standardError = replacementError
+        replacementHook.terminationHandler = { _ in replacementHookExited.fulfill() }
+        try replacementHook.run()
+        try replacementInput.fileHandleForWriting.write(
+            contentsOf: Data(
+                #"{"cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#.utf8
+            )
+        )
+        try replacementInput.fileHandleForWriting.close()
+
+        guard reachedReplacementClaim.wait(timeout: .now() + 10) == .success else {
+            if replacementHook.isRunning { replacementHook.terminate() }
+            XCTFail("The replacement SessionStart never reached its app ownership claim: \(state.snapshot())")
+            return
+        }
+        let claimCommand = try XCTUnwrap(
+            state.snapshot().last { $0.hasPrefix("set_agent_lifecycle kiro unknown ") }
+        )
+        XCTAssertTrue(
+            claimCommand.contains("--require-accepted"),
+            "Anonymous SessionStart must require synchronous app ownership acceptance: \(claimCommand)"
+        )
+
+        let recordWhileClaimIsPending = try storedRecord()
+        XCTAssertEqual(
+            (recordWhileClaimIsPending["pid"] as? NSNumber)?.intValue,
+            (currentRecord["pid"] as? NSNumber)?.intValue
+        )
+        XCTAssertEqual(
+            (recordWhileClaimIsPending["pidStartSeconds"] as? NSNumber)?.int64Value,
+            (currentRecord["pidStartSeconds"] as? NSNumber)?.int64Value
+        )
+        XCTAssertEqual(
+            (recordWhileClaimIsPending["pidStartMicroseconds"] as? NSNumber)?.int64Value,
+            (currentRecord["pidStartMicroseconds"] as? NSNumber)?.int64Value
+        )
+
+        allowReplacementClaim.signal()
+        let exitResult = XCTWaiter().wait(for: [replacementHookExited], timeout: 10)
+        if exitResult != .completed, replacementHook.isRunning {
+            replacementHook.terminate()
+        }
+        XCTAssertEqual(exitResult, .completed)
+        XCTAssertEqual(replacementHook.terminationStatus, 0)
+        XCTAssertEqual(
+            String(
+                data: replacementOutput.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ),
+            "{}\n"
+        )
+        XCTAssertEqual(
+            String(
+                data: replacementError.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            ),
+            ""
+        )
+
+        let replacementRecord = try storedRecord()
+        XCTAssertEqual(
+            (replacementRecord["pid"] as? NSNumber)?.intValue,
+            Int(replacementAgent.processIdentifier)
+        )
+        XCTAssertNotEqual(
+            (replacementRecord["pidStartSeconds"] as? NSNumber)?.int64Value,
+            (currentRecord["pidStartSeconds"] as? NSNumber)?.int64Value
+        )
+    }
+
     func testLateRovoDevHookCannotMutateReplacementOccupantSharingInferredSessionID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-occupant")

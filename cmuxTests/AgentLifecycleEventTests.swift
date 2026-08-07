@@ -1179,6 +1179,94 @@ struct AgentLifecycleEventTests {
         #expect(snapshot.occupant?.state == .idle)
     }
 
+    @Test
+    func dockLifecycleReportsDriveWaitAndPublishExit() throws {
+        let fixture = try Fixture()
+        let pidKey = "codex.session-dock-live"
+        fixture.workspace.recordAgentPID(
+            key: pidKey,
+            pid: getpid(),
+            panelId: fixture.surfaceID,
+            refreshPorts: false
+        )
+        fixture.workspace.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-dock-live",
+            startsNewOccupant: true
+        )
+        let detached = try #require(
+            fixture.workspace.detachSurface(panelId: fixture.surfaceID)
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let paneID = try #require(dock.bonsplitController.allPaneIds.first)
+        try #require(
+            dock.attachDetachedSurface(detached, inPane: paneID, focus: false)
+        )
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: fixture.surfaceID,
+            lifecycle: .running,
+            sessionID: "session-dock-live"
+        )
+        let liveSnapshot = try #require(
+            dock.agentWaitSurfaceSnapshot(panelID: fixture.surfaceID)
+        )
+        #expect(liveSnapshot.hasAuthoritativeLiveLifecycle)
+
+        var didPublishIdle = false
+        let coordinator = AgentWaitCoordinator(
+            eventBus: .shared,
+            shouldContinue: {
+                if !didPublishIdle {
+                    didPublishIdle = true
+                    dock.setAgentLifecycle(
+                        key: "codex",
+                        panelId: fixture.surfaceID,
+                        lifecycle: .idle,
+                        sessionID: "session-dock-live"
+                    )
+                }
+                return true
+            }
+        )
+        let waitResult = coordinator.wait(
+            until: .idle,
+            timeoutMilliseconds: 1_000,
+            prepare: {
+                AgentWaitCoordinator.Preparation(
+                    afterSequence: CmuxEventBus.shared.latestSequence,
+                    surface: dock.agentWaitSurfaceSnapshot(
+                        panelID: fixture.surfaceID
+                    )
+                )
+            }
+        )
+        let value = try waitResult.get()
+        #expect(value.status == .satisfied)
+        #expect(value.state == .idle)
+        #expect(value.workspaceID == dock.workspaceId)
+        #expect(value.surfaceID == fixture.surfaceID)
+
+        let exitBaseline = CmuxEventBus.shared.latestSequence
+        #expect(dock.clearAgentPID(
+            key: pidKey,
+            panelId: fixture.surfaceID,
+            clearStatus: true,
+            expectedLifecycleSessionID: "session-dock-live"
+        ))
+        let exitPayloads = fixture.agentEvents(after: exitBaseline)
+            .compactMap { $0["payload"] as? [String: Any] }
+        #expect(exitPayloads.compactMap { $0["state"] as? String } == ["exit"])
+        #expect(exitPayloads.first?["session_id"] as? String == "session-dock-live")
+    }
+
     private struct Fixture {
         let workspace: Workspace
         let surfaceID: UUID
