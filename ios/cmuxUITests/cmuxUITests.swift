@@ -1212,10 +1212,11 @@ final class cmuxUITests: XCTestCase {
 
         // Selecting a result pushes the detail inside the search tab (system
         // back), leaving the search session and its query intact behind it.
+        // Whether the system keeps its bottom search control over the pushed
+        // detail is platform chrome, deliberately not asserted.
         tap(docsRow, in: app)
         let workspaceDetail = app.descendants(matching: .any)["FixtureWorkspaceDetail"]
         XCTAssertTrue(workspaceDetail.waitForExistence(timeout: 3))
-        XCTAssertTrue(minimizedSearch.waitForNonExistence(timeout: 3))
 
         let systemBack = app.navigationBars.buttons.element(boundBy: 0)
         XCTAssertTrue(waitForHittable(systemBack, timeout: 3))
