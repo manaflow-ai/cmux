@@ -645,6 +645,7 @@ struct RemoteResumeBindingTests {
         let configuration = remoteConfiguration()
         source.configureRemoteConnection(configuration, autoConnect: false)
         let sourcePanelID = try #require(source.focusedPanelId)
+        source.trackRemoteTerminalSurface(sourcePanelID)
         let authority = try #require(WorkspaceRemoteTerminalAuthority(configuration: configuration))
         #expect(source.markRemoteTerminalSessionConnected(
             surfaceId: sourcePanelID,
@@ -718,6 +719,7 @@ struct RemoteResumeBindingTests {
         let configuration = remoteConfiguration()
         workspace.configureRemoteConnection(configuration, autoConnect: false)
         let panelID = try #require(workspace.focusedPanelId)
+        workspace.trackRemoteTerminalSurface(panelID)
         let authority = try #require(WorkspaceRemoteTerminalAuthority(configuration: configuration))
         #expect(workspace.markRemoteTerminalSessionConnected(
             surfaceId: panelID,
@@ -729,32 +731,58 @@ struct RemoteResumeBindingTests {
             panelId: panelID
         )
         workspace.remotePTYSessionIDsByPanelId[panelID] = remotePTYSessionID
-        let sessionID = "campfire-remote-session"
-        let runtimeKey = "campfire.\(sessionID)"
+        let agentKind = "acme.agent"
+        let initialSessionID = "remote-session-a"
+        let initialRuntimeKey = "\(agentKind).\(initialSessionID)"
         let unrelatedRuntimeKey = "remote-build-helper"
-        let binding = SurfaceResumeBindingSnapshot(
-            name: "Campfire",
-            kind: "campfire",
-            command: "campfire resume \(sessionID)",
-            cwd: "/srv/project",
-            checkpointId: sessionID,
-            source: "agent-hook",
-            autoResume: true,
-            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
-                workspaceID: workspace.id,
-                surfaceID: panelID,
-                persistentPTYSessionID: remotePTYSessionID
-            ))
-        )
-        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelID))
+        let makeBinding: (String) -> SurfaceResumeBindingSnapshot = { sessionID in
+            SurfaceResumeBindingSnapshot(
+                name: "Acme Agent",
+                kind: agentKind,
+                command: "acme-agent resume \(sessionID)",
+                cwd: "/srv/project",
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: true,
+                launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                    workspaceID: workspace.id,
+                    surfaceID: panelID,
+                    persistentPTYSessionID: remotePTYSessionID
+                ))
+            )
+        }
+        #expect(workspace.setSurfaceResumeBinding(makeBinding(initialSessionID), panelId: panelID))
         workspace.recordAgentPID(
-            key: runtimeKey,
+            key: initialRuntimeKey,
             pid: .max,
             panelId: panelID,
             refreshPorts: false
         )
         workspace.recordAgentPID(
             key: unrelatedRuntimeKey,
+            pid: .max,
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.statusEntries[agentKind] = SidebarStatusEntry(
+            key: agentKind,
+            value: "Running",
+            icon: "bolt.fill",
+            color: nil,
+            timestamp: .distantPast
+        )
+        workspace.setAgentLifecycle(key: agentKind, panelId: panelID, lifecycle: .running)
+
+        // A same-kind replacement must consume the prior exact-session key;
+        // remote PID values cannot age it out through the local process table.
+        let activeSessionID = "remote-session-b"
+        let activeRuntimeKey = "\(agentKind).\(activeSessionID)"
+        #expect(workspace.setSurfaceResumeBinding(makeBinding(activeSessionID), panelId: panelID))
+        #expect(
+            workspace.agentPIDKeysByPanelId[panelID]?.contains(initialRuntimeKey) == false
+        )
+        workspace.recordAgentPID(
+            key: activeRuntimeKey,
             pid: .max,
             panelId: panelID,
             refreshPorts: false
@@ -767,8 +795,10 @@ struct RemoteResumeBindingTests {
 
         workspace.updatePanelShellActivityState(panelId: panelID, state: .promptIdle)
 
-        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(runtimeKey) == false)
+        #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(activeRuntimeKey) == false)
         #expect(workspace.agentPIDKeysByPanelId[panelID]?.contains(unrelatedRuntimeKey) == true)
+        #expect(workspace.statusEntries[agentKind] == nil)
+        #expect(workspace.agentLifecycleStatesByPanelId[panelID]?[agentKind] == nil)
 
         // A later unrelated command must not revive the ended custom agent
         // from an exact-session runtime key left behind by prompt cleanup.
@@ -949,6 +979,7 @@ struct RemoteResumeBindingTests {
         let surfaceID = try #require(workspace.focusedPanelId)
         let configuration = remoteConfiguration()
         workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.trackRemoteTerminalSurface(surfaceID)
         let remoteAuthority = try #require(
             WorkspaceRemoteTerminalAuthority(configuration: configuration)
         )

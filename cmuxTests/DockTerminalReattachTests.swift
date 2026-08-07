@@ -131,9 +131,17 @@ extension DockSocketLifecycleTests {
         let sourceWorkspaceId = UUID()
         let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
         let remotePTYSessionID = "cmux-remote-pty-\(UUID().uuidString)"
-        let runtimeKey = "\(agentKind).remote-session"
+        let initialSessionID = "remote-session-a"
+        let initialRuntimeKey = "\(agentKind).\(initialSessionID)"
         let unrelatedStatusKey = "remote-build-status"
         let unrelatedLifecycleKey = "remote-build-lifecycle"
+        let agentStatus = SidebarStatusEntry(
+            key: agentKind,
+            value: "Running",
+            icon: "bolt.fill",
+            color: nil,
+            timestamp: .distantPast
+        )
         let unrelatedStatus = SidebarStatusEntry(
             key: unrelatedStatusKey,
             value: "Building",
@@ -141,20 +149,23 @@ extension DockSocketLifecycleTests {
             color: nil,
             timestamp: .distantPast
         )
-        let binding = SurfaceResumeBindingSnapshot(
-            name: agentKind,
-            kind: agentKind,
-            command: "\(agentKind) resume remote-session",
-            cwd: "/srv/project",
-            checkpointId: "remote-session",
-            source: "agent-hook",
-            autoResume: true,
-            launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
-                workspaceID: sourceWorkspaceId,
-                surfaceID: panel.id,
-                persistentPTYSessionID: remotePTYSessionID
-            ))
-        )
+        let makeBinding: (String) -> SurfaceResumeBindingSnapshot = { sessionID in
+            SurfaceResumeBindingSnapshot(
+                name: agentKind,
+                kind: agentKind,
+                command: "\(agentKind) resume \(sessionID)",
+                cwd: "/srv/project",
+                checkpointId: sessionID,
+                source: "agent-hook",
+                autoResume: true,
+                launchFlavor: .persistentSSH(SurfaceResumeRemoteContext(
+                    workspaceID: sourceWorkspaceId,
+                    surfaceID: panel.id,
+                    persistentPTYSessionID: remotePTYSessionID
+                ))
+            )
+        }
+        let binding = makeBinding(initialSessionID)
         let store = DockSplitStore(
             workspaceId: UUID(),
             baseDirectoryProvider: { nil }
@@ -168,10 +179,13 @@ extension DockSocketLifecycleTests {
             managedAgentResumeBinding: binding,
             agentRuntime: Workspace.DetachedAgentRuntimeState(
                 panelId: panel.id,
-                statusEntries: [unrelatedStatusKey: unrelatedStatus],
-                agentPIDs: [runtimeKey: .max],
+                statusEntries: [
+                    agentKind: agentStatus,
+                    unrelatedStatusKey: unrelatedStatus,
+                ],
+                agentPIDs: [initialRuntimeKey: .max],
                 agentPIDProcessIdentities: [:],
-                agentPIDKeys: [runtimeKey],
+                agentPIDKeys: [initialRuntimeKey],
                 agentLifecycleStates: [
                     agentKind: .unknown,
                     unrelatedLifecycleKey: .running,
@@ -202,12 +216,23 @@ extension DockSocketLifecycleTests {
         )
         #expect(runningTerminal.wasAgentRunning == true)
 
+        // Publishing session B must evict session A even when the registered
+        // agent's status key is not in the built-in hibernation allowlist.
+        let activeSessionID = "remote-session-b"
+        let activeRuntimeKey = "\(agentKind).\(activeSessionID)"
+        #expect(store.setSurfaceResumeBinding(makeBinding(activeSessionID), panelId: panel.id))
+        #expect(
+            store.agentRuntimeByPanelId[panel.id]?
+                .agentPIDKeys.contains(initialRuntimeKey) == false
+        )
+        store.recordAgentPID(key: activeRuntimeKey, pid: .max, panelId: panel.id)
+
         // A remote PID cannot be probed in the Mac process table. Moving the
         // connected terminal through the Dock boundary must preserve the
         // session-scoped hook key instead of classifying that PID as exited.
         let roundTripped = try #require(store.detachSurface(panelId: panel.id))
-        #expect(roundTripped.agentRuntime?.agentPIDKeys.contains(runtimeKey) == true)
-        #expect(roundTripped.resumeBinding?.checkpointId == "remote-session")
+        #expect(roundTripped.agentRuntime?.agentPIDKeys.contains(activeRuntimeKey) == true)
+        #expect(roundTripped.resumeBinding?.checkpointId == activeSessionID)
         #expect(
             store.attachDetachedSurface(
                 roundTripped,
@@ -230,7 +255,12 @@ extension DockSocketLifecycleTests {
         )
         #expect(promptTerminal.resumeBinding?.autoResume == true)
         #expect(promptTerminal.wasAgentRunning == false)
-        #expect(store.agentRuntimeByPanelId[panel.id]?.agentPIDKeys.contains(runtimeKey) == false)
+        #expect(
+            store.agentRuntimeByPanelId[panel.id]?
+                .agentPIDKeys.contains(activeRuntimeKey) == false
+        )
+        #expect(store.agentRuntimeByPanelId[panel.id]?.statusEntries[agentKind] == nil)
+        #expect(store.agentRuntimeByPanelId[panel.id]?.agentLifecycleStates[agentKind] == nil)
         #expect(
             store.agentRuntimeByPanelId[panel.id]?.statusEntries[unrelatedStatusKey] == unrelatedStatus
         )
@@ -257,7 +287,7 @@ extension DockSocketLifecycleTests {
 
         // A reconnect attempt is not a connected remote session, even if the
         // prior command/lifecycle evidence has not yet been reconciled.
-        store.recordAgentPID(key: runtimeKey, pid: .max, panelId: panel.id)
+        store.recordAgentPID(key: activeRuntimeKey, pid: .max, panelId: panel.id)
         store.setAgentLifecycle(
             key: agentKind,
             panelId: panel.id,
@@ -1794,7 +1824,7 @@ extension DockSocketLifecycleTests {
 /// Focused suite because method-level `-only-testing` does not select Swift Testing cases.
 @Suite("Persistent SSH Dock agent runtime", .serialized)
 struct PersistentSSHDockAgentRuntimeTests {
-    @Test(arguments: ["codex", "campfire"])
+    @Test(arguments: ["codex", "acme.agent"])
     @MainActor
     func persistentSSHAgentHookOwnershipSurvivesDockSnapshot(agentKind: String) throws {
         try DockSocketLifecycleTests()
