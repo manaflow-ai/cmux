@@ -66,7 +66,7 @@ final class TerminalSurfaceRuntimeNativeAccessGate: Sendable {
     }
 
     /// Releases one admitted borrow and starts any newly-unblocked teardown.
-    fileprivate func releaseBorrow() {
+    func releaseBorrow() {
         while true {
             let current = state.loadAcquire()
             let borrowCount = current & Self.borrowCountMask
