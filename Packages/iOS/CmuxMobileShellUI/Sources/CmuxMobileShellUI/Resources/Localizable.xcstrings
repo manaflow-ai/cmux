@@ -1285,6 +1285,14 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "キャンセル" } }
       }
     },
+    "mobile.iroh.check.shareAllowlist" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Share IT Allowlist" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "IT 許可リストを共有" } }
+    } },
+    "mobile.iroh.check.allowlist.header" : { "extractionState" : "manual", "localizations" : {
+      "en" : { "stringUnit" : { "state" : "translated", "value" : "Allow outbound HTTPS and WebSocket access to these cmux relay origins:" } },
+      "ja" : { "stringUnit" : { "state" : "translated", "value" : "次の cmux リレーオリジンへの送信 HTTPS および WebSocket アクセスを許可してください:" } }
+    } },
     "mobile.iroh.check.run" : { "extractionState" : "manual", "localizations" : {
       "en" : { "stringUnit" : { "state" : "translated", "value" : "Check Connection" } },
       "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続を確認" } }

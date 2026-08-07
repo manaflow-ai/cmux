@@ -265134,6 +265134,18 @@
         }
       }
     },
+    "settings.networking.check.shareAllowlist": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "IT Relay Allowlist" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "IT リレー許可リスト" } }
+    } },
+    "settings.networking.check.share": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Share…" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "共有…" } }
+    } },
+    "settings.networking.check.allowlist.header": { "extractionState": "manual", "localizations": {
+      "en": { "stringUnit": { "state": "translated", "value": "Allow outbound HTTPS and WebSocket access to these cmux relay origins:" } },
+      "ja": { "stringUnit": { "state": "translated", "value": "次の cmux リレーオリジンへの送信 HTTPS および WebSocket アクセスを許可してください:" } }
+    } },
     "settings.networking.check.title": { "extractionState": "manual", "localizations": {
       "en": { "stringUnit": { "state": "translated", "value": "Connection Check" } },
       "ja": { "stringUnit": { "state": "translated", "value": "接続チェック" } }

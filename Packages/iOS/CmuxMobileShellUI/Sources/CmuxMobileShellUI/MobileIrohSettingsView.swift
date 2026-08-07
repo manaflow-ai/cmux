@@ -146,6 +146,7 @@ struct MobileIrohSettingsView: View {
 
             MobileIrohConnectionCheckSection(
                 report: model.connectionCheck,
+                relayURLs: activeRelayURLs,
                 isRunning: model.isRunningConnectionCheck,
                 run: model.runConnectionCheck
             )
@@ -282,6 +283,15 @@ struct MobileIrohSettingsView: View {
     private var editedCustomRelay: CmxIrohSettingsSnapshot.CustomRelay? {
         guard let editedCustomRelayID else { return nil }
         return model.snapshot.customRelays.first { $0.id == editedCustomRelayID }
+    }
+
+    private var activeRelayURLs: [String] {
+        switch model.snapshot.preference {
+        case .automatic, .managed:
+            model.snapshot.managedRelays.filter(\.isSelected).map(\.url)
+        case .custom:
+            model.snapshot.customRelays.map(\.url)
+        }
     }
 
     private var editedPrivatePath: CmxIrohSettingsSnapshot.CustomPrivateNetwork? {

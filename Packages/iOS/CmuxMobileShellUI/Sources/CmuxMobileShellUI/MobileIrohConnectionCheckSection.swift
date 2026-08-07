@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 struct MobileIrohConnectionCheckSection: View {
     let report: CmxIrohConnectionCheckReport?
+    let relayURLs: [String]
     let isRunning: Bool
     let run: () -> Void
 
@@ -39,15 +40,42 @@ struct MobileIrohConnectionCheckSection: View {
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("MobileIrohConnectionCheckAction")
                 }
+                if report.recommendation == .allowRelayTraffic,
+                   !relayURLs.isEmpty {
+                    ShareLink(item: relayAllowlistText) {
+                        Label(
+                            L10n.string(
+                                "mobile.iroh.check.shareAllowlist",
+                                defaultValue: "Share IT Allowlist"
+                            ),
+                            systemImage: "square.and.arrow.up"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileIrohShareRelayAllowlist")
+                }
             }
         } header: {
-            Text(L10n.string("mobile.iroh.check.title", defaultValue: "Connection Check"))
+            Text(L10n.string(
+                "mobile.iroh.check.title",
+                defaultValue: "Connection Check"
+            ))
         } footer: {
             Text(L10n.string(
                 "mobile.iroh.check.footer",
-                defaultValue: "cmux automatically uses direct internet, LAN, or any VPN route available to iOS, then falls back to an allowed relay. Every route remains end-to-end encrypted."
+                defaultValue: """
+                cmux automatically uses direct internet, LAN, or any VPN route available to iOS, then \
+                falls back to an allowed relay. Every route remains end-to-end encrypted.
+                """
             ))
         }
+    }
+
+    private var relayAllowlistText: String {
+        let header = L10n.string(
+            "mobile.iroh.check.allowlist.header",
+            defaultValue: "Allow outbound HTTPS and WebSocket access to these cmux relay origins:"
+        )
+        return ([header] + relayURLs.sorted().map { "- \($0)" }).joined(separator: "\n")
     }
 
     private func stageTitle(_ kind: CmxIrohConnectionCheckReport.StageKind) -> String {
@@ -97,19 +125,45 @@ struct MobileIrohConnectionCheckSection: View {
         case .none:
             ""
         case .retry:
-            L10n.string("mobile.iroh.check.action.retry", defaultValue: "Retry. If this continues, share the safe report with cmux support.")
+            L10n.string(
+                "mobile.iroh.check.action.retry",
+                defaultValue: "Retry. If this continues, share the safe report with cmux support."
+            )
         case .checkInternet:
-            L10n.string("mobile.iroh.check.action.internet", defaultValue: "Connect this iPhone to the internet, then run the check again.")
+            L10n.string(
+                "mobile.iroh.check.action.internet",
+                defaultValue: "Connect this iPhone to the internet, then run the check again."
+            )
         case .openMacApp:
-            L10n.string("mobile.iroh.check.action.mac", defaultValue: "Open cmux on your Mac and confirm both apps use the same account.")
+            L10n.string(
+                "mobile.iroh.check.action.mac",
+                defaultValue: "Open cmux on your Mac and confirm both apps use the same account."
+            )
         case .allowRelayTraffic:
-            L10n.string("mobile.iroh.check.action.relay", defaultValue: "Your network may block relay traffic. Ask IT to allow HTTPS and WebSocket access to your configured cmux relay domains, or add an approved custom relay.")
+            L10n.string(
+                "mobile.iroh.check.action.relay",
+                defaultValue: """
+                Your network may block relay traffic. Ask IT to allow HTTPS and WebSocket access to your \
+                configured cmux relay domains, or add an approved custom relay.
+                """
+            )
         case .refreshAccount:
-            L10n.string("mobile.iroh.check.action.account", defaultValue: "Confirm you are signed in, then reopen cmux and run the check again.")
+            L10n.string(
+                "mobile.iroh.check.action.account",
+                defaultValue: "Confirm you are signed in, then reopen cmux and run the check again."
+            )
         case .reviewRelaySettings:
-            L10n.string("mobile.iroh.check.action.settings", defaultValue: "Choose Automatic relay selection, or fix the selected custom relay and its device secret.")
+            L10n.string(
+                "mobile.iroh.check.action.settings",
+                defaultValue: """
+                Choose Automatic relay selection, or fix the selected custom relay and its device secret.
+                """
+            )
         case .updateOrRepair:
-            L10n.string("mobile.iroh.check.action.repair", defaultValue: "Update cmux on both devices. If needed, remove and pair the Mac again.")
+            L10n.string(
+                "mobile.iroh.check.action.repair",
+                defaultValue: "Update cmux on both devices. If needed, remove and pair the Mac again."
+            )
         }
     }
 }
