@@ -40570,10 +40570,52 @@
     "cli.hooks.amp.alreadyUpToDate": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خطافات Amp محدثة بالفعل في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp kuke su već ažurirane na %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-hooks er allerede opdateret på %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-Hooks sind unter %@ bereits aktuell"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Amp hooks already up to date at %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los hooks de Amp ya están actualizados en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les hooks Amp sont déjà à jour dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli hook di Amp sono già aggiornati in %@"
           }
         },
         "ja": {
@@ -40582,10 +40624,70 @@
             "value": "%@ の Amp フックはすでに最新です"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hook របស់ Amp នៅ %@ ទាន់សម័យរួចហើយ"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "%@의 Amp 훅은 이미 최신 상태입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-hooks er allerede oppdatert på %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooki Amp w %@ są już aktualne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os hooks do Amp já estão atualizados em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки Amp в %@ уже обновлены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฮุก Amp ที่ %@ เป็นเวอร์ชันล่าสุดแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konumundaki Amp kancaları zaten güncel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Хуки Amp у %@ вже оновлено"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp Hook 已是最新版本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp Hook 已是最新版本"
           }
         }
       }
@@ -157076,10 +157178,52 @@
     "sessionIndex.amp.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة Amp"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp sesija"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-session"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-Sitzung"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Amp session"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Amp"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Amp"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessione Amp"
           }
         },
         "ja": {
@@ -157088,10 +157232,70 @@
             "value": "Amp セッション"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម័យ Amp"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "Amp 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-økt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja Amp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão do Amp"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชัน Amp"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp oturumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 工作階段"
           }
         }
       }
@@ -157099,10 +157303,52 @@
     "sessionIndex.amp.titleInDirectory": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جلسة Amp في %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp sesija u %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-session i %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-Sitzung in %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Amp session in %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión de Amp en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Amp dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessione Amp in %@"
           }
         },
         "ja": {
@@ -157111,10 +157357,70 @@
             "value": "Amp セッション（%@）"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម័យ Amp នៅក្នុង %@"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "%@의 Amp 세션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-økt i %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesja Amp w %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão do Amp em %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp в %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เซสชัน Amp ใน %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ içindeki Amp oturumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сеанс Amp у %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp 会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 中的 Amp 工作階段"
           }
         }
       }
@@ -157185,22 +157491,124 @@
     "sessionIndex.error.ampStoreRead": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجل جلسات Amp غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historija Amp sesija nije dostupna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-sessionshistorikken er ikke tilgængelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Amp-Sitzungsverlauf ist nicht verfügbar"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp: cannot read amp-hook-sessions.json"
+            "value": "Amp session history is unavailable"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El historial de sesiones de Amp no está disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’historique des sessions Amp est indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cronologia delle sessioni Amp non è disponibile"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp: amp-hook-sessions.json を読み込めません"
+            "value": "Amp のセッション履歴を利用できません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្រើប្រវត្តិសម័យ Amp បានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Amp: amp-hook-sessions.json을 읽을 수 없습니다"
+            "value": "Amp 세션 기록을 사용할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp-øktloggen er utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historia sesji Amp jest niedostępna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O histórico de sessões do Amp não está disponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История сеансов Amp недоступна"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถใช้ประวัติเซสชัน Amp ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp oturum geçmişi kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Історія сеансів Amp недоступна"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 会话历史记录不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 工作階段歷史記錄無法使用"
           }
         }
       }
@@ -170656,10 +171064,52 @@
     "settings.automation.amp.note": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يثبّت cmux خطافات Amp ويحدّثها تلقائيًا في طرفيات cmux. ولا تنفّذ أي إجراء خارج طرفيات cmux. عند تعطيلها، تظل إضافة Amp المثبّتة غير نشطة دون الحاجة إلى إزالتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux automatski instalira i osvježava Amp hookove u cmux terminalima. Izvan cmux terminala ne rade ništa. Kada je onemogućeno, instalirani Amp dodatak ostaje neaktivan bez potrebe za uklanjanjem."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installerer og opdaterer automatisk Amp-hooks i cmux-terminaler. De gør intet uden for cmux-terminaler. Når funktionen er deaktiveret, forbliver det installerede Amp-plugin inaktivt uden at skulle fjernes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installiert und aktualisiert Amp-Hooks automatisch in cmux-Terminals. Außerhalb von cmux-Terminals bleiben sie ohne Wirkung. Wenn die Integration deaktiviert ist, bleibt das installierte Amp-Plugin inaktiv und muss nicht entfernt werden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux installs and refreshes Amp hooks automatically in cmux terminals. They no-op outside cmux terminals. When disabled, the installed Amp plugin stays inactive without needing to be removed."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux instala y actualiza automáticamente los hooks de Amp en los terminales de cmux. Fuera de los terminales de cmux, no hacen nada. Al desactivarlos, el plugin de Amp instalado permanece inactivo sin necesidad de eliminarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installe et actualise automatiquement les hooks Amp dans les terminaux cmux. Ils restent sans effet en dehors des terminaux cmux. Lorsque cette option est désactivée, le plugin Amp installé reste inactif sans qu’il soit nécessaire de le supprimer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installa e aggiorna automaticamente gli hook di Amp nei terminali cmux. Al di fuori dei terminali cmux non eseguono alcuna operazione. Quando l’integrazione è disattivata, il plugin Amp installato rimane inattivo senza dover essere rimosso."
           }
         },
         "ja": {
@@ -170668,10 +171118,70 @@
             "value": "cmuxターミナルでは、cmuxがAmpフックを自動的にインストールして更新します。cmuxターミナル外では動作しません。無効にすると、インストール済みのAmpプラグインは削除しなくても停止状態になります。"
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux ដំឡើង និងធ្វើឱ្យ Amp hooks ថ្មីដោយស្វ័យប្រវត្តិនៅក្នុងស្ថានីយ cmux។ វាមិនធ្វើអ្វីនៅក្រៅស្ថានីយ cmux ទេ។ នៅពេលបិទ កម្មវិធីបន្ថែម Amp ដែលបានដំឡើងនឹងនៅតែអសកម្ម ដោយមិនចាំបាច់លុបចេញ។"
+          }
+        },
         "ko": {
           "stringUnit": {
             "state": "translated",
             "value": "cmux 터미널에서는 cmux가 Amp 훅을 자동으로 설치하고 갱신합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 설치된 Amp 플러그인을 제거하지 않아도 비활성 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux installerer og oppdaterer Amp-hooks automatisk i cmux-terminaler. De gjør ingenting utenfor cmux-terminaler. Når integrasjonen er deaktivert, forblir den installerte Amp-utvidelsen inaktiv uten at den må fjernes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux automatycznie instaluje i odświeża hooki Amp w terminalach cmux. Poza terminalami cmux nie wykonują one żadnych działań. Po wyłączeniu zainstalowana wtyczka Amp pozostaje nieaktywna i nie trzeba jej usuwać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O cmux instala e atualiza automaticamente os hooks do Amp nos terminais do cmux. Fora dos terminais do cmux, eles não realizam nenhuma ação. Quando a integração é desativada, o plugin do Amp instalado permanece inativo sem precisar ser removido."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux автоматически устанавливает и обновляет хуки Amp в терминалах cmux. Вне терминалов cmux они ничего не делают. Когда интеграция отключена, установленный плагин Amp остаётся неактивным, и удалять его не требуется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux จะติดตั้งและอัปเดตฮุกของ Amp โดยอัตโนมัติในเทอร์มินัล cmux ฮุกเหล่านี้จะไม่ทำงานนอกเทอร์มินัล cmux เมื่อปิดใช้งาน ปลั๊กอิน Amp ที่ติดตั้งไว้จะยังคงไม่ทำงานโดยไม่จำเป็นต้องลบออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux, Amp kancalarını cmux terminallerinde otomatik olarak yükler ve yeniler. Bu kancalar cmux terminalleri dışında işlem yapmaz. Devre dışı bırakıldığında yüklü Amp eklentisi kaldırılması gerekmeden etkisiz kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux автоматично встановлює та оновлює хуки Amp у терміналах cmux. Поза терміналами cmux вони не виконують жодних дій. Коли інтеграцію вимкнено, встановлений плагін Amp залишається неактивним, і видаляти його не потрібно."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会在 cmux 终端中自动安装并刷新 Amp 钩子。这些钩子在 cmux 终端之外不会执行任何操作。禁用后，已安装的 Amp 插件会保持非活动状态，无需将其移除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會在 cmux 終端機中自動安裝並更新 Amp 掛鉤。這些掛鉤在 cmux 終端機之外不會執行任何動作。停用後，已安裝的 Amp 外掛程式會維持非作用中狀態，無須將其移除。"
           }
         }
       }

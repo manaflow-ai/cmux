@@ -1,5 +1,7 @@
 import Foundation
 import Testing
+import CmuxAgentSessionStore
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -66,7 +68,36 @@ struct AmpVaultRegistrationTests {
     }
 
     @Test
-    func ampHookStoreIsSortedSearchableAndResumesCapturedThread() throws {
+    func trustedPersistedSnapshotRoundTripsBuiltInAmpRegistration() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-amp-snapshot-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let snapshot = AmpRegistrationSnapshot(
+            version: 1,
+            windows: ["main"],
+            registration: .builtInAmp
+        )
+        let trustedRepository = SessionSnapshotRepository<AmpRegistrationSnapshot>(
+            schemaVersion: 1,
+            bundleIdentifier: "com.cmuxterm.amp-snapshot-test",
+            appSupportDirectory: directory,
+            decoderUserInfo: [.cmuxTrustedPersistedSessionSnapshot: true]
+        )
+
+        #expect(trustedRepository.save(snapshot))
+        #expect(trustedRepository.load() == snapshot)
+
+        let untrustedRepository = SessionSnapshotRepository<AmpRegistrationSnapshot>(
+            schemaVersion: 1,
+            bundleIdentifier: "com.cmuxterm.amp-snapshot-test",
+            appSupportDirectory: directory
+        )
+        #expect(untrustedRepository.load() == nil)
+    }
+
+    @Test
+    func ampHookStoreMapsSnapshotsAndResumesCapturedThread() async throws {
         let storeURL = try writeStore([
             "T-older": [
                 "sessionId": "T-older",
@@ -106,13 +137,15 @@ struct AmpVaultRegistrationTests {
         defer { try? FileManager.default.removeItem(at: storeURL.deletingLastPathComponent()) }
 
         let errors = SessionIndexStore.ErrorBag()
-        let all = SessionIndexStore.loadCmuxHookStoreEntries(
+        let repository = AmpHookSessionRepository()
+        let all = await SessionIndexStore.loadCmuxHookStoreEntries(
             registration: .builtInAmp,
             needle: "",
             cwdFilter: nil,
             offset: 0,
             limit: 10,
             errorBag: errors,
+            repository: repository,
             storeURL: storeURL
         )
 
@@ -122,13 +155,14 @@ struct AmpVaultRegistrationTests {
             $0.agent == .registered(RegisteredSessionAgent(registration: .builtInAmp))
         })
 
-        let searched = SessionIndexStore.loadCmuxHookStoreEntries(
+        let searched = await SessionIndexStore.loadCmuxHookStoreEntries(
             registration: .builtInAmp,
             needle: "first-class",
             cwdFilter: "/tmp/amp repo",
             offset: 0,
             limit: 10,
             errorBag: errors,
+            repository: repository,
             storeURL: storeURL
         )
         let entry = try #require(searched.first)
@@ -150,7 +184,7 @@ struct AmpVaultRegistrationTests {
     }
 
     @Test
-    func ampHookStoreFallsBackTitlesAndReportsMalformedStoreSafely() throws {
+    func ampHookStoreFallsBackTitlesAndReportsMalformedStoreSafely() async throws {
         let validStoreURL = try writeStore([
             "T-cwd": ["sessionId": "T-cwd", "cwd": "/tmp/amp project", "startedAt": 20.0],
             "T-generic": ["sessionId": "T-generic", "startedAt": 10.0],
@@ -158,13 +192,15 @@ struct AmpVaultRegistrationTests {
         defer { try? FileManager.default.removeItem(at: validStoreURL.deletingLastPathComponent()) }
 
         let validErrors = SessionIndexStore.ErrorBag()
-        let entries = SessionIndexStore.loadCmuxHookStoreEntries(
+        let repository = AmpHookSessionRepository()
+        let entries = await SessionIndexStore.loadCmuxHookStoreEntries(
             registration: .builtInAmp,
             needle: "",
             cwdFilter: nil,
             offset: 0,
             limit: 10,
             errorBag: validErrors,
+            repository: repository,
             storeURL: validStoreURL
         )
         #expect(entries.map(\.title) == ["Amp session in amp project", "Amp session"])
@@ -178,13 +214,14 @@ struct AmpVaultRegistrationTests {
         try Data("{".utf8).write(to: malformedURL)
         let malformedErrors = SessionIndexStore.ErrorBag()
 
-        let malformedEntries = SessionIndexStore.loadCmuxHookStoreEntries(
+        let malformedEntries = await SessionIndexStore.loadCmuxHookStoreEntries(
             registration: .builtInAmp,
             needle: "",
             cwdFilter: nil,
             offset: 0,
             limit: 10,
             errorBag: malformedErrors,
+            repository: repository,
             storeURL: malformedURL
         )
 
@@ -202,4 +239,12 @@ struct AmpVaultRegistrationTests {
         try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]).write(to: storeURL)
         return storeURL
     }
+}
+
+private struct AmpRegistrationSnapshot: SessionSnapshotRepresenting, Equatable {
+    let version: Int
+    let windows: [String]
+    let registration: CmuxVaultAgentRegistration
+
+    var hasWindows: Bool { !windows.isEmpty }
 }

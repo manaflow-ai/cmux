@@ -53,7 +53,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let id = try container.decode(String.self, forKey: .id).trimmingCharacters(in: .whitespacesAndNewlines)
         guard Self.isValidID(id),
-              !Self.isReservedID(id) else {
+              decoder.isTrustedCmuxPersistedSessionSnapshot || !Self.isReservedID(id) else {
             throw DecodingError.dataCorruptedError(
                 forKey: .id,
                 in: container,
@@ -312,12 +312,15 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             case "stateDB", "state-db", "hermesStateDB", "hermes-state-db":
                 self = .persistedStore(.hermesStateDB)
             case "cmuxHookStore", "cmux-hook-store":
-                throw DecodingError.dataCorrupted(
-                    DecodingError.Context(
-                        codingPath: decoder.codingPath,
-                        debugDescription: "cmuxHookStore is reserved for built-in Vault agents"
+                guard decoder.isTrustedCmuxPersistedSessionSnapshot else {
+                    throw DecodingError.dataCorrupted(
+                        DecodingError.Context(
+                            codingPath: decoder.codingPath,
+                            debugDescription: "cmuxHookStore is reserved for built-in Vault agents"
+                        )
                     )
-                )
+                }
+                self = .cmuxHookStore(.amp)
             default:
                 guard !trimmed.isEmpty else {
                     throw DecodingError.dataCorrupted(
@@ -387,11 +390,14 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             }
             self = .argvOption(option)
         case "cmuxHookStore", "cmux-hook-store":
-            throw DecodingError.dataCorruptedError(
-                forKey: .type,
-                in: container,
-                debugDescription: "cmuxHookStore is reserved for built-in Vault agents"
-            )
+            guard decoder.isTrustedCmuxPersistedSessionSnapshot else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .type,
+                    in: container,
+                    debugDescription: "cmuxHookStore is reserved for built-in Vault agents"
+                )
+            }
+            self = .cmuxHookStore(try container.decode(CmuxVaultHookSessionStore.self, forKey: .store))
         default:
             throw DecodingError.dataCorruptedError(
                 forKey: .type,

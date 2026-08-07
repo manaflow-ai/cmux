@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxAgentSessionStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -19,7 +20,9 @@ struct SessionIndexSnapshotLoaderTests {
         let loader = SessionIndexSnapshotLoader {
             corpus.loadEntries()
         }
-        let entries = await loader.load()
+        let entries = await loader.load(
+            ampSessionRepository: AmpHookSessionRepository()
+        )
         await corpus.remove()
 
         #expect(entries.count == 2_000)
