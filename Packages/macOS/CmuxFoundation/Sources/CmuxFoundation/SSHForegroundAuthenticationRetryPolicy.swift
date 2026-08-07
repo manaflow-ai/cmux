@@ -14,6 +14,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         "created.new",
         "publisher",
         "publisher.new",
+        "rollback-only",
         "anchor",
         "cancel",
         "cleanup.owner",
@@ -246,6 +247,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_parse_recorded_process "$1" || return 1
           [ "$(cmux_ssh_auth_stable_identity "$CMUX_SSH_AUTH_RECORDED_PID")" = \
             "$CMUX_SSH_AUTH_RECORDED_STABLE_IDENTITY" ]
+        }
+
+        cmux_ssh_auth_publish_current_worker() {
+          cmux_ssh_auth_worker_file="$1"
+          if ! /bin/sh -c '
+            cmux_owner_pid=$PPID
+            cmux_owner_identity=$(/usr/bin/env LC_ALL=C LANG=C \
+              /bin/ps -o pgid= -o state= -o lstart= \
+                -p "$cmux_owner_pid" 2>/dev/null | \
+              /usr/bin/awk '\''NF >= 7 && $2 !~ /Z/ {
+                cmux_started = $3 "_" $4 "_" $5 "_" $6 "_" $7
+                print $1 "|" cmux_started
+              }'\'')
+            if [ -z "$cmux_owner_identity" ]; then exit 1; fi
+            umask 077
+            printf "%s|%s\n" "$cmux_owner_pid" "$cmux_owner_identity" > "$1"
+          ' cmux-worker-owner "$cmux_ssh_auth_worker_file.new" \
+            2>/dev/null || ! \
+            /bin/mv -f -- "$cmux_ssh_auth_worker_file.new" \
+              "$cmux_ssh_auth_worker_file" 2>/dev/null; then
+            /bin/rm -f -- "$cmux_ssh_auth_worker_file.new" 2>/dev/null || true
+            return 1
+          fi
         }
 
         cmux_ssh_auth_reaper_generation_is_current() {
@@ -866,6 +890,43 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           printf '%s\n' "$cmux_ssh_auth_create_dir"
         }
 
+        cmux_ssh_auth_resume_unpublished_rollback() (
+          cmux_ssh_auth_rollback_group_dir="$1"
+          cmux_ssh_auth_recovery_prepare || exit 1
+          cmux_ssh_auth_recovery_group_path_is_valid \
+            "$cmux_ssh_auth_rollback_group_dir" || exit 1
+          if [ ! -d "$cmux_ssh_auth_rollback_group_dir" ] || \
+            [ -L "$cmux_ssh_auth_rollback_group_dir" ] || \
+            [ ! -f "$cmux_ssh_auth_rollback_group_dir/rollback-only" ] || \
+            [ -L "$cmux_ssh_auth_rollback_group_dir/rollback-only" ]; then exit 1; fi
+          cmux_ssh_auth_rollback_expected_identity="$(/usr/bin/id -u):700"
+          cmux_ssh_auth_rollback_observed_identity=$(/usr/bin/stat -f '%u:%Lp' \
+            "$cmux_ssh_auth_rollback_group_dir" 2>/dev/null || true)
+          if [ "$cmux_ssh_auth_rollback_observed_identity" != \
+            "$cmux_ssh_auth_rollback_expected_identity" ]; then exit 1; fi
+          if cmux_ssh_auth_group_publisher_is_live \
+            "$cmux_ssh_auth_rollback_group_dir"; then exit 1; fi
+
+          cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_rollback_group_dir/processes"
+          cmux_ssh_auth_resume_groups="$cmux_ssh_auth_rollback_group_dir/groups.resume"
+          cmux_ssh_auth_frozen_processes="$cmux_ssh_auth_rollback_group_dir/frozen"
+          cmux_ssh_auth_individual_processes="$cmux_ssh_auth_rollback_group_dir/individuals"
+          cmux_ssh_auth_signaled_groups="$cmux_ssh_auth_rollback_group_dir/signaled.groups"
+          cmux_ssh_auth_signaled_processes="$cmux_ssh_auth_rollback_group_dir/signaled.pids"
+          cmux_ssh_auth_rollback_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
+          case "$cmux_ssh_auth_rollback_started_millis" in
+            ''|*[!0-9]*) exit 1 ;;
+          esac
+          # The shared resume helper adds its fixed 500 ms safety margin.
+          cmux_ssh_auth_hard_deadline_millis="$cmux_ssh_auth_rollback_started_millis"
+          cmux_ssh_auth_resume_signaled_processes || exit 1
+
+          CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_rollback_group_dir"
+          export CMUX_SSH_AUTH_GROUP_DIR
+          \#(processGroupStateRemovalShellCommand())
+          /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null
+        )
+
         cmux_ssh_auth_recovery_claim_segment() {
           CMUX_SSH_AUTH_RECOVERY_SEGMENT=
           CMUX_SSH_AUTH_RECOVERY_SEGMENT_INDEX=
@@ -1047,6 +1108,18 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "${CMUX_SSH_AUTH_GROUP_DIR:-}" ]; then
               printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
                 >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              continue
+            fi
+            if [ -L "$cmux_ssh_auth_recovery_group_dir/rollback-only" ]; then
+              continue
+            elif [ -f "$cmux_ssh_auth_recovery_group_dir/rollback-only" ]; then
+              if cmux_ssh_auth_group_publisher_is_live \
+                "$cmux_ssh_auth_recovery_group_dir" || ! \
+                cmux_ssh_auth_resume_unpublished_rollback \
+                  "$cmux_ssh_auth_recovery_group_dir"; then
+                printf '%s\n' "$cmux_ssh_auth_recovery_group_dir" \
+                  >> "$CMUX_SSH_AUTH_RECOVERY_SEGMENT.retry"
+              fi
               continue
             fi
             if [ ! -s "$cmux_ssh_auth_recovery_group_dir/identity" ]; then
@@ -1257,29 +1330,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           esac
 
           umask 077
-          cmux_ssh_auth_tree_state=$(/usr/bin/mktemp -d \
-            "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || exit 1
+          cmux_ssh_auth_tree_state=$(cmux_ssh_auth_create_group_dir) || exit 1
           cmux_ssh_auth_tree_complete=0
+          cmux_ssh_auth_tree_cleanup_requires_resume=0
+          cmux_ssh_auth_tree_remove_state() {
+            CMUX_SSH_AUTH_GROUP_DIR="$cmux_ssh_auth_tree_state"
+            export CMUX_SSH_AUTH_GROUP_DIR
+            \#(processGroupStateRemovalShellCommand())
+            /bin/rmdir "$CMUX_SSH_AUTH_GROUP_DIR" 2>/dev/null || true
+          }
           cmux_ssh_auth_tree_cleanup() {
-            if [ "$cmux_ssh_auth_tree_complete" != 1 ]; then
-              cmux_ssh_auth_resume_signaled_processes
+            if [ "$cmux_ssh_auth_tree_complete" != 1 ] && \
+              [ "$cmux_ssh_auth_tree_cleanup_requires_resume" = 1 ] && ! \
+              cmux_ssh_auth_resume_signaled_processes; then
+              # The queued state and stable worker record let a later startup
+              # retry this rollback without signaling a reused PID.
+              return
             fi
-            /bin/rm -f -- \
-              "$cmux_ssh_auth_tree_state/processes" \
-              "$cmux_ssh_auth_tree_state/processes.stopped" \
-              "$cmux_ssh_auth_tree_state/owned" \
-              "$cmux_ssh_auth_tree_state/owned.next" \
-              "$cmux_ssh_auth_tree_state/groups" \
-              "$cmux_ssh_auth_tree_state/groups.next" \
-              "$cmux_ssh_auth_tree_state/groups.resume" \
-              "$cmux_ssh_auth_tree_state/frozen" \
-              "$cmux_ssh_auth_tree_state/individuals" \
-              "$cmux_ssh_auth_tree_state/ordered" \
-              "$cmux_ssh_auth_tree_state/signaled.groups" \
-              "$cmux_ssh_auth_tree_state/signaled.pids" 2>/dev/null || true
-            /bin/rmdir "$cmux_ssh_auth_tree_state" 2>/dev/null || true
+            cmux_ssh_auth_tree_remove_state
           }
           trap 'cmux_ssh_auth_tree_cleanup' EXIT
+          : > "$cmux_ssh_auth_tree_state/rollback-only" || exit 1
+          cmux_ssh_auth_publish_current_worker \
+            "$cmux_ssh_auth_tree_state/publisher" || exit 1
 
           cmux_ssh_auth_process_snapshot="$cmux_ssh_auth_tree_state/processes"
           cmux_ssh_auth_poststop_snapshot="$cmux_ssh_auth_tree_state/processes.stopped"
@@ -1303,6 +1376,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           : > "$cmux_ssh_auth_frozen_processes" || exit 1
           : > "$cmux_ssh_auth_signaled_groups" || exit 1
           : > "$cmux_ssh_auth_signaled_processes" || exit 1
+          cmux_ssh_auth_tree_cleanup_requires_resume=1
           cmux_ssh_auth_tree_started_millis="$(cmux_ssh_auth_now_millis)" || exit 1
           case "$cmux_ssh_auth_tree_started_millis" in ''|*[!0-9]*) exit 1 ;; esac
           cmux_ssh_auth_deadline_millis=$((cmux_ssh_auth_tree_started_millis + 2000))

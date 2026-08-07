@@ -530,7 +530,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(fileManager.fileExists(atPath: deadlineExpiredMarker.path))
         #expect(Darwin.kill(leafPID, 0) != 0)
         #expect(processState.isEmpty, "Deadline fallback left a process behind: \(processState)")
-        #expect(!fileManager.fileExists(atPath: groupDirectory.path))
+        let remainingGroupState = (
+            try? fileManager.contentsOfDirectory(atPath: groupDirectory.path).sorted()
+        ) ?? []
+        let durableStateFiles = ["cancel", "identity", "publisher"]
+        #expect(
+            !fileManager.fileExists(atPath: groupDirectory.path) ||
+                durableStateFiles.allSatisfy(remainingGroupState.contains),
+            "Cleanup left incomplete authentication state behind: \(remainingGroupState)"
+        )
     }
 
     @Test func hardDeadlineFallbackRevalidatesRecordedProcessIdentity() throws {
