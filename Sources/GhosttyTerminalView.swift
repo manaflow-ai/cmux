@@ -12409,6 +12409,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         let hostedView = terminalSurface.hostedView
         let coordinator = context.coordinator
+        let workspaceAttentionColorSnapshot = workspaceAttentionColor
         let previousDesiredIsActive = coordinator.desiredIsActive
         let previousDesiredIsVisibleInUI = coordinator.desiredIsVisibleInUI
         let previousDesiredPortalZPriority = coordinator.desiredPortalZPriority
@@ -12461,8 +12462,8 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         // Keep the surface lifecycle and handlers updated even if we defer re-parenting.
         hostedView.attachSurface(terminalSurface)
-        hostedView.setWorkspaceAttentionColor(workspaceAttentionColor)
         if hostOwnsPortalNow {
+            hostedView.setWorkspaceAttentionColor(workspaceAttentionColorSnapshot)
             hostedView.setSessionContentWidthPresentation(sessionContentWidthPresentation)
             hostedView.setFocusHandler { onFocus?(terminalSurface.id) }
             hostedView.setTriggerFlashHandler(onTriggerFlash)
@@ -12532,6 +12533,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                 ) else { return }
                 guard host.window != nil else { return }
                 guard portalBindingStillLive() else { return }
+                hostedView.setWorkspaceAttentionColor(workspaceAttentionColorSnapshot)
                 TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
                     to: host,
@@ -12564,6 +12566,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
             let vacancyIsCurrentPaneOwner = isCurrentPaneOwner
             let vacancyPaneId = paneId
             let vacancyOwnershipGeneration = ownershipGeneration
+            let vacancyWorkspaceAttentionColor = workspaceAttentionColorSnapshot
             let vacancySessionContentWidthPresentation = sessionContentWidthPresentation
             let vacancyOnFocus = onFocus
             let vacancyOnTriggerFlash = onTriggerFlash
@@ -12593,6 +12596,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     allowsAuthorityAcquisition: true,
                     reason: "hostVacated"
                 ) else { return }
+                hostedView.setWorkspaceAttentionColor(vacancyWorkspaceAttentionColor)
                 TerminalWindowPortalRegistry.bind(
                     hostedView: hostedView,
                     to: host,
@@ -12677,6 +12681,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
                     reason: "geometryChanged"
                 ) else { return }
                 guard portalBindingStillLive() else { return }
+                hostedView.setWorkspaceAttentionColor(workspaceAttentionColorSnapshot)
                 let hostId = ObjectIdentifier(host)
                 if host.window != nil,
                    (coordinator.lastBoundHostId != hostId ||

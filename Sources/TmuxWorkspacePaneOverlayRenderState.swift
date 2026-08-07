@@ -19,7 +19,7 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
         activePaneBorderColorHex: String? = nil,
         flashToken: UInt64,
         flashReason: WorkspaceAttentionFlashReason?,
-        workspaceAttentionColor: WorkspaceAttentionColor = WorkspaceAttentionColor(configuredHex: nil)
+        workspaceAttentionColor: WorkspaceAttentionColor
     ) {
         self.workspaceId = workspaceId
         self.unreadRects = unreadRects

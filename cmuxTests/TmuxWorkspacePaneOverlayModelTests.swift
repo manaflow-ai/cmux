@@ -7,6 +7,31 @@ import Testing
 @testable import cmux
 #endif
 
+extension TmuxWorkspacePaneOverlayRenderState {
+    /// Preserves legacy overlay fixtures inside the test target while keeping
+    /// every production construction explicit about the configured color.
+    init(
+        workspaceId: UUID,
+        unreadRects: [CGRect],
+        flashRect: CGRect?,
+        activePaneBorderRect: CGRect? = nil,
+        activePaneBorderColorHex: String? = nil,
+        flashToken: UInt64,
+        flashReason: WorkspaceAttentionFlashReason?
+    ) {
+        self.init(
+            workspaceId: workspaceId,
+            unreadRects: unreadRects,
+            flashRect: flashRect,
+            activePaneBorderRect: activePaneBorderRect,
+            activePaneBorderColorHex: activePaneBorderColorHex,
+            flashToken: flashToken,
+            flashReason: flashReason,
+            workspaceAttentionColor: WorkspaceAttentionColor(configuredHex: nil)
+        )
+    }
+}
+
 @Suite("tmux workspace pane overlay model")
 struct TmuxWorkspacePaneOverlayModelTests {
     @Test @MainActor
