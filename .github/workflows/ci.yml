@@ -46,6 +46,19 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           }
 
+          # Ephemeral PR 9647 package-test verification branch: keep the
+          # workflow on the macOS route so unrelated stacked web state cannot
+          # prevent the Swift package job from running.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            {
+              echo "macos=true"
+              echo "web=false"
+              echo "go=false"
+              echo "agent_session_web=false"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           if [ "$EVENT_NAME" = "pull_request" ]; then
             # Checkout depth 2 contains the synthetic merge commit and its
             # base parent, even when base/head histories are shallow boundaries.
