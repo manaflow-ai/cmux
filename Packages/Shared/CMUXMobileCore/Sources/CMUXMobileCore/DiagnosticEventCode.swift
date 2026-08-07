@@ -199,10 +199,9 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// panel correlation ID derived from the panel UUID.
     case browserStreamLifecycle = 56
     /// Replayed phone input reached a streamed browser panel. `a` is the
-    /// input kind (1 pointer, 2 key, 3 text), `b` is the click count for
-    /// pointers, 1 for a suppressed no-editable backspace (else 0) for keys,
-    /// or the inserted character count for text, and `c` is the panel
-    /// correlation ID.
+    /// input kind (1 pointer, 2 key, 3 text, 4 suppressed no-editable
+    /// backspace), `b` is the click count for pointers, 1 for keys, or the
+    /// inserted character count for text, and `c` is the panel correlation ID.
     case browserInputReplayed = 57
     /// The streamed page's editable-focus state changed or a replayed click's
     /// focus assist resolved. `a` is 1 when an editable has focus (else 0),

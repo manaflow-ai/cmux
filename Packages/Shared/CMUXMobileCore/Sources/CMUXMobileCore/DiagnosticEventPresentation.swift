@@ -395,6 +395,14 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "composer_active", value: booleanName(raw))
         case .composerKeyboardToggleWhilePresented:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
+        case .browserStreamLifecycle:
+            return Field(key: "stage", value: browserStreamStageName(raw))
+        case .browserInputReplayed:
+            return Field(key: "input", value: browserInputKindName(raw))
+        case .browserEditableFocus:
+            return Field(key: "editable_focused", value: booleanName(raw))
+        case .browserPanelCreateResolved:
+            return Field(key: "created", value: booleanName(raw))
         default:
             return Field(key: "detail_1", value: String(raw))
         }
@@ -419,6 +427,10 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "draft_empty", value: booleanName(raw))
         case .composerActiveTransition, .composerKeyboardToggleWhilePresented:
             return Field(key: "first_responder", value: responderName(raw))
+        case .browserInputReplayed:
+            return Field(key: "count", value: String(raw))
+        case .browserEditableFocus:
+            return Field(key: "outcome", value: browserFocusOutcomeName(raw))
         default:
             return Field(key: "detail_2", value: String(raw))
         }
@@ -453,6 +465,9 @@ public struct DiagnosticEventPresentation: Sendable {
             return Field(key: "session", value: String(raw))
         case .composerActiveTransition:
             return Field(key: "terminal_input_focused", value: booleanName(raw))
+        case .browserStreamLifecycle, .browserInputReplayed,
+             .browserEditableFocus, .browserPanelCreateResolved:
+            return Field(key: "panel", value: String(raw))
         default:
             return Field(key: "detail_3", value: String(raw))
         }
@@ -606,6 +621,48 @@ public struct DiagnosticEventPresentation: Sendable {
         }
     }
 
+    private func browserStreamStageName(_ raw: Int) -> String {
+        switch raw {
+        case 1: localized("diagnostics.browserStage.started", defaultValue: "Started")
+        case 2: localized("diagnostics.browserStage.replaced", defaultValue: "Replaced existing session")
+        case 3: localized("diagnostics.browserStage.stopped", defaultValue: "Stopped")
+        case 4: localized("diagnostics.browserStage.firstFrame", defaultValue: "First frame delivered")
+        default:
+            localized(
+                "diagnostics.unknown.browserStage",
+                defaultValue: "Unknown stage (\(raw))"
+            )
+        }
+    }
+
+    private func browserInputKindName(_ raw: Int) -> String {
+        switch raw {
+        case 1: localized("diagnostics.browserInput.pointer", defaultValue: "Pointer")
+        case 2: localized("diagnostics.browserInput.key", defaultValue: "Key")
+        case 3: localized("diagnostics.browserInput.text", defaultValue: "Text")
+        case 4: localized("diagnostics.browserInput.keySuppressed", defaultValue: "Key suppressed")
+        default:
+            localized(
+                "diagnostics.unknown.browserInput",
+                defaultValue: "Unknown input (\(raw))"
+            )
+        }
+    }
+
+    private func browserFocusOutcomeName(_ raw: Int) -> String {
+        switch raw {
+        case 0: localized("diagnostics.browserFocus.none", defaultValue: "No editable at point")
+        case 1: localized("diagnostics.browserFocus.moved", defaultValue: "Focus moved")
+        case 2: localized("diagnostics.browserFocus.already", defaultValue: "Already focused")
+        case 3: localized("diagnostics.browserFocus.beacon", defaultValue: "Beacon transition")
+        default:
+            localized(
+                "diagnostics.unknown.browserFocus",
+                defaultValue: "Unknown outcome (\(raw))"
+            )
+        }
+    }
+
     private func pathEventName(_ raw: Int) -> String {
         switch raw {
         case 1: localized("diagnostics.pathOperation.opened", defaultValue: "Opened")
@@ -698,6 +755,13 @@ public struct DiagnosticEventPresentation: Sendable {
         case "remote_sequence": localized("diagnostics.field.remoteSequence", defaultValue: "Remote sequence")
         case "delivered_sequence": localized("diagnostics.field.deliveredSequence", defaultValue: "Delivered sequence")
         case "next_sequence": localized("diagnostics.field.nextSequence", defaultValue: "Next sequence")
+        case "stage": localized("diagnostics.field.stage", defaultValue: "Stage")
+        case "input": localized("diagnostics.field.input", defaultValue: "Input")
+        case "count": localized("diagnostics.field.count", defaultValue: "Count")
+        case "outcome": localized("diagnostics.field.outcome", defaultValue: "Outcome")
+        case "editable_focused": localized("diagnostics.field.editableFocused", defaultValue: "Editable focused")
+        case "created": localized("diagnostics.field.created", defaultValue: "Created")
+        case "panel": localized("diagnostics.field.panel", defaultValue: "Panel")
         case "detail_1": localized("diagnostics.field.detail1", defaultValue: "Detail 1")
         case "detail_2": localized("diagnostics.field.detail2", defaultValue: "Detail 2")
         case "detail_3": localized("diagnostics.field.detail3", defaultValue: "Detail 3")

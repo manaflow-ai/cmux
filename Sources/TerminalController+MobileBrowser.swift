@@ -288,7 +288,7 @@ extension TerminalController {
                 mobileBrowserInputDidReplay(connectionID: connectionID, panelID: panel.id)
             }
             mobileBrowserRecordDiagnostic(
-                .browserInputReplayed, panel: panel, a: 2, b: delivered ? 0 : 1
+                .browserInputReplayed, panel: panel, a: delivered ? 2 : 4, b: 1
             )
             return .ok(["ok": true, "panel_id": input.panelID, "delivered": delivered])
         } catch {

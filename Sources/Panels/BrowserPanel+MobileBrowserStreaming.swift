@@ -9,7 +9,10 @@ extension BrowserPanel {
     (() => {
       const handlerName = 'cmuxMobileBrowserStream';
       const editableFocused = () => {
-        const el = document.activeElement;
+        // Descend shadow roots: document.activeElement reports the shadow
+        // host, and the phone keyboard must rise for widget-wrapped inputs.
+        let el = document.activeElement;
+        while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
         if (!el) return false;
         const tag = String(el.tagName || '').toLowerCase();
         return !!el.isContentEditable || tag === 'textarea' ||
@@ -157,17 +160,26 @@ extension BrowserPanel {
     }
 
     /// Whether the streamed page currently focuses an editable element.
+    ///
+    /// `document.activeElement` reports the shadow HOST when focus sits inside
+    /// a shadow root, so the check descends shadow roots to the real focused
+    /// element; otherwise backspace into a widget-wrapped input would be
+    /// suppressed as no-editable.
     func mobileBrowserEditableHasFocus() async -> Bool {
         let script = """
         (() => {
-          const el = document.activeElement;
-          if (!el) return false;
-          if (el.isContentEditable) return true;
-          const tag = el.tagName;
-          if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
-          if (tag !== 'INPUT') return false;
-          const type = String(el.type || 'text').toLowerCase();
-          return !['button','checkbox','color','file','hidden','image','radio','range','reset','submit'].includes(type);
+          const isEditable = (el) => {
+            if (!el || el.nodeType !== 1) return false;
+            if (el.isContentEditable) return true;
+            const tag = el.tagName;
+            if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
+            if (tag !== 'INPUT') return false;
+            const type = String(el.type || 'text').toLowerCase();
+            return !['button','checkbox','color','file','hidden','image','radio','range','reset','submit'].includes(type);
+          };
+          let el = document.activeElement;
+          while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+          return isEditable(el);
         })()
         """
         let result = try? await webView.evaluateJavaScript(script, contentWorld: .page)
@@ -202,12 +214,14 @@ extension BrowserPanel {
           }
           while (el && !isEditable(el)) el = el.parentElement || (el.getRootNode && el.getRootNode().host) || null;
           if (!el) return 0;
-          const root = el.getRootNode ? el.getRootNode() : document;
-          const active = root.activeElement || document.activeElement;
-          if (active === el) return 2;
+          const deepActive = () => {
+            let active = document.activeElement;
+            while (active && active.shadowRoot && active.shadowRoot.activeElement) active = active.shadowRoot.activeElement;
+            return active;
+          };
+          if (deepActive() === el) return 2;
           try { el.focus({ preventScroll: true }); } catch (_) { return 0; }
-          const focusedRoot = el.getRootNode ? el.getRootNode() : document;
-          return (focusedRoot.activeElement || document.activeElement) === el ? 1 : 0;
+          return deepActive() === el ? 1 : 0;
         })()
         """
         let result = try? await webView.evaluateJavaScript(script, contentWorld: .page)
