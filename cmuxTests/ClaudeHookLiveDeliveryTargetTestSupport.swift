@@ -90,7 +90,9 @@ enum ClaudeHookLiveDeliveryHarness {
         resumeClearSucceeds: Bool = true,
         resumeClearOwnsCheckpoint: Bool? = true,
         feedExitPlanModesByRequestId: [String: String] = [:],
-        feedTerminalStatusesByRequestId: [String: String] = [:]
+        feedTerminalStatusesByRequestId: [String: String] = [:],
+        feedExitPlanModesByPlan: [String: String] = [:],
+        feedTerminalStatusesByPlan: [String: String] = [:]
     ) -> DispatchSemaphore {
         startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = jsonObject(line),
@@ -148,6 +150,16 @@ enum ClaudeHookLiveDeliveryHarness {
                         return v2Response(id: id, ok: true, result: ["status": status])
                     }
                     if let mode = feedExitPlanModesByRequestId[requestId] {
+                        return v2Response(id: id, ok: true, result: [
+                            "status": "resolved",
+                            "decision": ["kind": "exit_plan", "mode": mode],
+                        ])
+                    }
+                    let plan = (event["tool_input"] as? [String: Any])?["plan"] as? String
+                    if let plan, let status = feedTerminalStatusesByPlan[plan] {
+                        return v2Response(id: id, ok: true, result: ["status": status])
+                    }
+                    if let plan, let mode = feedExitPlanModesByPlan[plan] {
                         return v2Response(id: id, ok: true, result: [
                             "status": "resolved",
                             "decision": ["kind": "exit_plan", "mode": mode],

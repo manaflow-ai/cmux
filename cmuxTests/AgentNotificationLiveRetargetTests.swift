@@ -124,6 +124,68 @@ extension AgentNotificationRegressionTests {
     }
 
     @Test
+    func testTransientAttentionAndNotificationUseSurfaceCurrentWorkspace() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        let began = FeedCoordinator.shared.beginTransientBlockingAttention(
+            source: "claude",
+            sessionId: "moved-transient-session",
+            requestId: "moved-transient-request",
+            workspaceId: fixture.claimedWorkspace.id,
+            surfaceId: fixture.panelId,
+            ownerPID: nil,
+            title: "Claude Code",
+            subtitle: "Waiting",
+            body: "Waiting for input"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        #expect(began)
+        #expect(
+            fixture.owningWorkspace.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"]
+                == .needsInput
+        )
+        #expect(
+            fixture.claimedWorkspace.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"]
+                == nil,
+            "transient attention must not mutate the stale claimed workspace"
+        )
+        let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
+        #expect(recorded.map(\.tabId) == [fixture.owningWorkspace.id])
+        #expect(recorded.first?.surfaceId == fixture.panelId)
+
+        #expect(FeedCoordinator.shared.endTransientBlockingAttention(
+            source: "claude",
+            sessionId: "moved-transient-session",
+            requestId: "moved-transient-request"
+        ))
+        TerminalMutationBus.shared.drainForTesting()
+    }
+
+    @Test
+    func testTransientAttentionFailsClosedWhenSurfaceDisappeared() throws {
+        let fixture = try makeLiveRetargetFixture()
+        defer { fixture.restore() }
+
+        let began = FeedCoordinator.shared.beginTransientBlockingAttention(
+            source: "claude",
+            sessionId: "missing-transient-session",
+            requestId: "missing-transient-request",
+            workspaceId: fixture.claimedWorkspace.id,
+            surfaceId: UUID(),
+            ownerPID: nil,
+            title: "Missing transient",
+            subtitle: "Waiting",
+            body: "Waiting for input"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        #expect(!began)
+        #expect(fixture.store.notifications.allSatisfy { $0.title != "Missing transient" })
+    }
+
+    @Test
     func testSyncDeliverySupersedesPendingNotificationUnderStaleClaimedKey() throws {
         let fixture = try makeLiveRetargetFixture()
         defer { fixture.restore() }
