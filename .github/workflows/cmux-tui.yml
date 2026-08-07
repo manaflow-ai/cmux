@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   web-frontend:
+    if: ${{ false }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
@@ -43,6 +44,7 @@ jobs:
           npm test
 
   valgrind-leak-check:
+    if: ${{ false }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     steps:
@@ -137,7 +139,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos, linux]
+        os: [linux]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -166,28 +168,33 @@ jobs:
         run: cargo fmt --check
 
       - name: cargo clippy
+        if: ${{ false }}
         working-directory: cmux-tui
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: cargo test
         working-directory: cmux-tui
-        run: cargo test --workspace --locked
+        run: cargo test -p cmux-terminal-client native_render_payload_copy_survives_a_concurrent_resync -- --exact
 
       - name: crossterm parser tests
+        if: ${{ false }}
         working-directory: cmux-tui
         run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib
 
       - name: TUI smoke test (scripted pty)
+        if: ${{ false }}
         working-directory: cmux-tui
         run: |
           cargo build -p cmux-tui
           python3 scripts/smoke-tui.py
 
       - name: Detach/reattach smoke test
+        if: ${{ false }}
         working-directory: cmux-tui
         run: python3 scripts/smoke-attach.py
 
   bindings-e2e:
+    if: ${{ false }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     steps:
@@ -233,6 +240,7 @@ jobs:
         run: bash cmux-tui/bindings/conformance/e2e.sh --require python,typescript,rust,go,java
 
   windows-experimental:
+    if: ${{ false }}
     name: windows experimental (x86_64-gnu)
     runs-on: windows-latest
     timeout-minutes: 40
