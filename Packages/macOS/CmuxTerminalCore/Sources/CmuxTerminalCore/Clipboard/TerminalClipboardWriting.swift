@@ -9,6 +9,17 @@ public import GhosttyKit
 /// `Sendable` because the ghostty write-clipboard callback arrives on
 /// non-main threads and cannot await.
 public protocol TerminalClipboardWriting: AnyObject, Sendable {
+    /// Publishes every supplied representation as one pasteboard item.
+    ///
+    /// - Parameters:
+    ///   - representations: Textual MIME variants for the same clipboard
+    ///     payload, in runtime preference order.
+    ///   - location: The system or selection clipboard to update.
+    func writeRepresentations(
+        _ representations: [TerminalClipboardRepresentation],
+        to location: ghostty_clipboard_e
+    )
+
     /// Writes a string to the given ghostty clipboard location.
     ///
     /// When a one-shot capture is armed via

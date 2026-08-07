@@ -53,6 +53,7 @@ extension CMUXCLI {
     static let topLevelCommandNames: Set<String> = [
         "__codex-teams-watch",
         "__internal_flags",
+        "__sidebar_footer_icon_balance",
         "__tmux-compat",
         "agent-hibernation",
         "ai-accounts",
@@ -80,6 +81,7 @@ extension CMUXCLI {
         "codex",
         "codex-hook",
         "codex-teams",
+        "comments",
         "config",
         "copy-mode",
         "current-window",
@@ -165,6 +167,7 @@ extension CMUXCLI {
         "resize-pane",
         "respawn-pane",
         "restore-session",
+        "restore",
         "right-sidebar",
         "rpc",
         "select-workspace",

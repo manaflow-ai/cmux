@@ -425,9 +425,8 @@ final class RemoteTmuxSessionMirrorLayoutHarness {
     }
 
     func singlePanePanel(tmuxPaneID: Int) -> TerminalPanel? {
-        workspace.panels.values.compactMap { $0 as? TerminalPanel }.first {
-            sessionMirror.paneId(forSurfaceId: $0.id) == tmuxPaneID
-        }
+        guard let windowID = sessionMirror.windowIdContaining(pane: tmuxPaneID) else { return nil }
+        return windowMirror(windowID: windowID)?.panel(forPane: tmuxPaneID)
     }
 
     func publishLayout(_ layout: String, rects: [String]) throws {

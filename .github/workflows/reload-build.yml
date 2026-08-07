@@ -173,10 +173,44 @@ jobs:
             EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY=""
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OPTIMIZATION_LEVEL=-O \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            GCC_OPTIMIZATION_LEVEL=s
           [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
+
+          # Keep Blacksmith device reloads equivalent to the fleet path: one
+          # build supplies both the unsigned phone archive and the exact same
+          # source revision for an isolated Simulator verification.
+          xcodebuild build \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            PRODUCT_DISPLAY_NAME="$display_name" \
+            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
+            CMUX_DEV_TAG="$BUILD_TAG" \
+            CMUX_API_BASE_URL="$api_base_url" \
+            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
+            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OPTIMIZATION_LEVEL=-O \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            GCC_OPTIMIZATION_LEVEL=s
+          sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
+          [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
+
           mkdir -p artifact
-          ( cd "$out" && ditto -c -k --keepParent "$(basename "$archive")" "$GITHUB_WORKSPACE/artifact/archive.zip" )
+          pkg="$out/cmux-ios-$slug-pkg"
+          rm -rf "$pkg"
+          mkdir -p "$pkg/simulator"
+          mv "$archive" "$pkg/"
+          ditto "$sim_app" "$pkg/simulator/cmux.app"
+          ditto -c -k "$pkg" "$GITHUB_WORKSPACE/artifact/archive.zip"
 
       - name: Write timings.json
         if: ${{ always() }}
@@ -212,5 +246,5 @@ jobs:
         with:
           name: reload-${{ inputs.tag }}-${{ inputs.platform }}
           path: artifact/
-          retention-days: 3
+          retention-days: 1
           if-no-files-found: error

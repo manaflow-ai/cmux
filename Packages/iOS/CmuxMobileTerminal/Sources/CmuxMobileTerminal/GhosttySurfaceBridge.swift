@@ -64,6 +64,23 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         }
     }
 
+    static let ioWriteCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UnsafePointer<CChar>?,
+        UInt
+    ) -> Void = { userdata, buf, len in
+        guard let buf, len > 0 else { return }
+        let data = Data(bytes: buf, count: Int(len))
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleWrite(data)
+    }
+
+    static let renderPresentedCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UInt64
+    ) -> Void = { userdata, token in
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+    }
+
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceBridge>.fromOpaque(userdata).takeUnretainedValue()
