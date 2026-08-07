@@ -735,7 +735,7 @@ public actor CmxConnectivityEngine {
         } catch {
             guard routeRevision != nil,
                   CmxIrohTrustBrokerClientError
-                    .preservesVerifiedPolicyDuringRefresh(error) else {
+                    .preservesVerifiedStateDuringRefresh(error) else {
                 throw error
             }
         }

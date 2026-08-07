@@ -269,7 +269,7 @@ extension CmxIrohHostRuntime {
         }
         guard allowFallback,
               CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error),
+                .preservesVerifiedStateDuringRefresh(error),
               let cached = configuration.cachedHostPolicy else {
             throw error
         }
@@ -586,7 +586,7 @@ extension CmxIrohHostRuntime {
             guard lifecyclePhase == .active,
                   lifecycleRevision == revision else { return }
             guard CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error) else {
+                .preservesVerifiedStateDuringRefresh(error) else {
                 lifecyclePhase = .stopping
                 lifecycleRevision &+= 1
                 let failureRevision = lifecycleRevision

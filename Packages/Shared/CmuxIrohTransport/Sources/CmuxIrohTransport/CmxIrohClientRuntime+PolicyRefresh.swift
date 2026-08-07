@@ -130,7 +130,7 @@ extension CmxIrohClientRuntime {
                 throw error
             }
             guard !CmxIrohTrustBrokerClientError
-                .preservesVerifiedPolicyDuringRefresh(error) else {
+                .preservesVerifiedStateDuringRefresh(error) else {
                 // Keep the last exact verified binding while broker availability
                 // prevents a refresh.
                 return .failed(DiagnosticFailureKind.classify(error))
