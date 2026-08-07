@@ -291,7 +291,9 @@ jobs:
         run: python3 scripts/lint-feature-flags.py
 
       - name: Validate test determinism gate
-        run: python3 scripts/check-test-determinism.py --strict
+        run: |
+          python3 scripts/check-test-determinism.py --self-test
+          python3 scripts/check-test-determinism.py --strict
 
   remote-daemon-tests:
     needs: changes
@@ -963,11 +965,23 @@ jobs:
             python3 scripts/ci/cmux_unit_test_shard.py \
               --shard-index "$logical_shard" \
               --shard-total "$LOGICAL_SHARD_TOTAL" \
-              --output "$shard_args"
+              --output "$shard_args" || {
+                local shard_status=$?
+                echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+                return "$shard_status"
+              }
+            if [ ! -r "$shard_args" ]; then
+              echo "Missing selector file for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+              return 1
+            fi
             local only_testing_args=()
             while IFS= read -r arg; do
               [ -n "$arg" ] && only_testing_args+=("$arg")
             done < "$shard_args"
+            if [ "${#only_testing_args[@]}" -eq 0 ]; then
+              echo "No selectors generated for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+              return 1
+            fi
 
             echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} serially"
             local batch_status
