@@ -5,31 +5,61 @@ struct SudoRunnerLauncher: SudoRunnerLaunching {
     private let executableURL: URL
     private let inspector: any SudoProcessInspecting
     private let reaper: SudoChildProcessReaper
+    private let temporaryDirectoryURL: URL
 
     init(
         executableURL: URL,
         inspector: any SudoProcessInspecting,
-        reaper: SudoChildProcessReaper = SudoChildProcessReaper()
+        reaper: SudoChildProcessReaper = SudoChildProcessReaper(),
+        temporaryDirectoryURL: URL = FileManager.default.temporaryDirectory
     ) {
         self.executableURL = executableURL
         self.inspector = inspector
         self.reaper = reaper
+        self.temporaryDirectoryURL = temporaryDirectoryURL
     }
 
     @concurrent
-    func launch(requestID: String) async throws -> SudoLaunchedRunner {
+    func launch(
+        requestID: String,
+        reviewedScript: Data
+    ) async throws -> SudoLaunchedRunner {
+        let capability = SudoReviewedScriptCapability(
+            bytes: reviewedScript,
+            temporaryDirectoryURL: temporaryDirectoryURL
+        )
+        return try capability.withDescriptor { descriptor in
+            try launch(requestID: requestID, capabilityDescriptor: descriptor)
+        }
+    }
+
+    private func launch(
+        requestID: String,
+        capabilityDescriptor: Int32
+    ) throws -> SudoLaunchedRunner {
         var fileActions: posix_spawn_file_actions_t?
         try Self.requireSuccess(posix_spawn_file_actions_init(&fileActions))
         defer { posix_spawn_file_actions_destroy(&fileActions) }
 
-        for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
-            let flags = descriptor == STDIN_FILENO ? O_RDONLY : O_WRONLY
+        try Self.requireSuccess(
+            posix_spawn_file_actions_adddup2(
+                &fileActions,
+                capabilityDescriptor,
+                STDIN_FILENO
+            )
+        )
+        if capabilityDescriptor != STDIN_FILENO {
+            try Self.requireSuccess(
+                posix_spawn_file_actions_addclose(&fileActions, capabilityDescriptor)
+            )
+        }
+        for descriptor in [STDOUT_FILENO, STDERR_FILENO] {
             let status = "/dev/null".withCString { path in
                 posix_spawn_file_actions_addopen(
                     &fileActions,
                     descriptor,
                     path,
-                    flags,
+                    O_WRONLY,
                     0
                 )
             }

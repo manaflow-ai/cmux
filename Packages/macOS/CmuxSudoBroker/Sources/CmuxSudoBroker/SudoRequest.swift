@@ -20,7 +20,7 @@ public struct SudoRequest: Codable, Sendable, Equatable {
     /// The requesting executable name shown during approval.
     public let requesterCommand: String
 
-    /// The requester's PID generation when the executable name was captured.
+    /// The CLI process generation whose liveness authorizes the pending request.
     public let requesterIdentity: SudoProcessIdentity?
 
     /// The working directory used by the approved script.
@@ -32,7 +32,10 @@ public struct SudoRequest: Codable, Sendable, Equatable {
     /// The bounded number of seconds the CLI waits for approval.
     public let timeoutSeconds: Int
 
-    /// Creates a sudo request.
+    /// Creates a legacy sudo request without a liveness identity.
+    ///
+    /// The broker rejects this shape. It remains available only for decoding and
+    /// presenting requests created by older cmux versions.
     ///
     /// - Parameters:
     ///   - id: A filesystem-safe request identifier.

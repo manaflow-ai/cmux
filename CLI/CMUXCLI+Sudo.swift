@@ -5,8 +5,10 @@ import Foundation
 extension CMUXCLI {
     func runSudoCommand(commandArgs: [String]) throws -> Int32 {
         let context = try sudoCLIContext()
-        let parent = getppid()
-        guard let requester = sudoRequester(processIdentifier: parent) else {
+        let requesterProcessIdentifier = getpid()
+        guard let requesterIdentity = sudoRequesterIdentity(
+            processIdentifier: requesterProcessIdentifier
+        ) else {
             throw CLIError(
                 message: String(
                     localized: "sudo.cli.error.requester_identity",
@@ -14,6 +16,9 @@ extension CMUXCLI {
                 )
             )
         }
+        let parent = getppid()
+        let requesterCommand = sudoRequesterCommand(processIdentifier: parent)
+            ?? String(parent)
         let command = SudoCLICommand(
             paths: context.paths,
             appBundleURL: context.appBundleURL,
@@ -21,8 +26,8 @@ extension CMUXCLI {
                 fileURLWithPath: FileManager.default.currentDirectoryPath,
                 isDirectory: true
             ),
-            requesterIdentity: requester.identity,
-            requesterCommand: requester.command
+            requesterIdentity: requesterIdentity,
+            requesterCommand: requesterCommand
         )
         do {
             return try command.run(arguments: commandArgs)
@@ -79,11 +84,10 @@ extension CMUXCLI {
         )
     }
 
-    private func sudoRequester(
+    private func sudoRequesterCommand(
         processIdentifier: Int32
-    ) -> (identity: SudoProcessIdentity, command: String)? {
+    ) -> String? {
         guard processIdentifier > 1,
-              getppid() == processIdentifier,
               let identityBefore = sudoRequesterIdentity(
                   processIdentifier: processIdentifier
               ) else {
@@ -101,14 +105,10 @@ extension CMUXCLI {
               let identityAfter = sudoRequesterIdentity(
                   processIdentifier: processIdentifier
               ),
-              identityBefore == identityAfter,
-              getppid() == processIdentifier else {
+              identityBefore == identityAfter else {
             return nil
         }
-        return (
-            identity: identityBefore,
-            command: URL(fileURLWithPath: path).lastPathComponent
-        )
+        return URL(fileURLWithPath: path).lastPathComponent
     }
 
     private func sudoRequesterIdentity(

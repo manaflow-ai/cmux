@@ -139,7 +139,9 @@ public actor SudoBroker {
             let state = store.state(id: id)
             let phase = state?.phase ?? snapshot.phase
             phasesByID[id] = phase
-            if phase == .approved || phase == .executing, let state {
+            if phase == .approved || phase == .executing,
+               records[id] == nil,
+               let state {
                 recoveryStatesByID[id] = state
             }
         }
@@ -324,7 +326,10 @@ public actor SudoBroker {
             )
             eventContinuation.yield(.phaseChanged(id: id, phase: .approved))
             do {
-                let runner = try await dependencies.runner.launch(requestID: id)
+                let runner = try await dependencies.runner.launch(
+                    requestID: id,
+                    reviewedScript: Data(pending.script.utf8)
+                )
                 monitor(runner: runner, requestID: id)
             } catch {
                 settleIfPossible(
@@ -484,7 +489,7 @@ public actor SudoBroker {
     }
 
     private func requesterIsAvailable(_ request: SudoRequest) -> Bool {
-        guard let identity = request.requesterIdentity else { return true }
+        guard let identity = request.requesterIdentity else { return false }
         return dependencies.requesterInspector.isRunning(identity)
     }
 

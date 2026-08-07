@@ -11,6 +11,7 @@ public struct SudoExecutionRunner {
     private let inspector: any SudoProcessInspecting
     private let parentValidator: SudoRunnerParentValidator
     private let processRunner: SudoBoundedProcessRunner
+    private let reviewedScriptReader: SudoReviewedScriptReader
     private let expectedParentExecutableURL: URL
     private let messages: SudoFailureMessages
     private let now: @Sendable () -> Date
@@ -35,6 +36,7 @@ public struct SudoExecutionRunner {
         pam = pamConfiguration
         self.inspector = inspector
         parentValidator = SudoRunnerParentValidator(inspector: inspector)
+        reviewedScriptReader = SudoReviewedScriptReader()
         processRunner = SudoBoundedProcessRunner(
             spawner: spawner,
             inspector: inspector,
@@ -51,6 +53,7 @@ public struct SudoExecutionRunner {
         inspector: any SudoProcessInspecting,
         parentValidator: SudoRunnerParentValidator,
         processRunner: SudoBoundedProcessRunner,
+        reviewedScriptReader: SudoReviewedScriptReader = SudoReviewedScriptReader(),
         expectedParentExecutableURL: URL,
         messages: SudoFailureMessages,
         now: @Sendable @escaping () -> Date
@@ -60,6 +63,7 @@ public struct SudoExecutionRunner {
         self.inspector = inspector
         self.parentValidator = parentValidator
         self.processRunner = processRunner
+        self.reviewedScriptReader = reviewedScriptReader
         self.expectedParentExecutableURL = expectedParentExecutableURL
         self.messages = messages
         self.now = now
@@ -87,11 +91,34 @@ public struct SudoExecutionRunner {
                 )
                 return 1
             }
+            let reviewedScript: Data
+            do {
+                reviewedScript = try reviewedScriptReader.read()
+            } catch {
+                try settleRunnerLaunchFailureIfApproved(
+                    requestID: requestID,
+                    auditStatus: "failed reviewed-script-capability"
+                )
+                return 1
+            }
             guard let manifest = try store.claimApprovedExecution(
                 id: requestID,
                 runner: runnerIdentity,
                 now: startedAt
             ) else {
+                return 0
+            }
+
+            guard inspector.isRunning(manifest.requesterIdentity) else {
+                try settle(
+                    SudoResult(
+                        id: requestID,
+                        status: .failed,
+                        errorCode: .requesterUnavailable,
+                        note: messages.requesterUnavailable
+                    ),
+                    auditStatus: "failed requester-validation"
+                )
                 return 0
             }
 
@@ -123,6 +150,7 @@ public struct SudoExecutionRunner {
 
             let command = SudoExecutionCommand.sudo(
                 approvedScriptURL: store.approvedScriptURL(id: requestID),
+                reviewedScript: reviewedScript,
                 currentDirectoryURL: URL(
                     fileURLWithPath: manifest.currentDirectory,
                     isDirectory: true

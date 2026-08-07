@@ -15,8 +15,7 @@ struct SudoBoundedProcessRunner: Sendable {
     ) {
         self.spawner = spawner
         executionWaiter = SudoExecutionEventWaiter(
-            inspector: inspector,
-            outputDetector: SudoAuthenticationOutputDetector()
+            inspector: inspector
         )
         terminator = SudoProcessTreeTerminator(inspector: inspector, signaler: signaler)
         self.now = now
@@ -40,6 +39,11 @@ struct SudoBoundedProcessRunner: Sendable {
             )
         case .timedOut:
             return .timedOut(cleanupSurvivors: terminateAndReap(process))
+        case .failed:
+            let survivors = terminateAndReap(process)
+            return survivors.isEmpty
+                ? .unavailable
+                : .timedOut(cleanupSurvivors: survivors)
         }
     }
 
@@ -48,6 +52,7 @@ struct SudoBoundedProcessRunner: Sendable {
     }
 
     private func terminateAndReap(_ process: SudoSpawnedProcess) -> [SudoProcessIdentity] {
+        process.io.close()
         let survivors = terminator.terminate(root: process.identity)
         if !survivors.contains(process.identity) {
             _ = reap(process.identity.processIdentifier)

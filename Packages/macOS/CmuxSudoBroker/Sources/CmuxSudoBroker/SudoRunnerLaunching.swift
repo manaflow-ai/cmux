@@ -1,3 +1,8 @@
+import Foundation
+
 protocol SudoRunnerLaunching: Sendable {
-    func launch(requestID: String) async throws -> SudoLaunchedRunner
+    func launch(
+        requestID: String,
+        reviewedScript: Data
+    ) async throws -> SudoLaunchedRunner
 }

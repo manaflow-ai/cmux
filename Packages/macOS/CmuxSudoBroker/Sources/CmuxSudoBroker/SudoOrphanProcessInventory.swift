@@ -38,6 +38,34 @@ struct SudoOrphanProcessInventory: Sendable {
 
     private func approvedScriptPath(arguments: [String]) -> String? {
         let prompt = SudoAuthenticationOutputDetector.passwordPrompt
+        let bootstrap = SudoReviewedScriptTransport.bootstrap
+        if arguments.count == 13,
+           arguments[0...9].elementsEqual([
+               "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
+               "-p", prompt, "/bin/bash", "-c", bootstrap,
+           ]) {
+            return arguments[10]
+        }
+        if arguments.count == 10,
+           arguments[0...6].elementsEqual([
+               "/usr/bin/sudo", "-k", "-p", prompt, "/bin/bash", "-c", bootstrap,
+           ]) {
+            return arguments[7]
+        }
+        if arguments.count == 6,
+           arguments[0...2].elementsEqual([
+               "/bin/bash", "-c", bootstrap,
+           ]) {
+            return arguments[3]
+        }
+        if arguments.count == 4,
+           arguments[0...2].elementsEqual([
+               "/bin/bash", "-c", SudoReviewedScriptTransport.sourcedScriptCommand,
+           ]) {
+            return arguments[3]
+        }
+
+        // Recover commands left by the former pathname-execution protocol.
         if arguments.count == 9,
            arguments[0...7].elementsEqual([
                "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
