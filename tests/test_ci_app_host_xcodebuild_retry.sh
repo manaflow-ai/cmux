@@ -576,6 +576,20 @@ if [ "$missing_swift_classifier_status" -ne 1 ]; then
   exit 1
 fi
 
+for authoritative_failure_status in 123 124; do
+  set +e
+  bash "$ROOT_DIR/scripts/ci/classify-app-host-test-result.sh" \
+    "$authoritative_failure_status" "$EXPECTED_FAILURE_OUTPUT" \
+    >"$TMP_DIR/authoritative-$authoritative_failure_status-output.log" 2>&1
+  authoritative_classifier_status=$?
+  set -e
+  if [ "$authoritative_classifier_status" -ne 1 ]; then
+    cat "$TMP_DIR/authoritative-$authoritative_failure_status-output.log"
+    echo "FAIL: authoritative status $authoritative_failure_status must never inherit an XCTest pass"
+    exit 1
+  fi
+done
+
 FAILED_SWIFT_TESTING_OUTPUT="$TMP_DIR/failed-swift-testing-output.log"
 printf '%s\n' \
   'Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds' \

@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "xcodebuild_noninteractive.py"
 PROMPT = "Press space to interact, D to debug, or any other key to quit"
+SWIFT_TESTING_FAILED_EXIT_CODE = 123
 EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE = 126
 
 
@@ -417,6 +418,46 @@ def main() -> int:
         )
         return 1
 
+    active_swift_testing_timeout_child = textwrap.dedent(
+        """
+        import time
+
+        print("Test Suite 'Selected tests' passed at now", flush=True)
+        print("\\t Executed 1 test, with 0 failures (0 unexpected) in 0.001 seconds", flush=True)
+        print("◇ Test run started.", flush=True)
+        time.sleep(10)
+        """
+    )
+    active_swift_testing_timeout_result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            sys.executable,
+            "-c",
+            active_swift_testing_timeout_child,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=5,
+        env={
+            **expected_mixed_framework_env,
+            "CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS": "0.2",
+        },
+    )
+    if (
+        active_swift_testing_timeout_result.returncode
+        != EXPECTED_SWIFT_TESTING_MISSING_EXIT_CODE
+    ):
+        print(active_swift_testing_timeout_result.stdout, end="")
+        print(active_swift_testing_timeout_result.stderr, end="", file=sys.stderr)
+        print(
+            "FAIL: an active Swift Testing phase that times out must fail as incomplete, "
+            f"got {active_swift_testing_timeout_result.returncode}"
+        )
+        return 1
+
     failing_mixed_framework_child = textwrap.dedent(
         """
         import time
@@ -438,7 +479,7 @@ def main() -> int:
         timeout=5,
         env=expected_mixed_framework_env,
     )
-    if failing_mixed_framework_result.returncode != 125:
+    if failing_mixed_framework_result.returncode != SWIFT_TESTING_FAILED_EXIT_CODE:
         print(failing_mixed_framework_result.stdout, end="")
         print(failing_mixed_framework_result.stderr, end="", file=sys.stderr)
         print(
