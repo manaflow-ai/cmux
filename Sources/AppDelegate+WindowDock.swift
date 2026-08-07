@@ -178,7 +178,7 @@ extension AppDelegate {
     var existingWindowDocks: [DockSplitStore] {
         var seenContexts: Set<ObjectIdentifier> = []
         var seenDocks: Set<ObjectIdentifier> = []
-        var docks = mainWindowContexts.values.compactMap { context in
+        var docks: [DockSplitStore] = mainWindowContexts.values.compactMap { context in
             guard seenContexts.insert(ObjectIdentifier(context)).inserted,
                   let dock = context.existingWindowDock(),
                   seenDocks.insert(ObjectIdentifier(dock)).inserted else {

@@ -7575,10 +7575,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        let previousManager = tabManager
+        let priorOwner = tabManager
         tabManager = bootstrapManager
-        if let previousManager, previousManager !== bootstrapManager {
-            finalizeRejectedMainWindowRegistrationIfUnowned(previousManager)
+        if let priorOwner, priorOwner !== bootstrapManager {
+            finalizeRejectedMainWindowRegistrationIfUnowned(priorOwner)
         }
     }
 
@@ -17179,15 +17179,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func activateMainWindowContext(_ context: MainWindowContext?) {
-        let previousManager = tabManager
+        let priorOwner = tabManager
         guard let context else {
             tabManager = nil
             sidebarState = nil
             sidebarSelectionState = nil
             fileExplorerState = nil
             TerminalController.shared.setActiveTabManager(nil)
-            if let previousManager {
-                finalizeRejectedMainWindowRegistrationIfUnowned(previousManager)
+            if let priorOwner {
+                finalizeRejectedMainWindowRegistrationIfUnowned(priorOwner)
             }
             return
         }
@@ -17196,8 +17196,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarSelectionState = context.sidebarSelectionState
         fileExplorerState = context.fileExplorerState
         TerminalController.shared.setActiveTabManager(context.tabManager)
-        if let previousManager, previousManager !== context.tabManager {
-            finalizeRejectedMainWindowRegistrationIfUnowned(previousManager)
+        if let priorOwner, priorOwner !== context.tabManager {
+            finalizeRejectedMainWindowRegistrationIfUnowned(priorOwner)
         }
     }
 
