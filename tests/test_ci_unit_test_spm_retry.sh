@@ -11,7 +11,6 @@ REQUIRED_PATTERNS=(
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
   'TEST_OUTPUT="$RUNNER_TEMP/cmux-unit-output-shard-${{ matrix.shard }}.txt"'
   'run_unit_tests | tee "$TEST_OUTPUT"'
-  'OUTPUT=$(cat "$TEST_OUTPUT")'
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do
