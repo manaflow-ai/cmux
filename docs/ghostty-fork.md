@@ -12,8 +12,10 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `5b20c6229`, which adds bounded,
-two-phase embedded-surface process teardown. It includes `9513174f2`, the
+The submodule pinned by this branch is `88c3325dc`, which completes bounded,
+two-phase embedded-surface process teardown by tracking direct-child reaping
+separately from surviving process-group descendants. It includes `d462c1d97`,
+the Hangul NFC/NFD font-resolution integration, and `9513174f2`, the
 current-fork reapplication of the VT stream-boundary API previously pinned at
 `11aa609d7`. cmux uses that VT contract to retain incomplete escape-sequence
 bytes across distributed snapshot handoff. The current pin builds on
@@ -52,11 +54,14 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
 
 ### Bounded embedded-surface process teardown
 
-- Pull request:
+- Pull requests:
   - https://github.com/manaflow-ai/ghostty/pull/184
+  - https://github.com/manaflow-ai/ghostty/pull/187
 - Commits:
   - `9be0c8b93` (test: cover subprocesses that ignore SIGHUP)
   - `5b20c6229` (fix: bound embedded surface process teardown)
+  - `26d320bfe` (test: cover descendants surviving direct child exit)
+  - `88c3325dc` (fix: reap surviving process-group descendants)
 - Files:
   - `include/ghostty.h`
   - `src/Surface.zig`
@@ -70,19 +75,39 @@ gitlinks (`cd1f8e012` and `80d7fb35a`).
     cmux's 10-second Claude `SessionEnd` hook budget, then escalates to SIGKILL.
   - Bounds the post-SIGKILL reap wait to three seconds, so a pathological child
     cannot hold a native-surface teardown worker indefinitely.
+  - Keeps process-group liveness independent from direct-child wait status, so
+    an ignoring grandchild is still escalated after its parent exits.
   - Keeps `ghostty_surface_free` as the final synchronization and ownership
     boundary for renderer, IO, callback userdata, and native allocation release.
-- Artifact:
-  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5b20c62297aca8289b400cb7f5583f65a5c759bc-crashsubdir-cmux-crash-sentry-off-v1
-  - SHA-256 `88a4e639d230f8532f44902ee563ed83527521c7cb2a09e10a3b06f40b8879b2`
-    is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note:
   - Preserve the two-phase contract during future embedded-surface or termio
     merges: the pre-free request must prevent new app-action retains, remain
     idempotent, and start IO-owned process teardown without freeing native state.
     Final free must still wait for existing action leases and release the surface
-    exactly once. POSIX process teardown must retain the 12-second SIGHUP grace,
-    SIGKILL escalation, and bounded three-second final reap window.
+    exactly once. POSIX process teardown must retain separate direct-child and
+    process-group liveness state, the 12-second SIGHUP grace, SIGKILL escalation,
+    and the bounded three-second final reap window.
+
+### Canonical Hangul font resolution
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/185
+- Commits:
+  - `0316a8de8` (test: NFC and NFD Hangul must resolve the same font face)
+  - `3fbdd078d` (font: resolve NFD Hangul clusters via canonical composition)
+- Files:
+  - `src/font/hangul.zig`
+  - `src/font/main.zig`
+  - `src/font/shaper/coretext.zig`
+  - `src/font/shaper/run.zig`
+- Summary:
+  - Composes modern Hangul jamo clusters algorithmically for font-resolver
+    lookup so canonically equivalent NFC and NFD text selects the same face.
+  - Preserves the original cell codepoints and shaper input, including NFD
+    copy/paste contents.
+- Conflict note:
+  - Preserve canonical composition at font lookup only; do not rewrite stored
+    terminal cells or the text passed to the shaper.
 
 The renderer line was reviewed in
 https://github.com/manaflow-ai/ghostty/pull/168, following the merged
