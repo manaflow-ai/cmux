@@ -82,6 +82,7 @@ struct RecoverableMainWindowLifecycleTests {
             window.identifier = NSUserInterfaceItemIdentifier(
                 "cmux.orphaned.\(windowId.uuidString)"
             )
+            app.tabManager = liveManager
             _ = app.preferredMainWindowContextForWorkspaceCreation(
                 debugSource: "issue9666-windowless-regression"
             )
