@@ -369,7 +369,6 @@ unsafe fn frontend_connect(
         Err(error) => {
             copy_utf8(&error, error_buffer, error_capacity);
             runtime.block_on(async {
-                let _ = stream.close().await;
                 multiplexer.shutdown().await;
                 let _ = connection.close().await;
                 provider.close().await;
