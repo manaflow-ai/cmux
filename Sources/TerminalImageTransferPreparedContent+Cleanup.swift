@@ -1,11 +1,6 @@
 import CmuxTerminal
 
 extension TerminalImageTransferPreparedContent {
-    /// Releases any temporary image files created while preparing this value.
-    func cleanupTransferredTemporaryFiles() {
-        cleanupTransferredTemporaryFiles(using: GhosttyApp.terminalPasteboard)
-    }
-
     /// Releases temporary image files owned by the supplied pasteboard service.
     func cleanupTransferredTemporaryFiles(
         using pasteboardService: TerminalPasteboardService

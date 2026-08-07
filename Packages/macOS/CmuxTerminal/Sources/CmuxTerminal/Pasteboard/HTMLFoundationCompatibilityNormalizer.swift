@@ -137,37 +137,171 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
         guard cursor > nameStart else { return .invalidOpener }
         let nameRange = nameStart..<cursor
 
-        var quote: UInt8?
+        var state = HTMLFoundationCompatibilityTokenizerState
+            .beforeAttributeName
         while cursor < source.count {
             let byte = source[cursor]
-            if let activeQuote = quote {
-                if byte == activeQuote {
-                    quote = nil
+            switch state {
+            case .beforeAttributeName:
+                if isASCIIWhitespace(byte) {
+                    cursor += 1
+                    continue
                 }
-            } else if byte == Self.singleQuote || byte == Self.doubleQuote {
-                quote = byte
-            } else if byte == Self.greaterThan {
-                var lastContentIndex = cursor - 1
-                while lastContentIndex >= nameRange.upperBound,
-                      isASCIIWhitespace(source[lastContentIndex]) {
-                    lastContentIndex -= 1
-                }
-                let selfClosingSlashIndex =
-                    source[lastContentIndex] == Self.slash
-                        ? lastContentIndex
-                        : nil
-                return .tag(
-                    HTMLFoundationCompatibilityTag(
+                if byte == Self.greaterThan {
+                    return scannedTag(
                         nameRange: nameRange,
                         endIndex: cursor + 1,
-                        isClosing: isClosing,
-                        selfClosingSlashIndex: selfClosingSlashIndex
+                        isClosing: isClosing
                     )
-                )
+                }
+                if isSelfClosingSequence(in: source, at: cursor) {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 2,
+                        isClosing: isClosing,
+                        selfClosingSlashIndex: cursor
+                    )
+                }
+                state = .attributeName
+                cursor += 1
+            case .attributeName:
+                if isASCIIWhitespace(byte) {
+                    state = .afterAttributeName
+                    cursor += 1
+                } else if byte == Self.equals {
+                    state = .beforeAttributeValue
+                    cursor += 1
+                } else if byte == Self.greaterThan {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 1,
+                        isClosing: isClosing
+                    )
+                } else if isSelfClosingSequence(in: source, at: cursor) {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 2,
+                        isClosing: isClosing,
+                        selfClosingSlashIndex: cursor
+                    )
+                } else {
+                    cursor += 1
+                }
+            case .afterAttributeName:
+                if isASCIIWhitespace(byte) {
+                    cursor += 1
+                } else if byte == Self.equals {
+                    state = .beforeAttributeValue
+                    cursor += 1
+                } else if byte == Self.greaterThan {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 1,
+                        isClosing: isClosing
+                    )
+                } else if isSelfClosingSequence(in: source, at: cursor) {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 2,
+                        isClosing: isClosing,
+                        selfClosingSlashIndex: cursor
+                    )
+                } else {
+                    state = .attributeName
+                    cursor += 1
+                }
+            case .beforeAttributeValue:
+                if isASCIIWhitespace(byte) {
+                    cursor += 1
+                } else if byte == Self.doubleQuote {
+                    state = .doubleQuotedAttributeValue
+                    cursor += 1
+                } else if byte == Self.singleQuote {
+                    state = .singleQuotedAttributeValue
+                    cursor += 1
+                } else if byte == Self.greaterThan {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 1,
+                        isClosing: isClosing
+                    )
+                } else {
+                    // Solidus is valid data here and throughout an unquoted
+                    // value. It is syntactic only after an attribute boundary.
+                    state = .unquotedAttributeValue
+                    cursor += 1
+                }
+            case .doubleQuotedAttributeValue:
+                if byte == Self.doubleQuote {
+                    state = .afterQuotedAttributeValue
+                }
+                cursor += 1
+            case .singleQuotedAttributeValue:
+                if byte == Self.singleQuote {
+                    state = .afterQuotedAttributeValue
+                }
+                cursor += 1
+            case .unquotedAttributeValue:
+                if isASCIIWhitespace(byte) {
+                    state = .beforeAttributeName
+                    cursor += 1
+                } else if byte == Self.greaterThan {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 1,
+                        isClosing: isClosing
+                    )
+                } else {
+                    cursor += 1
+                }
+            case .afterQuotedAttributeValue:
+                if isASCIIWhitespace(byte) {
+                    state = .beforeAttributeName
+                    cursor += 1
+                } else if byte == Self.greaterThan {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 1,
+                        isClosing: isClosing
+                    )
+                } else if isSelfClosingSequence(in: source, at: cursor) {
+                    return scannedTag(
+                        nameRange: nameRange,
+                        endIndex: cursor + 2,
+                        isClosing: isClosing,
+                        selfClosingSlashIndex: cursor
+                    )
+                } else {
+                    state = .beforeAttributeName
+                }
             }
-            cursor += 1
         }
         return .unterminated
+    }
+
+    private func scannedTag(
+        nameRange: Range<Int>,
+        endIndex: Int,
+        isClosing: Bool,
+        selfClosingSlashIndex: Int? = nil
+    ) -> HTMLFoundationCompatibilityTagScan {
+        .tag(
+            HTMLFoundationCompatibilityTag(
+                nameRange: nameRange,
+                endIndex: endIndex,
+                isClosing: isClosing,
+                selfClosingSlashIndex: selfClosingSlashIndex
+            )
+        )
+    }
+
+    private func isSelfClosingSequence(
+        in source: [UInt8],
+        at index: Int
+    ) -> Bool {
+        source[index] == Self.slash
+            && index + 1 < source.count
+            && source[index + 1] == Self.greaterThan
     }
 
     private func scanRawTextClosingTag(
@@ -263,6 +397,7 @@ struct HTMLFoundationCompatibilityNormalizer: Sendable {
     private static let zero: UInt8 = 0x30
     private static let nine: UInt8 = 0x39
     private static let colon: UInt8 = 0x3A
+    private static let equals: UInt8 = 0x3D
     private static let lessThan: UInt8 = 0x3C
     private static let greaterThan: UInt8 = 0x3E
     private static let uppercaseA: UInt8 = 0x41

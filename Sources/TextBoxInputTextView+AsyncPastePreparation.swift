@@ -27,7 +27,9 @@ extension TextBoxInputTextView {
             let preparedContent = await preparationService
                 .prepareComposer(request: request)
             guard let self else {
-                preparedContent.cleanupTransferredTemporaryFiles()
+                preparationService.cleanupTransferredTemporaryFiles(
+                    preparedContent
+                )
                 return
             }
             activePastePreparationTasks[placeholderID] = nil
@@ -39,7 +41,9 @@ extension TextBoxInputTextView {
                     id: placeholderID,
                     notifyingTextChange: false
                 )
-                preparedContent.cleanupTransferredTemporaryFiles()
+                preparationService.cleanupTransferredTemporaryFiles(
+                    preparedContent
+                )
                 return
             }
             onPrepared(

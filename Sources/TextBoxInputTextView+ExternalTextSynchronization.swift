@@ -34,7 +34,7 @@ extension TextBoxInputTextView {
     @discardableResult
     func synchronizeExternalTextIfNeeded(_ externalText: String) -> Bool {
         let projectedContent = bindingContentForPreservation()
-        guard shouldSynchronizeExternalTextToTextBox(
+        guard Self.shouldSynchronizeExternalTextToTextBox(
             inlineAttachmentCount: projectedContent.attachments.count,
             plainText: projectedContent.text,
             externalText: externalText,
@@ -46,5 +46,16 @@ extension TextBoxInputTextView {
         invalidatePendingAttachmentUploads()
         string = externalText
         return true
+    }
+
+    private static func shouldSynchronizeExternalTextToTextBox(
+        inlineAttachmentCount: Int,
+        plainText: String,
+        externalText: String,
+        hasMarkedText: Bool
+    ) -> Bool {
+        inlineAttachmentCount == 0
+            && !hasMarkedText
+            && plainText != externalText
     }
 }

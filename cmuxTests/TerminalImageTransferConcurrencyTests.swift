@@ -34,10 +34,11 @@ struct TerminalImageTransferConcurrencyTests {
         item.setDataProvider(provider, forTypes: [.png])
         #expect(pasteboard.writeObjects([item]))
 
+        let preparationService = makeLivePreparationService()
         let preparedContent = await TerminalImageTransferPlanner.prepare(
             pasteboard: pasteboard,
             mode: .paste,
-            using: makeLivePreparationService()
+            using: preparationService
         )
         guard case .fileURLs(let fileURLs) = preparedContent,
               let materializedURL = fileURLs.first else {
@@ -45,7 +46,9 @@ struct TerminalImageTransferConcurrencyTests {
             return
         }
         defer {
-            GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+            preparationService.cleanupTransferredTemporaryFiles(
+                .fileURLs(fileURLs)
+            )
         }
 
         let materializedData = try Data(contentsOf: materializedURL)
@@ -88,6 +91,55 @@ struct TerminalImageTransferConcurrencyTests {
         #expect(
             preparedContent == .fileURLs([fileURL.standardizedFileURL])
         )
+    }
+
+    @MainActor
+    @Test("prepared result cleanup uses the injected pasteboard owner")
+    func preparedResultCleanupUsesInjectedPasteboardOwner() throws {
+        let scratchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-tests-cleanup-owner-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        let ownerDirectory = scratchDirectory.appendingPathComponent(
+            "owner",
+            isDirectory: true
+        )
+        let foreignDirectory = scratchDirectory.appendingPathComponent(
+            "foreign",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(
+            at: ownerDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: foreignDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: scratchDirectory) }
+        let fileURL = ownerDirectory.appendingPathComponent("prepared.png")
+        try Data([0x1]).write(to: fileURL)
+        let owner = TerminalPasteboardService(
+            temporaryDirectory: ownerDirectory
+        )
+        let foreign = TerminalPasteboardService(
+            temporaryDirectory: foreignDirectory
+        )
+        owner.debugRegisterOwnedTemporaryImageFile(fileURL)
+        let result = TerminalPastePreparationResult.composer(
+            .attachments([
+                TextBoxPreparedAttachment(
+                    fileURL: fileURL,
+                    thumbnailPNGData: nil
+                ),
+            ])
+        )
+
+        result.cleanupTransferredTemporaryFiles(using: foreign)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path))
+        result.cleanupTransferredTemporaryFiles(using: owner)
+        #expect(!FileManager.default.fileExists(atPath: fileURL.path))
     }
 
     @MainActor
@@ -478,8 +530,13 @@ struct TerminalImageTransferConcurrencyTests {
                 let client = TerminalPastePreparationWorkerClient
                     .reexecingCurrentBinary(
                         pasteboardService: pasteboardService
-                    )
+                )
                 return try await client.prepare(request)
+            },
+            cleanup: { result in
+                result.cleanupTransferredTemporaryFiles(
+                    using: pasteboardService
+                )
             }
         )
     }

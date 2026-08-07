@@ -406,8 +406,13 @@ class GhosttyApp {
                     let client = TerminalPastePreparationWorkerClient
                         .reexecingCurrentBinary(
                             pasteboardService: pasteboardService
-                        )
+                    )
                     return try await client.prepare(request)
+                },
+                cleanup: { result in
+                    result.cleanupTransferredTemporaryFiles(
+                        using: pasteboardService
+                    )
                 }
             )
             return TerminalSurfaceViewFactory(

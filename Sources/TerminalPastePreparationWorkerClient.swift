@@ -33,7 +33,8 @@ struct TerminalPastePreparationWorkerClient: Sendable {
         )
     }
 
-    nonisolated func prepare(
+    @concurrent
+    func prepare(
         _ request: TerminalPastePreparationRequest
     ) async throws -> TerminalPastePreparationResult {
         let workingDirectory = try makeWorkingDirectory()

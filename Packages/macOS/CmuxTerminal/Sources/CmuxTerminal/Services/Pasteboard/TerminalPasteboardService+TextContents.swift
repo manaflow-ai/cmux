@@ -20,9 +20,9 @@ extension TerminalPasteboardService: TerminalClipboardReading {
         let hasImagePayload = hasImageData(in: pasteboard)
         let hasRTFDAttachmentPayload = types.contains(.rtfd)
         let plainText = plainTextContents(from: pasteboard)
+        let htmlOutcome: HTMLPlainTextParseOutcome?
         if hasImagePayload {
             let parser = HTMLPlainTextParser()
-            let htmlOutcome: HTMLPlainTextParseOutcome?
             if let html = pasteboard.string(forType: .html) {
                 htmlOutcome = parser.outcome(from: html)
             } else if let htmlData = pasteboard.data(forType: .html) {
@@ -38,10 +38,15 @@ extension TerminalPasteboardService: TerminalClipboardReading {
                     return plainText
                 }
             }
+        } else {
+            htmlOutcome = nil
         }
 
         if hasImagePayload || hasRTFDAttachmentPayload {
-            guard let richText = richTextContents(from: pasteboard) else {
+            guard let richText = richTextContents(
+                from: pasteboard,
+                precomputedHTMLOutcome: htmlOutcome
+            ) else {
                 return nil
             }
             if let plainText,
@@ -103,8 +108,17 @@ extension TerminalPasteboardService {
         return sanitized
     }
 
-    private func richTextContents(from pasteboard: NSPasteboard) -> String? {
-        if let htmlText = htmlPlainTextContents(from: pasteboard) {
+    private func richTextContents(
+        from pasteboard: NSPasteboard,
+        precomputedHTMLOutcome: HTMLPlainTextParseOutcome? = nil
+    ) -> String? {
+        let htmlText: String?
+        if let precomputedHTMLOutcome {
+            htmlText = precomputedHTMLOutcome.plainText
+        } else {
+            htmlText = htmlPlainTextContents(from: pasteboard)
+        }
+        if let htmlText {
             return htmlText
         }
         if let rtfText = attributedStringContents(from: pasteboard, type: .rtf, documentType: .rtf) {

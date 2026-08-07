@@ -21,7 +21,8 @@ extension TextBoxInputContainer {
                 preparedContent,
                 in: textView,
                 placeholderID: placeholderID,
-                validationToken: validationToken
+                validationToken: validationToken,
+                preparationService: preparationService
             )
         }
     }
@@ -30,7 +31,8 @@ extension TextBoxInputContainer {
         _ preparedContent: TextBoxPastePreparedContent,
         in textView: TextBoxInputTextView,
         placeholderID: UUID,
-        validationToken: UInt64
+        validationToken: UInt64,
+        preparationService: TerminalImageTransferPreparationService
     ) {
         guard ownsTextView(textView),
               textView.canAcceptPendingAttachmentUpload(
@@ -40,7 +42,9 @@ extension TextBoxInputContainer {
                 id: placeholderID,
                 notifyingTextChange: false
             )
-            preparedContent.cleanupTransferredTemporaryFiles()
+            preparationService.cleanupTransferredTemporaryFiles(
+                preparedContent
+            )
             return
         }
 
@@ -50,7 +54,9 @@ extension TextBoxInputContainer {
                 id: placeholderID,
                 withText: insertedText
             ) else {
-                preparedContent.cleanupTransferredTemporaryFiles()
+                preparationService.cleanupTransferredTemporaryFiles(
+                    preparedContent
+                )
                 return
             }
             publishComposerContent(from: textView)
@@ -59,7 +65,8 @@ extension TextBoxInputContainer {
                 preparedAttachments,
                 to: textView,
                 placeholderID: placeholderID,
-                validationToken: validationToken
+                validationToken: validationToken,
+                preparationService: preparationService
             )
         case .reject:
             if textView.removePendingAttachmentUploadPlaceholder(
@@ -74,7 +81,8 @@ extension TextBoxInputContainer {
         _ preparedAttachments: [TextBoxPreparedAttachment],
         to textView: TextBoxInputTextView,
         placeholderID: UUID,
-        validationToken: UInt64
+        validationToken: UInt64,
+        preparationService: TerminalImageTransferPreparationService
     ) {
         guard !preparedAttachments.isEmpty else {
             _ = textView.removePendingAttachmentUploadPlaceholder(
@@ -107,7 +115,10 @@ extension TextBoxInputContainer {
                 id: placeholderID,
                 with: newAttachments
             ) else {
-                preparedContentCleanup(preparedAttachments)
+                preparedContentCleanup(
+                    preparedAttachments,
+                    using: preparationService
+                )
                 return
             }
             publishComposerContent(from: textView)
@@ -118,23 +129,44 @@ extension TextBoxInputContainer {
                 focusing: textView,
                 replacingPlaceholderID: placeholderID,
                 validationToken: validationToken,
-                preparedAttachments: preparedAttachments
+                preparedAttachments: preparedAttachments,
+                preparationService: preparationService
             )
         case .reject:
             _ = textView.removePendingAttachmentUploadPlaceholder(
                 id: placeholderID
             )
-            preparedContentCleanup(preparedAttachments)
+            preparedContentCleanup(
+                preparedAttachments,
+                using: preparationService
+            )
             publishComposerContent(from: textView)
         }
     }
 
     private func preparedContentCleanup(
-        _ preparedAttachments: [TextBoxPreparedAttachment]
+        _ preparedAttachments: [TextBoxPreparedAttachment],
+        using preparationService: TerminalImageTransferPreparationService
     ) {
-        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(
-            preparedAttachments.map(\.fileURL)
+        preparationService.cleanupTransferredTemporaryFiles(
+            TextBoxPastePreparedContent.attachments(preparedAttachments)
         )
+    }
+
+    func cleanupPreparedPasteFileURLs(
+        _ fileURLs: [URL],
+        using preparationService: TerminalImageTransferPreparationService?
+    ) {
+        if let preparationService {
+            preparationService.cleanupTransferredTemporaryFiles(
+                .fileURLs(fileURLs)
+            )
+        } else {
+            // Legacy synchronous insertion materializes through this process's
+            // composition-root pasteboard service rather than a worker owner.
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(fileURLs)
+        }
     }
 
     private func publishComposerContent(from textView: TextBoxInputTextView) {

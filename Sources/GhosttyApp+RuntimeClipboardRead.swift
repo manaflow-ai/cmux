@@ -2,6 +2,7 @@ import AppKit
 import CmuxTerminal
 import CmuxTerminalCore
 import GhosttyKit
+import os
 
 extension GhosttyApp {
     static func runtimeReadClipboardCallback(
@@ -47,9 +48,23 @@ extension GhosttyApp {
                   let requestSurfaceIdentity = TerminalClipboardRequestSurfaceIdentity(
                     terminalSurface: requestTerminalSurface
                   ),
-                  requestSurfaceIdentity.surfaceAddress == requestSurfaceAddress,
-                  let preparationService = requestSurfaceView
-                    .imageTransferPreparation else {
+                  requestSurfaceIdentity.surfaceAddress
+                    == requestSurfaceAddress else {
+                callbackContext.invalidateRuntimeClipboardRequest(
+                    clipboardRequestID,
+                    completingNativeRequest: true
+                )
+                return
+            }
+            guard let preparationService = requestSurfaceView
+                .imageTransferPreparation else {
+                Logger(
+                    subsystem: Bundle.main.bundleIdentifier
+                        ?? "com.cmuxterm.app",
+                    category: "RuntimeClipboard"
+                ).warning(
+                    "Clipboard read rejected: missing paste preparation service"
+                )
                 callbackContext.invalidateRuntimeClipboardRequest(
                     clipboardRequestID,
                     completingNativeRequest: true
@@ -112,14 +127,18 @@ extension GhosttyApp {
 
             guard !operation.isCancelled else {
                 if case .fileURLs(let fileURLs) = preparedContent {
-                    terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    preparationService.cleanupTransferredTemporaryFiles(
+                        .fileURLs(fileURLs)
+                    )
                 }
                 return
             }
 
             guard requestSurfaceIdentity.matches(requestTerminalSurface) else {
                 if case .fileURLs(let fileURLs) = preparedContent {
-                    terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    preparationService.cleanupTransferredTemporaryFiles(
+                        .fileURLs(fileURLs)
+                    )
                 }
                 completeClipboardRequest(with: "")
                 return
@@ -179,7 +198,9 @@ extension GhosttyApp {
                             }
                             guard let workspace else {
                                 finish(.failure(NSError(domain: "cmux.remote.paste", code: 3)))
-                                terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                preparationService.cleanupTransferredTemporaryFiles(
+                                    .fileURLs(fileURLs)
+                                )
                                 return
                             }
                             workspace.uploadDroppedFilesForRemoteTerminal(
@@ -187,7 +208,9 @@ extension GhosttyApp {
                                 operation: operation,
                                 completion: { result in
                                     finish(result)
-                                    terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                    preparationService.cleanupTransferredTemporaryFiles(
+                                        .fileURLs(fileURLs)
+                                    )
                                 }
                             )
                         },
@@ -196,7 +219,9 @@ extension GhosttyApp {
                                 requestSurfaceIdentity.matches(requestTerminalSurface)
                             }) else {
                                 finish(.failure(NSError(domain: "cmux.remote.paste", code: 4)))
-                                terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                preparationService.cleanupTransferredTemporaryFiles(
+                                    .fileURLs(fileURLs)
+                                )
                                 return
                             }
                             session.uploadDroppedFiles(
@@ -204,7 +229,9 @@ extension GhosttyApp {
                                 operation: operation,
                                 completion: { result in
                                     finish(result)
-                                    terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                                    preparationService.cleanupTransferredTemporaryFiles(
+                                        .fileURLs(fileURLs)
+                                    )
                                 }
                             )
                         },

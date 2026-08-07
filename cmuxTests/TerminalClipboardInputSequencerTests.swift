@@ -370,6 +370,7 @@ struct TerminalClipboardInputSequencerTests {
     func surfaceFactoryInjectsSharedPastePreparationService() throws {
         let preparationService = TerminalImageTransferPreparationService(
             operation: { _ in throw CancellationError() },
+            cleanup: { _ in },
             failureSignal: { _ in }
         )
         let factory = TerminalSurfaceViewFactory(

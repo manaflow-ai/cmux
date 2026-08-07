@@ -119,7 +119,7 @@ struct HTMLPlainTextParser: Sendable {
         }
         return outcome(
             from: document,
-            sourceLength: html.count,
+            sourceLength: html.utf8.count,
             hiddenTemplateAttributeName: hiddenTemplateAttributeName
         )
     }

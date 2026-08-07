@@ -1013,15 +1013,6 @@ func shouldHandleTextBoxPlainArrowLocally(
     }
 }
 
-func shouldSynchronizeExternalTextToTextBox(
-    inlineAttachmentCount: Int,
-    plainText: String,
-    externalText: String,
-    hasMarkedText: Bool
-) -> Bool {
-    inlineAttachmentCount == 0 && !hasMarkedText && plainText != externalText
-}
-
 func textBoxCommandShortcutKey(
     for event: NSEvent,
     translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
@@ -2789,14 +2780,17 @@ struct TextBoxInputContainer: View {
         focusing textView: TextBoxInputTextView,
         replacingPlaceholderID existingPlaceholderID: UUID? = nil,
         validationToken existingValidationToken: UInt64? = nil,
-        preparedAttachments: [TextBoxPreparedAttachment] = []
+        preparedAttachments: [TextBoxPreparedAttachment] = [],
+        preparationService: TerminalImageTransferPreparationService? = nil
     ) {
         let placeholderID = existingPlaceholderID ?? UUID()
         if existingPlaceholderID == nil {
             guard textView.beginPendingPasteReservation(id: placeholderID)
             else {
-                GhosttyApp.terminalPasteboard
-                    .cleanupTransferredTemporaryImageFiles(fileURLs)
+                cleanupPreparedPasteFileURLs(
+                    fileURLs,
+                    using: preparationService
+                )
                 return
             }
         }
@@ -2830,7 +2824,10 @@ struct TextBoxInputContainer: View {
                 surface?.hostedView.endImageTransferIndicator(for: operation)
                 guard operation.finish() else {
                     removePendingPlaceholder()
-                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    cleanupPreparedPasteFileURLs(
+                        fileURLs,
+                        using: preparationService
+                    )
                     return
                 }
 
@@ -2838,7 +2835,10 @@ struct TextBoxInputContainer: View {
                 case .success(let remotePaths):
                     guard !remotePaths.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         NSSound.beep()
                         return
                     }
@@ -2865,14 +2865,20 @@ struct TextBoxInputContainer: View {
                     }
                     guard !newAttachments.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         NSSound.beep()
                         return
                     }
                     guard textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         return
                     }
                     guard textView.replacePendingAttachmentUploadPlaceholder(
@@ -2880,14 +2886,20 @@ struct TextBoxInputContainer: View {
                         with: newAttachments
                     ) else {
                         removePendingPlaceholder()
-                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        cleanupPreparedPasteFileURLs(
+                            fileURLs,
+                            using: preparationService
+                        )
                         return
                     }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 case .failure:
                     removePendingPlaceholder()
-                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    cleanupPreparedPasteFileURLs(
+                        fileURLs,
+                        using: preparationService
+                    )
                     NSSound.beep()
                 }
             }

@@ -42,9 +42,7 @@ actor TerminalImageTransferPreparationService {
         },
         admissionSignal: @escaping AdmissionSignal = { _ in },
         operation: @escaping Operation,
-        cleanup: @escaping Cleanup = { result in
-            result.cleanupTransferredTemporaryFiles()
-        },
+        cleanup: @escaping Cleanup,
         failureSignal: @escaping FailureSignal = { _ in NSSound.beep() }
     ) {
         self.deadline = deadline
@@ -54,6 +52,18 @@ actor TerminalImageTransferPreparationService {
         self.operation = operation
         self.cleanup = cleanup
         self.failureSignal = failureSignal
+    }
+
+    nonisolated func cleanupTransferredTemporaryFiles(
+        _ content: TerminalImageTransferPreparedContent
+    ) {
+        cleanup(.terminal(content))
+    }
+
+    nonisolated func cleanupTransferredTemporaryFiles(
+        _ content: TextBoxPastePreparedContent
+    ) {
+        cleanup(.composer(content))
     }
 
     func prepare(
