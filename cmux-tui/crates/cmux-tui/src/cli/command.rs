@@ -2331,7 +2331,10 @@ fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
             reason: messages.reason_invalid_state_path,
             recovery: messages.recovery_invalid_state_path,
         }
-    } else if error.contains("changed during reset") {
+    } else if ["changed during reset", "changed during fingerprint"]
+        .iter()
+        .any(|marker| error.contains(marker))
+    {
         ResetFailureAdvice {
             code: "session.reset_state.state_changed",
             reason: messages.reason_state_changed,
@@ -2363,6 +2366,15 @@ mod tests {
 
     fn operation(plan: &RequestPlan) -> String {
         plan.operation.name().unwrap()
+    }
+
+    #[test]
+    fn reset_failure_advice_classifies_fingerprint_race_as_state_changed() {
+        let advice = reset_failure_advice(&anyhow::anyhow!(
+            "reset path changed during fingerprint: /tmp/cmux-state/registry"
+        ));
+        assert_eq!(advice.code, "session.reset_state.state_changed");
+        assert!(advice.recovery.contains("rerun the preview"), "{}", advice.recovery);
     }
 
     fn operation_catalog() -> Value {
