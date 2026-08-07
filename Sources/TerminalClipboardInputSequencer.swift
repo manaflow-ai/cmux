@@ -169,6 +169,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
     func completeRequest(
         id: RequestID,
         confirmed: Bool,
+        onLogicalCompletion: () -> Void = {},
         replay: @escaping (Event) -> Void
     ) {
         guard let request = activeRequests[id] else { return }
@@ -185,6 +186,7 @@ final class TerminalClipboardInputSequencer<Event, RequestID: Hashable & Sendabl
         }
 
         _ = removeRequest(id: id)
+        onLogicalCompletion()
         replayBufferedEvents(for: request.epoch, replay: replay)
     }
 

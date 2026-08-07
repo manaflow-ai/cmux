@@ -292,25 +292,36 @@ struct TerminalClipboardInputSequencerTests {
         #expect(delivered == ["replacement-input"])
     }
 
-    @Test("confirmation keeps input queued until confirmed completion")
+    @Test("confirmation keeps input queued and reports one logical completion")
     func confirmationKeepsInputQueued() {
         let sequencer = TerminalClipboardInputSequencer<String, Int>(
             maximumBufferedEvents: 8
         )
         var delivered: [String] = []
+        var logicalCompletionCount = 0
         sequencer.beginRequest(id: 1)
         #expect(sequencer.shouldDefer("suffix"))
         sequencer.requireConfirmation(for: 1)
 
-        sequencer.completeRequest(id: 1, confirmed: true) {
+        sequencer.completeRequest(
+            id: 1,
+            confirmed: true,
+            onLogicalCompletion: { logicalCompletionCount += 1 }
+        ) {
             delivered.append($0)
         }
         #expect(delivered.isEmpty)
+        #expect(logicalCompletionCount == 0)
 
-        sequencer.completeRequest(id: 1, confirmed: false) {
+        sequencer.completeRequest(
+            id: 1,
+            confirmed: false,
+            onLogicalCompletion: { logicalCompletionCount += 1 }
+        ) {
             delivered.append($0)
         }
         #expect(delivered == ["suffix"])
+        #expect(logicalCompletionCount == 1)
     }
 
     @Test("clipboard request identity rejects allocator pointer reuse")

@@ -110,8 +110,13 @@ extension GhosttySurfaceCallbackContext {
                 false
             )
         }
-        terminalSurface.noteClipboardReadCompleted()
-        surfaceView?.completeClipboardRead(requestID, confirmed: false)
+        if let surfaceView {
+            surfaceView.completeClipboardRead(requestID, confirmed: false) {
+                terminalSurface.noteClipboardReadCompleted()
+            }
+        } else {
+            terminalSurface.noteClipboardReadCompleted()
+        }
     }
 
     @MainActor
@@ -141,7 +146,8 @@ extension GhosttySurfaceCallbackContext {
                 true
             )
         }
-        terminalSurface.noteClipboardReadCompleted()
-        surfaceView?.completeClipboardRead(stateAddress, confirmed: true)
+        surfaceView?.completeClipboardRead(stateAddress, confirmed: true) {
+            terminalSurface.noteClipboardReadCompleted()
+        }
     }
 }

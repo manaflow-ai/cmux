@@ -23,11 +23,13 @@ extension GhosttyNSView {
 
     func completeClipboardRead(
         _ requestID: UInt,
-        confirmed: Bool
+        confirmed: Bool,
+        onLogicalCompletion: () -> Void = {}
     ) {
         terminalClipboardInputSequencer.completeRequest(
             id: requestID,
-            confirmed: confirmed
+            confirmed: confirmed,
+            onLogicalCompletion: onLogicalCompletion
         ) { [weak self] event in
             self?.replayClipboardDeferredInput(event)
         }
