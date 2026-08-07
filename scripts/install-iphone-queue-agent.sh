@@ -17,10 +17,9 @@
 #      when the queue is empty, and while non-empty each drain run itself polls
 #      (--wait/--interval), so reconnects land within ~10s.
 #
-# The agent runs a STABLE COPY of iphone-install-queue.sh from the queue dir
-# (copied at install time), never a path inside a worktree, so pruning the
-# worktree that installed it cannot break the agent. Re-run install after
-# updating the script to refresh the copy.
+# The agent runs stable copies of iphone-install-queue.sh and its process helper
+# from the queue dir, never paths inside a worktree. Re-run install after
+# updating either script to refresh the copies.
 #
 # --checkout bakes CMUX_IPHONE_QUEUE_CHECKOUT into the agent: the fallback cmux
 # checkout used for the signed launch (mobile-dev-launch.sh) when the enqueuing
@@ -66,6 +65,7 @@ cmd_install() {
   mkdir -p "$QUEUE_DIR/bin" "$QUEUE_DIR/logs" "$QUEUE_DIR/pending" \
     "$HOME/Library/LaunchAgents"
   install -m 0755 "$SCRIPT_DIR/iphone-install-queue.sh" "$QUEUE_DIR/bin/iphone-install-queue.sh"
+  install -m 0755 "$SCRIPT_DIR/ios-device-process.sh" "$QUEUE_DIR/bin/ios-device-process.sh"
 
   # idVendor 1452 = 0x05AC (Apple). Matching any Apple USB device is fine: the
   # drain exits immediately when the queue is empty or the device is not the

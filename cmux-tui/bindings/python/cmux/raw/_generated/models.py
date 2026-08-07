@@ -74,6 +74,10 @@ class PaneDirection(str, Enum):
     UP = 'up'
     DOWN = 'down'
 
+class RenderGraphicFormat(str, Enum):
+    RGB = 'rgb'
+    RGBA = 'rgba'
+
 class RenderUnderline(str, Enum):
     SINGLE = 'single'
     DOUBLE = 'double'
@@ -212,6 +216,11 @@ class TerminalLifecycle(str, Enum):
     EXITED = 'exited'
     TOMBSTONED = 'tombstoned'
 
+class ViewAttachmentOutcome(str, Enum):
+    APPLIED = 'applied'
+    PASSIVE = 'passive'
+    SUPERSEDED = 'superseded'
+
 
 @dataclass(frozen=True)
 class AgentRecord:
@@ -238,6 +247,20 @@ class ApplyLayoutResult:
 
 
 @dataclass(frozen=True)
+class AttachedViewOutcomeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewOutcomeResult'
+    outcome: ViewAttachmentOutcome
+
+
+@dataclass(frozen=True)
+class AttachedViewResizeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/AttachedViewResizeResult'
+    accepted: bool
+    outcome: ViewAttachmentOutcome
+    reservation_id: Union[int, None]
+
+
+@dataclass(frozen=True)
 class BrowserFrame:
     __cmux_schema_path__: ClassVar[str] = 'types/BrowserFrame'
     data: Base64
@@ -260,6 +283,14 @@ class CellPixelResize:
     cols: int
     reservation_id: int
     rows: int
+
+
+@dataclass(frozen=True)
+class CellPixelSurface:
+    __cmux_schema_path__: ClassVar[str] = 'types/CellPixelSurface'
+    surface: Id
+    height_px: int
+    width_px: int
 
 
 @dataclass(frozen=True)
@@ -376,6 +407,14 @@ class FrontendProjection:
 
 
 @dataclass(frozen=True)
+class GetCellPixelsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/GetCellPixelsResult'
+    height_px: int
+    surfaces: List[CellPixelSurface]
+    width_px: int
+
+
+@dataclass(frozen=True)
 class IdMapping:
     __cmux_schema_path__: ClassVar[str] = 'types/IdMapping'
     id: Id
@@ -405,6 +444,27 @@ class IdentifyResult:
 class IdsResult:
     __cmux_schema_path__: ClassVar[str] = 'types/IdsResult'
     ids: List[IdMapping]
+
+
+@dataclass(frozen=True)
+class KittyGraphicsState:
+    __cmux_schema_path__: ClassVar[str] = 'types/KittyGraphicsState'
+    alternate_next_image_id: int
+    alternate_replay_next_image_id: int
+    image_bytes: int
+    images: int
+    inflight_bytes: int
+    placements: int
+    primary_next_image_id: int
+    primary_replay_next_image_id: int
+    replay_cursor_offset: int
+
+
+@dataclass(frozen=True)
+class KittyImageAlias:
+    __cmux_schema_path__: ClassVar[str] = 'types/KittyImageAlias'
+    image_id: int
+    image_number: int
 
 
 @dataclass(frozen=True)
@@ -562,6 +622,7 @@ class ReadScreenResult:
 @dataclass(frozen=True)
 class ReadScrollbackResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ReadScrollbackResult'
+    epoch: int
     rows: List[RenderRow]
     start: int
     total: int
@@ -576,6 +637,61 @@ class RenderCursor:
     visible: bool
     x: int
     y: int
+
+
+@dataclass(frozen=True)
+class RenderGraphicImage:
+    __cmux_schema_path__: ClassVar[str] = 'types/RenderGraphicImage'
+    data: Base64
+    format: RenderGraphicFormat
+    generation: int
+    height: int
+    id: int
+    width: int
+
+
+@dataclass(frozen=True)
+class RenderGraphicPlacement:
+    __cmux_schema_path__: ClassVar[str] = 'types/RenderGraphicPlacement'
+    columns: int
+    grid_cols: int
+    grid_rows: int
+    image_id: int
+    ordinal: int
+    pixel_height: int
+    pixel_width: int
+    placement_id: int
+    rows: int
+    source_height: int
+    source_width: int
+    source_x: int
+    source_y: int
+    viewport_col: int
+    viewport_row: int
+    viewport_visible: bool
+    x_offset: int
+    y_offset: int
+    z: int
+    anchor_col: Union[int, MissingType] = field(default=MISSING)
+    anchor_row: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RenderGraphics:
+    __cmux_schema_path__: ClassVar[str] = 'types/RenderGraphics'
+    generation: int
+    placements: List[RenderGraphicPlacement]
+    images: Union[List[RenderGraphicImage], MissingType] = field(default=MISSING)
+    removed_image_ids: Union[List[int], MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class RenderGraphicsDelta:
+    __cmux_schema_path__: ClassVar[str] = 'types/RenderGraphicsDelta'
+    generation: int
+    images: Union[List[RenderGraphicImage], MissingType] = field(default=MISSING)
+    placements: Union[List[RenderGraphicPlacement], MissingType] = field(default=MISSING)
+    removed_image_ids: Union[List[int], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -625,6 +741,27 @@ class ResolveTerminalResult:
     terminal_incarnation: Union[str, None]
     terminal_revision: int
     workspace_key: str
+
+
+@dataclass(frozen=True)
+class ResourceSelectors:
+    __cmux_schema_path__: ClassVar[str] = 'types/ResourceSelectors'
+    pane: Union[str, None, MissingType] = field(default=MISSING)
+    screen: Union[str, None, MissingType] = field(default=MISSING)
+    workspace: Union[str, None, MissingType] = field(default=MISSING)
+    split: Union[str, None, MissingType] = field(default=MISSING)
+    client: Union[str, None, MissingType] = field(default=MISSING)
+    agent: Union[str, None, MissingType] = field(default=MISSING)
+    browser: Union[str, None, MissingType] = field(default=MISSING)
+    frontend_projection: Union[str, None, MissingType] = field(default=MISSING)
+    machine: Union[str, None, MissingType] = field(default=MISSING)
+    notification: Union[str, None, MissingType] = field(default=MISSING)
+    pairing_request: Union[str, None, MissingType] = field(default=MISSING)
+    session: Union[str, None, MissingType] = field(default=MISSING)
+    sidebar_view: Union[str, None, MissingType] = field(default=MISSING)
+    stream: Union[str, None, MissingType] = field(default=MISSING)
+    tab: Union[str, None, MissingType] = field(default=MISSING)
+    terminal: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -815,6 +952,8 @@ class VtStateResult:
     cols: int
     data: Base64
     rows: int
+    kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
+    kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1057,6 +1196,24 @@ class CopyRequest:
 
 
 @dataclass(frozen=True)
+class CreateSurfaceWithReceiptRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-surface-with-receipt/request'
+    operation: str
+    origin: str
+    receipt: str
+    pane: Union[Id, None, MissingType] = field(default=MISSING)
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    argv: Union[List[str], None, MissingType] = field(default=MISSING)
+    cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    rows: Union[int, None, MissingType] = field(default=MISSING)
+    selector_fallbacks: Union[List[ResourceSelectors], MissingType] = field(default=MISSING)
+    selectors: Union[ResourceSelectors, None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+    width: Union[float, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CreateTerminalRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-terminal/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
@@ -1086,6 +1243,13 @@ class CreateWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class DetachAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/detach-attached-view/request'
+    surface: Id
+    lease: str
+
+
+@dataclass(frozen=True)
 class DetachClientRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/detach-client/request'
     client: int
@@ -1108,6 +1272,12 @@ class FocusDirectionRequest:
 class FocusPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-pane/request'
     pane: Id
+
+
+@dataclass(frozen=True)
+class GetCellPixelsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-cell-pixels/request'
+    pass
 
 
 @dataclass(frozen=True)
@@ -1316,6 +1486,13 @@ class ReadScrollbackRequest:
 
 
 @dataclass(frozen=True)
+class ReleaseAttachedViewSizeRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/release-attached-view-size/request'
+    surface: Id
+    lease: str
+
+
+@dataclass(frozen=True)
 class ReleaseSurfaceSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-surface-size/request'
     surface: Id
@@ -1383,6 +1560,15 @@ class ReportAgentRequest:
     state: AgentState
     source: AgentReportSource
     session: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ResizeAttachedViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/resize-attached-view/request'
+    surface: Id
+    cols: int
+    lease: str
+    rows: int
 
 
 @dataclass(frozen=True)
@@ -1531,6 +1717,7 @@ class ShutdownDaemonRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/shutdown-daemon/request'
     pid: int
     generation: str
+    force: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1724,6 +1911,21 @@ class FrontendProjectionChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class GraphicsStatusEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/graphics-status/payload'
+    event: Literal['graphics-status']
+    kind: Literal['kitty-image-budget-worker-start-failed', 'kitty-image-budget-update-failed', 'cell-pixel-update-retries-exhausted']
+    attempts: Union[int, MissingType] = field(default=MISSING)
+    cell_height: Union[int, MissingType] = field(default=MISSING)
+    cell_width: Union[int, MissingType] = field(default=MISSING)
+    error: Union[str, MissingType] = field(default=MISSING)
+    remaining: Union[int, MissingType] = field(default=MISSING)
+    retry_exhausted: Union[bool, MissingType] = field(default=MISSING)
+    summary: Union[str, MissingType] = field(default=MISSING)
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class LayoutChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/layout-changed/payload'
     screen: Id
@@ -1816,6 +2018,8 @@ class RenderDeltaEvent(EventBase):
     rows: List[RenderRow]
     default_bg: Union[ColorHex, MissingType] = field(default=MISSING)
     default_fg: Union[ColorHex, MissingType] = field(default=MISSING)
+    graphics: Union[RenderGraphicsDelta, MissingType] = field(default=MISSING)
+    history_epoch: Union[int, MissingType] = field(default=MISSING)
     scrollback_rows: Union[int, MissingType] = field(default=MISSING)
     size: Union[Size, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -1829,9 +2033,11 @@ class RenderStateEvent(EventBase):
     default_bg: ColorHex
     default_fg: ColorHex
     event: Literal['render-state']
+    history_epoch: int
     rows: List[RenderRow]
     scrollback_rows: int
     size: Size
+    graphics: Union[RenderGraphics, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -1844,6 +2050,8 @@ class ResizedEvent(EventBase):
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
     data: Union[Base64, MissingType] = field(default=MISSING)
+    kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
+    kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     replay: Union[Base64, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -2012,6 +2220,8 @@ class VtStateEvent(EventBase):
     event: Literal['vt-state']
     rows: int
     colors: Union[TerminalColors, MissingType] = field(default=MISSING)
+    kitty_graphics_state: Union[KittyGraphicsState, MissingType] = field(default=MISSING)
+    kitty_image_aliases: Union[List[KittyImageAlias], MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -2092,7 +2302,7 @@ Layout = Union[LayoutLeaf, LayoutSplit, LayoutStack]
 LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 
-KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2109,17 +2319,22 @@ __all__ = [
     'CursorStyle',
     'NotificationLevel',
     'PaneDirection',
+    'RenderGraphicFormat',
     'RenderUnderline',
     'SplitDirection',
     'TerminalKey',
     'TerminalKeyAction',
     'TerminalLifecycle',
+    'ViewAttachmentOutcome',
     'AgentRecord',
     'AppliedPane',
     'ApplyLayoutResult',
+    'AttachedViewOutcomeResult',
+    'AttachedViewResizeResult',
     'BrowserFrame',
     'CellPixelFailure',
     'CellPixelResize',
+    'CellPixelSurface',
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
@@ -2133,9 +2348,12 @@ __all__ = [
     'ExportedPane',
     'FocusDirectionResult',
     'FrontendProjection',
+    'GetCellPixelsResult',
     'IdMapping',
     'IdentifyResult',
     'IdsResult',
+    'KittyGraphicsState',
+    'KittyImageAlias',
     'LayoutLeaf',
     'LayoutSplit',
     'LayoutStack',
@@ -2155,11 +2373,16 @@ __all__ = [
     'ReadScreenResult',
     'ReadScrollbackResult',
     'RenderCursor',
+    'RenderGraphicImage',
+    'RenderGraphicPlacement',
+    'RenderGraphics',
+    'RenderGraphicsDelta',
     'RenderRow',
     'RenderRun',
     'ReportAgentResult',
     'ResizeSurfaceResult',
     'ResolveTerminalResult',
+    'ResourceSelectors',
     'RunResult',
     'Screen',
     'SetCellPixelsResult',
@@ -2205,12 +2428,15 @@ __all__ = [
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
+    'CreateSurfaceWithReceiptRequest',
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
+    'DetachAttachedViewRequest',
     'DetachClientRequest',
     'ExportLayoutRequest',
     'FocusDirectionRequest',
     'FocusPaneRequest',
+    'GetCellPixelsRequest',
     'GetFrontendProjectionRequest',
     'IdentifyRequest',
     'IdsRequest',
@@ -2237,6 +2463,7 @@ __all__ = [
     'PutFrontendProjectionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
@@ -2246,6 +2473,7 @@ __all__ = [
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
     'ReportAgentRequest',
+    'ResizeAttachedViewRequest',
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
     'RunRequest',
@@ -2285,6 +2513,7 @@ __all__ = [
     'EmptyEvent',
     'FrameEvent',
     'FrontendProjectionChangedEvent',
+    'GraphicsStatusEvent',
     'LayoutChangedEvent',
     'NotificationEvent',
     'OutputEvent',

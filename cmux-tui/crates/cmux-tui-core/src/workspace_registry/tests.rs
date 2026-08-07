@@ -170,7 +170,7 @@ fn terminal_resource(id: &str) -> TerminalPublicId {
 }
 
 fn agent_resource(terminal_id: &TerminalPublicId) -> crate::resource::AgentPublicId {
-    let digest = Sha256::digest(format!("cmux.protocol/1/agent/{terminal_id}").as_bytes());
+    let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
     let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     crate::resource::AgentPublicId::parse(format!("agent_{payload}")).unwrap()
 }
@@ -838,6 +838,129 @@ fn resource_mutation_pruning_allows_only_one_batch_of_runtime_slack() {
 }
 
 #[test]
+fn completed_creation_counts_in_the_boundary_replay_window() {
+    let mut registry = WorkspaceRegistry::in_memory("creation-mutation-bound").unwrap();
+    let capacity = resource_store::RESOURCE_MUTATION_REPLAY_CAPACITY;
+    let interval = usize::try_from(resource_store::RESOURCE_MUTATION_PRUNE_INTERVAL).unwrap();
+    let boundary = capacity + interval;
+    let before_boundary = boundary - 1;
+    {
+        let tx = registry.connection.transaction().unwrap();
+        for index in 0..before_boundary {
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("creation-bound-{index:08}"),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    canonical_json(&json!({"sequence":index})).unwrap(),
+                    i64::try_from(index + 1).unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [before_boundary.to_string()],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+
+    let fingerprint = json!({"name":"boundary"});
+    registry
+        .prepare_resource_creation(
+            "boundary-correlation",
+            "boundary-attempt",
+            "test.create.boundary",
+            &fingerprint,
+            &json!({"reservation":"boundary"}),
+            false,
+            None,
+            Some(u64::try_from(before_boundary).unwrap()),
+        )
+        .unwrap();
+    registry
+        .commit_resource_creation_patch(
+            "boundary-correlation",
+            &WorkspaceMutation::new("boundary-attempt", "test").unwrap(),
+            "test.create.boundary",
+            &fingerprint,
+            &ResourcePatch { changes: Vec::new() },
+            &json!({"created":true}),
+            &json!({"kind":"test","id":"boundary"}),
+            &json!([]),
+        )
+        .unwrap();
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity).unwrap()
+    );
+
+    {
+        let tx = registry.connection.transaction().unwrap();
+        for offset in 1..interval {
+            let revision = boundary + offset;
+            tx.execute(
+                "INSERT INTO resource_mutations(
+                   idempotency_key, origin, operation, fingerprint, result_json,
+                   committed_revision
+                 ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+                params![
+                    format!("creation-slack-{offset:08}"),
+                    canonical_json(&json!({"sequence":revision})).unwrap(),
+                    canonical_json(&json!({"sequence":revision})).unwrap(),
+                    i64::try_from(revision).unwrap(),
+                ],
+            )
+            .unwrap();
+            tx.execute(
+                "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+                [revision.to_string()],
+            )
+            .unwrap();
+            resource_store::prune_resource_mutations(&tx).unwrap();
+        }
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity + interval - 1).unwrap()
+    );
+
+    {
+        let tx = registry.connection.transaction().unwrap();
+        let revision = boundary + interval;
+        tx.execute(
+            "INSERT INTO resource_mutations(
+               idempotency_key, origin, operation, fingerprint, result_json,
+               committed_revision
+             ) VALUES(?1, 'test', 'test.pure', ?2, ?3, ?4)",
+            params![
+                "creation-next-boundary",
+                canonical_json(&json!({"sequence":revision})).unwrap(),
+                canonical_json(&json!({"sequence":revision})).unwrap(),
+                i64::try_from(revision).unwrap(),
+            ],
+        )
+        .unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        resource_store::prune_resource_mutations(&tx).unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(
+        registry.resource_mutation_count_for_test().unwrap(),
+        u64::try_from(capacity).unwrap()
+    );
+}
+
+#[test]
 fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay() {
     let root = temp_root("mutation-startup-bound");
     let effect_fingerprint = json!({"title":"pending"});
@@ -1184,7 +1307,7 @@ fn resource_tombstones_prevent_public_id_and_workspace_key_reuse() {
         )
         .unwrap();
     assert!(registry.resource_topology_snapshot().unwrap().screens.is_empty());
-    assert!(registry.terminal_snapshot().unwrap().terminals.is_empty());
+    assert_eq!(registry.terminal_snapshot().unwrap().terminals.len(), 1);
     let error = registry
         .commit_resource_patch(
             &WorkspaceMutation::new("recreate", "test").unwrap(),
@@ -1292,6 +1415,44 @@ fn resource_ids_survive_registry_restart() {
     assert_eq!(after.tabs, before.tabs);
     assert_eq!(after.browsers, before.browsers);
     assert_ne!(after.generation, before.generation);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn opening_legacy_workspaces_seeds_compatibility_active_workspace() {
+    let root = temp_root("legacy-active-workspace");
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .connection
+            .execute_batch(
+                "INSERT INTO workspaces(
+                   workspace_key, numeric_id, name, group_key, position,
+                   tombstoned, created_revision, updated_revision, deleted_revision
+                 ) VALUES
+                   ('later', 2, 'Later', 'default', 1, 0, 1, 1, NULL),
+                   ('first', 1, 'First', 'default', 0, 0, 2, 2, NULL);
+                 UPDATE meta SET value = '2' WHERE key = 'revision';",
+            )
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let workspaces = registry.snapshot().unwrap().workspaces;
+    let topology = registry.resource_topology_snapshot().unwrap();
+    assert_eq!(
+        workspaces.iter().map(|workspace| workspace.key.as_str()).collect::<Vec<_>>(),
+        ["first", "later"]
+    );
+    assert_eq!(topology.active_workspace.as_ref(), Some(&workspaces[0].public_id));
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        reopened.resource_topology_snapshot().unwrap().active_workspace,
+        Some(workspaces[0].public_id.clone())
+    );
+    drop(reopened);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -1567,7 +1728,7 @@ fn resource_identity_sql_check_rejects_non_hex_payload() {
 }
 
 #[test]
-fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
+fn resource_terminals_reject_orphans_while_terminal_hosts_are_session_owned() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     let public_id = terminal_resource(TERMINAL_TWO);
     {
@@ -1601,14 +1762,21 @@ fn deferred_terminal_foreign_keys_reject_orphans_at_commit() {
 
     let tx = registry.connection.transaction().unwrap();
     tx.execute(
-        "INSERT INTO terminal_placements(
+        "INSERT INTO terminal_hosts(
                terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
                exit_json, created_revision, updated_revision, deleted_revision
              ) VALUES(?1, 'missing', NULL, 'launching', '{}', NULL, 1, 1, NULL)",
         [TERMINAL_TWO],
     )
     .unwrap();
-    assert!(tx.commit().unwrap_err().to_string().contains("FOREIGN KEY constraint failed"));
+    tx.commit().unwrap();
+    assert_eq!(
+        registry
+            .connection
+            .query_row("SELECT COUNT(*) FROM terminal_hosts", [], |row| { row.get::<_, i64>(0) })
+            .unwrap(),
+        1
+    );
 }
 
 #[test]
@@ -1902,6 +2070,52 @@ fn frontend_projection_is_durable_cas_and_exactly_once() {
 }
 
 #[test]
+fn personal_and_shared_frontend_projections_coexist_and_restore_independently() {
+    let root = temp_root("projection-scopes");
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("personal-layout", "cmux-tui").unwrap(),
+                "cmux-tui",
+                "personal",
+                "profile-lawrence",
+                1,
+                Some(0),
+                &json!({"selected_workspace":"alpha","scroll":{"term-a":12}}),
+            )
+            .unwrap();
+        registry
+            .put_frontend_projection(
+                &WorkspaceMutation::new("shared-layout", "cmux-tui").unwrap(),
+                "cmux-tui",
+                "shared",
+                "pairing-room",
+                1,
+                Some(0),
+                &json!({"columns":["alpha","beta"]}),
+            )
+            .unwrap();
+    }
+
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    let personal = registry
+        .get_frontend_projection("cmux-tui", "personal", "profile-lawrence")
+        .unwrap()
+        .unwrap();
+    let shared =
+        registry.get_frontend_projection("cmux-tui", "shared", "pairing-room").unwrap().unwrap();
+    assert_eq!(personal.projection["selected_workspace"], "alpha");
+    assert_eq!(personal.projection["scroll"]["term-a"], 12);
+    assert_eq!(shared.projection["columns"], json!(["alpha", "beta"]));
+    assert!(
+        registry.get_frontend_projection("cmux-tui", "personal", "pairing-room").unwrap().is_none(),
+        "scope participates in projection identity"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn terminal_lifecycle_is_exactly_once_and_has_an_independent_revision() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
@@ -2064,7 +2278,7 @@ fn batch_terminal_close_rolls_back_every_tab_on_mid_transaction_failure() {
         .connection
         .execute_batch(&format!(
             "CREATE TEMP TRIGGER fail_second_terminal_close
-                 BEFORE UPDATE OF lifecycle ON terminal_placements
+                 BEFORE UPDATE OF lifecycle ON terminal_hosts
                  WHEN NEW.terminal_id = '{TERMINAL_TWO}'
                  BEGIN SELECT RAISE(ABORT, 'forced batch failure'); END;"
         ))
@@ -2165,7 +2379,7 @@ fn terminal_close_tombstones_before_kill_and_retries_safely() {
 }
 
 #[test]
-fn closing_workspace_atomically_tombstones_all_child_terminals() {
+fn closing_workspace_detaches_views_without_tombstoning_terminal_hosts() {
     let mut registry = WorkspaceRegistry::in_memory("test").unwrap();
     seed_workspace(&mut registry, "one");
     for (index, id) in [TERMINAL_ONE, TERMINAL_TWO].into_iter().enumerate() {
@@ -2197,17 +2411,15 @@ fn closing_workspace_atomically_tombstones_all_child_terminals() {
 
     assert!(registry.snapshot().unwrap().workspaces.is_empty());
     let terminals = registry.terminal_snapshot().unwrap();
-    assert_eq!(terminals.revision, 4);
-    assert!(terminals.terminals.is_empty());
+    assert_eq!(terminals.revision, 2);
+    assert_eq!(terminals.terminals.len(), 2);
     for id in [TERMINAL_ONE, TERMINAL_TWO] {
         assert_eq!(
             registry.terminal_record(id).unwrap().unwrap().lifecycle,
-            TerminalLifecycle::Tombstoned
+            TerminalLifecycle::Launching
         );
     }
-    let events = registry.terminal_events_after(2).unwrap();
-    assert_eq!(events.len(), 2);
-    assert!(events.iter().all(|event| event.result["reason"] == "workspace-closed"));
+    assert!(registry.terminal_events_after(2).unwrap().is_empty());
 }
 
 #[test]
@@ -2482,6 +2694,348 @@ fn schema_seven_migrates_latest_live_agent_and_tombstones_without_resurrection()
 }
 
 #[test]
+fn schema_eight_migrates_terminal_hosts_and_allows_multiple_durable_views() {
+    let root = temp_root("schema-eight-terminal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "schema-eight-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_v8 (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_v8(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_v8 RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             ALTER TABLE terminal_hosts RENAME TO terminal_placements;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'terminal', ?3, 'second view', 1, 1, NULL)",
+            params![second_tab.as_str(), pane_id(1).as_str(), terminal_id.as_str()],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let migrated = WorkspaceRegistry::open(&root, "session").unwrap();
+    assert_eq!(
+        required_meta(&migrated.connection, "schema_version").unwrap(),
+        SCHEMA_VERSION.to_string()
+    );
+    for (table, expected) in [("terminal_hosts", 1_i64), ("terminal_placements", 0_i64)] {
+        let count = migrated
+            .connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap();
+        assert_eq!(count, expected, "unexpected table state for {table}");
+    }
+    let browser_view_indexes = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'live_resource_browser_view'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(browser_view_indexes, 1);
+    let workspace_foreign_keys = migrated
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_foreign_key_list('terminal_hosts')
+             WHERE \"table\" = 'workspaces' AND \"from\" = 'workspace_key'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    assert_eq!(workspace_foreign_keys, 0);
+    drop(migrated);
+
+    let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let views = reopened
+        .resource_topology_snapshot()
+        .unwrap()
+        .tabs
+        .into_iter()
+        .filter(|tab| tab.content_id == ContentPublicId::Terminal(terminal_id.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(views.len(), 2);
+    assert_eq!(views[0].public_id, tab_id(1));
+    assert_eq!(views[1].public_id, second_tab);
+    assert!(
+        reopened
+            .connection
+            .query_row("PRAGMA foreign_key_check", [], |_| Ok(()))
+            .optional()
+            .unwrap()
+            .is_none()
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+fn rewrite_resource_tabs_with_legacy_single_view_schema(connection: &Connection) {
+    connection
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             BEGIN IMMEDIATE;
+             DROP INDEX IF EXISTS live_resource_tab_position;
+             DROP INDEX IF EXISTS live_resource_browser_view;
+             CREATE TABLE resource_tabs_legacy (
+               public_id TEXT PRIMARY KEY NOT NULL REFERENCES resource_identities(public_id),
+               pane_id TEXT NOT NULL REFERENCES resource_panes(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               position INTEGER,
+               content_kind TEXT NOT NULL CHECK(content_kind IN ('terminal','browser')),
+               content_id TEXT UNIQUE NOT NULL REFERENCES resource_identities(public_id)
+                 DEFERRABLE INITIALLY DEFERRED,
+               name TEXT,
+               created_revision INTEGER NOT NULL,
+               updated_revision INTEGER NOT NULL,
+               deleted_revision INTEGER,
+               CHECK (
+                 (deleted_revision IS NULL AND position IS NOT NULL) OR
+                 (deleted_revision IS NOT NULL AND position IS NULL)
+               )
+             );
+             INSERT INTO resource_tabs_legacy(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             )
+             SELECT public_id, pane_id, position, content_kind, content_id, name,
+                    created_revision, updated_revision, deleted_revision
+             FROM resource_tabs;
+             DROP TABLE resource_tabs;
+             ALTER TABLE resource_tabs_legacy RENAME TO resource_tabs;
+             CREATE UNIQUE INDEX live_resource_tab_position
+               ON resource_tabs(pane_id, position) WHERE deleted_revision IS NULL;
+             COMMIT;
+             PRAGMA foreign_keys=ON;",
+        )
+        .unwrap();
+}
+
+#[test]
+fn current_schema_normalizes_legacy_single_view_resource_tabs() {
+    let root = temp_root("current-schema-terminal-multiview");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "current-schema-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    rewrite_resource_tabs_with_legacy_single_view_schema(&legacy);
+    drop(legacy);
+
+    let mut reopened = WorkspaceRegistry::open(&root, "session").unwrap();
+    let second_tab = tab_id(2);
+    reopened
+        .commit_resource_patch(
+            &WorkspaceMutation::new("current-schema-project", "test").unwrap(),
+            "terminal.project",
+            &json!({"operation":"terminal.project"}),
+            None,
+            Some(1),
+            &ResourcePatch {
+                changes: vec![
+                    ResourceChange::UpsertPane(RegistryPane {
+                        public_id: pane_id(1),
+                        screen_id: screen_id(1),
+                        name: Some("Shell".into()),
+                        active_tab: Some(tab_id(1)),
+                        creation_ordinal: 1,
+                    }),
+                    ResourceChange::UpsertTab(RegistryTab {
+                        public_id: second_tab.clone(),
+                        pane_id: pane_id(1),
+                        position: 1,
+                        content_id: ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE)),
+                        name: Some("second view".into()),
+                        browser_url: None,
+                        terminal_id: Some(TERMINAL_ONE.into()),
+                    }),
+                    ResourceChange::SetTabOrder {
+                        pane_id: pane_id(1),
+                        tab_ids: vec![tab_id(1), second_tab.clone()],
+                    },
+                ],
+            },
+            &json!({"tab_id":second_tab}),
+            &json!([]),
+        )
+        .unwrap();
+    assert_eq!(
+        reopened
+            .resource_topology_snapshot()
+            .unwrap()
+            .tabs
+            .into_iter()
+            .filter(|tab| {
+                tab.content_id == ContentPublicId::Terminal(terminal_resource(TERMINAL_ONE))
+            })
+            .count(),
+        2
+    );
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eight_rejects_multiple_live_views_for_one_browser() {
+    let root = temp_root("schema-eight-duplicate-browser-views");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "duplicate-browser-seed");
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "PRAGMA foreign_keys=OFF;
+             DROP INDEX live_resource_browser_view;
+             CREATE INDEX live_resource_browser_view ON resource_tabs(content_id);
+             UPDATE resource_tabs SET content_kind = 'browser';
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+    let second_tab = tab_id(2);
+    legacy
+        .execute(
+            "INSERT INTO resource_identities(
+               public_id, kind, created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, 'tab', 1, 1, NULL)",
+            [second_tab.as_str()],
+        )
+        .unwrap();
+    legacy
+        .execute(
+            "INSERT INTO resource_tabs(
+               public_id, pane_id, position, content_kind, content_id, name,
+               created_revision, updated_revision, deleted_revision
+             ) VALUES(?1, ?2, 1, 'browser', ?3, NULL, 1, 1, NULL)",
+            params![
+                second_tab.as_str(),
+                pane_id(1).as_str(),
+                terminal_resource(TERMINAL_ONE).as_str()
+            ],
+        )
+        .unwrap();
+    drop(legacy);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("workspace registry contains multiple live views for one browser"),
+        "unexpected migration error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_eight_rejects_both_terminal_storage_tables() {
+    let root = temp_root("schema-eight-duplicate-terminal-storage");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        drop(registry);
+    }
+    let legacy = Connection::open(&database).unwrap();
+    legacy
+        .execute_batch(
+            "CREATE TABLE terminal_placements AS SELECT * FROM terminal_hosts WHERE 0;
+             UPDATE meta SET value = '8' WHERE key = 'schema_version';",
+        )
+        .unwrap();
+    drop(legacy);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert!(
+        error.to_string().contains(
+            "workspace registry contains both legacy terminal placements and terminal hosts"
+        ),
+        "unexpected migration error: {error:#}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn saved_session_integrity_failure_has_actionable_public_copy() {
+    let root = temp_root("saved-session-integrity-public-copy");
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    {
+        let mut registry = WorkspaceRegistry::open(&root, "session").unwrap();
+        commit_terminal_topology(&mut registry, "saved-session-integrity-seed");
+    }
+    let connection = Connection::open(database).unwrap();
+    connection.execute_batch("PRAGMA foreign_keys=OFF;").unwrap();
+    connection
+        .execute(
+            "UPDATE resource_tabs SET pane_id = ?1 WHERE public_id = ?2",
+            params![pane_id(99).as_str(), tab_id(1).as_str()],
+        )
+        .unwrap();
+    drop(connection);
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "saved session data could not be loaded; start a new session or restore this session from a backup"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn schema_four_backfills_safe_browser_restart_metadata() {
     let root = temp_root("schema-four-browser");
     let browser = browser_id(1);
@@ -2560,7 +3114,7 @@ fn schema_one_migrates_transactionally_to_terminal_registry() {
             .execute_batch(
                 "DROP TABLE terminal_events;
                      DROP TABLE terminal_mutations;
-                     DROP TABLE terminal_placements;
+                     DROP TABLE terminal_hosts;
                      DELETE FROM meta WHERE key = 'terminal_revision';
                      UPDATE meta SET value = '1' WHERE key = 'schema_version';",
             )
@@ -2592,18 +3146,53 @@ fn interrupted_transaction_and_newer_schema_fail_closed() {
     drop(load_or_create_resource_effect_pepper(&newer_root).unwrap());
     let session_dir = newer_root.join(session_storage_component("session"));
     fs::create_dir_all(&session_dir).unwrap();
-    let db = Connection::open(session_dir.join("workspace-registry.sqlite3")).unwrap();
+    let database = session_dir.join(WORKSPACE_REGISTRY_FILE);
+    let db = Connection::open(&database).unwrap();
     db.execute_batch(
         "CREATE TABLE meta(key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
              INSERT INTO meta(key,value) VALUES('schema_version','999');",
     )
     .unwrap();
     drop(db);
-    assert!(
-        WorkspaceRegistry::open(&newer_root, "session")
-            .unwrap_err()
-            .to_string()
-            .contains("unsupported workspace registry schema")
-    );
+    let error = WorkspaceRegistry::open(&newer_root, "session").unwrap_err();
+    let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
+    assert_eq!(schema.found(), 999);
+    assert_eq!(schema.newest_supported(), SCHEMA_VERSION);
+    assert_eq!(schema.database_path(), Some(database.as_path()));
+    assert!(error.to_string().contains("unsupported workspace registry schema"));
     fs::remove_dir_all(newer_root).unwrap();
+}
+
+#[test]
+fn newer_schema_is_reported_before_writer_lease_conflict() {
+    let root = temp_root("newer-before-lease");
+    let registry = WorkspaceRegistry::open(&root, "session").unwrap();
+    registry
+        .connection
+        .execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
+            [(SCHEMA_VERSION + 1).to_string()],
+        )
+        .unwrap();
+
+    let error = WorkspaceRegistry::open(&root, "session").unwrap_err();
+    let schema = error.downcast_ref::<UnsupportedWorkspaceRegistrySchema>().unwrap();
+    assert_eq!(schema.found(), SCHEMA_VERSION + 1);
+    assert_eq!(schema.registry_id(), Some(registry.registry_id()));
+    assert!(!error.to_string().contains("already owned"));
+
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn schema_preflight_failures_defer_to_authoritative_open() {
+    let root = temp_root("preflight-failure");
+    fs::create_dir_all(&root).unwrap();
+    let database = root.join(WORKSPACE_REGISTRY_FILE);
+    fs::write(&database, b"not a sqlite database").unwrap();
+
+    assert!(preflight_unsupported_schema(&database).is_none());
+
+    fs::remove_dir_all(root).unwrap();
 }

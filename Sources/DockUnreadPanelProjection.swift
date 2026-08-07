@@ -1,4 +1,4 @@
-import Combine
+import CmuxNotifications
 import Foundation
 import Observation
 
@@ -14,7 +14,7 @@ final class DockUnreadPanelProjection {
     @ObservationIgnored private var isActive = false
     @ObservationIgnored private var unreadSurfaceKeys: Set<SidebarSurfaceUnreadKey>
     @ObservationIgnored private var focusedReadIndicatorByWorkspaceID: [UUID: UUID]
-    @ObservationIgnored private var unreadSubscription: AnyCancellable?
+    @ObservationIgnored private var unreadObservation: SidebarUnreadObservation?
 
     init(
         source: SidebarUnreadModel,
@@ -25,20 +25,15 @@ final class DockUnreadPanelProjection {
         self.workspaceID = workspaceID
         self.panelIDs = panelIDs
         self.isActive = isActive
-        unreadSurfaceKeys = source.unreadSurfaceKeys
-        focusedReadIndicatorByWorkspaceID = source.focusedReadIndicatorByWorkspaceId
+        let initialSnapshot = source.snapshot
+        unreadSurfaceKeys = initialSnapshot.unreadSurfaceKeys
+        focusedReadIndicatorByWorkspaceID = initialSnapshot.focusedReadIndicatorByWorkspaceId
         refresh()
-        unreadSubscription = source.$unreadSurfaceKeys.combineLatest(
-            source.$focusedReadIndicatorByWorkspaceId
-        ).sink { [weak self] unreadSurfaceKeys, focusedReadIndicatorByWorkspaceID in
-            // Both publishers are main-actor-owned and publish synchronously
-            // from SidebarUnreadModel.apply().
-            MainActor.assumeIsolated {
-                self?.receive(
-                    unreadSurfaceKeys: unreadSurfaceKeys,
-                    focusedReadIndicatorByWorkspaceID: focusedReadIndicatorByWorkspaceID
-                )
-            }
+        unreadObservation = source.observeChanges(owner: self) { projection, snapshot in
+            projection.receive(
+                unreadSurfaceKeys: snapshot.unreadSurfaceKeys,
+                focusedReadIndicatorByWorkspaceID: snapshot.focusedReadIndicatorByWorkspaceId
+            )
         }
     }
 

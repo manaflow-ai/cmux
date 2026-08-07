@@ -26,9 +26,25 @@ struct BrowserUserAgentPolicyWebKitTests {
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
-    @Test func restartRequestCanRestoreEmbeddedIdentityForSheets() throws {
+    @Test func restartRequestReplacesStaleSheetsIdentity() throws {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        webView.customUserAgent = BrowserUserAgentPolicy.system.safariCompatibleUserAgent
+        webView.customUserAgent = "stale-agent"
+        var request = URLRequest(
+            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        )
+        request.setValue("stale-agent", forHTTPHeaderField: "User-Agent")
+
+        let restartRequest = try #require(
+            webView.browserUserAgentPolicyRestartRequest(for: request)
+        )
+
+        #expect(restartRequest.value(forHTTPHeaderField: "User-Agent") == nil)
+        #expect(webView.customUserAgent == BrowserUserAgentPolicy.system.safariCompatibleUserAgent)
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
+    }
+
+    @Test func sheetsRequestUsesCurrentSafariForNetworkAndNavigatorIdentity() throws {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         let request = URLRequest(
             url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
         )
@@ -37,7 +53,24 @@ struct BrowserUserAgentPolicyWebKitTests {
             webView.browserUserAgentPolicyRestartRequest(for: request)
         )
 
-        #expect(webView.customUserAgent == nil)
+        #expect(restartRequest.value(forHTTPHeaderField: "User-Agent") == nil)
+        #expect(webView.customUserAgent == BrowserUserAgentPolicy.system.safariCompatibleUserAgent)
+        #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
+    }
+
+    @Test func emptyCustomUserAgentIsNotAcceptedAsSheetsIdentity() throws {
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.customUserAgent = ""
+        let request = URLRequest(
+            url: URL(string: "https://docs.google.com/spreadsheets/d/example/edit")!
+        )
+
+        let restartRequest = try #require(
+            webView.browserUserAgentPolicyRestartRequest(for: request)
+        )
+
+        #expect(restartRequest.value(forHTTPHeaderField: "User-Agent") == nil)
+        #expect(webView.customUserAgent == BrowserUserAgentPolicy.system.safariCompatibleUserAgent)
         #expect(webView.browserUserAgentPolicyRestartRequest(for: restartRequest) == nil)
     }
 
@@ -51,7 +84,7 @@ struct BrowserUserAgentPolicyWebKitTests {
                 for: request,
                 targetFrameIsMainFrame: targetFrameIsMainFrame
             ) == nil)
-            #expect(webView.customUserAgent == nil)
+            #expect(webView.customUserAgent?.isEmpty != false)
         }
     }
 
@@ -61,6 +94,6 @@ struct BrowserUserAgentPolicyWebKitTests {
         let request = URLRequest(url: URL(fileURLWithPath: "/tmp/example.html"))
 
         #expect(webView.browserUserAgentPolicyRestartRequest(for: request) == nil)
-        #expect(webView.customUserAgent == nil)
+        #expect(webView.customUserAgent?.isEmpty != false)
     }
 }
