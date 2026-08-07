@@ -12,10 +12,16 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `36a46414a`, the fork-main merge of
-https://github.com/manaflow-ai/ghostty/pull/172. It combines the hidden-renderer
-reclamation and retry-deadline line through `4d6f0014f` with the resolved
-font-binding action callbacks originally ending at `80d7fb35a`.
+The submodule pinned by this branch is `19d03fa4d`, suppressing empty opener
+stderr diagnostics on top of `f0f8273b7`, which adds the iOS startup
+locale/crash-reporting order fix. That commit follows `88357634c`, the fork-main
+merge of https://github.com/manaflow-ai/ghostty/pull/175. That previous merge combines
+the initial cmux theme-picker render fix at `5068b3a37` with terminal-owned
+semantic-prompt row lifecycle enforcement through `2d6e944e3` from
+https://github.com/manaflow-ai/ghostty/pull/176.
+The earlier integration combines the hidden-renderer reclamation and
+retry-deadline line through `4d6f0014f` with the resolved font-binding action
+callbacks originally ending at `80d7fb35a`.
 https://github.com/manaflow-ai/ghostty/pull/171 reapplied the font callback
 commits on current fork main and clarified the callback's non-reentrant
 contract. PR 172 then recorded the original font branch as ancestry without
@@ -38,6 +44,80 @@ The seven PRs landed in merge commits `1e86b46e2`, `4dab6fd6c`,
 `2fc66ed15`, `3c1b75d25`, `c467d389c`, `64d7fca66`, and `4d6f0014f`.
 The final font integration landed in merge commits `23003282d` and
 `36a46414a`.
+
+### iOS startup locale before crash reporting
+
+- Commit: `f0f8273b7` (Initialize locale before crash reporting)
+- File: `src/global.zig`
+- Summary:
+  - Moves `ensureLocale()` and `syncEnviron()` before Ghostty's crash reporting
+    init so Darwin `setlocale` completes before Sentry starts its background
+    initialization thread.
+  - Fixes the cmux INTERNAL TestFlight crash from August 2, 2026, where build
+    `20260801151612` crashed in `ghostty_init + 1388` while the main thread was
+    in `setlocale` from `GhosttyRuntime.init`.
+- Conflict note:
+  - Preserve this ordering during future `global.init` merges: process-wide
+    locale mutation must stay before any Ghostty-owned background thread starts.
+
+### Empty opener stderr diagnostics
+
+- Commits:
+  - `45aec50de` (test: cover spawned open stderr reader log bound)
+  - `19d03fa4d` (os/open: skip empty stderr diagnostics)
+- File: `src/os/open.zig`
+- Summary:
+  - Runs the stderr drain against a real spawned process that writes 40 blank
+    lines and exits, with a one-second timeout proving the reader thread reaches
+    EOF instead of spinning.
+  - Requires fewer than 10 repeated blank-line diagnostics in that capture
+    window.
+  - Continues consuming blank stderr lines so the opener can exit, but does not
+    send content-free `open stderr=` records to macOS unified logging.
+- Conflict note:
+  - Preserve delimiter consumption, the EOF timeout coverage, and draining
+    after the reporting cap. Suppressing a log must never suppress the read
+    that advances the pipe.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-19d03fa4d0161e60e02de2e42601992be0c001c3-crashsubdir-cmux-crash-sentry-off-v1
+  - SHA-256 `d2842bb7778a4e8d5a5a5f57ce6a85508630e3184ba46c1ca1ae5cbe1655472f`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Initial cmux theme-picker render
+
+- Commit: `5068b3a37` (fix: render cmux theme picker before input)
+- File: `src/cli/list_themes.zig`
+- Summary:
+  - Initializes the terminal dimensions, renders the theme picker, and flushes
+    the first frame before waiting for input, so the picker does not open blank.
+  - Merges cleanly with the `abcf5697d` Sentry initialization fix; no conflict
+    resolution was required.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-59f2b5d2ec67a5f9dfe9138f6e5a4353b75d238e-crashsubdir-cmux-crash-v1
+  - SHA-256 `3767b7bba0931f9cab359d0c8147885e14a2b6ce420044e5946b4b823fc093da`
+    is pinned in `scripts/ghosttykit-checksums.txt`.
+
+### Semantic prompt row lifecycle
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/176
+- Commits:
+  - `afcda52a2` (terminal: test prompt mark cleared by output overwrite)
+  - `2d6e944e3` (terminal: clear stale prompt marks on output overwrite)
+- Files:
+  - `src/terminal/Terminal.zig`
+- Summary:
+  - Clears a row's OSC 133 prompt or prompt-continuation mark when printable
+    output actually overwrites that row.
+  - Applies the same invariant to scalar printing and the batched narrow/wide
+    print path, including a wide-character spacer written before wrapping.
+  - Preserves historical prompt metadata unless output replaces content on
+    that row, so prompt navigation remains intact while prompt-aware clear
+    logic cannot mistake repainted TUI output for a live shell prompt.
+  - Conflict note: every printable-output path that writes cells directly must
+    clear stale row-level prompt metadata for each row it mutates. Do not move
+    this responsibility into CSI erase handling or a specific shell protocol
+    transition.
 
 ### Hidden macOS renderer reclamation
 
@@ -193,12 +273,14 @@ The final font integration landed in merge commits `23003282d` and
     callback userdata alive until `ghostty_surface_free` returns, and never
     destroy or otherwise reenter the surface from the synchronous callback.
 
-The pinned `36a46414a` universal ReleaseFast GhosttyKit archive was built with
-Zig 0.16.0. It is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-36a46414a7c5dc122ffbf2992fec6d4a73cf7c65-crashsubdir-cmux-crash-v1
-and its SHA-256 is pinned in `scripts/ghosttykit-checksums.txt`. The published
-asset was downloaded again and matched SHA-256
-`8784a1bd29d3d13250b9557b8982d362054fd326d48b8fc8c0deac56f4f71c0d`.
+The pinned `88357634c4` universal ReleaseFast GhosttyKit archive combines the
+initial theme-picker render and semantic prompt lifecycle fixes. It was built
+with Zig 0.16.0 and is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-88357634c4dbadc87981e2ebb64eb599c53aa012-crashsubdir-cmux-crash-v1
+with its SHA-256 pinned in `scripts/ghosttykit-checksums.txt`. The published
+asset was downloaded again, passed `scripts/validate-xcframework-archive.py`,
+and matched SHA-256
+`0448351c3f8b07fd2698c905260a97d064e4e186d0544766965effb41aedfbd5`.
 
 ### Ordered writes survive transient backpressure
 

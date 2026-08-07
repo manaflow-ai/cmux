@@ -126,6 +126,10 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// wrapper so its existing reconnect and reauthentication behavior remains
     /// the single owner of those transitions.
     ///
+    /// The attach environment is exported on its own lines rather than as an
+    /// assignment prefix, because a prefix is only legal before a simple command
+    /// and callers legitimately pass compound commands.
+    ///
     /// - Parameter command: The shell command that performs one attach attempt.
     /// - Returns: Shell source lines implementing the no-progress budget.
     public static func noProgressRetryLoopLines(command: String) -> [String] {
@@ -134,7 +138,10 @@ public enum SSHPTYAttachExitCode: Int32 {
         return policy.configurationLines + [
             "cmux_ssh_attach_no_progress_retry=0",
             "while :; do",
-            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\"",
+            "  CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\"",
+            "  export CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT",
+            "  \(command)",
             "  cmux_ssh_attach_status=$?",
             "  if [ \"$cmux_ssh_attach_status\" -ne \(policy.status) ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1))",

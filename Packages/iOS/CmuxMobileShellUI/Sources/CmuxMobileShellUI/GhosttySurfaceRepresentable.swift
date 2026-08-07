@@ -191,10 +191,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var artifactCountState = TerminalArtifactChipCountState()
         var artifactCountNeedsRefresh: Bool
         var freshestLocalArtifactCount = 0
-        /// Taps must apply in user order, and stopping the live mount invalidates pending work.
-        /// Same-path taps intentionally classify independently so the newest coordinates
-        /// win; human tap rate and the two-second deadline bound concurrent stats.
-        var tapGeneration: UInt64 = 0
+        /// Async Mac clicks apply only for the newest tap and current mount.
+        /// Keyboard intent is owned synchronously by the surface input session,
+        /// so this generation can invalidate click work without starving focus.
+        var clickGeneration: UInt64 = 0
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -479,7 +479,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         private func stopMountedTasks() {
-            tapGeneration &+= 1
+            clickGeneration &+= 1
             outputStartContinuation?.finish()
             outputStartContinuation = nil
             preparedViewportReportsByReportID.removeAll()
@@ -723,12 +723,31 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// sizes the surface band.
         @MainActor
         private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
-            let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
-                // Content changed (a line added/removed, or cleared after send): live
-                // grows/shrinks animate. `setComposerBandHeight` is idempotent on
-                // unchanged heights, so a no-op change is harmless.
-                self?.reportComposerHeight(animated: true)
-            }
+            let view = TerminalComposerView(
+                store: store,
+                terminalID: surfaceID,
+                requestHeightRemeasure: { [weak self] in
+                    // Content changed (a line added/removed, or cleared after send): live
+                    // grows/shrinks animate. `setComposerBandHeight` is idempotent on
+                    // unchanged heights, so a no-op change is harmless.
+                    self?.reportComposerHeight(animated: true)
+                },
+                requestInputFocus: { [weak self] in
+                    self?.surfaceView?.requestComposerInputFocus()
+                },
+                inputFocusChanged: { [weak self] focused in
+                    self?.surfaceView?.composerInputFocusChanged(focused)
+                },
+                photoPickerWillPresent: { [weak self] in
+                    self?.surfaceView?.photoPickerWillPresent()
+                },
+                photoPickerDidPresent: { [weak self] in
+                    self?.surfaceView?.photoPickerDidPresent()
+                },
+                photoPickerDidDismiss: { [weak self] in
+                    self?.surfaceView?.photoPickerDidDismiss()
+                }
+            )
             let controller = UIHostingController(rootView: view)
             // The field is pinned edge-to-edge in the band, so the band frame (not an
             // intrinsic size) drives the hosting view's height; the measured ideal

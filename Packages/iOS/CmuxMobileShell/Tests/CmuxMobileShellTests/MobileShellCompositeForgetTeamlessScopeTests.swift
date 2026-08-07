@@ -38,17 +38,20 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
     }
 }
 
-/// Regression coverage for the forget path's team-scope capture. Forgetting one
-/// pairing must delete exactly that pairing's row (its OWN captured scope) and
-/// leave a same-device sibling pairing in a different team untouched, even if the
-/// user switches into that other team while the revoke is in flight.
+/// Regression coverage for the forget path's team-scope capture. Each deleted
+/// row must be keyed by its OWN captured scope — never re-resolved through the
+/// LIVE display scope, which can flip to another team while the revoke is in
+/// flight.
 ///
-/// The bug: the forget flow deleted against the LIVE display scope rather than
-/// the row's own scope. Deleting a team-less pairing while a team was (or became)
-/// selected either missed the team-less row (leaving it to resurface) or, when
-/// the display scope pointed at the sibling team, deleted the WRONG team's row.
-/// The row's own captured `(stackUserID, teamID)` is the only correct delete key,
-/// and it is immune to a mid-revoke team flip because it is snapshotted up front.
+/// The original bug: the forget flow deleted against the live display scope.
+/// Deleting a team-less pairing while a team was (or became) selected either
+/// missed the team-less row (leaving it to resurface) or deleted a row under
+/// whatever team the flip landed on. Row-own scope keys are immune to the flip
+/// because they are snapshotted up front. Note the BREADTH here is separate
+/// from the KEYING: a tag-less forget's revoke is device-wide for the account,
+/// so its cleanup deliberately deletes the device's same-account rows in other
+/// teams too (see `MobileShellCompositeForgetWildcardBreadthTests`) — each
+/// still by its own scope key, which is what this suite pins.
 @MainActor
 @Suite struct MobileShellCompositeForgetTeamlessScopeTests {
     @Test func forgetDeletesTeamlessRowNotFlippedTeamRowWhenScopeFlipsMidRevoke() async throws {
@@ -110,16 +113,14 @@ private final class TeamlessScopeFlippingForget: MobileIrohMacForgetting {
 
         #expect(ok)
         #expect(forget.forgottenMacDeviceIDs == ["mac-a"])
-        // Assert by each row's own stamped team, not by loadAll's team filter:
-        // loadAll(teamID: nil) returns EVERY team's rows, and loadAll(teamID:
-        // "team-b") also returns team-less rows (legacy visibility), so filtering
-        // the returned rows by `teamID` is the only way to prove exactly which
-        // row was deleted. Load once and partition by `teamID`.
+        // The tag-less forget's revoke was device-wide for the account, so BOTH
+        // rows are gone: the captured team-less row as the primary delete, and
+        // the team-b row as wildcard-breadth cleanup (its binding was revoked
+        // too). What the flip must NOT do is misdirect either delete — each row
+        // is keyed by its OWN stamped scope, so the mid-revoke flip to "team-b"
+        // changes nothing about which rows are targeted.
         let remaining = try await base.loadAll(stackUserID: "user-1", teamID: nil)
-        // The captured team-less row is gone.
-        #expect(!remaining.contains { $0.macDeviceID == "mac-a" && $0.teamID == nil })
-        // The team the scope flipped to mid-revoke keeps its row.
-        #expect(remaining.contains { $0.macDeviceID == "mac-a" && $0.teamID == "team-b" })
+        #expect(!remaining.contains { $0.macDeviceID == "mac-a" })
     }
 
     /// A team-less pairing shown under a SELECTED team (legacy visibility) must

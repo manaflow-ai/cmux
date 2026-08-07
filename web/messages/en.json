@@ -99,7 +99,6 @@
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
-      "vaultCliSetup": "cli setup",
       "subrouterGroup": "subrouter",
       "subrouterOverview": "overview",
       "accountGroup": "account",
@@ -136,20 +135,24 @@
         "upsellTitle": "Upgrade when you need cloud agents or team billing.",
         "upsellBody": "Choose Pro for personal cloud features, or Team for shared billing and seats.",
         "testflightTitle": "Get the cmux iOS app",
-        "testflightBody": "The iOS beta is available through TestFlight for active Pro users and Team members.",
+        "testflightBody": "The iOS beta is available through TestFlight for active personal Pro subscribers.",
         "testflightCta": "Join the iOS beta"
       },
       "pro": {
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
-        "pendingBody": "Your plan is scheduled to end on {date}."
+        "pendingBody": "Your plan is scheduled to end on {date}.",
+        "monthlyPrice": "$30/mo",
+        "annualPrice": "$24/mo, billed annually",
+        "legacyAnnualPrice": "$20/mo, billed annually"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/month"
+        "price": "$35/seat/mo",
+        "annualPrice": "$28/seat/mo, billed annually"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -187,13 +190,13 @@
         "joined": "Apple will email your TestFlight invite shortly.",
         "left": "You have left the iOS TestFlight group.",
         "error": "TestFlight could not be updated. Try again shortly.",
-        "ineligible": "An active Pro or Team subscription is required for iOS TestFlight.",
+        "ineligible": "An active personal Pro subscription is required for iOS TestFlight.",
         "needs_email": "Add a verified primary email before joining iOS TestFlight.",
         "unavailable": "TestFlight enrollment is not available right now."
       },
       "notEligible": {
         "title": "Subscription required",
-        "body": "iOS TestFlight access is available to active Pro users and members of a Team subscription."
+        "body": "iOS TestFlight access is available to active personal Pro subscribers."
       },
       "needsEmail": {
         "title": "Verified email required",
@@ -233,6 +236,8 @@
       "teamSwitcherLabel": "Team",
       "notConfiguredTitle": "AI account management isn't available yet",
       "notConfiguredBody": "Team AI accounts aren't enabled for this deployment. Try again later or contact support.",
+      "migrationPendingTitle": "Account migration in progress",
+      "migrationPendingBody": "Shared accounts are temporarily unavailable while migration finishes. Try again shortly.",
       "loadErrorTitle": "Accounts could not load",
       "loadErrorBody": "The account service could not be reached. Try again shortly.",
       "accountsTitle": "Connected accounts",
@@ -376,6 +381,7 @@
     "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
+    "companyInformation": "Company information",
     "privacy": "Privacy",
     "terms": "Terms",
     "eula": "EULA",
@@ -398,8 +404,17 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for Cloud VMs and a model gateway. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds Cloud VMs and a model gateway; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
-    "perMonth": "/month",
-    "perUserMonth": "/user/month",
+    "perMonth": "/mo",
+    "perMonthBilledYearly": "/mo, billed yearly",
+    "perUserMonth": "/user/mo",
+    "perUserMonthBilledYearly": "/user/mo, billed yearly",
+    "billingPeriod": "Billing period",
+    "monthly": "Monthly",
+    "annual": "Annual",
+    "saveAnnual": "Save {discount}%",
+    "annualComparePrice": "${monthly}/mo",
+    "teamMonthlyComparePrice": "${monthly}/user/mo",
+    "teamAnnualComparePrice": "${monthly}/user/mo",
     "currentPlan": "Current plan",
     "manageBilling": "Manage billing",
     "free": {
@@ -657,7 +672,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30 per month, or $240 per year (about $20 per month billed annually) and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
+          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings), and includes 20 active compute-hours per month on the 4 vCPU / 16 GB Cloud VM. Beyond that, cloud usage is billed per active compute-hour by VM size (see Cloud VM sizes above). Idle VMs suspend automatically, and running agents in parallel just uses more hours. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -665,7 +680,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35 per user per month: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
+          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually: unified billing for the whole team, centralized seat management, pooled Cloud VM hours, and shared team rules. Enterprise adds SSO, self-hosting, and audit logs."
         }
       ]
     },
@@ -677,6 +692,9 @@
     "billingUnavailable": "Billing is not available right now. Please try again later.",
     "billingCancelled": "Checkout cancelled. You have not been charged.",
     "billingInvalidPlan": "That plan is not available. Pick a plan below.",
+    "signedOutNotice": "You're not signed in. Sign in to see your current plan or restore an existing purchase.",
+    "signedOutSignIn": "Sign in",
+    "billingInvalidRelay": "The app checkout link expired or could not be verified. Return to cmux and try again.",
     "welcomeTeam": "Your cmux Team purchase is complete."
   },
   "home": {
@@ -2441,7 +2459,16 @@
     "changelog": {
       "title": "Changelog",
       "metaTitle": "Changelog",
-      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal."
+      "metaDescription": "cmux release notes and version history. New features, bug fixes, and changes for the native macOS terminal.",
+      "versionTitle": "cmux {version} · Changelog",
+      "releaseNavLabel": "Releases near cmux {version}",
+      "sections": {
+        "added": "Added",
+        "changed": "Changed",
+        "fixed": "Fixed",
+        "removed": "Removed",
+        "contributors": "Contributors"
+      }
     },
     "claudeCodeTeams": {
       "title": "Claude Code Teams",
@@ -2623,6 +2650,7 @@
     },
     "navItems": {
       "gettingStarted": "Getting Started",
+      "tui": "cmux TUI",
       "concepts": "Concepts",
       "base": "Base",
       "workspaceGroups": "Workspace Groups",
@@ -4820,22 +4848,159 @@
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   },
+  "emails": {
+    "proWelcome": {
+      "subject": "Welcome to cmux Pro 🎉",
+      "fallbackName": "there",
+      "greeting": "Hey {name},",
+      "thanks": "Thanks for joining cmux Pro! We’re still putting the full Pro experience together, and cloud access is on the way.",
+      "cloudStatus": "When cloud access launches, we’ll add usage credits to your account based on how many months you’ve been subscribed.",
+      "currentBenefit": "In the meantime, your Pro benefit is early access to cmux on iOS. Sign up through the link below, and Apple will send your TestFlight invitation once you’re registered.",
+      "testflightLink": "Sign up for TestFlight: {url}",
+      "testflightLinkLabel": "Sign up for TestFlight",
+      "signoff": "Glad to have you here!\nThe cmux team"
+    }
+  },
+  "tui": {
+    "marketing": {
+      "sectionLabel": "TUI",
+      "metaTitle": "cmux TUI: a terminal workspace for agents",
+      "metaDescription": "Run workspaces, split panes, browser tabs, and remote machines from a fast open-source terminal UI for macOS, Linux, and Windows.",
+      "eyebrow": "cmux TUI · open source",
+      "title": "A terminal workspace that runs anywhere.",
+      "intro": "cmux TUI brings the workspace model built for coding agents to macOS, Linux, and Windows. Keep shells, browsers, tests, and long-running agents in one keyboard-first tree.",
+      "runButton": "Install cmux",
+      "docsButton": "Read the docs",
+      "sourceButton": "View source",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and Hunk in three panes beside the TUI workspace rail",
+      "screenshotCaption": "A real cmux-tui session inside cmux on macOS. The TUI workspace rail is visible; the macOS app sidebar is hidden.",
+      "facts": {
+        "platforms": {
+          "label": "Runs on",
+          "value": "macOS + Linux + Windows"
+        },
+        "engine": {
+          "label": "Terminal engine",
+          "value": "Ghostty VT"
+        },
+        "license": {
+          "label": "Source",
+          "value": "Open source"
+        }
+      },
+      "workflowEyebrow": "One tree for the whole job",
+      "workflowTitle": "Keep every agent and tool in view.",
+      "workflowBody": "Workspaces hold screens, screens hold split panes, and panes hold terminal or browser tabs. The same live tree can be attached locally, reached over SSH, rendered on the web, or controlled through the socket API.",
+      "features": {
+        "tree": {
+          "number": "01 / WORKSPACES",
+          "title": "Organize by task",
+          "body": "Give each feature, investigation, or agent team its own workspace. Switch without losing terminal state or layout."
+        },
+        "agents": {
+          "number": "02 / AGENTS",
+          "title": "See parallel work",
+          "body": "Place coding agents beside tests, logs, and review commands. Notifications and agent state stay attached to their surfaces."
+        },
+        "browser": {
+          "number": "03 / BROWSER",
+          "title": "Open real browser tabs",
+          "body": "Drive Chrome targets as tabs beside terminal processes, with persistent profiles, keyboard input, mouse input, and live frames."
+        },
+        "remote": {
+          "number": "04 / MACHINES",
+          "title": "Move across machines",
+          "body": "Use the optional machine rail to switch between local sessions, Unix sockets, SSH hosts, and cmux Cloud connections."
+        }
+      },
+      "keyboardEyebrow": "Fast by default",
+      "keyboardTitle": "tmux muscle memory, a richer model.",
+      "keyboardBody": "The default Ctrl-b prefix keeps familiar pane commands while adding workspaces, tabs, browser surfaces, a scrollable viewport, layout undo, and mouse controls.",
+      "keys": {
+        "split": "Split the active pane right",
+        "tab": "Open a tab in the pane",
+        "workspace": "Create a workspace",
+        "viewport": "Add a scrollable pane to the right"
+      },
+      "installEyebrow": "Start now",
+      "installTitle": "One command. No app window required.",
+      "installBody": "The installer selects the native binary for your platform, verifies its SHA-256 checksum, and adds the cmux command to your PATH.",
+      "installTabs": {
+        "label": "Operating system",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "View install script",
+        "copy": "Copy install command",
+        "copied": "Copied"
+      },
+      "installNpx": "Already have Node.js? You can also run",
+      "fullDocs": "Installation, keys, remote sessions, and automation",
+      "browseSource": "Browse cmux-tui on GitHub"
+    },
+    "docs": {
+      "metaTitle": "cmux TUI documentation",
+      "metaDescription": "Install cmux TUI, learn its workspace model and keyboard controls, attach to sessions, connect remote machines, and automate it.",
+      "title": "cmux TUI",
+      "intro": "cmux TUI is a Rust terminal multiplexer for macOS, Linux, and Windows. It combines workspaces, screens, split panes, terminal tabs, browser tabs, remote sessions, and a control socket in one process.",
+      "screenshotAlt": "cmux TUI running inside cmux on macOS with Neovim, OpenCode, and Hunk in three panes beside the TUI workspace rail",
+      "screenshotCaption": "A live session with Neovim, OpenCode, and the Hunk review TUI.",
+      "installTitle": "Install and run",
+      "installIntro": "The install scripts select the native binary for your operating system and architecture, verify its SHA-256 checksum, and add cmux to your PATH.",
+      "installTabs": {
+        "label": "Operating system",
+        "unix": "macOS & Linux",
+        "windows": "Windows",
+        "viewScript": "View install script",
+        "copy": "Copy install command",
+        "copied": "Copied"
+      },
+      "installNpx": "If Node.js is already installed, you can run cmux without installing it permanently:",
+      "platforms": "Packaged builds support Apple Silicon and Intel Macs, x64 and Arm64 Linux, and x64 Windows. Windows on Arm runs the x64 build through emulation. Building from source requires Rust, Zig 0.15.2, and the repository's Ghostty submodule.",
+      "modelTitle": "The workspace model",
+      "modelIntro": "cmux TUI keeps one durable tree instead of flattening every process into an unrelated terminal tab.",
+      "modelBody": "A session owns one control socket. Each workspace can contain multiple screens; each screen owns a pane layout; each pane can contain terminal and browser tabs. Closing a tab does not close its pane when other tabs remain.",
+      "keyboardTitle": "Keyboard and mouse",
+      "keyboardIntro": "The default prefix is Ctrl-b. Press it twice to send a literal Ctrl-b to the active terminal.",
+      "keyTable": {
+        "keys": "Keys",
+        "action": "Action"
+      },
+      "keys": {
+        "splitRight": "Split the active pane right",
+        "splitDown": "Split the active pane down",
+        "newTab": "Create a terminal tab",
+        "newWorkspace": "Create a workspace",
+        "sidebar": "Show or hide the workspace rail",
+        "detach": "Quit locally or detach from a server"
+      },
+      "mouse": "Click pane borders, tabs, workspaces, and screens directly. Right-click a pane for actions. Hold Shift while right-clicking when the application inside the pane owns mouse input.",
+      "sessionsTitle": "Headless sessions and attach",
+      "sessionsIntro": "Headless mode keeps the mux backend and its terminals running without a local interface. Attach from another terminal when you need the UI.",
+      "sessionsBody": "The default session is main. Named sessions use separate Unix sockets. Detaching leaves a headless server running, so a later attach restores the same tree and terminal state.",
+      "remoteTitle": "Remote machines",
+      "remoteIntro": "Enable the machine rail to switch between the current session and configured Unix-socket or SSH targets.",
+      "remoteBody": "The remote machine must already run a headless cmux session, and noninteractive SSH must find the cmux binary. cmux uses strict host-key checking and disables agent forwarding and port forwarding.",
+      "browserTitle": "Browser tabs",
+      "browserBody": "A browser tab controls a real Chrome or Chromium target through the Chrome DevTools Protocol. Profiles persist between sessions, so cookies and sign-ins can remain available. Open a browser tab with:",
+      "automationTitle": "Automation and the control socket",
+      "automationIntro": "Every tree mutation and inspection used by the TUI is also available through the command line and JSON-lines control socket.",
+      "automationBody": "Commands can create workspaces, run processes, split panes, send input, read visible terminal text, subscribe to events, and report agent state. Typed bindings live in the repository for TypeScript, Python, Go, Java, and Rust.",
+      "configTitle": "Configuration",
+      "configBody": "Configure keys, sidebar width, machines, browser behavior, startup commands, and theme values in the TUI config file. CMUX_TUI_CONFIG overrides the default path.",
+      "moreTitle": "More",
+      "links": {
+        "product": "cmux TUI product page",
+        "sourceDocs": "Complete source documentation",
+        "source": "cmux-tui source code"
+      }
+    }
+  },
   "appProWelcome": {
     "eyebrow": "cmux Pro is active",
     "title": "Welcome to cmux Pro",
-    "body": "Your plan includes cloud agents on Cloud VMs, 20 monthly compute-hours, the model gateway, and the cmux iOS app. Start here.",
+    "body": "Pro features are still being built. Cloud access is coming soon, with usage credits accumulated for every month you stay subscribed. Today, Pro includes cmux iOS TestFlight access.",
     "done": "Go to dashboard",
     "steps": {
-      "modelGateway": {
-        "title": "Model gateway",
-        "body": "Route across providers with usage and cost analytics.",
-        "action": "Open model gateway"
-      },
-      "aiAccounts": {
-        "title": "Connect your AI accounts",
-        "body": "Add provider accounts so cmux can route work through them.",
-        "action": "Connect providers"
-      },
       "iosApp": {
         "title": "cmux iOS app",
         "body": "Use cmux on your phone.",

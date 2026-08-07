@@ -26,6 +26,10 @@ extension ContentView {
             return String(localized: "commandPalette.kind.workspaceTodo", defaultValue: "Todos")
         case .cloudVMLoading:
             return String(localized: "commandPalette.kind.cloudVMLoading", defaultValue: "Cloud VM")
+        case .mobilePairing:
+            return String(localized: "command.mobileConnect.subtitle", defaultValue: "Tailscale")
+        case .accountSignIn:
+            return String(localized: "settings.section.account", defaultValue: "Account")
         }
     }
     func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -53,6 +57,10 @@ extension ContentView {
             return ["todo", "todos", "checklist", "task", "status"]
         case .cloudVMLoading:
             return ["cloud", "vm", "loading"]
+        case .mobilePairing:
+            return ContentView.commandPaletteMobileConnectKeywords
+        case .accountSignIn:
+            return ["account", "auth", "profile", "sign in"]
         }
     }
 }

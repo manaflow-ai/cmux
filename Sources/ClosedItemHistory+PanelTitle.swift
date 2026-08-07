@@ -39,6 +39,10 @@ extension ClosedItemHistoryStore {
             return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
         case .cloudVMLoading:
             return String(localized: "menu.history.recentlyClosed.panel.cloudVM", defaultValue: "Cloud VM")
+        case .mobilePairing:
+            return String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
+        case .accountSignIn:
+            return String(localized: "account.signIn.workspace.title", defaultValue: "Sign In")
         }
     }
 }

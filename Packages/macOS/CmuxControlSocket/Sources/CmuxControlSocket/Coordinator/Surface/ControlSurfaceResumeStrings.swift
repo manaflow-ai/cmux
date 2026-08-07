@@ -7,6 +7,8 @@ public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     public let agentSessionEndedMustBeBoolean: String
     /// The message returned when the internal binding-revision guard is invalid.
     public let invalidExpectedUpdatedAt: String
+    /// The message returned when `launch_command` is present but malformed.
+    public let launchCommandMustBeValid: String
 
     /// Creates the localized surface-resume message bundle.
     ///
@@ -15,11 +17,14 @@ public struct ControlSurfaceResumeStrings: Sendable, Equatable {
     ///     `agent_session_ended` message.
     ///   - invalidExpectedUpdatedAt: The malformed internal binding-revision
     ///     guard message.
+    ///   - launchCommandMustBeValid: The malformed `launch_command` message.
     public init(
         agentSessionEndedMustBeBoolean: String,
-        invalidExpectedUpdatedAt: String
+        invalidExpectedUpdatedAt: String,
+        launchCommandMustBeValid: String
     ) {
         self.agentSessionEndedMustBeBoolean = agentSessionEndedMustBeBoolean
         self.invalidExpectedUpdatedAt = invalidExpectedUpdatedAt
+        self.launchCommandMustBeValid = launchCommandMustBeValid
     }
 }

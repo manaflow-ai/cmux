@@ -2948,6 +2948,8 @@ final class WindowBrowserPortal: NSObject {
             ),
             webView: webView
         )
+        let shouldPreserveExternalRenderHost =
+            webView.cmuxIsManagedByExternalRenderHost(relativeTo: containerView)
 
         if let previousWebViewId = webViewByAnchorId[anchorId], previousWebViewId != webViewId {
 #if DEBUG
@@ -3008,11 +3010,12 @@ final class WindowBrowserPortal: NSObject {
         }
 #endif
 
-        if shouldPreserveExternalFullscreenHost {
+        if shouldPreserveExternalFullscreenHost || shouldPreserveExternalRenderHost {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
-                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "reason=\(shouldPreserveExternalFullscreenHost ? "fullscreenExternalHost" : "renderExternalHost") " +
+                "super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView)) " +
                 "state=\(String(describing: webView.fullscreenState))"
             )
@@ -3264,9 +3267,11 @@ final class WindowBrowserPortal: NSObject {
                     return
                 }
             }
-            if preserveVisibleDuringTransientDetach(reason: "anchorWindowMismatch") {
-                return
-            }
+            // Only an anchor that is still parented somewhere (the drag/reparent
+            // churn above) earns keeping the slot on screen. An anchor with no
+            // superview, or one that moved to another window, is not coming back
+            // on its own, so hide the slot while recovery retries run instead of
+            // leaving it rendering over whatever pane now owns that space.
             if scheduleTransientDetachRecovery(reason: "anchorWindowMismatch") {
                 hideContainerView(reason: "anchorWindowMismatch")
                 return
@@ -3300,15 +3305,19 @@ final class WindowBrowserPortal: NSObject {
         }
         let shouldPreserveExternalFullscreenHost =
             webView.cmuxIsManagedByExternalFullscreenWindow(relativeTo: window)
+        let shouldPreserveExternalRenderHost =
+            webView.cmuxIsManagedByExternalRenderHost(relativeTo: containerView)
         let shouldPreserveExternalHostForHiddenEntry =
             !shouldPreserveExternalFullscreenHost &&
+            !shouldPreserveExternalRenderHost &&
             !entry.visibleInUI &&
             webView.cmuxBrowserViewportPresentationView.superview !== containerView
-        if shouldPreserveExternalFullscreenHost {
+        if shouldPreserveExternalFullscreenHost || shouldPreserveExternalRenderHost {
 #if DEBUG
             cmuxDebugLog(
                 "browser.portal.reparent.skip web=\(browserPortalDebugToken(webView)) " +
-                "reason=fullscreenExternalHost super=\(browserPortalDebugToken(webView.superview)) " +
+                "reason=\(shouldPreserveExternalFullscreenHost ? "fullscreenExternalHost" : "renderExternalHost") " +
+                "super=\(browserPortalDebugToken(webView.superview)) " +
                 "container=\(browserPortalDebugToken(containerView)) " +
                 "state=\(String(describing: webView.fullscreenState))"
             )

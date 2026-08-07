@@ -262,7 +262,7 @@ private extension MobilePairedMac {
             preferNonLoopback: preferNonLoopback
         )
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
-            return "iroh:\(identity.endpointID):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
+            return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
         }
         guard let (host, port) = MobileShellComposite.firstReconnectHostPortRoute(
             reconnectRoutes,
@@ -271,7 +271,7 @@ private extension MobilePairedMac {
         ), let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             return nil
         }
-        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased()):instance:\(instanceTag ?? "")"
+        return "host:\(normalizedHost.lowercased()):\(port):name:\(displayName.lowercased())"
     }
 
     func mergingCustomization(from other: MobilePairedMac) -> MobilePairedMac {

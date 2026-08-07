@@ -32,10 +32,6 @@ enum TerminalStartupShellQuoting {
     }
 }
 
-fileprivate func shellSingleQuoted(_ value: String) -> String {
-    TerminalStartupShellQuoting.singleQuoted(value)
-}
-
 enum TerminalStartupWorkingDirectoryPrefix {
     static func optionalChangeDirectoryPrefix(for workingDirectory: String?) -> String? {
         guard let workingDirectory = normalized(workingDirectory) else { return nil }
@@ -86,6 +82,18 @@ enum TerminalStartupWorkingDirectoryPrefix {
         } ?? trimmed
         return replacingRequiredChangeDirectoryPrefix(
             in: stripped,
+            workingDirectory: workingDirectory
+        )
+    }
+
+    static func removingRequiredChangeDirectoryPrefix(
+        from command: String,
+        workingDirectory: String?
+    ) -> String {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workingDirectory = normalized(workingDirectory) else { return trimmed }
+        return strippedRequiredChangeDirectoryPrefix(
+            from: trimmed,
             workingDirectory: workingDirectory
         )
     }
@@ -394,43 +402,49 @@ enum AgentResumeCommandBuilder {
         }
         commandParts.append(contentsOf: argv)
 
-        let cwd = !includeWorkingDirectoryPrefix || customRegistration?.cwd == .ignore
+        let cwd = customRegistration?.cwd == .ignore
             ? nil
             : normalized(workingDirectory ?? launchCommand?.workingDirectory)
+        let workingDirectoriesToRemove = [
+            cwd,
+            normalized(launchCommand?.workingDirectory),
+        ].compactMap { $0 }
         let sanitizedCommandParts = customRegistration == nil
-            ? AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-                from: commandParts,
-                workingDirectory: cwd
-            )
+            ? workingDirectoriesToRemove.reduce(commandParts) { parts, directory in
+                AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                    from: parts,
+                    workingDirectory: directory
+                )
+            }
             : commandParts
         // Render the claude/codex executable as the wrapper shim token so the
         // executed command routes through cmux's `claude`/`codex` wrapper
-        // (re-injecting the agent hooks) even inside the `$SHELL -lic` restore
-        // launcher, where the shell integration's PATH shim / shell function are
-        // not active and an `env`-prefixed invocation would otherwise hit the
-        // user's real binary. Without this, an auto-resumed codex session runs the
-        // bare `codex` binary, fires no SessionStart hook, and the session registry
-        // never marks it live, so the iOS GUI stays read-only.
-        // The token is POSIX-only, and the launcher dispatches through the user's
-        // shell (fish/csh/tcsh included), so token-bearing commands are wrapped in
-        // `/bin/sh -c '…'` to parse everywhere; the cwd guard stays outside so
-        // cd-prefix rewriting keeps composing.
+        // (re-injecting the agent hooks) even when an `env`-prefixed invocation
+        // would otherwise bypass the shell integration's PATH shim / shell
+        // function and hit the user's real binary. Without this, an auto-resumed
+        // codex session fires no SessionStart hook and the session registry never
+        // marks it live, so the iOS GUI stays read-only.
+        // The token is POSIX-only, so token-bearing commands are wrapped in
+        // `/bin/sh -c '…'` to parse consistently from any user's login shell.
         // https://github.com/manaflow-ai/cmux/issues/5639
         let shellCommand: String
         switch kind {
         case .claude:
             shellCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
                 parts: sanitizedCommandParts,
-                quote: shellSingleQuoted
+                quote: TerminalStartupShellQuoting.singleQuoted
             )
         case .codex:
             shellCommand = AgentResumeArgv.renderedPortableCodexResumeShellCommand(
                 parts: sanitizedCommandParts,
-                quote: shellSingleQuoted
+                quote: TerminalStartupShellQuoting.singleQuoted
             )
         default:
-            shellCommand = sanitizedCommandParts.map(shellSingleQuoted).joined(separator: " ")
+            shellCommand = sanitizedCommandParts
+                .map(TerminalStartupShellQuoting.singleQuoted)
+                .joined(separator: " ")
         }
+        guard includeWorkingDirectoryPrefix else { return shellCommand }
         return TerminalStartupWorkingDirectoryPrefix.prefix(shellCommand, workingDirectory: cwd)
     }
 
@@ -495,7 +509,7 @@ enum AgentResumeCommandBuilder {
         return environmentParts
     }
 
-    private static func resumeArguments(
+    fileprivate static func resumeArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -759,7 +773,7 @@ enum AgentResumeCommandBuilder {
 }
 
 struct SessionRestorableAgentSnapshot: Codable, Sendable {
-    static let maxInlineStartupInputBytes = 900
+    private static let maxInlineForkInputBytes = 900
 
     var kind: RestorableAgentKind
     var sessionId: String
@@ -770,25 +784,44 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     /// user-owned claude resume/fork when no explicit launch flag covers it.
     var permissionMode: String? = nil
 
+    func preparedResumeArguments(
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?,
+        observedPermissionMode: String?
+    ) -> [String]? {
+        AgentResumeCommandBuilder.resumeArguments(
+            kind: kind,
+            sessionId: sessionId,
+            launchCommand: launchCommand,
+            workingDirectory: workingDirectory,
+            customRegistration: registration,
+            observedPermissionMode: observedPermissionMode
+        )
+    }
+
     func resumeStartupInput(
-        fileManager: FileManager = .default,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
-        allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false,
-        requireLauncherScript: Bool = false
+        useLocalRestoreVerb: Bool = true,
+        restoringWorkingDirectory: String? = nil
     ) -> String? {
-        let restoreCommand = resumeCommand.map { command in
+        if useLocalRestoreVerb {
+            let executable = AgentRestoreLaunch.cliStartupExecutableToken
+            guard AgentRestoreCLIArgument(rawValue: kind.rawValue) != nil,
+                  AgentRestoreCLIArgument(rawValue: sessionId) != nil else {
+                return " \(executable) restore --surface\n"
+            }
+            return " \(executable) restore \(kind.rawValue) \(sessionId)\n"
+        }
+        let effectiveWorkingDirectory = resumeWorkingDirectory(
+            preferred: restoringWorkingDirectory
+        )
+        let restoreCommand = resumeCommand(
+            includeWorkingDirectoryPrefix: true,
+            restoringWorkingDirectory: effectiveWorkingDirectory
+        ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
                 .applying(toStoredCommand: command) ?? command
         }
-        return startupInput(
-            command: restoreCommand,
-            fileManager: fileManager,
-            temporaryDirectory: temporaryDirectory,
-            allowLauncherScript: allowLauncherScript,
-            allowOversizedInlineInput: allowOversizedInlineInput,
-            requireLauncherScript: requireLauncherScript
-        )
+        return restoreCommand.map { $0 + "\n" }
     }
 
     func forkStartupInput(
@@ -798,6 +831,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     ) -> String? {
         startupInput(
             command: forkCommand,
+            workingDirectory: nil,
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory,
             allowLauncherScript: allowLauncherScript
@@ -806,92 +840,39 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
     private func startupInput(
         command: String?,
+        workingDirectory: String?,
         fileManager: FileManager,
         temporaryDirectory: URL,
-        allowLauncherScript: Bool = true,
-        allowOversizedInlineInput: Bool = false,
-        requireLauncherScript: Bool = false
+        allowLauncherScript: Bool = true
     ) -> String? {
         guard let command else { return nil }
         let inlineInput = command + "\n"
-        guard requireLauncherScript || inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
-            return inlineInput
-        }
-        guard requireLauncherScript || !allowOversizedInlineInput else {
+        guard inlineInput.utf8.count > Self.maxInlineForkInputBytes else {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
-        guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
-            command: command,
-            kind: kind,
-            sessionId: sessionId,
+        guard let scriptInput = OneShotTerminalLauncherStore(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
+        ).writeInvocationInput(
+            command: command,
+            workingDirectory: workingDirectory
         ) else {
             return nil
         }
-
-        let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
-        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
-    }
-}
-
-private enum AgentResumeScriptStore {
-    private static let directoryName = "cmux-agent-resume"
-    private static let scriptTTL: TimeInterval = 24 * 60 * 60
-
-    static func writeLauncherScript(
-        command: String,
-        kind: RestorableAgentKind,
-        sessionId: String,
-        fileManager: FileManager,
-        temporaryDirectory: URL
-    ) -> URL? {
-        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
-            pruneOldScripts(in: directoryURL, fileManager: fileManager)
-
-            let safeSessionPrefix = sessionId
-                .prefix(12)
-                .map { character -> Character in
-                    character.isLetter || character.isNumber || character == "-" ? character : "_"
-                }
-            let scriptURL = directoryURL.appendingPathComponent(
-                "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
-                isDirectory: false
-            )
-            var lines = [
-                "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true"
-            ]
-            lines.append(command)
-            let contents = lines.joined(separator: "\n") + "\n"
-            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
-            return scriptURL
-        } catch {
-            return nil
-        }
+        return scriptInput.utf8.count <= Self.maxInlineForkInputBytes ? scriptInput : nil
     }
 
-    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
-        guard let scriptURLs = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        let cutoff = Date().addingTimeInterval(-scriptTTL)
-        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
-            let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey])
-            if let modified = values?.contentModificationDate, modified < cutoff {
-                try? fileManager.removeItem(at: scriptURL)
+    private func resumeWorkingDirectory(preferred: String?) -> String? {
+        guard registration?.cwd != .ignore else { return nil }
+        for candidate in [preferred, workingDirectory, launchCommand?.workingDirectory] {
+            guard let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty else {
+                continue
             }
+            return trimmed
         }
+        return nil
     }
 }
 
@@ -943,6 +924,14 @@ struct RestorableAgentSessionIndex: Sendable {
     private struct SessionKey: Hashable {
         let kind: RestorableAgentKind
         let sessionId: String
+
+        init(kind: RestorableAgentKind, sessionId: String) {
+            self.kind = kind
+            self.sessionId = ManagedAgentSessionIdentity.canonicalSessionID(
+                kind: kind.rawValue,
+                sessionID: sessionId
+            )
+        }
     }
 
     private struct PanelKindKey: Hashable {
@@ -1262,7 +1251,11 @@ struct RestorableAgentSessionIndex: Sendable {
                         entry: shouldReplace ? entry : existingPanelIDCandidate.entry,
                         isAmbiguous: existingPanelIDCandidate.isAmbiguous ||
                             existingPanelIDCandidate.panelKey != key ||
-                            existingPanelIDCandidate.entry.snapshot.sessionId != entry.snapshot.sessionId
+                            !ManagedAgentSessionIdentity.sessionIDsMatch(
+                                kind: kind.rawValue,
+                                lhs: existingPanelIDCandidate.entry.snapshot.sessionId,
+                                rhs: entry.snapshot.sessionId
+                            )
                     )
                 } else {
                     hookCandidatesByPanelIdAndKind[panelIDKindKey] = PanelIDKindCandidate(
@@ -1403,7 +1396,11 @@ struct RestorableAgentSessionIndex: Sendable {
         [resolved, panelCandidate, sessionCandidate].compactMap { $0 }
             .filter {
                 $0.snapshot.kind == snapshot.kind &&
-                    $0.snapshot.sessionId == snapshot.sessionId
+                    ManagedAgentSessionIdentity.sessionIDsMatch(
+                        kind: snapshot.kind.rawValue,
+                        lhs: $0.snapshot.sessionId,
+                        rhs: snapshot.sessionId
+                    )
             }
             .max { $0.updatedAt < $1.updatedAt }
     }

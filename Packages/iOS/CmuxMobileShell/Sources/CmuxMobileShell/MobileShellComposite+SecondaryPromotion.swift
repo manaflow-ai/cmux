@@ -125,7 +125,7 @@ extension MobileShellComposite {
         from connection: MacConnection
     ) async {
         focusedHandoffPreparedGenerations.remove(connection.generation)
-        guard secondaryMacSubscriptions[connection.macDeviceID]
+        guard secondaryMacSubscriptions[subscription.ownerKey]
                 === subscription,
               !subscription.isTransitioningToFocus else {
             return
@@ -136,7 +136,7 @@ extension MobileShellComposite {
         // A concurrent switch may have promoted or removed this exact owner
         // while the transport actor applied its role. Its newer role update
         // wins; only the still-current control owner may start maintenance.
-        guard secondaryMacSubscriptions[connection.macDeviceID]
+        guard secondaryMacSubscriptions[subscription.ownerKey]
                 === subscription,
               !subscription.isTransitioningToFocus else {
             return
@@ -152,26 +152,16 @@ extension MobileShellComposite {
     /// synchronously; awaiting disconnect guarantees the old peer session is
     /// gone before a replacement client can compete for it.
     func retireSecondaryPromotionCandidate(
-        _ subscription: SecondaryMacSubscription,
-        macDeviceID: String
+        _ subscription: SecondaryMacSubscription
     ) async {
-        guard beginSecondaryMacDrainReservation(
-            subscription,
-            macDeviceID: macDeviceID
-        ) else {
+        guard beginSecondaryMacDrainReservation(subscription) else {
             return
         }
-        let operation = secondaryMacTransportDrainOperation(
-            subscription,
-            macDeviceID: macDeviceID
-        )
+        let operation = secondaryMacTransportDrainOperation(subscription)
         if await operation.wait(
             nanoseconds: connectionHandoffDrainTimeoutNanoseconds
         ) {
-            finishRetiredSecondaryPromotionCandidate(
-                subscription,
-                macDeviceID: macDeviceID
-            )
+            finishRetiredSecondaryPromotionCandidate(subscription)
         }
     }
 
@@ -179,8 +169,7 @@ extension MobileShellComposite {
     /// completion owner is also installed once, so repeated same-Mac switches
     /// only wait on this operation instead of accumulating cleanup tasks.
     func secondaryMacTransportDrainOperation(
-        _ subscription: SecondaryMacSubscription,
-        macDeviceID: String
+        _ subscription: SecondaryMacSubscription
     ) -> SecondaryMacTransportDrainOperation {
         if let operation = subscription.transportDrainOperation {
             return operation
@@ -203,10 +192,7 @@ extension MobileShellComposite {
             }
             operation.finish()
             operation.completionTask = nil
-            self.finishRetiredSecondaryPromotionCandidate(
-                subscription,
-                macDeviceID: macDeviceID
-            )
+            self.finishRetiredSecondaryPromotionCandidate(subscription)
         }
         return operation
     }
@@ -214,10 +200,9 @@ extension MobileShellComposite {
     @discardableResult
     func finishRetiredSecondaryPromotionCandidate(
         _ subscription: SecondaryMacSubscription,
-        macDeviceID: String,
         forceRemovalDuringMacSwitch: Bool = false
     ) -> Bool {
-        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
+        let reservationKey = subscription.ownerKey
         guard secondaryMacDrainReservations[reservationKey]
                 === subscription else {
             return false
@@ -230,17 +215,17 @@ extension MobileShellComposite {
             return false
         }
         secondaryMacDrainReservations[reservationKey] = nil
-        markSecondaryMacUnavailableIfUnowned(macDeviceID)
+        markSecondaryMacUnavailableIfUnowned(reservationKey)
         switch subscription.postDrainAction {
         case .none:
             break
         case .refreshPresence:
             scheduleSecondaryPresenceAggregation(
-                forMacDeviceID: macDeviceID
+                forMacDeviceID: subscription.macDeviceID
             )
         case .retry:
             scheduleSecondaryAggregationRetry(
-                macDeviceIDs: [macDeviceID]
+                macDeviceIDs: [subscription.macDeviceID]
             )
         }
         subscription.postDrainAction = .none
@@ -248,23 +233,33 @@ extension MobileShellComposite {
     }
 
     func secondaryMacDrainReservation(
-        forMacDeviceID macDeviceID: String
+        for ownerKey: MacPairingKey
     ) -> SecondaryMacSubscription? {
-        secondaryMacDrainReservations[
-            cmxCanonicalDeviceID(macDeviceID)
-        ]
+        secondaryMacDrainReservations[ownerKey]
+    }
+
+    /// Any still-draining retired owner on the given physical device. Fresh
+    /// dials block on this device-wide check because a replaced pairing (a
+    /// retagged build) reuses the SAME physical peer session: dialing before
+    /// the old transport drain completes cannot acquire the Iroh session.
+    func secondaryMacDrainReservation(
+        onDeviceOf ownerKey: MacPairingKey
+    ) -> SecondaryMacSubscription? {
+        if let exact = secondaryMacDrainReservations[ownerKey] { return exact }
+        return secondaryMacDrainReservations.first {
+            $0.key.canonicalMacDeviceID == ownerKey.canonicalMacDeviceID
+        }?.value
     }
 
     @discardableResult
     func beginSecondaryMacDrainReservation(
         _ subscription: SecondaryMacSubscription,
-        macDeviceID: String,
         postDrainAction: SecondaryMacPostDrainAction = .refreshPresence
     ) -> Bool {
-        guard secondaryMacSubscriptions[macDeviceID] === subscription else {
+        let reservationKey = subscription.ownerKey
+        guard secondaryMacSubscriptions[reservationKey] === subscription else {
             return false
         }
-        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
         guard secondaryMacDrainReservations[reservationKey] == nil else {
             return false
         }
@@ -275,39 +270,28 @@ extension MobileShellComposite {
         subscription.transportDrainOperation = nil
         subscription.transportDrainReservationHolders = []
         subscription.postDrainAction = postDrainAction
-        secondaryMacSubscriptions[macDeviceID] = nil
+        secondaryMacSubscriptions[reservationKey] = nil
         secondaryMacDrainReservations[reservationKey] = subscription
-        markSecondaryMacUnavailable(macDeviceID)
-        _ = secondaryMacTransportDrainOperation(
-            subscription,
-            macDeviceID: macDeviceID
-        )
+        markSecondaryMacUnavailable(reservationKey)
+        _ = secondaryMacTransportDrainOperation(subscription)
         return true
     }
 
     func retireSecondaryControlOwner(
         _ subscription: SecondaryMacSubscription,
-        macDeviceID: String,
         shouldRetry: Bool
     ) async {
         guard beginSecondaryMacDrainReservation(
             subscription,
-            macDeviceID: macDeviceID,
             postDrainAction: shouldRetry ? .retry : .none
         ) else {
             return
         }
-        let operation = secondaryMacTransportDrainOperation(
-            subscription,
-            macDeviceID: macDeviceID
-        )
+        let operation = secondaryMacTransportDrainOperation(subscription)
         if await operation.wait(
             nanoseconds: connectionHandoffDrainTimeoutNanoseconds
         ) {
-            finishRetiredSecondaryPromotionCandidate(
-                subscription,
-                macDeviceID: macDeviceID
-            )
+            finishRetiredSecondaryPromotionCandidate(subscription)
             return
         }
     }
@@ -317,10 +301,7 @@ extension MobileShellComposite {
             \.hasCompletedTransportDrain
         )
         for subscription in completed {
-            finishRetiredSecondaryPromotionCandidate(
-                subscription,
-                macDeviceID: subscription.macDeviceID
-            )
+            finishRetiredSecondaryPromotionCandidate(subscription)
         }
     }
 
@@ -330,22 +311,19 @@ extension MobileShellComposite {
     func retirePromotedConnectionForFreshDial(
         _ connection: MacConnection,
         subscription: SecondaryMacSubscription,
-        macDeviceID: String,
         switchAttemptID: UUID
     ) async {
+        let reservationKey = subscription.ownerKey
         let isStillFocused = isFocusedConnectionCurrent(connection)
         if !isStillFocused {
-            let reservationKey = cmxCanonicalDeviceID(macDeviceID)
             guard isCurrentMacSwitchAttempt(switchAttemptID),
                   secondaryMacDrainReservations[reservationKey] == nil,
                   !liveMacConnections.contains(where: {
-                      cmxCanonicalDeviceID($0.macDeviceID)
-                          == reservationKey
+                      $0.id == reservationKey.pairingID
                   }) else {
                 return
             }
         }
-        let reservationKey = cmxCanonicalDeviceID(macDeviceID)
         guard secondaryMacDrainReservations[reservationKey] == nil else {
             return
         }
@@ -360,32 +338,61 @@ extension MobileShellComposite {
         if isStillFocused {
             invalidateFocusedConnectionAfterAbortedHandoff(connection)
         } else {
-            markSecondaryMacUnavailable(macDeviceID)
+            markSecondaryMacUnavailable(reservationKey)
         }
 
-        let operation = secondaryMacTransportDrainOperation(
-            subscription,
-            macDeviceID: macDeviceID
-        )
+        let operation = secondaryMacTransportDrainOperation(subscription)
         if await operation.wait(
             nanoseconds: connectionHandoffDrainTimeoutNanoseconds
         ) {
-            finishRetiredSecondaryPromotionCandidate(
-                subscription,
-                macDeviceID: macDeviceID
-            )
+            finishRetiredSecondaryPromotionCandidate(subscription)
             return
         }
+    }
+
+    /// Resolve which control-pool pairing a switch to `(macDeviceID,
+    /// instanceTag)` may promote. A tagged request promotes only the exact
+    /// pairing. A device-only request (legacy callers with no tag) promotes
+    /// only when it is unambiguous: with two sibling builds live or stored, an
+    /// arbitrary pick would route input to the wrong instance, so fail closed
+    /// and let the store-resolved dial pick the authoritative pairing.
+    func resolvePromotableSecondaryOwnerKey(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> MacPairingKey? {
+        let candidates = secondaryMacSubscriptions.filter { _, candidate in
+            candidate.ownerKey.isOnDevice(macDeviceID) && (
+                instanceTag == nil
+                    || macInstanceTagAuthority.sameStoredAuthority(
+                        candidate.storedInstanceTag,
+                        instanceTag
+                    )
+            )
+        }
+        guard candidates.count == 1, let entry = candidates.first else {
+            return nil
+        }
+        if instanceTag == nil {
+            // A device-only request is unambiguous only when the device has one
+            // stored pairing at all: "the only LIVE sibling" may still be the
+            // wrong one when the intended sibling is merely offline.
+            let storedSiblings = pairedMacsForIdentityMatching.filter {
+                cmxCanonicalDeviceID($0.macDeviceID)
+                    == cmxCanonicalDeviceID(macDeviceID)
+            }
+            guard storedSiblings.count <= 1 else { return nil }
+        }
+        return entry.key
     }
 
     /// Reuse a live secondary client only while both pre- and post-probe store
     /// reads retain the authority authenticated for that client.
     func promoteSecondaryToForeground(
-        _ macID: String,
+        _ ownerKey: MacPairingKey,
         switchAttemptID: UUID
     ) async -> Bool {
         switch await promoteSecondaryToForegroundOutcome(
-            macID,
+            ownerKey,
             switchAttemptID: switchAttemptID
         ) {
         case .promoted:
@@ -396,18 +403,19 @@ extension MobileShellComposite {
     }
 
     func promoteSecondaryToForegroundOutcome(
-        _ macID: String,
+        _ ownerKey: MacPairingKey,
         switchAttemptID: UUID
     ) async -> SecondaryPromotionOutcome {
         guard runtime != nil,
-              let sub = secondaryMacSubscriptions[macID] else {
+              let sub = secondaryMacSubscriptions[ownerKey] else {
             return .unavailable
         }
+        // The store authority reads below match rows by the subscription's
+        // original device-id spelling, which is what the store accepted when
+        // this control connection was established.
+        let macID = sub.macDeviceID
         guard let scope = await currentScopeSnapshot() else {
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         }
         switch await readSecondaryStoredAuthority(
@@ -418,10 +426,7 @@ extension MobileShellComposite {
         case .authorized:
             break
         case .revoked:
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         case .transientFailure:
             scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
@@ -432,12 +437,9 @@ extension MobileShellComposite {
             macDeviceID: macID
         )
         guard case .received = preflightWorkspaces,
-              secondaryMacSubscriptions[macID] === sub,
+              secondaryMacSubscriptions[ownerKey] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         }
         switch await readSecondaryStoredAuthority(
@@ -448,23 +450,17 @@ extension MobileShellComposite {
         case .authorized:
             break
         case .revoked:
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         case .transientFailure:
             scheduleSecondaryAggregationRetry(macDeviceIDs: [macID])
             return .transientFailure
         }
         guard
-              secondaryMacSubscriptions[macID] === sub,
+              secondaryMacSubscriptions[ownerKey] === sub,
               scope.generation == secondaryAggregationScopeGeneration,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         }
         secondaryPromotionLog.info(
@@ -483,18 +479,12 @@ extension MobileShellComposite {
         guard isCurrentMacSwitchAttempt(switchAttemptID) else {
             return .unavailable
         }
-        guard await prepareSecondarySubscriptionForPromotion(
-            sub,
-            macDeviceID: macID
-        ) else {
+        guard await prepareSecondarySubscriptionForPromotion(sub) else {
             return .unavailable
         }
-        guard secondaryMacSubscriptions[macID] === sub,
+        guard secondaryMacSubscriptions[ownerKey] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            await resumeSecondarySubscriptionAfterAbortedPromotion(
-                sub,
-                macDeviceID: macID
-            )
+            await resumeSecondarySubscriptionAfterAbortedPromotion(sub)
             return .unavailable
         }
         // Remove the target's control registration before disturbing the live
@@ -505,28 +495,19 @@ extension MobileShellComposite {
                 on: sub.client,
                 streamID: sub.streamID
             ) else {
-                await retireSecondaryPromotionCandidate(
-                    sub,
-                    macDeviceID: macID
-                )
+                await retireSecondaryPromotionCandidate(sub)
                 return .unavailable
             }
         }
-        guard secondaryMacSubscriptions[macID] === sub,
+        guard secondaryMacSubscriptions[ownerKey] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         }
         await sub.client.updateTransportSessionPurpose(.foregroundControl)
-        guard secondaryMacSubscriptions[macID] === sub,
+        guard secondaryMacSubscriptions[ownerKey] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         }
         clearPendingTerminalInputForFocusChange()
@@ -544,7 +525,7 @@ extension MobileShellComposite {
                 previousForegroundCanStayWarm =
                     await canRetainFocusedConnectionInControlPool(
                         previousForegroundConnection,
-                        vacatingControlMacDeviceID: macID
+                        vacatingControlOwnerKey: ownerKey
                     )
             }
             if !previousForegroundCanStayWarm,
@@ -557,12 +538,9 @@ extension MobileShellComposite {
                 await previousForegroundConnection.client.disconnect()
             }
         }
-        guard secondaryMacSubscriptions[macID] === sub,
+        guard secondaryMacSubscriptions[ownerKey] === sub,
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             if let previousForegroundConnection {
                 invalidateFocusedConnectionAfterAbortedHandoff(
                     previousForegroundConnection
@@ -571,12 +549,16 @@ extension MobileShellComposite {
             return .unavailable
         }
         let previousForegroundKey = foregroundMacKey
+        let previousForegroundTag = activeMacInstanceTag
         sub.detachKeepingClient()
-        let displayName = workspacesByMac[macID]?.displayName
+        let displayName = workspacesByMac[ownerKey]?.displayName
         var demotedForegroundSubscription: SecondaryMacSubscription?
-        if let previousForegroundID,
-           previousForegroundID != macID,
-           let previousForegroundConnection {
+        // Compare OWNER KEYS, not device ids: promoting a sibling build of the
+        // foreground's own physical Mac still changes owners, and skipping the
+        // handoff here would leave two focused registry entries.
+        if previousForegroundID != nil,
+           let previousForegroundConnection,
+           previousForegroundConnection.ownerKey != sub.ownerKey {
             if previousForegroundCanStayWarm {
                 let subscription = makeControlSubscription(
                     from: previousForegroundConnection
@@ -593,10 +575,7 @@ extension MobileShellComposite {
                     } else {
                         subscription.cancel()
                     }
-                    await retireSecondaryPromotionCandidate(
-                        sub,
-                        macDeviceID: macID
-                    )
+                    await retireSecondaryPromotionCandidate(sub)
                     invalidateFocusedConnectionAfterAbortedHandoff(
                         previousForegroundConnection
                     )
@@ -606,17 +585,24 @@ extension MobileShellComposite {
                     previousForegroundConnection.generation
                 )
                 demotedForegroundSubscription = subscription
+                // The old foreground's feed lived under its bare device key;
+                // as a TAGGED secondary its refreshes publish under the
+                // pairing key, so the bare source would linger as a duplicate
+                // that can never resolve its client again.
+                if let previousForegroundID,
+                   subscription.ownerKey.pairingID != previousForegroundID {
+                    removeNotificationFeedSnapshot(
+                        macDeviceID: previousForegroundID
+                    )
+                }
             } else {
                 removeFocusedConnection(ifMatching: previousForegroundConnection)
             }
         }
         guard (demotedForegroundSubscription != nil
-                  || secondaryMacSubscriptions[macID] === sub),
+                  || secondaryMacSubscriptions[ownerKey] === sub),
               isCurrentMacSwitchAttempt(switchAttemptID) else {
-            await retireSecondaryPromotionCandidate(
-                sub,
-                macDeviceID: macID
-            )
+            await retireSecondaryPromotionCandidate(sub)
             return .unavailable
         }
         if let unregisteredPreviousClient,
@@ -630,8 +616,28 @@ extension MobileShellComposite {
         let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
+        // The foreground refetches this feed under the bare device key; the
+        // pairing-keyed source would otherwise linger as stale offline rows,
+        // and a sibling switch must not reuse the old build's device-keyed
+        // revision floor.
+        removeNotificationFeedSnapshot(macDeviceID: ownerKey.pairingID)
+        resetForegroundNotificationFeedIfInstanceChanged(
+            previousDeviceID: previousForegroundID,
+            previousTag: previousForegroundTag,
+            newDeviceID: macID,
+            newTag: activeMacInstanceTag
+        )
         connectedHostName = placeholderHostName(for: sub.ticket, firstRoute: sub.route)
         foregroundMacDeviceID = macID
+        // The control entry's aggregate state was keyed by the STORED tag.
+        // The foreground key uses the live (authenticated-adopted) tag, so
+        // move the snapshot when adoption changed the key; otherwise the same
+        // Mac would appear twice until the next full aggregation pass.
+        if ownerKey != foregroundMacKey,
+           let promotedState = workspacesByMac[ownerKey] {
+            workspacesByMac[ownerKey] = nil
+            workspacesByMac[foregroundMacKey] = promotedState
+        }
         supportedHostCapabilities = sub.supportedHostCapabilities
         // Promotion has already authenticated this capability snapshot on the
         // control connection. Publish its terminal mode synchronously so input
@@ -697,7 +703,6 @@ extension MobileShellComposite {
             await retirePromotedConnectionForFreshDial(
                 promotedConnection,
                 subscription: sub,
-                macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
             return .unavailable
@@ -707,7 +712,6 @@ extension MobileShellComposite {
             await retirePromotedConnectionForFreshDial(
                 promotedConnection,
                 subscription: sub,
-                macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
             return .unavailable
@@ -724,7 +728,6 @@ extension MobileShellComposite {
             await retirePromotedConnectionForFreshDial(
                 promotedConnection,
                 subscription: sub,
-                macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
             return .unavailable
@@ -735,7 +738,6 @@ extension MobileShellComposite {
             await retirePromotedConnectionForFreshDial(
                 promotedConnection,
                 subscription: sub,
-                macDeviceID: macID,
                 switchAttemptID: switchAttemptID
             )
             return .unavailable
@@ -765,14 +767,14 @@ extension MobileShellComposite {
                 await retirePromotedConnectionForFreshDial(
                     promotedConnection,
                     subscription: sub,
-                    macDeviceID: macID,
                     switchAttemptID: switchAttemptID
                 )
                 return .unavailable
             }
         } else if !newerWorkspaceStateApplied {
-            workspacesByMac[macID] = MacWorkspaceState(
+            workspacesByMac[foregroundMacKey] = MacWorkspaceState(
                 macDeviceID: macID,
+                instanceTag: activeMacInstanceTag,
                 displayName: displayName,
                 workspaces: authoritativePreviews,
                 status: .connected,

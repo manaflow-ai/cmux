@@ -123,11 +123,15 @@ class TerminalController {
     private nonisolated(unsafe) var remotePTYControllerAvailabilityGeneration: UInt64 = 0
     /// One process-wide admission budget shared by every mobile connection.
     nonisolated let mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota
+    /// Actor-isolated ten-minute cache for mobile task model discovery.
+    nonisolated let mobileTaskModelDiscovery: MobileTaskModelDiscovery
     var tabManager: TabManager?
     let workspaceCreateIdempotencyCache = WorkspaceCreateIdempotencyCache(capacity: 256)
-    /// Auth coordinator and browser flow are injected by `attachAuth` before socket startup.
+    /// The shared auth coordinator + account flow, injected once via
+    /// `attachAuth` at app startup (AppDelegate `configure`) before the socket
+    /// listener starts. Socket auth commands read these on the main actor.
     @MainActor private(set) var authCoordinator: AuthCoordinator?
-    @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
+    @MainActor private(set) var accountFlow: HostAccountFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     // Sendable value type; injected at construction so socket auth never reaches a global.
@@ -371,6 +375,10 @@ class TerminalController {
             maximumConcurrentClaims: 32
         ),
         mobileTaskFilesystemJobQuota: MobileTaskFilesystemJobQuota = .init(),
+        mobileTaskModelDiscovery: MobileTaskModelDiscovery = .live(
+            homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            shellPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        ),
         terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore = .init(),
         remoteProxyBroker: any RemoteProxyBrokering = RemoteProxyBroker(
             tunnelProvider: RemoteDaemonProxyTunnelProvider(strings: .appLocalized, ptyBridgeStrings: AppRemotePTYBridgeStrings())
@@ -385,6 +393,7 @@ class TerminalController {
         self.socketClientCapabilityAuthority = Self.makeSocketClientCapabilityAuthority()
         self.socketClientPreauthorizationLimiter = socketClientPreauthorizationLimiter
         self.mobileTaskFilesystemJobQuota = mobileTaskFilesystemJobQuota
+        self.mobileTaskModelDiscovery = mobileTaskModelDiscovery
         self.terminalArtifactAuthorizationStore = terminalArtifactAuthorizationStore
         self.transport = transport
         self.remoteProxyBroker = remoteProxyBroker
@@ -866,9 +875,9 @@ class TerminalController {
     /// Inject the auth graph. Call once at the composition root, before the
     /// socket listener accepts auth commands.
     @MainActor
-    func attachAuth(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
+    func attachAuth(coordinator: AuthCoordinator, accountFlow: HostAccountFlow) {
         self.authCoordinator = coordinator
-        self.browserSignInFlow = browserSignIn
+        self.accountFlow = accountFlow
     }
 
     func startSimulatorMutationRecovery() {
@@ -1068,6 +1077,34 @@ class TerminalController {
                     return Self.v2Encoder.response(id: parsedRequest.id, result)
                 case .encoded(let response):
                     return response
+                }
+            }
+            if request.method == "mobile.task.models.list" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 7
+                ) {
+                    guard let result = await self.controlCommandCoordinator
+                        .handleMobileHostAsync(
+                            parsedRequest,
+                            context: self
+                        ) else {
+                        return .err(
+                            code: "method_not_found",
+                            message: "Unknown method",
+                            data: nil
+                        )
+                    }
+                    switch result {
+                    case .ok(let payload):
+                        return .ok(payload.foundationObject)
+                    case let .err(code, message, data):
+                        return .err(
+                            code: code,
+                            message: message,
+                            data: data?.foundationObject
+                        )
+                    }
                 }
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
@@ -1285,7 +1322,7 @@ class TerminalController {
             var signInURL: String?
             v2MainSync {
                 MainActor.assumeIsolated {
-                    signInURL = self.browserSignInFlow?.manualSignInURL.absoluteString
+                    signInURL = self.accountFlow?.manualSignInURL.absoluteString
                 }
             }
             var result: [String: Any] = [:]
@@ -1298,7 +1335,7 @@ class TerminalController {
             let semaphore = DispatchSemaphore(value: 0)
             nonisolated(unsafe) var signedIn = false
             Task { @MainActor [weak self] in
-                signedIn = await self?.browserSignInFlow?.signIn(
+                signedIn = await self?.accountFlow?.signIn(
                     timeout: timeoutSeconds
                 ) ?? false
                 semaphore.signal()
@@ -1308,7 +1345,7 @@ class TerminalController {
         case "auth.sign_out":
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor [weak self] in
-                await self?.browserSignInFlow?.signOut(timeout: 5)
+                await self?.accountFlow?.signOut(timeout: 5)
                 semaphore.signal()
             }
             semaphore.wait()
@@ -1438,6 +1475,29 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.mobile.transport.disconnect":
+            let selectedConnectionID: UUID?
+            if let rawConnectionID = request.params["connection_id"] {
+                guard let value = rawConnectionID as? String,
+                      let parsed = UUID(uuidString: value) else {
+                    return v2Error(
+                        id: request.id,
+                        code: "invalid_params",
+                        message: "connection_id must be a UUID"
+                    )
+                }
+                selectedConnectionID = parsed
+            } else {
+                selectedConnectionID = nil
+            }
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 10) {
+                let closed = await MobileHostConnectionRegistry.shared
+                    .debugCloseConnections(connectionID: selectedConnectionID)
+                return .ok([
+                    "closed_connection_ids": closed.map(\.uuidString),
+                    "closed_count": closed.count,
+                ])
+            }
 #endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
@@ -1451,7 +1511,8 @@ class TerminalController {
             // its worker case above is compiled out; the Release main lane
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
-            if request.method == "debug.sidebar.simulate_drag" {
+            if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.mobile.transport.disconnect" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -2008,6 +2069,12 @@ class TerminalController {
             InternalFlagsPresenter.present()
             return "OK"
 
+#if DEBUG
+        case "__sidebar_footer_icon_balance":
+            AppDelegate.shared?.debugWindowsCoordinator.showSidebarFooterIconBalanceWindow()
+            return "OK"
+#endif
+
         case "list_windows":
             return listWindows()
 
@@ -2449,11 +2516,27 @@ class TerminalController {
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
+            "mobile.task.attachment.upload",
+            "mobile.task.models.list",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
+            "mobile.browser.list",
+            "mobile.browser.stream.start",
+            "mobile.browser.stream.stop",
+            "mobile.browser.viewport",
+            "mobile.browser.frame.ack",
+            "mobile.browser.dialog.respond",
+            "mobile.browser.input.pointer",
+            "mobile.browser.input.scroll",
+            "mobile.browser.input.key",
+            "mobile.browser.input.text",
+            "mobile.browser.navigate",
+            "mobile.browser.back",
+            "mobile.browser.forward",
+            "mobile.browser.reload",
             "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
             "terminal.create",
             "terminal.input",
@@ -2692,6 +2775,7 @@ class TerminalController {
             "version": 2,
             "socket_path": socketServer.currentSocketPath,
             "access_mode": socketServer.accessMode.rawValue,
+            "capabilities": MobileHostService.mobileHostCapabilities,
             "methods": methods.sorted()
         ]
     }
@@ -3311,7 +3395,7 @@ class TerminalController {
                     ]
                     return
                 }
-                let isSigningIn = self.browserSignInFlow?.isSigningIn ?? false
+                let isSigningIn = self.accountFlow?.isPresentingSignIn ?? false
                 var status: [String: Any] = [
                     "signed_in": coordinator.isAuthenticated,
                     "is_restoring_session": coordinator.isRestoringSession,
@@ -4502,7 +4586,7 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color", "mobile_connect"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -4511,6 +4595,34 @@ class TerminalController {
         ])
 
         v2MainSync {
+            if action == "mobile_connect" {
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                guard let workspace = AppDelegate.shared?.performMobileConnectWorkspaceAction(
+                    tabManager: tabManager,
+                    preferredWindow: windowId.flatMap { AppDelegate.shared?.mainWindow(for: $0) },
+                    focusWorkspace: v2FocusAllowed(),
+                    debugSource: "cli.workspaceAction.mobileConnect"
+                ) else {
+                    result = .err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "cli.workspaceAction.tailscalePairingUnavailable",
+                            defaultValue: "Tailscale Pairing is unavailable"
+                        ),
+                        data: nil
+                    )
+                    return
+                }
+                result = .ok([
+                    "action": action,
+                    "workspace_id": workspace.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId)
+                ])
+                return
+            }
+
             let requestedWorkspaceId = v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
             guard let workspaceId = requestedWorkspaceId,
                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
@@ -8051,22 +8163,27 @@ class TerminalController {
             return .err(code: "internal_error", message: "Browser operation failed", data: nil)
         }
 
-        guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(browserPanel, timeout: 17.0) else {
+        let timingBudget = BrowserScreenshotTimingBudget()
+        guard let snapshotAttempt = v2CaptureBrowserAutomationSnapshot(
+            browserPanel,
+            timeout: timingBudget.socketResponseTimeout
+        ) else {
             return .err(code: "timeout", message: BrowserScreenshotError.automationTimedOut.localizedDescription, data: nil)
         }
         let imageData: Data
         switch snapshotAttempt.result {
         case .success(let data):
             imageData = data
-        case .failure(let message):
-            return .err(code: "internal_error", message: message, data: nil)
-        case .timedOut:
+        case .failure(let code, let message):
+            return .err(code: code, message: message, data: nil)
+        case .timedOut(let originalMessage):
             let message = v2BrowserAutomationMessageAfterLivenessCheck(
-                originalMessage: BrowserScreenshotError.automationTimedOut.localizedDescription,
+                originalMessage: originalMessage,
                 browserPanel: browserPanel,
                 surfaceId: surfaceId,
                 expectedWebViewIdentifier: snapshotAttempt.webViewIdentifier,
-                channel: .screenshot
+                channel: .screenshot,
+                livenessTimeout: timingBudget.livenessProbeAllowance
             )
             return .err(code: "timeout", message: message, data: nil)
         }
@@ -10890,10 +11007,10 @@ class TerminalController {
     /// base64 encode/decode round-trip — kept verbatim so the reply bytes
     /// match the legacy `readTerminalTextBase64` pipeline exactly — run off
     /// the main actor.
-    /// Serves the v1 `iroh_diag` socket command: the host's iroh Connection
-    /// Report in the same `cmuxdiag v1` compact format the Settings pane
-    /// exports, read from the same `DiagnosticLog` snapshot path so the two
-    /// can never disagree. Empty ring prints just the header (count=0).
+    /// Serves the v1 `iroh_diag` socket command: the host's Iroh Connection
+    /// Report in the same plain-language format the Settings pane exports,
+    /// read from the same `DiagnosticLog` snapshot path so the two can never
+    /// disagree.
     private nonisolated func irohDiagText() -> String {
         let semaphore = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var export = ""
@@ -10904,7 +11021,7 @@ class TerminalController {
             // log's own drain actor, and the execution policy keeps this
             // command off the main thread, so the wait cannot self-deadlock.
             let report = await MobileHostIrohRuntime.hostDiagnosticLog.snapshot()
-            export = String(decoding: report.compactExport(), as: UTF8.self)
+            export = String(decoding: report.humanReadableExport(), as: UTF8.self)
             semaphore.signal()
         }
         semaphore.wait()
@@ -11157,7 +11274,7 @@ class TerminalController {
             return "OK"
         }
 
-        guard let parsed = parseShortcutCombo(combo) else {
+        guard let parsed = SyntheticKeyEventFactory.parseShortcutCombo(combo) else {
             return "ERROR: Invalid combo. Example: cmd+ctrl+h"
         }
 
@@ -11191,42 +11308,12 @@ class TerminalController {
         }
     }
 
-    /// Builds a key event backed by a real CGEvent. Events built with
-    /// NSEvent.keyEvent(...) carry no CGEvent, and NSTextInputContext raises an
-    /// NSException on such events inside interpretKeyEvents, which terminates
-    /// the app; that path runs for every simulated key that is not consumed as
-    /// a shortcut before reaching GhosttyNSView.keyDown.
-    private func syntheticKeyEvent(
-        parsed: ParsedShortcutCombo,
-        keyDown: Bool,
-        timestamp: TimeInterval
-    ) -> NSEvent? {
-        guard let cgEvent = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: parsed.keyCode,
-            keyDown: keyDown
-        ) else { return nil }
-        var flags: CGEventFlags = []
-        if parsed.modifierFlags.contains(.command) { flags.insert(.maskCommand) }
-        if parsed.modifierFlags.contains(.control) { flags.insert(.maskControl) }
-        if parsed.modifierFlags.contains(.option) { flags.insert(.maskAlternate) }
-        if parsed.modifierFlags.contains(.shift) { flags.insert(.maskShift) }
-        // parseShortcutCombo emits only the four flags above today; map the
-        // remaining NSEvent modifiers anyway so this builder stays correct if
-        // combos ever carry them.
-        if parsed.modifierFlags.contains(.capsLock) { flags.insert(.maskAlphaShift) }
-        if parsed.modifierFlags.contains(.function) { flags.insert(.maskSecondaryFn) }
-        cgEvent.flags = flags
-        cgEvent.timestamp = CGEventTimestamp(timestamp * 1_000_000_000)
-        return NSEvent(cgEvent: cgEvent)
-    }
-
     func simulateShortcut(_ args: String) -> String {
         let combo = args.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !combo.isEmpty else {
             return "ERROR: Usage: simulate_shortcut <combo>"
         }
-        guard let parsed = parseShortcutCombo(combo) else {
+        guard let parsed = SyntheticKeyEventFactory.parseShortcutCombo(combo) else {
             return "ERROR: Invalid combo. Example: cmd+ctrl+h"
         }
 
@@ -11252,8 +11339,8 @@ class TerminalController {
             prepareWindowForSyntheticInput(targetWindow)
             // Key events route to the key window, which prepareWindowForSyntheticInput
             // establishes; CGEvent-backed events carry no window number.
-            guard let keyDownEvent = self.syntheticKeyEvent(
-                parsed: parsed,
+            guard let keyDownEvent = SyntheticKeyEventFactory.keyEvent(
+                specification: parsed,
                 keyDown: true,
                 timestamp: requestTimestamp
             ) else {
@@ -11857,167 +11944,6 @@ class TerminalController {
         return result
     }
 
-    private struct ParsedShortcutCombo {
-        let storedKey: String
-        let keyCode: UInt16
-        let modifierFlags: NSEvent.ModifierFlags
-        let characters: String
-        let charactersIgnoringModifiers: String
-    }
-
-    private func parseShortcutCombo(_ combo: String) -> ParsedShortcutCombo? {
-        let raw = combo.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else { return nil }
-
-        let parts = raw
-            .split(separator: "+")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !parts.isEmpty else { return nil }
-
-        var flags: NSEvent.ModifierFlags = []
-        var keyToken: String?
-
-        for part in parts {
-            let lower = part.lowercased()
-            switch lower {
-            case "cmd", "command", "super":
-                flags.insert(.command)
-            case "ctrl", "control":
-                flags.insert(.control)
-            case "opt", "option", "alt":
-                flags.insert(.option)
-            case "shift":
-                flags.insert(.shift)
-            default:
-                // Treat as the key component.
-                if keyToken == nil {
-                    keyToken = part
-                } else {
-                    // Multiple non-modifier tokens is ambiguous.
-                    return nil
-                }
-            }
-        }
-
-        guard var keyToken else { return nil }
-        keyToken = keyToken.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !keyToken.isEmpty else { return nil }
-
-        // Normalize a few named keys.
-        let storedKey: String
-        let keyCode: UInt16
-        let charactersIgnoringModifiers: String
-
-        switch keyToken.lowercased() {
-        case "left":
-            storedKey = "\u{F702}"
-            keyCode = 123
-            charactersIgnoringModifiers = storedKey
-        case "right":
-            storedKey = "\u{F703}"
-            keyCode = 124
-            charactersIgnoringModifiers = storedKey
-        case "down":
-            storedKey = "\u{F701}"
-            keyCode = 125
-            charactersIgnoringModifiers = storedKey
-        case "up":
-            storedKey = "\u{F700}"
-            keyCode = 126
-            charactersIgnoringModifiers = storedKey
-        case "enter", "return", "tab":
-            storedKey = keyToken.lowercased() == "tab" ? "\t" : "\r"
-            keyCode = UInt16(keyToken.lowercased() == "tab" ? kVK_Tab : kVK_Return)
-            charactersIgnoringModifiers = storedKey
-        default:
-            let key = keyToken.lowercased()
-            guard let code = keyCodeForShortcutKey(key) else { return nil }
-            storedKey = key
-            keyCode = code
-
-            // Replicate a common system behavior: Ctrl+letter yields a control character in
-            // charactersIgnoringModifiers (e.g. Ctrl+H => backspace). This is important for
-            // testing keyCode fallback matching.
-            if flags.contains(.control),
-               key.count == 1,
-               let scalar = key.unicodeScalars.first,
-               scalar.isASCII,
-               scalar.value >= 97, scalar.value <= 122 { // a-z
-                let upper = scalar.value - 32
-                let controlValue = upper - 64 // 'A' => 1
-                charactersIgnoringModifiers = String(UnicodeScalar(controlValue)!)
-            } else {
-                charactersIgnoringModifiers = storedKey
-            }
-        }
-
-        // For our shortcut matcher, characters aren't important beyond exercising edge cases.
-        let chars = charactersIgnoringModifiers
-
-        return ParsedShortcutCombo(
-            storedKey: storedKey,
-            keyCode: keyCode,
-            modifierFlags: flags,
-            characters: chars,
-            charactersIgnoringModifiers: charactersIgnoringModifiers
-        )
-    }
-
-    private func keyCodeForShortcutKey(_ key: String) -> UInt16? {
-        // Matches macOS ANSI key codes for common printable keys and a few named specials.
-        switch key {
-        case "a": return 0   // kVK_ANSI_A
-        case "s": return 1   // kVK_ANSI_S
-        case "d": return 2   // kVK_ANSI_D
-        case "f": return 3   // kVK_ANSI_F
-        case "h": return 4   // kVK_ANSI_H
-        case "g": return 5   // kVK_ANSI_G
-        case "z": return 6   // kVK_ANSI_Z
-        case "x": return 7   // kVK_ANSI_X
-        case "c": return 8   // kVK_ANSI_C
-        case "v": return 9   // kVK_ANSI_V
-        case "b": return 11  // kVK_ANSI_B
-        case "q": return 12  // kVK_ANSI_Q
-        case "w": return 13  // kVK_ANSI_W
-        case "e": return 14  // kVK_ANSI_E
-        case "r": return 15  // kVK_ANSI_R
-        case "y": return 16  // kVK_ANSI_Y
-        case "t": return 17  // kVK_ANSI_T
-        case "1": return 18  // kVK_ANSI_1
-        case "2": return 19  // kVK_ANSI_2
-        case "3": return 20  // kVK_ANSI_3
-        case "4": return 21  // kVK_ANSI_4
-        case "6": return 22  // kVK_ANSI_6
-        case "5": return 23  // kVK_ANSI_5
-        case "=": return 24  // kVK_ANSI_Equal
-        case "9": return 25  // kVK_ANSI_9
-        case "7": return 26  // kVK_ANSI_7
-        case "-": return 27  // kVK_ANSI_Minus
-        case "8": return 28  // kVK_ANSI_8
-        case "0": return 29  // kVK_ANSI_0
-        case "]": return 30  // kVK_ANSI_RightBracket
-        case "o": return 31  // kVK_ANSI_O
-        case "u": return 32  // kVK_ANSI_U
-        case "[": return 33  // kVK_ANSI_LeftBracket
-        case "i": return 34  // kVK_ANSI_I
-        case "p": return 35  // kVK_ANSI_P
-        case "l": return 37  // kVK_ANSI_L
-        case "j": return 38  // kVK_ANSI_J
-        case "'": return 39  // kVK_ANSI_Quote
-        case "k": return 40  // kVK_ANSI_K
-        case ";": return 41  // kVK_ANSI_Semicolon
-        case "\\": return 42 // kVK_ANSI_Backslash
-        case ",": return 43  // kVK_ANSI_Comma
-        case "/": return 44  // kVK_ANSI_Slash
-        case "n": return 45  // kVK_ANSI_N
-        case "m": return 46  // kVK_ANSI_M
-        case ".": return 47  // kVK_ANSI_Period
-        case "`": return 50  // kVK_ANSI_Grave
-        default:
-            return nil
-        }
-    }
 #endif
 
     #if !DEBUG
@@ -14201,6 +14127,10 @@ class TerminalController {
             )
         case "workspace.create":
             result = await v2MobileWorkspaceCreate(params: request.params)
+        case "mobile.task.attachment.upload":
+            result = v2MobileTaskAttachmentUpload(params: request.params)
+        case "mobile.task.models.list":
+            result = await v2MobileTaskModelsList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             result = v2MobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":
@@ -14234,6 +14164,12 @@ class TerminalController {
                 method: method,
                 params: request.params,
                 executionContext: executionContext
+            )
+        case let method where method.hasPrefix("mobile.browser."):
+            result = await v2MobileBrowserDispatch(
+                method: method,
+                params: request.params,
+                connectionID: executionContext?.connectionID
             )
         case "workspace.close":
             result = v2MobileWorkspaceClose(params: request.params)

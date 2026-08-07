@@ -88,6 +88,8 @@ struct HiddenComputerRow: View {
         .onDisappear {
             actionTask?.cancel()
             actionTask = nil
+            forgetTask?.cancel()
+            forgetTask = nil
         }
     }
 
@@ -116,8 +118,15 @@ struct HiddenComputerRow: View {
         .accessibilityHidden(true)
     }
 
+    /// Red like a destructive swipe action, but deliberately WITHOUT
+    /// `role: .destructive`: a destructive-role swipe button makes SwiftUI
+    /// batch-delete the row on tap, and this tap only presents the
+    /// confirmation dialog, so the unchanged model count aborted in
+    /// UIKit's item-count assertion (TestFlight crash, build
+    /// 20260731052644). Same pattern as `WorkspaceNavigationRow`'s
+    /// confirm-first Delete.
     private var forgetSwipeButton: some View {
-        Button(role: .destructive) {
+        Button {
             showForgetConfirm = true
         } label: {
             Label(
@@ -125,6 +134,7 @@ struct HiddenComputerRow: View {
                 systemImage: "trash"
             )
         }
+        .tint(.red)
         .disabled(isBusy)
         .accessibilityIdentifier("MobileComputerForgetSwipeButton-\(computer.id)")
     }

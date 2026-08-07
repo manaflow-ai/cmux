@@ -7,11 +7,13 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
+    var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeClearAgentSessionEnded: Bool?
     var resumeClearExpectedBindingUpdatedAt: Double?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
-        invalidExpectedUpdatedAt: "invalid expected updated at"
+        invalidExpectedUpdatedAt: "invalid expected updated at",
+        launchCommandMustBeValid: "launch_command must be valid"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
     var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
@@ -56,11 +58,20 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         hasResolvedWindowID: Bool,
         inputs: ControlSurfaceResumeSetInputs
     ) -> ControlSurfaceResumeResolution {
-        resumeResolution
+        resumeSetInputs = inputs
+        return resumeResolution
     }
 
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         resumeStrings
+    }
+
+    func controlSurfaceResumeGet(
+        routing: ControlRoutingSelectors,
+        explicitTargetID: UUID?,
+        hasResolvedWindowID: Bool
+    ) -> ControlSurfaceResumeResolution {
+        resumeResolution
     }
 
     func controlSurfaceResumeClear(

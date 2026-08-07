@@ -36,7 +36,9 @@ extension Workspace {
         let directory: String?
         let directoryIsTrustedRemoteReport: Bool
         let directoryDisplayLabel: String?
-        let ttyName: String?
+        var ttyName: String?
+        var ttyNameWasReportedByCurrentRuntime: Bool = false
+        var ttyReportRuntimeSurfaceGeneration: UInt64? = nil
         let cachedTitle: String?
         let customTitle: String?
         let customTitleSource: Workspace.CustomTitleSource?
@@ -59,6 +61,7 @@ extension Workspace {
         var remoteTerminalLifecycleID: UUID? = nil
         var remoteTerminalAttemptID: UUID? = nil
         let remoteRelayPort: Int?
+        var remoteRelayNamespaceConfiguration: WorkspaceRemoteConfiguration? = nil
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
 
@@ -90,6 +93,8 @@ extension Workspace {
                 directoryIsTrustedRemoteReport: directoryIsTrustedRemoteReport,
                 directoryDisplayLabel: directoryDisplayLabel,
                 ttyName: ttyName,
+                ttyNameWasReportedByCurrentRuntime: ttyNameWasReportedByCurrentRuntime,
+                ttyReportRuntimeSurfaceGeneration: ttyReportRuntimeSurfaceGeneration,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
                 customTitleSource: customTitleSource,
@@ -110,6 +115,7 @@ extension Workspace {
                 remoteTerminalLifecycleID: remoteTerminalLifecycleID,
                 remoteTerminalAttemptID: remoteTerminalAttemptID,
                 remoteRelayPort: remoteRelayPort,
+                remoteRelayNamespaceConfiguration: remoteRelayNamespaceConfiguration,
                 remotePTYSessionID: remotePTYSessionID,
                 remoteCleanupConfiguration: configuration
             )

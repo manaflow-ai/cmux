@@ -13,6 +13,7 @@ import {
 import { buildAlternateLinkHeader } from "./i18n/seo";
 
 const intlMiddleware = createMiddleware(routing);
+const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
@@ -27,6 +28,15 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // cmux consumes this marker before navigation. If an ordinary browser
+  // reaches the server, canonicalize the URL while preserving every public
+  // query parameter.
+  if (request.nextUrl.searchParams.get("cmux_open_in_browser") === "split-right") {
+    const url = request.nextUrl.clone();
+    url.searchParams.delete("cmux_open_in_browser");
+    return NextResponse.redirect(url, 307);
+  }
+
   // The public site only routes docs traffic to the release/nightly origins.
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.
@@ -39,11 +49,14 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
-  const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
+  // Temporary redirect: /changelog[/<version>] → /docs/changelog[/<version>],
+  // preserving any locale prefix.
+  const changelogMatch = pathname.match(
+    /^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog(\/[^/]+)?\/?$/,
+  );
   if (changelogMatch) {
     const url = request.nextUrl.clone();
-    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog`;
+    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog${changelogMatch[2] ?? ""}`;
     return NextResponse.redirect(url, 307);
   }
 
@@ -62,6 +75,17 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Social crawlers can retain metadata URLs after the page HTML changes.
+  // Serve the hashed paths emitted by the former metadata-file route through
+  // today's stable endpoint without exposing a redirect to the crawler.
+  const legacyOpenGraphImagePath = legacyOpenGraphImageRewritePath(pathname);
+  if (legacyOpenGraphImagePath) {
+    const url = request.nextUrl.clone();
+    url.pathname = legacyOpenGraphImagePath;
+    url.search = "";
+    return NextResponse.rewrite(url);
+  }
+
   // This is a localized image endpoint, but the default-locale URL is
   // intentionally unprefixed to match the canonical social metadata URL.
   if (
@@ -74,7 +98,12 @@ export default function middleware(request: NextRequest) {
   }
 
   if (pathname === "/app-pro-welcome" || pathname === "/app-pro-welcome/") {
-    return NextResponse.next();
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(
+      "x-next-intl-locale",
+      preferredAppRouteLocale(request),
+    );
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Post-checkout pages live outside the [locale] tree, like /app-pricing.
@@ -91,7 +120,11 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname.includes(".")) {
+  const isChangelogVersionPath =
+    /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
+      pathname,
+    );
+  if (pathname.includes(".") && !isChangelogVersionPath) {
     return NextResponse.next();
   }
 
@@ -146,6 +179,7 @@ export default function middleware(request: NextRequest) {
   // locale detection can't redirect back. The privacy policy has complete
   // localized content and follows the normal next-intl path.
   const englishOnlyPages = new Set([
+    "/company-information",
     "/terms-of-service",
     "/eula",
   ]);
@@ -254,6 +288,20 @@ function preferredFallbackContentLocale(
   );
 }
 
+function preferredAppRouteLocale(
+  request: NextRequest,
+): (typeof routing.locales)[number] {
+  const cookieLocale = request.cookies.get("NEXT_LOCALE")?.value;
+  if (cookieLocale && routing.locales.some((locale) => locale === cookieLocale)) {
+    return cookieLocale as (typeof routing.locales)[number];
+  }
+  return preferredLocaleFromAcceptLanguage(
+    request.headers.get("accept-language") ?? "",
+    routing.locales,
+    routing.defaultLocale,
+  );
+}
+
 function setFeatureWorkflowDocLinkHeader(
   response: NextResponse,
   request: NextRequest,
@@ -271,6 +319,32 @@ function setFeatureWorkflowDocLinkHeader(
 
 function requestOrigin(request: NextRequest) {
   return request.nextUrl.origin;
+}
+
+function legacyOpenGraphImageRewritePath(pathname: string): string | undefined {
+  const segments = pathname.split("/").filter(Boolean);
+  let locale = routing.defaultLocale;
+  let imageSegment: string;
+
+  if (segments.length === 1) {
+    imageSegment = segments[0];
+  } else if (segments.length === 2 && localeSet.has(segments[0])) {
+    locale = segments[0] as (typeof routing.locales)[number];
+    imageSegment = segments[1];
+  } else {
+    return undefined;
+  }
+
+  if (
+    !imageSegment.startsWith("opengraph-image-") ||
+    imageSegment.length === "opengraph-image-".length
+  ) {
+    return undefined;
+  }
+
+  return locale === routing.defaultLocale
+    ? "/opengraph-image"
+    : `/${locale}/opengraph-image`;
 }
 
 export const config = {
