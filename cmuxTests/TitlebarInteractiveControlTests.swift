@@ -398,15 +398,19 @@ struct SidebarEmptyAreaWindowDragTests {
         let detached = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
 
         let down = Self.makeMouseEvent(type: .leftMouseDown, location: NSPoint(x: 4, y: 4), window: window)
-        let dragged = Self.makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 40, y: 40), window: window)
 
+        var nextEventCallCount = 0
         let controller = SidebarEmptyAreaWindowDragController(
-            nextEvent: Self.pump([.dragged(location: dragged.locationInWindow)])
+            nextEvent: { _ in
+                nextEventCallCount += 1
+                return nil
+            }
         )
         let outcome = controller.perform(with: down, in: detached)
 
         #expect(outcome == .passThrough)
         #expect(window.performDragCallCount == 0)
+        #expect(nextEventCallCount == 0)
     }
 
     /// A system cancellation consumes the sequence without starting a drag.
