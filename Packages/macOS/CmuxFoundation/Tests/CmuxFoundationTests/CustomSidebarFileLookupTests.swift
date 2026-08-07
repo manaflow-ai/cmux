@@ -1,0 +1,142 @@
+import Foundation
+import Testing
+
+@testable import CmuxFoundation
+
+/// Exact-name resolution, which is the property that makes a sidebar authored on one Mac work on the
+/// next.
+///
+/// APFS is case-insensitive by default, so a plain `fileExists` for `board.json` finds a file
+/// actually named `board.JSON` — which every other part of the pipeline then refuses, leaving a
+/// sidebar that resolves and renders nothing. The lookup exists to answer the stricter question, and
+/// these tests pin the answer independently of how it is obtained.
+@Suite("Custom sidebar file lookup")
+struct CustomSidebarFileLookupTests {
+    private func makeDirectory() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-sidebar-lookup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    @Test("a file is found only under the exact name it has on disk")
+    func exactNameOnly() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try "x".write(
+            to: directory.appendingPathComponent("board.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "x".write(
+            to: directory.appendingPathComponent("Mixed.SWIFT"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let lookup = CustomSidebarFileLookup()
+
+        #expect(lookup.exists(directory.appendingPathComponent("board.swift")))
+        #expect(!lookup.exists(directory.appendingPathComponent("BOARD.swift")))
+        #expect(!lookup.exists(directory.appendingPathComponent("board.SWIFT")))
+        // The reverse direction: a file stored under a folded name is not found under the canonical
+        // one either, so discovery and resolution agree about which files are real.
+        #expect(lookup.exists(directory.appendingPathComponent("Mixed.SWIFT")))
+        #expect(!lookup.exists(directory.appendingPathComponent("mixed.swift")))
+    }
+
+    @Test("a directory is never a sidebar source, even under an exactly matching name")
+    func directoriesAreRefused() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(
+            at: directory.appendingPathComponent("board.swift"),
+            withIntermediateDirectories: true
+        )
+        let lookup = CustomSidebarFileLookup()
+
+        #expect(!lookup.exists(directory.appendingPathComponent("board.swift")))
+    }
+
+    /// A sidebar symlinked in from a dotfiles repo is a real setup, and it resolved before, so it
+    /// has to keep resolving. A link to a directory or to nothing does not.
+    @Test("a symlink to a file resolves; a symlink to a directory or to nothing does not")
+    func symlinkBehaviour() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("real.swift")
+        try "x".write(to: target, atomically: true, encoding: .utf8)
+        let targetDirectory = directory.appendingPathComponent("realdir")
+        try FileManager.default.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: directory.appendingPathComponent("linkToFile.swift"),
+            withDestinationURL: target
+        )
+        try FileManager.default.createSymbolicLink(
+            at: directory.appendingPathComponent("linkToDir.swift"),
+            withDestinationURL: targetDirectory
+        )
+        try FileManager.default.createSymbolicLink(
+            at: directory.appendingPathComponent("dangling.swift"),
+            withDestinationURL: directory.appendingPathComponent("nothing")
+        )
+        let lookup = CustomSidebarFileLookup()
+
+        #expect(lookup.exists(directory.appendingPathComponent("linkToFile.swift")))
+        #expect(!lookup.exists(directory.appendingPathComponent("linkToDir.swift")))
+        #expect(!lookup.exists(directory.appendingPathComponent("dangling.swift")))
+        // The link's own name is still matched exactly.
+        #expect(!lookup.exists(directory.appendingPathComponent("LinkToFile.swift")))
+    }
+
+    @Test("a missing file, and a missing directory, resolve to nothing")
+    func missingPaths() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lookup = CustomSidebarFileLookup()
+
+        #expect(!lookup.exists(directory.appendingPathComponent("board.swift")))
+        #expect(!lookup.exists(
+            URL(fileURLWithPath: "/nonexistent-\(UUID().uuidString)/board.swift")
+        ))
+    }
+
+    /// Resolution probes one candidate per recognised extension, so its cost must not scale with how
+    /// many sidebars the user has authored. Listing the directory to learn one entry's real name is
+    /// the shape that does scale, and it put that cost on the sidebar's render path.
+    @Test("resolution cost does not scale with the size of the sidebars directory")
+    func costIsIndependentOfDirectorySize() throws {
+        let small = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: small) }
+        let large = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: large) }
+        try "x".write(to: small.appendingPathComponent("board.swift"), atomically: true, encoding: .utf8)
+        try "x".write(to: large.appendingPathComponent("board.swift"), atomically: true, encoding: .utf8)
+        for index in 0..<2_000 {
+            try "x".write(
+                to: large.appendingPathComponent("filler-\(index).swift"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let lookup = CustomSidebarFileLookup()
+
+        func elapsedMilliseconds(in directory: URL) -> Double {
+            let candidate = directory.appendingPathComponent("board.swift")
+            let start = DispatchTime.now()
+            for _ in 0..<200 { _ = lookup.exists(candidate) }
+            return Double(DispatchTime.now().uptimeNanoseconds &- start.uptimeNanoseconds) / 1_000_000
+        }
+
+        _ = elapsedMilliseconds(in: large) // warm the directory's caches
+        let smallElapsed = elapsedMilliseconds(in: small)
+        let largeElapsed = elapsedMilliseconds(in: large)
+
+        #expect(lookup.exists(large.appendingPathComponent("board.swift")))
+        // A per-probe directory listing made the large case ~250x the small one. Ten leaves ample
+        // room for filesystem noise while still failing loudly if the cost becomes proportional.
+        #expect(
+            largeElapsed < max(smallElapsed * 10, 5),
+            "2000-entry directory took \(largeElapsed)ms vs \(smallElapsed)ms for one entry"
+        )
+    }
+}
