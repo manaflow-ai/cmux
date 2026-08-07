@@ -289,13 +289,20 @@ fi
 unset CMUX_FAKE_LSOF_RECEIPT_FD_FIELD
 /bin/kill -0 "$matching_pid" 2>/dev/null \
   || fail "malformed lsof descriptor verification signaled the live PID"
-cmux_terminate_verified_app_hosts \
+export CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS=1
+if cmux_terminate_verified_app_hosts \
   "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  2>> "$TMP_DIR/matching-lsof-warning.err" || fail "matching receipt did not terminate"
+  2>> "$TMP_DIR/matching-lsof-warning.err"; then
+  fail "cleanup externally signaled a live app-host PID"
+fi
+/bin/kill -0 "$matching_pid" 2>/dev/null \
+  || fail "wait-only cleanup signaled the verified app host"
+unset CMUX_APP_HOST_EXIT_WAIT_ATTEMPTS
 grep -Fq "lsof: simulated advisory diagnostic" \
   "$TMP_DIR/matching-lsof-warning.err" \
   || fail "lsof advisory diagnostics did not remain on stderr"
 unset CMUX_FAKE_LSOF_WARNING
+/bin/kill -TERM "$matching_pid"
 wait "$matching_pid" 2>/dev/null || true
 untrack_pid "$matching_pid"
 
@@ -326,11 +333,12 @@ deleted_verified="$(cmux_app_host_verified_pids \
   || fail "lsof's deleted-vnode suffix broke receipt verification"
 [ "$deleted_verified" = "$deleted_vnode_pid" ] \
   || fail "deleted-vnode verification did not return its PID"
-cmux_terminate_verified_app_hosts \
-  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
-  || fail "deleted-vnode receipt did not terminate"
+/bin/kill -TERM "$deleted_vnode_pid"
 wait "$deleted_vnode_pid" 2>/dev/null || true
 untrack_pid "$deleted_vnode_pid"
+cmux_terminate_verified_app_hosts \
+  "$TEST_RECEIPT_DIR" "$KEY" "$TEST_DERIVED_DATA" \
+  || fail "deleted-vnode receipt did not become stale after owner exit"
 
 make_scope forged-argv
 spawn_forged_argv_process "$TEST_EXECUTABLE"
@@ -763,7 +771,15 @@ cmux_reclaim_abandoned_app_host_scopes \
   "$stale_runner_root" "$system_temp_root" "$current_key" \
   2000000000 86400 \
   "$current_key" "$candidate_one_key" "$candidate_two_key" \
-  || fail "valid terminated scope candidates were not removed"
+  || fail "valid terminated scope preview was rejected"
+for preserved_path in \
+  "$candidate_one_home" "$candidate_one_receipt_dir" \
+  "$candidate_one_confirmation_file" "$candidate_two_home" \
+  "$candidate_two_receipt_dir" "$candidate_two_confirmation_file"
+do
+  [ -e "$preserved_path" ] \
+    || fail "retry recovery deleted a prior scope without explicit confirmation"
+done
 
 # Pre-v3 records do not carry repository-scoped stale authority.
 make_durable_scope legacy "930005$$" 2 1 \
@@ -826,8 +842,10 @@ ln -s "$outside_scope" "$legacy_home/internal-link"
 cmux_reclaim_abandoned_app_host_scopes \
   "$stale_runner_root" "$system_temp_root" "$current_key" \
   2000000000 86400 "$current_key" "$legacy_key" \
-  || fail "valid stale scope with an internal symlink was not removed"
+  || fail "valid stale scope with an internal symlink was not previewed"
 grep -Fxq preserve "$outside_scope/sentinel" \
   || fail "stale recovery followed an internal home symlink"
+[ -d "$legacy_home" ] \
+  || fail "retry recovery deleted a stale scope without explicit confirmation"
 
 echo "PASS: app-host processes require matching receipts and executable vnodes"

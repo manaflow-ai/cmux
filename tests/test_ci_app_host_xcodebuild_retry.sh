@@ -13,7 +13,27 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${CFFIXED_USER_HOME:-<unset>}" \
     "${XDG_CONFIG_HOME:-<unset>}" \
     >> "$CMUX_CAPTURE_XCODEBUILD_PARENT_ENV"
-  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+  attempt_lease="${TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE:-}"
+  attempt_lease_state=missing
+  if [ -f "$attempt_lease" ]; then
+    if /usr/bin/python3 -c '
+import fcntl
+import os
+import sys
+
+descriptor = os.open(sys.argv[1], os.O_RDWR)
+try:
+    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit(1)
+raise SystemExit(0)
+' "$attempt_lease"; then
+      attempt_lease_state=unlocked
+    else
+      attempt_lease_state=locked
+    fi
+  fi
+  printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
     "${TEST_RUNNER_HOME:-<unset>}" \
     "${TEST_RUNNER_CFFIXED_USER_HOME:-<unset>}" \
     "${TEST_RUNNER_XDG_CONFIG_HOME:-<unset>}" \
@@ -23,6 +43,8 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     "${TEST_RUNNER_CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_KEY:-<unset>}" \
     "${TEST_RUNNER_CMUX_APP_HOST_RECEIPT_DIR:-<unset>}" \
+    "${TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE:-<unset>}" \
+    "$attempt_lease_state" \
     >> "$CMUX_CAPTURE_TEST_RUNNER_HOME_ENV"
   config_home="${TEST_RUNNER_HOME:-${HOME:-/tmp}}"
   config_category=default
@@ -285,7 +307,7 @@ isolated_runner_count="$(awk -F '|' \
   -v xdg="$RESOLVED_APP_HOST_XDG_CONFIG_HOME" \
   -v key="$CMUX_APP_HOST_KEY" \
   -v receipts="$CMUX_APP_HOST_RECEIPT_DIR" '
-  $1 == home && $2 == home && $3 == xdg && $4 == "" && $5 == "1" && $6 == home && $7 == xdg && $8 == key && $9 == receipts {
+  $1 == home && $2 == home && $3 == xdg && $4 == "" && $5 == "1" && $6 == home && $7 == xdg && $8 == key && $9 == receipts && $10 ~ ("^" receipts "/app-host-attempt-[0-9]+-[0-9]+\\.lease$") && $11 == "locked" {
     count += 1
   }
   END { print count + 0 }

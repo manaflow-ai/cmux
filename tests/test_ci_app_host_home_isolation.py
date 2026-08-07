@@ -55,6 +55,7 @@ TEST_RUNNER_ENVIRONMENT_KEYS = (
     "CMUX_APP_HOST_EXPECTED_XDG_CONFIG_HOME",
     "CMUX_APP_HOST_KEY",
     "CMUX_APP_HOST_RECEIPT_DIR",
+    "CMUX_APP_HOST_ATTEMPT_LEASE",
 )
 FORBIDDEN_SCHEME_ENVIRONMENT_KEYS = {
     f"TEST_RUNNER_{key}" for key in TEST_RUNNER_ENVIRONMENT_KEYS
@@ -415,6 +416,9 @@ def main() -> int:
         "app-host run-derived key": (
             '"TEST_RUNNER_CMUX_APP_HOST_KEY=$app_host_key"'
         ),
+        "app-host process-bound attempt lease": (
+            '"TEST_RUNNER_CMUX_APP_HOST_ATTEMPT_LEASE=$attempt_lease_path"'
+        ),
         "Ghostty app-support path validation": (
             "validate_app_host_config_paths"
         ),
@@ -476,11 +480,25 @@ def main() -> int:
         "cmux_recover_owned_app_host_attempt",
         "current-run retry recovery",
     )
-    require(
-        APP_HOST_PROCESSES,
-        "cmux_reclaim_abandoned_app_host_scopes",
-        "age-bounded process-free scope reclamation",
-    )
+    for unsafe_signal in (
+        '/bin/kill -TERM "$pid"',
+        '/bin/kill -KILL "$pid"',
+    ):
+        if unsafe_signal in APP_HOST_PROCESSES:
+            raise SystemExit(
+                "FAIL: verified app-host cleanup must not signal a reusable PID: "
+                f"{unsafe_signal}"
+            )
+    for opportunistic_deletion in (
+        'rm -rf -- "$CMUX_VALIDATED_ABANDONED_APP_HOST_HOME"',
+        'rm -rf -- "$CMUX_VALIDATED_ABANDONED_APP_HOST_RECEIPT_DIR"',
+        'rm -f -- "$confirmation_file"',
+    ):
+        if opportunistic_deletion in APP_HOST_PROCESSES:
+            raise SystemExit(
+                "FAIL: retry recovery must not delete prior scopes without the "
+                f"current cleanup confirmation: {opportunistic_deletion}"
+            )
 
     for forbidden_process_authority in (
         "ps -axww -o pid=,command=",
@@ -501,6 +519,10 @@ def main() -> int:
         "receipt run-derived key": "CMUX_APP_HOST_KEY",
         "receipt process-incarnation descriptor": "CmuxAppHostReceiptFD",
         "receipt descriptor field": "receipt_fd=",
+        "receipt attempt lease": "CMUX_APP_HOST_ATTEMPT_LEASE",
+        "receipt retained lease descriptor": "CmuxAppHostLeaseFD",
+        "receipt lease descriptor field": "lease_fd=",
+        "receipt process-bound exit watcher": "flock(",
         "receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_CONSTRUCTOR, needle, context)
@@ -516,6 +538,10 @@ def main() -> int:
         "early receipt run-derived key": "CMUX_APP_HOST_KEY",
         "early retained receipt descriptor": "retainedReceiptDescriptor",
         "early receipt descriptor field": "receipt_fd=",
+        "early receipt attempt lease": "CMUX_APP_HOST_ATTEMPT_LEASE",
+        "early retained lease descriptor": "retainedLeaseDescriptor",
+        "early receipt lease descriptor field": "lease_fd=",
+        "early process-bound exit watcher": "Darwin.flock(",
         "early receipt no-follow open": "O_NOFOLLOW",
     }.items():
         require(APP_HOST_RECEIPT_WRITER, needle, context)
