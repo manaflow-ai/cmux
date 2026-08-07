@@ -188,6 +188,66 @@ struct NestedTopologyAssociationTests {
         #expect(result.panes[0].title == providerTitle)
     }
 
+    @Test("provider title absence clears unlocked titles across every node kind")
+    func providerClearsUnlockedTitles() throws {
+        let fixture = NestedTopologyTestFixture()
+        let snapshot = try fixture.snapshot(
+            workspaces: [fixture.workspace(title: NestedNodeTitle(
+                value: "Workspace provider title",
+                authority: .provider
+            ))],
+            tabs: [fixture.tab(title: NestedNodeTitle(
+                value: "Tab guess",
+                authority: .inferred
+            ))],
+            panes: [fixture.pane(title: NestedNodeTitle(
+                value: "Pane provider title",
+                authority: .provider
+            ))],
+            agents: [fixture.agent(title: NestedNodeTitle(
+                value: "Agent guess",
+                authority: .inferred
+            ))]
+        )
+
+        let result = try NestedTopologyReducer().applying([
+            fixture.event(.workspaceUpdated(node: fixture.workspace(title: nil))),
+            fixture.event(.tabUpdated(node: fixture.tab(title: nil))),
+            fixture.event(.paneUpdated(node: fixture.pane(title: nil))),
+            fixture.event(.agentUpdated(node: fixture.agent(title: nil))),
+        ], to: snapshot)
+
+        #expect(result.workspaces[0].title == nil)
+        #expect(result.tabs[0].title == nil)
+        #expect(result.panes[0].title == nil)
+        #expect(result.agents[0].title == nil)
+    }
+
+    @Test("provider title absence preserves host and user locks")
+    func providerCannotClearLockedTitles() throws {
+        let fixture = NestedTopologyTestFixture()
+        let hostTitle = NestedNodeTitle(value: "Host lock", authority: .host)
+        let userTitle = NestedNodeTitle(value: "User lock", authority: .user)
+        let snapshot = try fixture.snapshot(
+            workspaces: [fixture.workspace(title: hostTitle)],
+            tabs: [fixture.tab(title: userTitle)],
+            panes: [fixture.pane(title: hostTitle)],
+            agents: [fixture.agent(title: userTitle)]
+        )
+
+        let result = try NestedTopologyReducer().applying([
+            fixture.event(.workspaceUpdated(node: fixture.workspace(title: nil))),
+            fixture.event(.tabUpdated(node: fixture.tab(title: nil))),
+            fixture.event(.paneUpdated(node: fixture.pane(title: nil))),
+            fixture.event(.agentUpdated(node: fixture.agent(title: nil))),
+        ], to: snapshot)
+
+        #expect(result.workspaces[0].title == hostTitle)
+        #expect(result.tabs[0].title == userTitle)
+        #expect(result.panes[0].title == hostTitle)
+        #expect(result.agents[0].title == userTitle)
+    }
+
     @Test("resolved parentage stays stable when independent event batches are reordered")
     func shuffledBatchParentStability() throws {
         let fixture = NestedTopologyTestFixture()
