@@ -28,7 +28,7 @@ extension AgentTurnProcessLiveness {
         }
         let processID = pid_t(pid)
         let currentGeneration = AgentPIDProcessIdentity(pid: processID)
-        let expectedGeneration = if let expectedStartSeconds,
+        let expectedGeneration: AgentPIDProcessIdentity? = if let expectedStartSeconds,
             let expectedStartMicroseconds {
             AgentPIDProcessIdentity(
                 pid: processID,
