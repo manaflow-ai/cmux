@@ -813,6 +813,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/curl-quoted-separator.sh",
+            'curl -H "X-Test: a&&b" https://cmux.com/install.sh\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/curl-shell-string.sh",
             'bash -c "curl -fsSL https://cmux.com/install.sh"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -844,6 +849,11 @@ def _self_test() -> int:
         (
             "web/tests/fetch-template.ts",
             "const result = `${await fetch('https://api.openai.com/v1/items')}`\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/mixed-fetches.ts",
+            'fetch("http://127.0.0.1:4321"); fetch("https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -979,6 +989,26 @@ def _self_test() -> int:
         (
             "web/tests/n17c.ts",
             'expect(text).toStartWith("curl -fsSL https://cmux.com/install.sh | sh")\n',
+        ),
+        (
+            "web/tests/n17d.ts",
+            'fetch("http://127.0.0.1:4321"); '
+            'expect(text).toContain("https://cmux.com/docs/api")\n',
+        ),
+        (
+            "web/tests/n17e.ts",
+            'fetch("http://127.0.0.1:4321"); '
+            'const docs = "https://cmux.com/docs/api"\n',
+        ),
+        (
+            "web/tests/n17f.ts",
+            'fetch("http://127.0.0.1:4321") && '
+            'render("https://cmux.com/docs/api")\n',
+        ),
+        (
+            "web/tests/n17g.ts",
+            'fetch("http://127.0.0.1:4321") || '
+            'render("https://cmux.com/docs/api")\n',
         ),
         (
             "web/tests/n18.ts",
