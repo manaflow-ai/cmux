@@ -781,7 +781,7 @@ fn response_error(status: reqwest::StatusCode, parsed: Option<&Value>, action: &
         .and_then(Value::as_str);
     if status.as_u16() == 402 && code == Some("pro_required") {
         return Error::Usage(
-            "hosted coderouter requires cmux Pro; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`".into(),
+            "hosted coderouter requires cmux Pro or Team; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`".into(),
         );
     }
     let server_message = parsed
@@ -902,7 +902,7 @@ mod fault_matrix_tests {
     fn snapshots_hosted_pro_self_hosting_guidance() {
         assert_eq!(
             message(402, Some(json!({ "error": "pro_required" }))),
-            "hosted coderouter requires cmux Pro; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`"
+            "hosted coderouter requires cmux Pro or Team; upgrade at https://cmux.com/pricing or connect a self-hosted server with `cr login --server <URL>`"
         );
     }
 
