@@ -41,14 +41,14 @@ extension AppDelegate.MainWindowContext {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
-        preserveStoredProcessDetectedResumeBindings: Bool = false
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionSplitContainerSnapshot? {
         existingWindowDock()?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex,
-            preserveStoredProcessDetectedResumeBindings:
-                preserveStoredProcessDetectedResumeBindings
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
     }
 

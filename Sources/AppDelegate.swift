@@ -4111,7 +4111,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // save. Only the windows selected by the previous snapshot receive the
         // expensive full manager fingerprint below.
         for route in routes {
-            route.combineAutosaveSelectionMetadata(into: &hasher)
+            route.combineAutosaveSelectionMetadata(
+                into: &hasher,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            )
         }
 
         let routesByWindowId = Dictionary(

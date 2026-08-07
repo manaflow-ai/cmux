@@ -217,7 +217,7 @@ extension AppDelegate {
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
                 surfaceResumeBindingIndex: nil,
-                preserveStoredProcessDetectedResumeBindings: true
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: true
             )
             : nil
         let route = RecoverableMainWindowRoute(

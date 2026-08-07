@@ -182,8 +182,8 @@ struct RecoverableMainWindowLifecycleTests {
         #expect(frozenSnapshot.panels.first?.terminal?.scrollback == "preserved output")
     }
 
-    @Test("Recovery freeze preserves a stored process-detected Dock binding")
-    func recoveryFreezePreservesStoredProcessDetectedDockBinding() throws {
+    @Test("Recovery freeze makes an unverified process-detected Dock binding manual")
+    func recoveryFreezeMakesUnverifiedProcessDetectedDockBindingManual() throws {
         let sourceWorkspaceId = UUID()
         let panel = TerminalPanel(
             workspaceId: sourceWorkspaceId,
@@ -210,16 +210,20 @@ struct RecoverableMainWindowLifecycleTests {
 
         let snapshot = store.sessionSnapshot(
             includeScrollback: false,
-            preserveStoredProcessDetectedResumeBindings: true,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: true,
             currentAgentProcessIdentity: { _ in nil },
             agentProcessPresence: { _ in .absent }
         )
         let terminal = try #require(
             snapshot.panels.first(where: { $0.id == panel.id })?.terminal
         )
+        let frozenBinding = try #require(terminal.resumeBinding)
 
-        #expect(terminal.resumeBinding == binding)
-        #expect(store.surfaceResumeBinding(panelId: panel.id) == binding)
+        #expect(frozenBinding.command == binding.command)
+        #expect(frozenBinding.checkpointId == binding.checkpointId)
+        #expect(!frozenBinding.allowsAutomaticResume)
+        #expect(frozenBinding.approvalPolicy == .manual)
+        #expect(store.surfaceResumeBinding(panelId: panel.id) == frozenBinding)
     }
 
     @Test("Autosave projection bounds full route fingerprints")
@@ -239,6 +243,47 @@ struct RecoverableMainWindowLifecycleTests {
                 orderedWindowIds[0],
             ]
         )
+    }
+
+    @Test("Autosave selection fingerprint tracks crash-pruning eligibility")
+    func autosaveSelectionFingerprintTracksCrashPruningEligibility() throws {
+        let manager = TabManager()
+        defer { manager.tabs.forEach { $0.teardownAllPanels() } }
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let baseline = sessionPersistenceSelectionFingerprint(for: manager)
+
+        workspace.workspaceEnvironment["CMUX_ISSUE_9666_TEST"] = "1"
+        #expect(sessionPersistenceSelectionFingerprint(for: manager) != baseline)
+        workspace.workspaceEnvironment.removeAll()
+        #expect(sessionPersistenceSelectionFingerprint(for: manager) == baseline)
+
+        workspace.surfaceListeningPorts[panelId] = [9666]
+        #expect(sessionPersistenceSelectionFingerprint(for: manager) != baseline)
+        workspace.surfaceListeningPorts.removeValue(forKey: panelId)
+        #expect(sessionPersistenceSelectionFingerprint(for: manager) == baseline)
+
+        workspace.surfaceResumeBindingsByPanelId[panelId] = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume issue-9666",
+            cwd: "/tmp/cmux-issue-9666",
+            checkpointId: "issue-9666",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_999_999_999
+        )
+        #expect(sessionPersistenceSelectionFingerprint(for: manager) != baseline)
+    }
+
+    private func sessionPersistenceSelectionFingerprint(for manager: TabManager) -> Int {
+        var hasher = Hasher()
+        manager.combineSessionPersistenceSelectionMetadata(
+            into: &hasher,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+        return hasher.finalize()
     }
 
     private func makeMainWindow(id: UUID) -> NSWindow {
