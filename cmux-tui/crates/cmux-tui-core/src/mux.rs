@@ -5365,6 +5365,72 @@ impl Mux {
         }
     }
 
+    /// A positive terminal-host liveness death proof is evidence that the
+    /// exact runtime incarnation is gone. Record the interruption before exit
+    /// cleanup can collapse it into an ordinary detached runtime.
+    pub(crate) fn terminal_host_liveness_dead(
+        &self,
+        surface_id: SurfaceId,
+        identity: &TerminalHostIdentity,
+    ) -> bool {
+        if self.shutting_down.load(Ordering::Acquire) {
+            return false;
+        }
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let state = self.state.lock().unwrap();
+        let identity_matches = state
+            .surfaces
+            .get(&surface_id)
+            .or_else(|| state.terminal_runtime_by_id(surface_id))
+            .and_then(|surface| surface.terminal_host_identity())
+            .is_some_and(|current| current == *identity);
+        drop(state);
+        if !identity_matches {
+            return false;
+        }
+        let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
+            return false;
+        };
+        if terminal.incarnation.as_deref() != Some(identity.incarnation.as_str())
+            || matches!(
+                terminal.lifecycle,
+                TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
+            )
+        {
+            return false;
+        }
+        let Ok(Some(public_id)) = registry.terminal_resource_id(&identity.terminal_id) else {
+            return false;
+        };
+        let idempotency_key = format!(
+            "runtime-host-loss-{}-{}-host-liveness-dead",
+            identity.terminal_id, identity.incarnation
+        );
+        match registry.record_runtime_host_loss_proof(
+            "cmux-tui-runtime",
+            &idempotency_key,
+            &public_id,
+            &identity.incarnation,
+            &identity.incarnation,
+            &identity.incarnation,
+            "host_liveness_dead",
+        ) {
+            Ok(commit) => {
+                if !commit.replayed {
+                    self.publish_journal_event();
+                }
+                true
+            }
+            Err(error) => {
+                self.emit(MuxEvent::Status(format!(
+                    "could not persist terminal {} host loss proof: {error}",
+                    identity.terminal_id
+                )));
+                false
+            }
+        }
+    }
+
     pub(crate) fn terminal_host_reconnected(
         self: &Arc<Self>,
         surface_id: SurfaceId,
@@ -8558,6 +8624,11 @@ impl Mux {
             let Some(public_id) = registry.terminal_resource_id(terminal_id)? else {
                 return Ok(());
             };
+            if state == "detached"
+                && registry.runtime_attachment_state(&public_id)?.as_deref() == Some("interrupted")
+            {
+                return Ok(());
+            }
             let idempotency_key = format!("runtime-attachment-{state}-{terminal_id}-{incarnation}");
             registry.record_runtime_attachment_update(
                 "cmux-tui-runtime",

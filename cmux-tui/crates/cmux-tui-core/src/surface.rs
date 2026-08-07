@@ -2927,6 +2927,7 @@ impl Surface {
                                 );
                                 pty.stream_progress.notify();
                                 if let Some(mux) = mux.upgrade() {
+                                    mux.terminal_host_liveness_dead(surface.id, &identity);
                                     mux.surface_exited(surface.id);
                                 }
                                 return;
