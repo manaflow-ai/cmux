@@ -171,7 +171,7 @@ struct DockControlDefinitionDecodingTests {
     @MainActor
     func configuredTerminalFollowsLiveTitlesWithoutReplacingCustomName(
         scope: DockScope
-    ) async throws {
+    ) throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let store: DockSplitStore
@@ -206,10 +206,6 @@ struct DockControlDefinitionDecodingTests {
 
         let tabID = try #require(store.bonsplitController.allTabIds.first)
         let terminal = try #require(store.panel(for: tabID) as? TerminalPanel)
-        for _ in 0..<10 {
-            await Task.yield()
-            if store.bonsplitController.tab(tabID)?.title == "Agent" { break }
-        }
         #expect(store.bonsplitController.tab(tabID)?.title == "Agent")
 
         NotificationCenter.default.post(
