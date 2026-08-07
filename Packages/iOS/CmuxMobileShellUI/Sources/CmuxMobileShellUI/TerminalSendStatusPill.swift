@@ -7,14 +7,14 @@ struct TerminalSendStatusPill: View {
     let status: MobileTerminalSendStatus
 
     var body: some View {
-        if status != .idle {
+        if status == .sending || status == .failed {
             HStack(spacing: 7) {
                 if status == .sending {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Image(systemName: status == .sent ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(status == .sent ? Color.green : Color.red)
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Color.red)
                 }
 
                 Text(title)
@@ -35,7 +35,7 @@ struct TerminalSendStatusPill: View {
         case .sending:
             return L10n.string("mobile.terminal.sending", defaultValue: "Sending")
         case .sent:
-            return L10n.string("mobile.terminal.sent", defaultValue: "Sent")
+            return ""
         case .failed:
             return L10n.string("mobile.terminal.sendFailed.short", defaultValue: "Send failed")
         }

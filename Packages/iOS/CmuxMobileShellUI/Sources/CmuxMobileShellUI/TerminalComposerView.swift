@@ -432,17 +432,15 @@ struct TerminalComposerView: View {
 
     private var composerSendSystemImage: String {
         switch sendStatus {
-        case .sent:
-            return "checkmark"
         case .failed:
             return "exclamationmark"
-        case .idle, .sending:
+        case .idle, .sending, .sent:
             return "arrow.up"
         }
     }
 
     private var composerSendForegroundStyle: AnyShapeStyle {
-        if isSending || sendStatus == .sent || sendStatus == .failed || canSend {
+        if isSending || sendStatus == .failed || canSend {
             return AnyShapeStyle(Color.white)
         }
         return AnyShapeStyle(
@@ -454,11 +452,9 @@ struct TerminalComposerView: View {
         switch sendStatus {
         case .sending:
             return AnyShapeStyle(Color.accentColor)
-        case .sent:
-            return AnyShapeStyle(Color.green)
         case .failed:
             return AnyShapeStyle(Color.red)
-        case .idle:
+        case .idle, .sent:
             return canSend
                 ? AnyShapeStyle(Color.accentColor)
                 : AnyShapeStyle(
@@ -472,7 +468,7 @@ struct TerminalComposerView: View {
         case .sending:
             return L10n.string("mobile.terminal.sending", defaultValue: "Sending")
         case .sent:
-            return L10n.string("mobile.terminal.sent", defaultValue: "Sent")
+            return L10n.string("mobile.composer.send", defaultValue: "Send")
         case .failed:
             return L10n.string("mobile.terminal.sendFailed.short", defaultValue: "Send failed")
         case .idle:

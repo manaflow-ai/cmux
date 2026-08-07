@@ -9827,23 +9827,6 @@
         }
       }
     },
-    "mobile.terminal.sent": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sent"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信済み"
-          }
-        }
-      }
-    },
     "mobile.terminal.surfaceNotReady": {
       "extractionState": "manual",
       "localizations": {
