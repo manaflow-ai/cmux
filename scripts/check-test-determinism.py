@@ -1672,6 +1672,26 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/requests_keyword_url.py",
+            (
+                "requests.get(\n"
+                "    timeout=1,\n"
+                '    url="https://api.openai.com/v1/items",\n'
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/requests_request_keyword_url.py",
+            (
+                "requests.request(\n"
+                '    url="https://api.openai.com/v1/items",\n'
+                '    method="GET",\n'
+                ")\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/subprocess_shell_argv.py",
             'subprocess.run(["bash", "-c", "curl https://api.openai.com/v1/items"])\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1679,6 +1699,27 @@ def _self_test() -> int:
         (
             "web/tests/spawn_shell_argv.ts",
             'spawn("sh", ["-c", "curl https://api.openai.com/v1/items"])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/python_command_source.py",
+            (
+                "subprocess.run([\n"
+                '    "python3",\n'
+                '    "-c",\n'
+                '    "requests.get(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "])\n"
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/node_eval_source.ts",
+            (
+                'spawn("node", [\n'
+                '  "--eval",\n'
+                '  "fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "]);\n"
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -1987,6 +2028,37 @@ def _self_test() -> int:
                 '    "http://127.0.0.1:4321/health",\n'
                 '    headers={"Referer": "https://cmux.com"},\n'
                 ")\n"
+            ),
+        ),
+        # A labeled loopback target stays local even when later metadata is public.
+        (
+            "tests/n18u_requests_keyword_url.py",
+            (
+                "requests.get(\n"
+                "    timeout=1,\n"
+                '    url="http://127.0.0.1:4321/health",\n'
+                '    headers={"Referer": "https://cmux.com"},\n'
+                ")\n"
+            ),
+        ),
+        # Interpreter script arguments are data, not evaluated command source.
+        (
+            "tests/n18v_python_script_argument.py",
+            (
+                "subprocess.run([\n"
+                '    "python3",\n'
+                '    "script.py",\n'
+                '    "requests.get(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "])\n"
+            ),
+        ),
+        (
+            "web/tests/n18w_node_script_argument.ts",
+            (
+                'spawn("node", [\n'
+                '  "script.js",\n'
+                '  "fetch(\\\'https://api.openai.com/v1/items\\\')",\n'
+                "]);\n"
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
