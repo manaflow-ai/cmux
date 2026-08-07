@@ -414,15 +414,18 @@ public actor CmxIrohClientRuntime {
               let refreshID = registrationRefreshTaskID,
               refreshID != lastAwaitedTaskID {
             lastAwaitedTaskID = refreshID
-            latestOutcome = try await refresh.value
+            let outcome = try await refresh.value
             guard lifecyclePhase == .active else {
                 return .failed(.endpointUnavailable)
             }
             if liveDiscoveryGeneration > priorGeneration { return .refreshed }
-            if registrationRefreshTaskID != nil {
-                mayScheduleFreshRequest = false
-                continue
-            }
+            // A `.refreshed` outcome without a generation advance is an
+            // unchanged-fingerprint no-op that never read the broker. It can
+            // neither satisfy this live discovery nor mask a real failure,
+            // and a coalesced successor may no-op the same way, so the right
+            // to schedule one authoritative refresh must survive successors.
+            if outcome != .refreshed { latestOutcome = outcome }
+            if registrationRefreshTaskID != nil { continue }
             guard mayScheduleFreshRequest else { return latestOutcome }
             mayScheduleFreshRequest = false
             scheduleRegistrationRefresh(
