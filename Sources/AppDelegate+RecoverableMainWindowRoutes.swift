@@ -48,14 +48,25 @@ extension AppDelegate {
         cachedWindow ?? windowForMainWindowId(windowId)
     }
 
-    private func recoverableWindowParticipatesInLiveTopology(
-        _ window: NSWindow,
-        purpose: RecoverableMainWindowRoutePurpose
-    ) -> Bool {
-        guard purpose == .liveRecovery else { return false }
-        return window.isVisible
+    private func storedRecoverableMainWindowRouteSnapshot(
+        for route: RecoverableMainWindowRoute,
+        window: NSWindow
+    ) -> MainWindowRouteSnapshot? {
+        guard let manager = route.tabManager else { return nil }
+        return MainWindowRouteSnapshot(
+            windowId: route.windowId,
+            tabManager: manager,
+            window: window,
+            sidebar: route.sidebar,
+            sidebarSelection: route.sidebarSelection,
+            dock: route.frozenWindowDockSnapshot.map { .frozen($0) }
+        )
+    }
+
+    private func recoverableWindowParticipatesInLiveTopology(_ window: NSWindow) -> Bool {
+        window.isVisible
             || window.isMiniaturized
-            || mainWindowParticipatedBeforeApplicationHide(window)
+            || mainWindowRemainsInRestoreTopology(window)
     }
 
     private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
@@ -70,20 +81,28 @@ extension AppDelegate {
     private func recoverableMainWindowRouteSnapshot(
         for route: RecoverableMainWindowRoute
     ) -> MainWindowRouteSnapshot? {
-        guard let manager = route.tabManager,
-              tabManagerHasRegisteredTerminalSurface(manager),
+        guard route.purpose == .liveRecovery,
               let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window),
-              recoverableWindowParticipatesInLiveTopology(window, purpose: route.purpose) else {
+              let snapshot = storedRecoverableMainWindowRouteSnapshot(for: route, window: window),
+              tabManagerHasRegisteredTerminalSurface(snapshot.tabManager),
+              recoverableWindowParticipatesInLiveTopology(window) else {
             return nil
         }
-        return MainWindowRouteSnapshot(
-            windowId: route.windowId,
-            tabManager: manager,
-            window: window,
-            sidebar: route.sidebar,
-            sidebarSelection: route.sidebarSelection,
-            dock: route.frozenWindowDockSnapshot.map { .frozen($0) }
-        )
+        return snapshot
+    }
+
+    /// Captures the last live value projection before a recovered window moves
+    /// into teardown-only bookkeeping. Closing is rare, so identity lookup is
+    /// preferable to relying on an AppKit identifier that may already be gone.
+    func recoverableMainWindowRouteSnapshotForClose(
+        _ window: NSWindow
+    ) -> MainWindowRouteSnapshot? {
+        guard let route = mainWindowRouteLedger.routesByWindowId.values.first(where: {
+            $0.purpose == .liveRecovery && $0.window === window
+        }) else {
+            return nil
+        }
+        return storedRecoverableMainWindowRouteSnapshot(for: route, window: window)
     }
 
     private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
@@ -145,8 +164,8 @@ extension AppDelegate {
         return snapshots
     }
 
-    /// Applies the same key-window-first ordering to autosave fingerprinting
-    /// and snapshot truncation so both select the same bounded route set.
+    /// Applies one key-window-first ordering to autosave fingerprinting and
+    /// bounded session snapshot construction.
     func orderedSessionRouteSnapshots() -> [MainWindowRouteSnapshot] {
         mainWindowRouteSnapshots().sorted { lhs, rhs in
             let lhsIsKey = lhs.window?.isKeyWindow ?? false
@@ -190,9 +209,12 @@ extension AppDelegate {
         let window = context.window
         guard let window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: window) else { return }
         guard tabManagerHasRegisteredTerminalSurface(context.tabManager) else { return }
+        // The live Dock is destroyed below the recovery boundary. Freeze its
+        // full value once so a later termination save can still retain replay;
+        // lightweight saves project a scrollback-free copy.
         let frozenWindowDockSnapshot: SessionSplitContainerSnapshot? = purpose == .liveRecovery
             ? context.windowDockSessionSnapshot(
-                includeScrollback: false,
+                includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh(),
                 surfaceResumeBindingIndex: nil
             )
@@ -209,10 +231,7 @@ extension AppDelegate {
         )
         if purpose == .liveRecovery {
             route.closeObserver = WindowCloseObserver(window: window) { [weak self] closingWindow in
-                self?.markRecoverableMainWindowRouteForTeardown(
-                    windowId: windowId,
-                    window: closingWindow
-                )
+                self?.unregisterMainWindow(closingWindow)
             }
         }
         mainWindowRouteLedger.routesByWindowId[windowId] = route
@@ -224,18 +243,23 @@ extension AppDelegate {
 #endif
     }
 
-    private func markRecoverableMainWindowRouteForTeardown(
+    @discardableResult
+    func transitionRecoverableMainWindowRouteToTeardown(
         windowId: UUID,
         window: NSWindow
-    ) {
-        guard let route = mainWindowRouteLedger.routesByWindowId[windowId] else { return }
+    ) -> Bool {
+        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
+              route.purpose == .liveRecovery,
+              route.window === window else {
+            return false
+        }
         route.markForTeardown()
-        discardClosedRecoverableMainWindowVisibilityState(window)
 #if DEBUG
         cmuxDebugLog(
             "recoverableRoute.teardown windowId=\(String(windowId.uuidString.prefix(8)))"
         )
 #endif
+        return true
     }
 
     func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {

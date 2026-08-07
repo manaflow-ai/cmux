@@ -1,6 +1,7 @@
 @MainActor
 enum MainWindowRouteDockState {
     case live(DockSplitStore)
+    /// Full-fidelity value retained after the live Dock owner is torn down.
     case frozen(SessionSplitContainerSnapshot)
 
     func sessionSnapshot(
@@ -15,8 +16,12 @@ enum MainWindowRouteDockState {
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: surfaceResumeBindingIndex
             )
-        case .frozen(let snapshot):
-            snapshot
+        case .frozen(var snapshot):
+            guard !includeScrollback else { return snapshot }
+            for index in snapshot.panels.indices {
+                snapshot.panels[index].terminal?.scrollback = nil
+            }
+            return snapshot
         }
     }
 }

@@ -9531,12 +9531,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         mainWindowVisibilityController.captureHiddenWindowRestoreTargets(windows: mainWindowsForVisibilityController())
     }
 
-    func mainWindowParticipatedBeforeApplicationHide(_ window: NSWindow) -> Bool {
-        mainWindowVisibilityController.appHiddenWindowRestoreTargets.contains { $0 === window }
-    }
-
-    func discardClosedRecoverableMainWindowVisibilityState(_ window: NSWindow) {
-        mainWindowVisibilityController.discardClosedWindow(window)
+    func mainWindowRemainsInRestoreTopology(_ window: NSWindow) -> Bool {
+        mainWindowVisibilityController.windowRemainsInRestoreTopology(window)
     }
 
     func dismissMainWindowFromWindowChrome(_ window: NSWindow) {
@@ -17048,23 +17044,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
-    private func unregisterMainWindow(_ window: NSWindow) {
+    func unregisterMainWindow(_ window: NSWindow) {
         // Reset cascade point so the next new window appears near the closing
         // window's position, matching upstream Ghostty behavior.
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
         let closingContext = contextForMainTerminalWindow(window, reindex: false)
-        let closingWindowIsCrashDiagnostic = closingContext.map { context in
+        let closingRoute: MainWindowRouteSnapshot?
+        if let closingContext {
+            closingRoute = registeredMainWindowRouteSnapshot(for: closingContext)
+        } else {
+            closingRoute = recoverableMainWindowRouteSnapshotForClose(window)
+        }
+        let closingWindowIsCrashDiagnostic = closingRoute.map { route in
             closeWindowSnapshotPruningCrashDiagnostics(
-                for: context,
+                for: route,
                 includeScrollback: false,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
             )
                 .isCrashDiagnostic
         } ?? false
 
-        if let closingContext, !closingWindowIsCrashDiagnostic {
-            recordClosedWindowHistoryIfNeeded(for: closingContext)
+        if let closingRoute, !closingWindowIsCrashDiagnostic {
+            recordClosedWindowHistoryIfNeeded(for: closingRoute)
         }
 
         // Keep geometry available as a fallback for the next window placement,
@@ -17075,20 +17077,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         mainWindowVisibilityController.discardClosedWindow(window)
 
-        guard let removed = unregisterMainWindowContext(for: window) else { return }
-        windowConfigFrames.removeValue(forKey: removed.windowId)
-        publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
-        commandPaletteWindowStore.removeWindow(removed.windowId)
+        guard let closingRoute else { return }
+        if closingContext != nil {
+            guard unregisterMainWindowContext(for: window) != nil else { return }
+        } else {
+            guard transitionRecoverableMainWindowRouteToTeardown(
+                windowId: closingRoute.windowId,
+                window: window
+            ) else {
+                return
+            }
+        }
+        windowConfigFrames.removeValue(forKey: closingRoute.windowId)
+        publishCmuxWindowLifecycle(name: "window.closed", windowId: closingRoute.windowId, origin: "appkit_close")
+        commandPaletteWindowStore.removeWindow(closingRoute.windowId)
 
         // Avoid stale notifications that can no longer be opened once the owning window is gone.
         if let store = notificationStore {
-            store.clearNotifications(forTabId: removed.windowId)
-            for tab in removed.tabManager.tabs {
+            store.clearNotifications(forTabId: closingRoute.windowId)
+            for tab in closingRoute.tabManager.tabs {
                 store.clearNotifications(forTabId: tab.id)
             }
         }
 
-        if tabManager === removed.tabManager {
+        if tabManager === closingRoute.tabManager {
             // Repoint "active" pointers to any remaining main terminal window.
             let nextContext: MainWindowContext? = {
                 if let keyWindow = shortcutRoutingKeyWindow,
@@ -17114,12 +17126,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func closeWindowSnapshotPruningCrashDiagnostics(
-        for context: MainWindowContext,
+        for route: MainWindowRouteSnapshot,
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex
     ) -> (snapshot: SessionWindowSnapshot?, isCrashDiagnostic: Bool) {
         let windowSnapshot = sessionWindowSnapshot(
-            for: context,
+            for: route,
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex
         )
@@ -17136,8 +17148,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
-        let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
+    private func recordClosedWindowHistoryIfNeeded(for route: MainWindowRouteSnapshot) {
+        let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(route.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,
               !isApplyingSessionRestore else {
@@ -17146,7 +17158,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
-            for: context,
+            for: route,
             includeScrollback: true,
             restorableAgentIndex: restorableAgentIndex
         ).snapshot else {
@@ -17156,7 +17168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
-            windowId: context.windowId,
+            windowId: route.windowId,
             snapshot: snapshot,
             workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
         )))
@@ -17169,7 +17181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func recordClosedWindowHistoryForTesting(windowId: UUID) {
         guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) else { return }
-        recordClosedWindowHistoryIfNeeded(for: context)
+        recordClosedWindowHistoryIfNeeded(for: registeredMainWindowRouteSnapshot(for: context))
     }
 
     func isClosedWindowHistorySuppressedForTesting(windowId: UUID) -> Bool {
