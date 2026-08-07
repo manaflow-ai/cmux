@@ -11108,12 +11108,13 @@ class TerminalController {
     private func helpText() -> String {
         let agentLifecycleHelp = String(
             localized: "socket.help.agentLifecycle",
-            defaultValue:
-                "set_agent_lifecycle <key> "
-                + "<unknown|running|idle|needsInput> [--tab=X] "
-                + "[--panel=ID] [--pid=N --pid-start-seconds=N "
-                + "--pid-start-microseconds=N] - Report generation-bound "
-                + "coding-agent lifecycle for hibernation"
+            defaultValue: """
+                set_agent_lifecycle <key> \
+                <unknown|running|idle|needsInput> [--tab=X] \
+                [--panel=ID] [--pid=N --pid-start-seconds=N \
+                --pid-start-microseconds=N] - Report generation-bound \
+                coding-agent lifecycle for hibernation
+                """
         )
         var text = """
         Hierarchy: Workspace (sidebar tab) > Pane (split region) > Surface (nested tab) > Panel (terminal/browser)
