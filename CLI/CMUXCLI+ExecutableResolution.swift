@@ -84,8 +84,34 @@ extension CMUXCLI {
         searchPath: String?,
         skip: ((String) -> Bool)? = nil
     ) -> String? {
-        let entries = providerExecutableSearchDirectories(searchPath: searchPath)
-        for entry in entries where !entry.isEmpty {
+        resolveExecutable(
+            name,
+            searchDirectories: providerExecutableSearchDirectories(searchPath: searchPath),
+            skip: skip
+        )
+    }
+
+    /// Resolves an executable only from the supplied `PATH`, without provider fallbacks.
+    func resolveExecutableInSuppliedSearchPath(
+        _ name: String,
+        searchPath: String?,
+        skip: ((String) -> Bool)? = nil
+    ) -> String? {
+        resolveExecutable(
+            name,
+            searchDirectories: normalizedExecutableSearchDirectories(
+                searchPath?.split(separator: ":").map(String.init) ?? []
+            ),
+            skip: skip
+        )
+    }
+
+    private func resolveExecutable(
+        _ name: String,
+        searchDirectories: [String],
+        skip: ((String) -> Bool)?
+    ) -> String? {
+        for entry in searchDirectories where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
@@ -339,6 +365,20 @@ extension CMUXCLI {
         return AgentExecutableSearchPathResolver()
             .normalizedDirectories(from: directories)
             .filter { !isCmuxAppBundleResourceBinDirectory($0) }
+    }
+
+    private func normalizedExecutableSearchDirectories(_ directories: [String]) -> [String] {
+        var seen: Set<String> = []
+        return directories.compactMap { rawDirectory in
+            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
+                .standardizedFileURL
+                .path
+            guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
+            guard seen.insert(standardized).inserted else { return nil }
+            return standardized
+        }
     }
 
     private func providerNodeVersionBinDirectories(root: String, suffix: String) -> [String] {

@@ -31,7 +31,7 @@ extension CMUXCLI {
                 exitCode: 2
             )
         }
-        guard let executable = resolveExecutableInSearchPath(
+        guard let executable = resolveExecutableInSuppliedSearchPath(
             "herdr",
             searchPath: ProcessInfo.processInfo.environment["PATH"]
         ) else {
@@ -60,17 +60,18 @@ extension CMUXCLI {
         arguments: [String],
         jsonOutput: Bool = false
     ) -> [String]? {
-        guard var prefix = herdrCompatCommands.first(where: { $0.name == command })?.arguments else {
+        guard let prefix = herdrCompatCommands.first(where: { $0.name == command })?.arguments else {
             return nil
         }
         // Only `herdr status` has a distinct human vs JSON mode (`--json`).
         // `api snapshot`, `workspace list`, `tab list`, and `pane list` always emit JSON
         // and do not accept `--json`; injecting the flag there would fail those commands.
         // cmux `--json` is therefore intentionally a no-op for those aliases.
+        let translated = prefix + arguments
         if command == "status", jsonOutput, !arguments.contains("--json") {
-            prefix.append("--json")
+            return translated + ["--json"]
         }
-        return prefix + arguments
+        return translated
     }
 
     private static let herdrCompatCommands: [(name: String, arguments: [String])] = [
