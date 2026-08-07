@@ -329,6 +329,20 @@ extension TerminalController {
             )
         }
 
+        // Attachment materialization suspends, so the session can move or
+        // disappear before delivery. Re-resolve after the suspension and use
+        // only that authoritative binding for the terminal transaction.
+        guard let refreshedTerminalParams =
+                await mobileChatTerminalParams(sessionID: sessionID) else {
+            GhosttyApp.terminalPasteboard
+                .cleanupTransferredTemporaryImageFiles(attachmentFileURLs)
+            return .err(
+                code: "not_found",
+                message: Self.chatTerminalBindingErrorMessage,
+                data: ["session_id": sessionID]
+            )
+        }
+
         var promptComponents: [String] = []
         promptComponents.reserveCapacity(
             attachments.count + (text.isEmpty ? 0 : 1)
@@ -341,7 +355,7 @@ extension TerminalController {
         if !text.isEmpty {
             promptComponents.append(text)
         }
-        var pasteParams = terminalParams
+        var pasteParams = refreshedTerminalParams
         pasteParams["text"] = promptComponents.joined(separator: " ")
         let result = v2MobileTerminalPaste(
             params: pasteParams,

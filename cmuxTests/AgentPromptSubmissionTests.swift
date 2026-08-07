@@ -11,16 +11,25 @@ import Testing
 
 @Suite("Atomic agent prompt submission", .serialized)
 struct AgentPromptSubmissionTests {
-    @Test func concurrentSubmissionsToOneWorkspaceStayIntactAndFIFO() async {
+    @Test func concurrentSubmissionsAcrossWorkspacesStayIntactAndGloballyFIFO() async {
         let controller = await MainActor.run { TerminalController.shared }
         let probe = await MainActor.run {
-            let panel = TerminalPanel(workspaceId: UUID())
-            panel.surface.releaseSurfaceForTesting()
-            return AgentPromptTransactionProbe(surface: panel.surface)
+            let firstPanel = TerminalPanel(workspaceId: UUID())
+            let secondPanel = TerminalPanel(workspaceId: UUID())
+            firstPanel.surface.releaseSurfaceForTesting()
+            secondPanel.surface.releaseSurfaceForTesting()
+            return AgentPromptTransactionProbe(
+                firstSurface: firstPanel.surface,
+                secondSurface: secondPanel.surface
+            )
         }
         let first = Task.detached {
             controller.v2MainSync {
-                probe.deliver("first", waitsForRelease: true)
+                probe.deliver(
+                    "first",
+                    to: .first,
+                    waitsForRelease: true
+                )
             }
         }
         let firstStarted = await Task.detached {
@@ -34,7 +43,11 @@ struct AgentPromptSubmissionTests {
         // this into two sequential caller starts.
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                _ = probe.deliver("second", waitsForRelease: false)
+                _ = probe.deliver(
+                    "second",
+                    to: .second,
+                    waitsForRelease: false
+                )
             }
         }
         #expect(probe.startedMessages == ["first"])
@@ -47,11 +60,16 @@ struct AgentPromptSubmissionTests {
         #expect(bothCompleted)
         #expect(probe.startedMessages == ["first", "second"])
         #expect(probe.completedMessages == ["first", "second"])
-        #expect(
-            await MainActor.run { probe.pendingPromptMessages }
-                == ["first", "second"]
-        )
+        let pendingMessages = await MainActor.run {
+            (
+                first: probe.pendingPromptMessages(for: .first),
+                second: probe.pendingPromptMessages(for: .second)
+            )
+        }
+        #expect(pendingMessages.first == ["first"])
+        #expect(pendingMessages.second == ["second"])
         #expect(probe.maximumConcurrentDeliveries == 1)
+        await MainActor.run { probe.releaseSurfacesForTesting() }
     }
 
     @MainActor
@@ -122,18 +140,24 @@ struct AgentPromptSubmissionTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = tabManager
-        let workspace = tabManager.addWorkspace(select: true)
-        let panelID = try #require(workspace.focusedPanelId)
-        let panel = try #require(
-            workspace.terminalInputTarget(forPanelID: panelID)?.panel
-        )
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
         defer {
-            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             appDelegate.tabManager = previousTabManager
             AppDelegate.shared = previousAppDelegate
         }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
 
         workspace.recordAgentPID(
             key: "codex.mobile-draft",
@@ -195,18 +219,24 @@ struct AgentPromptSubmissionTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = tabManager
-        let workspace = tabManager.addWorkspace(select: true)
-        let panelID = try #require(workspace.focusedPanelId)
-        let panel = try #require(
-            workspace.terminalInputTarget(forPanelID: panelID)?.panel
-        )
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
         defer {
-            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             appDelegate.tabManager = previousTabManager
             AppDelegate.shared = previousAppDelegate
         }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
 
         #expect(workspace.agentPromptInputScope(forPanelId: panelID) == nil)
         panel.surface.releaseSurfaceForTesting()
@@ -238,18 +268,24 @@ struct AgentPromptSubmissionTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = tabManager
-        let workspace = tabManager.addWorkspace(select: true)
-        let panelID = try #require(workspace.focusedPanelId)
-        let panel = try #require(
-            workspace.terminalInputTarget(forPanelID: panelID)?.panel
-        )
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
         defer {
-            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             appDelegate.tabManager = previousTabManager
             AppDelegate.shared = previousAppDelegate
         }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
 
         workspace.recordAgentPID(
             key: "codex.surface-less-hook",
@@ -282,18 +318,24 @@ struct AgentPromptSubmissionTests {
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         AppDelegate.shared = appDelegate
         appDelegate.tabManager = tabManager
-        let workspace = tabManager.addWorkspace(select: true)
-        let panelID = try #require(workspace.focusedPanelId)
-        let panel = try #require(
-            workspace.terminalInputTarget(forPanelID: panelID)?.panel
-        )
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
         defer {
-            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
                 tabManager.closeWorkspace(workspace)
             }
             appDelegate.tabManager = previousTabManager
             AppDelegate.shared = previousAppDelegate
         }
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
 
         workspace.recordAgentPID(
             key: "codex.stale-surface-hook",
@@ -533,8 +575,11 @@ struct AgentPromptSubmissionTests {
             panelId: panelID,
             refreshPorts: false
         )
+        let originalScope = try #require(
+            panel.surface.currentPromptInputAgentScope
+        )
         panel.surface.recordHumanPromptInput(.unknown)
-        #expect(panel.surface.currentPromptInputAgentScope != nil)
+        #expect(panel.surface.currentPromptInputAgentScope == originalScope)
         #expect(panel.surface.hasUnconfirmedHumanPromptInput)
 
         workspace.recordAgentPID(
@@ -558,6 +603,46 @@ struct AgentPromptSubmissionTests {
         )
         #expect(result == .agentScopeUnavailable)
         #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
+
+        workspace.recordAgentPID(
+            key: agentKey,
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+
+        #expect(workspace.agentPromptInputScope(forPanelId: panelID) == originalScope)
+        #expect(panel.surface.currentPromptInputAgentScope == originalScope)
+        #expect(panel.surface.hasUnconfirmedHumanPromptInput)
+
+        let busyResult = panel.sendPromptSubmissionResult(
+            "must wait for the preserved human draft",
+            submitKey: "return",
+            agentInputScope: originalScope,
+            rejectIfHumanComposerBusy: true,
+            hookRecordingSource: "workspace.agent_submit"
+        )
+        #expect(busyResult == .composerBusy)
+
+        panel.surface.recordHumanPromptInput(.submissionBoundary)
+        #expect(
+            panel.surface.confirmPromptSubmission(message: "human draft")
+                == .human
+        )
+        #expect(!panel.surface.hasUnconfirmedHumanPromptInput)
+
+        let recoveredResult = panel.sendPromptSubmissionResult(
+            "automation resumes after confirmation",
+            submitKey: "return",
+            agentInputScope: originalScope,
+            rejectIfHumanComposerBusy: true,
+            hookRecordingSource: "workspace.agent_submit"
+        )
+        #expect(recoveredResult == .queued)
+        #expect(
+            panel.surface.pendingSocketInputSnapshotForTests
+                .promptSubmissionItems == 1
+        )
     }
 
     @MainActor
@@ -678,9 +763,37 @@ struct AgentPromptSubmissionTests {
     }
 
     @MainActor
-    @Test func whitespaceOnlyPromptIsRejectedWithoutDelivery() {
+    @Test func whitespaceOnlyPromptIsRejectedWithoutDelivery() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = previousAppDelegate ?? AppDelegate()
+        let previousTabManager = appDelegate.tabManager
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        var workspaceForCleanup: Workspace?
+        var panelForCleanup: TerminalPanel?
+        defer {
+            panelForCleanup?.surface.releaseSurfaceForTesting()
+            if let workspace = workspaceForCleanup,
+               tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = previousTabManager
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let workspace = tabManager.addWorkspace(select: true)
+        workspaceForCleanup = workspace
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        panelForCleanup = panel
+        panel.surface.releaseSurfaceForTesting()
+
         let result = TerminalController.shared.v2WorkspaceAgentSubmit(params: [
-            "workspace_id": UUID().uuidString,
+            "workspace_id": workspace.id.uuidString,
+            "surface_id": panelID.uuidString,
             "text": " \n\t ",
         ])
 
@@ -689,5 +802,6 @@ struct AgentPromptSubmissionTests {
             return
         }
         #expect(code == "invalid_params")
+        #expect(panel.surface.pendingSocketInputSnapshotForTests.items == 0)
     }
 }

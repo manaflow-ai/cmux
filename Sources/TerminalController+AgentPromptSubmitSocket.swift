@@ -196,7 +196,7 @@ extension TerminalController {
                 code: "internal_error",
                 message: String(
                     localized: "socket.workspace.agentSubmit.invalidSubmitKey",
-                    defaultValue: "The agent's submit key is not supported."
+                    defaultValue: "The agent terminal cannot accept this prompt. Restart the agent and retry."
                 ),
                 data: [
                     "workspace_id": workspaceID.uuidString,

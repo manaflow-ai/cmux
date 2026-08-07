@@ -252,8 +252,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "notification.create_for_target",
         "notification.create_for_caller",
         "workspace.set_auto_title",
-        // Complete agent prompts synchronously admit and drain one bounded
-        // per-workspace transaction through a single main-actor hop.
+        // Complete agent prompts synchronously admit and drain one globally
+        // serialized transaction through a single main-actor hop.
         "workspace.agent_submit",
         // The v2 resolution reads (tranche D of issue #5757) — the implicit
         // handle-normalization reads nearly every CLI invocation pays 1-3 of.

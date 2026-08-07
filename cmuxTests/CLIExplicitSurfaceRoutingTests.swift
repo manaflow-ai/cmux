@@ -50,7 +50,7 @@ struct CLIExplicitSurfaceRoutingTests {
         let state = ServerState()
         let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
-                  let id = payload["id"] as? String,
+                  let id = Self.requestID(from: payload),
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
@@ -107,7 +107,7 @@ struct CLIExplicitSurfaceRoutingTests {
         let state = ServerState()
         let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = Self.jsonObject(line),
-                  let id = payload["id"] as? String,
+                  let id = Self.requestID(from: payload),
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
@@ -170,7 +170,7 @@ struct CLIExplicitSurfaceRoutingTests {
             state: state
         ) { line in
             guard let payload = Self.jsonObject(line),
-                  let id = payload["id"] as? String,
+                  let id = Self.requestID(from: payload),
                   let method = payload["method"] as? String else {
                 return Self.malformedRequestResponse(raw: line)
             }
@@ -754,6 +754,17 @@ struct CLIExplicitSurfaceRoutingTests {
         if let error { payload["error"] = error }
         let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private static func requestID(from payload: [String: Any]) -> String? {
+        switch payload["id"] {
+        case let id as String:
+            id
+        case let id as NSNumber:
+            id.stringValue
+        default:
+            nil
+        }
     }
 
     private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
