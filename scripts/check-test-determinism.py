@@ -1127,6 +1127,24 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/assigned-property.ts",
+            'config.url = "https://api.openai.com/v1/items"; '
+            'await fetch(config.url)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/assigned-config.ts",
+            'const cfg = { method: "GET", '
+            'url: "https://api.openai.com/v1/items" }; await axios(cfg)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/assigned-array.ts",
+            'const urls = ["http://127.0.0.1:4321", '
+            '"https://api.openai.com/v1/items"]; await fetch(urls[1])\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/assigned-fetch-template.ts",
             'const url = "https://api.openai.com/v1/items"; fetch(`${url}/next`)\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1371,6 +1389,16 @@ def _self_test() -> int:
             "web/tests/n17q.ts",
             'const url="https://cmux.com/install.sh"; '
             'exec(`curl ${other}/url`)\n',
+        ),
+        (
+            "web/tests/n17r.ts",
+            'const cfg = { url: "https://cmux.com/docs/api" }; '
+            'cfg = { url: "http://127.0.0.1:4321" }; axios(cfg)\n',
+        ),
+        (
+            "web/tests/n17s.ts",
+            'config.url = "https://cmux.com/docs/api"; '
+            'config.url = "http://127.0.0.1:4321"; fetch(config.url)\n',
         ),
         (
             "web/tests/n18.ts",
