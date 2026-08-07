@@ -54,24 +54,20 @@ struct MobileConnectionMethodSection: View {
 
     private var methodSelection: Binding<MobileConnectionMethod> {
         Binding(
-            get: { store.presentedMethod },
+            get: { store.method },
             set: { method in
                 if store.request(
                     method,
                     hasAuthorizedTailscaleRoute: hasAuthorizedTailscaleRoute
                 ) {
-                    if let startPairingScanner {
-                        startPairingScanner()
-                    } else {
-                        store.cancelPendingMethod()
-                    }
+                    startPairingScanner?()
                 }
             }
         )
     }
 
     private var footerText: String {
-        switch store.presentedMethod {
+        switch store.method {
         case .automatic:
             L10n.string(
                 "mobile.settings.connectionMethod.automaticFooter",

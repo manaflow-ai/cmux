@@ -36,30 +36,21 @@ import Testing
         #expect(store.method == .automatic)
     }
 
-    @Test func unauthorizedTailscaleRequestStaysAutomaticUntilCommitted() {
+    @Test func unauthorizedTailscaleRequestPersistsAndRequiresPairing() {
         let defaults = makeDefaults()
         let store = MobileConnectionMethodStore(defaults: defaults)
 
         #expect(store.request(.tailscale, hasAuthorizedTailscaleRoute: false))
-        #expect(store.method == .automatic)
-        #expect(store.presentedMethod == .tailscale)
-        #expect(MobileConnectionMethodStore(defaults: defaults).method == .automatic)
-
-        store.commitPendingTailscaleMethod()
-
         #expect(store.method == .tailscale)
-        #expect(store.presentedMethod == .tailscale)
         #expect(MobileConnectionMethodStore(defaults: defaults).method == .tailscale)
     }
 
-    @Test func cancellingPendingTailscaleKeepsLastUsableMethod() {
+    @Test func automaticRequestReplacesTailscaleSelection() {
         let store = MobileConnectionMethodStore(defaults: makeDefaults())
         #expect(store.request(.tailscale, hasAuthorizedTailscaleRoute: false))
 
-        store.cancelPendingMethod()
+        #expect(!store.request(.automatic, hasAuthorizedTailscaleRoute: false))
 
-        #expect(store.pendingMethod == nil)
-        #expect(store.presentedMethod == .automatic)
         #expect(store.method == .automatic)
     }
 
@@ -68,18 +59,6 @@ import Testing
 
         #expect(!store.request(.tailscale, hasAuthorizedTailscaleRoute: true))
 
-        #expect(store.pendingMethod == nil)
         #expect(store.method == .tailscale)
-    }
-
-    @Test func nonTailscaleConnectionCancelsPendingTailscaleSelection() {
-        let store = MobileConnectionMethodStore(defaults: makeDefaults())
-        #expect(store.request(.tailscale, hasAuthorizedTailscaleRoute: false))
-
-        store.resolvePendingTailscaleSelection(connectedOverTailscale: false)
-
-        #expect(store.pendingMethod == nil)
-        #expect(store.presentedMethod == .automatic)
-        #expect(store.method == .automatic)
     }
 }

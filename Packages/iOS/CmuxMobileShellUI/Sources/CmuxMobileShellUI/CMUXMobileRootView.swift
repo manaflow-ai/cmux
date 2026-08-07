@@ -293,9 +293,6 @@ struct CMUXMobileRootView: View {
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
-                connectionMethodStore?.resolvePendingTailscaleSelection(
-                    connectedOverTailscale: store.activeRoute?.kind == .tailscale
-                )
                 isShowingAddDeviceSheet = false
             } else {
                 clearAttachTicketAuthenticationIfNeeded()
@@ -757,7 +754,6 @@ struct CMUXMobileRootView: View {
     private func dismissAddDeviceSheet() {
         isShowingAddDeviceSheet = false
         pairingPresentation = .manual
-        connectionMethodStore?.cancelPendingMethod()
         if store.pairingVersionWarning != nil {
             cancelPairing()
         } else {
