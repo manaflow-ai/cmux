@@ -110,6 +110,25 @@ kill_stale_app_host() {
     "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT"
 }
 
+canonicalize_existing_app_host_config_path() {
+  local path="$1"
+  if [ ! -e "$path" ] || [ -L "$path" ]; then
+    return 1
+  fi
+
+  if [ -d "$path" ]; then
+    (cd "$path" 2>/dev/null && pwd -P)
+    return
+  fi
+
+  local parent name resolved_parent
+  parent="${path%/*}"
+  name="${path##*/}"
+  [ -n "$parent" ] || parent=/
+  resolved_parent="$(cd "$parent" 2>/dev/null && pwd -P)" || return 1
+  printf '%s/%s\n' "${resolved_parent%/}" "$name"
+}
+
 validate_app_host_config_paths() {
   local log_path="$1"
   local require_evidence="$2"
@@ -120,13 +139,16 @@ validate_app_host_config_paths() {
     return 1
   fi
 
-  # macOS resolves the published /tmp scope through /private/tmp, while
-  # Ghostty may report either spelling. Both roots were derived and validated
-  # above; keep the slash boundary so a same-prefix sibling is still rejected.
-  local published_expected_config_path resolved_expected_config_path
-  published_expected_config_path="${app_host_home_input%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  resolved_expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  local matches scan_status line reported_path
+  local expected_config_path canonical_expected_config_path
+  expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+  canonical_expected_config_path="$(
+    canonicalize_existing_app_host_config_path "$expected_config_path"
+  )" || {
+    echo "FAIL: isolated app-host configuration sentinel is unavailable" >&2
+    return 1
+  }
+  local matches scan_status line reported_path canonical_reported_path
+  local found_expected_config_evidence=0
   if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
   else
@@ -143,35 +165,38 @@ validate_app_host_config_paths() {
 
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
+      line="${line%$'\r'}"
       reported_path="${line#*path=}"
-      case "$reported_path" in
-        "$app_host_home"|"${app_host_home%/}/"* \
-          |"$app_host_home_input"|"${app_host_home_input%/}/"*) ;;
+      canonical_reported_path="$(
+        canonicalize_existing_app_host_config_path "$reported_path"
+      )" || {
+        echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
+        echo "$line" >&2
+        return 1
+      }
+      case "$canonical_reported_path" in
+        "$app_host_home"|"${app_host_home%/}/"*) ;;
         *)
           echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
           echo "$line" >&2
           return 1
           ;;
       esac
+
+      case "$line" in
+        *"[default] reading configuration file path="*|*"[config] reading configuration file path="*)
+          if [ "$canonical_reported_path" = "$canonical_expected_config_path" ]; then
+            found_expected_config_evidence=1
+          fi
+          ;;
+      esac
     done <<< "$matches"
   fi
 
-  if [ "$require_evidence" = "1" ]; then
-    if ! grep -Fq \
-      "[default] reading configuration file path=$resolved_expected_config_path" \
-      "$log_path" \
-      && ! grep -Fq \
-        "[config] reading configuration file path=$resolved_expected_config_path" \
-        "$log_path" \
-      && ! grep -Fq \
-        "[default] reading configuration file path=$published_expected_config_path" \
-        "$log_path" \
-      && ! grep -Fq \
-        "[config] reading configuration file path=$published_expected_config_path" \
-        "$log_path"; then
-      echo "FAIL: app-host configuration evidence is missing" >&2
-      return 1
-    fi
+  if [ "$require_evidence" = "1" ] \
+    && [ "$found_expected_config_evidence" != "1" ]; then
+    echo "FAIL: app-host configuration evidence is missing" >&2
+    return 1
   fi
 }
 
