@@ -107,6 +107,25 @@ fail() {
   exit 1
 }
 
+# Recovery is inclusive at the grace boundary and excludes current, newest,
+# future-dated, young, and pre-v2 scopes.
+cmux_classify_app_host_scope_recovery_eligibility \
+  111111111111 222222222222 2 100 300 200 100
+[ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -eq 1 ] \
+  || fail "exact app-host recovery grace boundary was not eligible"
+for eligibility_case in \
+  "222222222222 222222222222 2 100 300 200 100" \
+  "111111111111 222222222222 2 300 300 400 100" \
+  "111111111111 222222222222 2 301 300 300 100" \
+  "111111111111 222222222222 2 101 300 200 100" \
+  "111111111111 222222222222 1 100 300 200 100"
+do
+  # shellcheck disable=SC2086
+  cmux_classify_app_host_scope_recovery_eligibility $eligibility_case
+  [ "$CMUX_APP_HOST_SCOPE_RECOVERY_ELIGIBLE" -eq 0 ] \
+    || fail "ineligible app-host recovery scope was admitted"
+done
+
 untrack_pid() {
   local target_pid="$1"
   local tracked_pid updated_pids
