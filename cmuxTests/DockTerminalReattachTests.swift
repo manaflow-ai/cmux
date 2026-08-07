@@ -126,12 +126,8 @@ extension DockSocketLifecycleTests {
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
     }
 
-    @Test(
-        "Only a live persistent SSH agent hook survives a Dock snapshot",
-        arguments: ["codex", "campfire"]
-    )
     @MainActor
-    func persistentSSHAgentHookOwnershipSurvivesDockSnapshot(agentKind: String) throws {
+    func verifyPersistentSSHAgentHookOwnershipSurvivesDockSnapshot(agentKind: String) throws {
         let sourceWorkspaceId = UUID()
         let panel = TerminalPanel(workspaceId: sourceWorkspaceId)
         let remotePTYSessionID = "cmux-remote-pty-\(UUID().uuidString)"
@@ -1792,5 +1788,16 @@ extension DockSocketLifecycleTests {
 
         #expect(panel.hostedView.debugPortalVisibleInUI)
         #expect(panel.viewReattachToken == reattachTokenBefore + 1)
+    }
+}
+
+/// Focused suite because method-level `-only-testing` does not select Swift Testing cases.
+@Suite("Persistent SSH Dock agent runtime", .serialized)
+struct PersistentSSHDockAgentRuntimeTests {
+    @Test(arguments: ["codex", "campfire"])
+    @MainActor
+    func persistentSSHAgentHookOwnershipSurvivesDockSnapshot(agentKind: String) throws {
+        try DockSocketLifecycleTests()
+            .verifyPersistentSSHAgentHookOwnershipSurvivesDockSnapshot(agentKind: agentKind)
     }
 }
