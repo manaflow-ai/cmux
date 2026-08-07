@@ -382,10 +382,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     /// A mock server with no expectation to wait on, for tests that drive many
-    /// hooks and assert on `state` afterwards.
+    /// hooks and assert on `state` afterwards. `connectionCount` remains accepted
+    /// for older callers; the registry now serves every connection until teardown.
     func startDetachedMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
+        connectionCount _: Int = 1,
         handler: @escaping @Sendable (String) -> String
     ) {
         CLIMockAcceptLoopRegistry.shared.start(listenerFD: listenerFD, onConnection: { clientFD in
@@ -410,9 +412,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startDetachedAgentHookMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
-        surfaceId: String
+        surfaceId: String,
+        connectionCount: Int = 1
     ) {
-        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+        startDetachedMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            connectionCount: connectionCount
+        ) { line in
             self.agentHookMockResponse(line: line, surfaceId: surfaceId)
         }
     }
@@ -442,6 +449,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return surfaceListResponse(id: id, surfaceId: surfaceId)
         case "feed.push":
             return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(
+                id: id,
+                ok: true,
+                result: ["resume_binding": ["updated_at": 123.25]]
+            )
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
         default:
             return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }

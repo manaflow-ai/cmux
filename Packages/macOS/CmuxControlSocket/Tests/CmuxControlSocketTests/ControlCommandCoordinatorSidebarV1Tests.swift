@@ -25,6 +25,36 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.agentPIDClearCall?.requireOwnedKey == true)
     }
 
+    @Test func lifecycleMutationsRejectExplicitlyEmptySessionID() {
+        let emptySessionOptions = [
+            "--session-id",
+            "--session-id=",
+            "--session-id='   '",
+        ]
+
+        for option in emptySessionOptions {
+            let setContext = FakeSidebarV1ControlCommandContext()
+            let setCoordinator = ControlCommandCoordinator(context: setContext)
+            let setResponse = setCoordinator.handleSidebarV1(
+                command: "set_agent_lifecycle",
+                args: "claude_code running \(option)"
+            )
+
+            #expect(setResponse.hasPrefix("ERROR: Usage:"))
+            #expect(setContext.agentLifecycleCall == nil)
+
+            let clearContext = FakeSidebarV1ControlCommandContext()
+            let clearCoordinator = ControlCommandCoordinator(context: clearContext)
+            let clearResponse = clearCoordinator.handleSidebarV1(
+                command: "clear_agent_pid",
+                args: "claude_code \(option)"
+            )
+
+            #expect(clearResponse.hasPrefix("ERROR: Usage:"))
+            #expect(clearContext.agentPIDClearCall == nil)
+        }
+    }
+
     @Test func statusClearForwardsPanelScope() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)

@@ -49,6 +49,23 @@ Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores 
 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
+Each lifecycle mutation also publishes the semantic
+`agent.state.changed` event described in [events.md](events.md). Unlike raw
+`agent.hook.*` events, its state vocabulary is the same for every integration:
+`unknown`, `running`, `idle`, `needs-input`, or `exit`. The payload includes
+the agent key, session id when available, prior state, and a process-local
+occupant revision. A surface ID used only as a hook-routing fallback is not
+published as an agent session ID. For agents that do not report a session ID,
+each genuine session-start rotates the occupant revision, while later state
+updates remain bound to that revision by an internal process binding that is
+not included in event payloads.
+
+Use `cmux wait --surface <id|ref|index> --until
+<idle|needs-input|exit> [--timeout <ms>]` to block on that lifecycle. The
+server resolves and pins the occupant identity—its reported session ID when
+available, otherwise its occupant revision—when the wait starts. A replacement
+agent cannot satisfy the wait in either case.
+
 Claude Code's `PushNotification` tool (model-initiated "notify the user now" pushes) is bridged through a `PostToolUse` hook into cmux notifications. The tool normally delivers via a raw OSC desktop notification, which cmux suppresses on surfaces running a hook-integrated agent, so the bridge is what makes those pushes visible inside cmux. It mirrors the tool's own outcome: a push the tool reports as skipped (user active, channel disabled) is not duplicated.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.

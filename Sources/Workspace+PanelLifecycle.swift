@@ -31,8 +31,18 @@ extension Workspace {
     }
 
     var agentLifecycleStatesByPanelId: [UUID: [String: AgentHibernationLifecycleState]] {
-        get { sidebarAgentRuntimeObservation.agentLifecycleStatesByPanelId }
-        set { sidebarAgentRuntimeObservation.setAgentLifecycleStatesByPanelId(newValue) }
+        agentLifecycleRecordsByPanelId.mapValues { records in
+            records.mapValues(\.state)
+        }
+    }
+
+    var agentLifecycleRecordsByPanelId: [UUID: [String: AgentLifecycleRecord]] {
+        get { sidebarAgentRuntimeObservation.agentLifecycleRecordsByPanelId }
+        set { sidebarAgentRuntimeObservation.setAgentLifecycleRecordsByPanelId(newValue) }
+    }
+
+    func takeNextAgentLifecycleRevision() -> UInt64 {
+        sidebarAgentRuntimeObservation.takeNextAgentLifecycleRevision()
     }
 
     /// Returns exact-session runtime identities that still match their recorded process generation.
@@ -168,7 +178,20 @@ extension Workspace {
         return didChange
     }
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        refreshPorts: Bool = true,
+        expectedLifecycleSessionID: String? = nil
+    ) -> Bool {
+        if let expectedLifecycleSessionID {
+            guard let panelId,
+                  agentLifecycleRecordsByPanelId[panelId]?[agentStatusKey(forAgentPIDKey: key)]?.sessionID
+                    == expectedLifecycleSessionID else {
+                return false
+            }
+        }
         let previous = (
             panelId: agentPIDPanelIdsByKey[key],
             pid: agentPIDs[key],
@@ -295,7 +318,11 @@ extension Workspace {
         panelId: UUID? = nil,
         clearStatus: Bool = false,
         requireOwnedKey: Bool = false,
-        refreshPorts: Bool = true
+        refreshPorts: Bool = true,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPID: pid_t? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
         if requireOwnedKey, ownedPanelId == nil {
@@ -304,7 +331,32 @@ extension Workspace {
         if let panelId, let ownedPanelId, ownedPanelId != panelId {
             return false
         }
+        if let expectedPID {
+            guard agentPIDs[key] == expectedPID else { return false }
+            switch (expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+            case (nil, nil):
+                break
+            case let (startSeconds?, startMicroseconds?):
+                guard agentPIDProcessIdentitiesByKey[key] == AgentPIDProcessIdentity(
+                    pid: expectedPID,
+                    startSeconds: startSeconds,
+                    startMicroseconds: startMicroseconds
+                ) else {
+                    return false
+                }
+            case (nil, _?), (_?, nil):
+                return false
+            }
+        } else if expectedPIDStartSeconds != nil || expectedPIDStartMicroseconds != nil {
+            return false
+        }
         let statusKeyToClear = clearStatus ? agentStatusKey(forAgentPIDKey: key) : nil
+        if let expectedLifecycleSessionID,
+           let lifecyclePanelID = ownedPanelId ?? panelId,
+           let lifecycleRecord = agentLifecycleRecordsByPanelId[lifecyclePanelID]?[agentStatusKey(forAgentPIDKey: key)],
+           lifecycleRecord.sessionID != expectedLifecycleSessionID {
+            return false
+        }
 
         var didChange = false
         if agentPIDs.removeValue(forKey: key) != nil {
@@ -320,7 +372,11 @@ extension Workspace {
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+            if clearAgentLifecycle(
+                key: lifecycleStatusKey,
+                panelId: lifecyclePanelId,
+                expectedSessionID: expectedLifecycleSessionID
+            ) {
                 didChange = true
             }
         }
@@ -396,9 +452,6 @@ extension Workspace {
         }
         for key in runtimeState.agentPIDKeys where runtimeState.agentPIDs[key] == nil {
             recordAgentPIDOwnership(key: key, panelId: runtimeState.panelId)
-        }
-        for (key, lifecycle) in runtimeState.agentLifecycleStates {
-            setAgentLifecycle(key: key, panelId: runtimeState.panelId, lifecycle: lifecycle)
         }
         if didAdoptAgentPID {
             refreshTrackedAgentPorts()

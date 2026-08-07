@@ -339,11 +339,21 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let expectedLifecycleSessionID: String?
+        if parsed.options["session-id"] != nil {
+            guard let sessionID = sidebarNormalizedOptionValue(parsed.options["session-id"]) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedLifecycleSessionID = sessionID
+        } else {
+            expectedLifecycleSessionID = nil
+        }
         context?.controlSidebarScheduleAgentPIDRecord(
             target: target,
             key: key,
             pid: pid,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            expectedLifecycleSessionID: expectedLifecycleSessionID
         )
         return "OK"
     }
@@ -355,7 +365,8 @@ extension ControlCommandCoordinator {
     /// main and runs the registry disk IO on the calling thread.
     nonisolated func sidebarSetAgentLifecycle(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>]"
+        let usage = context?.controlSidebarSetAgentLifecycleUsage()
+            ?? "set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=<id>] [--panel=<id>] [--session-id=<id>] [--new-occupant]"
         guard parsed.positional.count >= 2 else {
             return "ERROR: Usage: \(usage)"
         }
@@ -372,6 +383,29 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let sessionID: String?
+        if parsed.options["session-id"] != nil {
+            guard let normalizedSessionID = sidebarNormalizedOptionValue(parsed.options["session-id"]) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            sessionID = normalizedSessionID
+        } else {
+            sessionID = nil
+        }
+        let expectedPIDKey = sidebarNormalizedOptionValue(parsed.options["expected-pid-key"])
+        let expectedPIDRaw = sidebarNormalizedOptionValue(parsed.options["expected-pid"])
+        let expectedPID: Int32?
+        switch (expectedPIDKey, expectedPIDRaw) {
+        case (nil, nil):
+            expectedPID = nil
+        case (_?, let raw?):
+            guard let parsedPID = Int32(raw), parsedPID > 0 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPID = parsedPID
+        case (nil, _?), (_?, nil):
+            return "ERROR: Usage: \(usage)"
+        }
         guard context?.controlSidebarIsAllowedAgentLifecycleKey(
             key,
             target: target,
@@ -383,7 +417,11 @@ extension ControlCommandCoordinator {
             target: target,
             key: key,
             lifecycleRawValue: lifecycleRawValue,
-            panelID: panelResolution.panelId
+            panelID: panelResolution.panelId,
+            sessionID: sessionID,
+            startsNewOccupant: parsed.options["new-occupant"] != nil,
+            expectedPIDKey: expectedPIDKey,
+            expectedPID: expectedPID
         )
         return "OK"
     }
@@ -413,7 +451,8 @@ extension ControlCommandCoordinator {
     /// main hops).
     nonisolated func sidebarClearAgentPID(_ args: String, context: (any ControlCommandContext)?) -> String {
         let parsed = sidebarParseOptions(args)
-        let usage = "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status]"
+        let usage = context?.controlSidebarClearAgentPIDUsage()
+            ?? "clear_agent_pid <key> [--tab=<id>] [--panel=<id>] [--clear-status] [--session-id=<id>]"
         guard let key = parsed.positional.first else {
             return "ERROR: Usage: \(usage)"
         }
@@ -425,11 +464,60 @@ extension ControlCommandCoordinator {
         if let error = panelResolution.error {
             return error
         }
+        let expectedLifecycleSessionID: String?
+        if parsed.options["session-id"] != nil {
+            guard let sessionID = sidebarNormalizedOptionValue(parsed.options["session-id"]) else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedLifecycleSessionID = sessionID
+        } else {
+            expectedLifecycleSessionID = nil
+        }
+        let expectedPID: Int32?
+        if parsed.options["expected-pid"] != nil {
+            guard let rawPID = sidebarNormalizedOptionValue(parsed.options["expected-pid"]),
+                  let parsedPID = Int32(rawPID),
+                  parsedPID > 0 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPID = parsedPID
+        } else {
+            expectedPID = nil
+        }
+        let expectedPIDStartSeconds: Int64?
+        let expectedPIDStartMicroseconds: Int64?
+        switch (
+            parsed.options["expected-pid-start-seconds"],
+            parsed.options["expected-pid-start-microseconds"]
+        ) {
+        case (nil, nil):
+            expectedPIDStartSeconds = nil
+            expectedPIDStartMicroseconds = nil
+        case (let rawSeconds?, let rawMicroseconds?):
+            guard expectedPID != nil,
+                  let normalizedSeconds = sidebarNormalizedOptionValue(rawSeconds),
+                  let normalizedMicroseconds = sidebarNormalizedOptionValue(rawMicroseconds),
+                  let seconds = Int64(normalizedSeconds),
+                  let microseconds = Int64(normalizedMicroseconds),
+                  seconds >= 0,
+                  microseconds >= 0,
+                  microseconds < 1_000_000 else {
+                return "ERROR: Usage: \(usage)"
+            }
+            expectedPIDStartSeconds = seconds
+            expectedPIDStartMicroseconds = microseconds
+        case (nil, _?), (_?, nil):
+            return "ERROR: Usage: \(usage)"
+        }
         context?.controlSidebarScheduleAgentPIDClear(
             target: target,
             key: key,
             panelID: panelResolution.panelId,
             clearStatus: parsed.options["clear-status"] != nil,
+            expectedLifecycleSessionID: expectedLifecycleSessionID,
+            expectedPID: expectedPID,
+            expectedPIDStartSeconds: expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
             requireOwnedKey: parsed.options["require-owned-key"] != nil
         )
         return "OK"

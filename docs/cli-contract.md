@@ -83,6 +83,7 @@ Environment:
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
+| `wait` | Block until the agent currently occupying a surface reaches `idle`, `needs-input`, or `exit`. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
@@ -473,6 +474,51 @@ surface selection, focus, creation, or closure. The stream is bounded: cmux keep
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
 16 MiB archive at `events.jsonl.1`.
 
+## Agent lifecycle wait
+
+```bash
+cmux wait --surface <id|ref|index> \
+  --until <idle|needs-input|exit> \
+  [--timeout <ms>] [--json]
+```
+
+`wait` resolves the surface and its current agent lifecycle on the server. It
+subscribes to lifecycle events before taking that snapshot, so a state change
+during setup is not lost. The wait is pinned to the resolved agent session (or
+its process-local occupant revision when a session id is unavailable); a
+replacement agent on the same surface cannot satisfy it. The implementation is
+event-driven and does not poll lifecycle state.
+
+`--timeout` is a non-negative integer in milliseconds. Without it, the command
+waits until a terminal result or the socket closes. Plain successful output is
+silent. With `--json`, all terminal results use this shape:
+
+```json
+{
+  "status": "satisfied",
+  "until": "idle",
+  "state": "idle",
+  "agent": "codex",
+  "session_id": "session-123",
+  "workspace_id": "9B6920C1-6C29-4D85-8CB3-083C8D927D95",
+  "surface_id": "83F4E6A4-5246-4DB8-A412-9CE7B059FA6C",
+  "pane_id": "51D34B2A-094D-4E9E-A503-6B13D84E2431"
+}
+```
+
+`status` is `satisfied`, `timed_out`, or `surface_closed`; `state` is the last
+state observed for the pinned occupant. `session_id` and `pane_id` are nullable.
+Exit code `0` means satisfied, `124` means timed out, `3` means the surface
+closed, and `2` is CLI usage error. Other socket or resolution failures use the
+normal nonzero CLI error path.
+
+The corresponding v2 method is `agent.wait`, advertised by `capabilities`.
+Its params are `surface_id`, `until`, and optional `timeout_ms`. Like
+`events.stream`, it owns the socket connection until it returns and must run on
+a dedicated connection. Dock surfaces return `live_lifecycle_unavailable`
+instead of waiting on their transfer-time lifecycle snapshot; a wait that starts
+in a workspace returns the same error if the surface moves into the Dock.
+
 ## Workspace todos
 
 Each workspace carries a persisted checklist plus a todo lifecycle status,
@@ -536,6 +582,7 @@ the expected text without connecting to a cmux socket.
 - `cmux ping --help` -> `Usage: cmux ping`
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
+- `cmux wait --help` -> `Usage: cmux wait --surface <id|ref|index>`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]`

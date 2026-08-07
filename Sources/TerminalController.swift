@@ -1620,7 +1620,7 @@ class TerminalController {
 
             var shouldCloseSocket = false
             autoreleasepool {
-                if isEventsStreamRequest(trimmed) {
+                if isLongLivedSocketRequest(trimmed) {
                     if let response = authResponseIfNeeded(
                         for: trimmed,
                         passwordAuthorization: &passwordAuthorization
@@ -1630,13 +1630,23 @@ class TerminalController {
                         }
                         return
                     }
-                    handleEventsStreamRequest(
-                        trimmed,
-                        socket: socket,
-                        authorizationGeneration: authorizationGeneration,
-                        authorizationRevocationSignal: authorizationRevocationSignal,
-                        passwordAuthorization: passwordAuthorization
-                    )
+                    if isAgentWaitRequest(trimmed) {
+                        handleAgentWaitRequest(
+                            trimmed,
+                            socket: socket,
+                            authorizationGeneration: authorizationGeneration,
+                            authorizationRevocationSignal: authorizationRevocationSignal,
+                            passwordAuthorization: passwordAuthorization
+                        )
+                    } else {
+                        handleEventsStreamRequest(
+                            trimmed,
+                            socket: socket,
+                            authorizationGeneration: authorizationGeneration,
+                            authorizationRevocationSignal: authorizationRevocationSignal,
+                            passwordAuthorization: passwordAuthorization
+                        )
+                    }
                     shouldCloseSocket = true
                     return
                 }
@@ -2501,6 +2511,8 @@ class TerminalController {
             "system.capabilities",
             "system.identify",
             "system.tree",
+            "events.stream",
+            "agent.wait",
             "sidebar.custom.open",
             "system.top",
             "system.memory",
@@ -4806,8 +4818,7 @@ class TerminalController {
             ?? v2UUID(params, "terminal_id")
             ?? v2UUID(params, "tab_id") {
             return tabManager.tabs.first(where: {
-                $0.panels[surfaceId] != nil
-                    || $0.remoteTmuxControlPane(surfaceID: surfaceId) != nil
+                $0.surfaceOwnershipTarget(for: surfaceId) != nil
             })
         }
         if let paneId = v2UUID(params, "pane_id"),
@@ -11138,7 +11149,7 @@ class TerminalController {
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
-          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] - Report coding-agent lifecycle for hibernation
+          set_agent_lifecycle <key> <unknown|running|idle|needsInput> [--tab=X] [--panel=ID] [--session-id=ID] [--new-occupant] - Report coding-agent lifecycle for hibernation
           agent_hibernation <on|off> - Enable or disable routine Agent Hibernation
           report_meta <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set sidebar metadata entry
           report_meta_block <key> [--priority=N] [--tab=X] -- <markdown> - Set freeform sidebar markdown block
@@ -13248,8 +13259,13 @@ class TerminalController {
 
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg),
-           tab.panels[uuid] != nil || tab.remoteTmuxControlPane(surfaceID: uuid) != nil {
-            return uuid
+           let ownership = tab.surfaceOwnershipTarget(for: uuid) {
+            // Projected remote-tmux panes remain addressable by their exposed
+            // surface ID; ordinary Bonsplit surface IDs resolve to the stable
+            // panel that owns the surface.
+            return tab.remoteTmuxControlPane(surfaceID: uuid) != nil
+                ? uuid
+                : ownership.containerPanelID
         }
 
         if let index = Int(arg), index >= 0 {

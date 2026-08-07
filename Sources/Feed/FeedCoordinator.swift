@@ -707,7 +707,7 @@ extension FeedCoordinator {
         // Lifecycle is per-panel, so clearing this panel's needs-input is
         // safe even if another panel still needs input.
         if let panelId = target.panelId,
-           tab.agentLifecycleStatesByPanelId[panelId]?[target.statusKey] == .needsInput {
+           tab.agentLifecycleRecordsByPanelId[panelId]?[target.statusKey]?.state == .needsInput {
             tab.setAgentLifecycle(key: target.statusKey, panelId: panelId, lifecycle: .running)
         }
 

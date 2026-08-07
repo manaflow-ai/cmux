@@ -60,27 +60,62 @@ enum ControlSidebarPanelOwner {
     }
 
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID?,
+        expectedLifecycleSessionID: String? = nil
+    ) -> Bool {
         switch self {
         case .workspace(let workspace):
-            return workspace.recordAgentPID(key: key, pid: pid, panelId: panelId)
+            return workspace.recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: panelId,
+                expectedLifecycleSessionID: expectedLifecycleSessionID
+            )
         case .dock(let dock):
             guard let panelId else { return false }
-            return dock.recordAgentPID(key: key, pid: pid, panelId: panelId)
+            return dock.recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: panelId,
+                expectedLifecycleSessionID: expectedLifecycleSessionID
+            )
         }
     }
 
     func setAgentLifecycle(
         key: String,
         panelId: UUID?,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        sessionID: String? = nil,
+        startsNewOccupant: Bool = false,
+        expectedPIDKey: String? = nil,
+        expectedPID: Int32? = nil
     ) {
         switch self {
         case .workspace(let workspace):
-            workspace.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            workspace.setAgentLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                sessionID: sessionID,
+                startsNewOccupant: startsNewOccupant,
+                expectedPIDKey: expectedPIDKey,
+                expectedPID: expectedPID
+            )
         case .dock(let dock):
             guard let panelId else { return }
-            dock.setAgentLifecycle(key: key, panelId: panelId, lifecycle: lifecycle)
+            dock.setAgentLifecycle(
+                key: key,
+                panelId: panelId,
+                lifecycle: lifecycle,
+                sessionID: sessionID,
+                startsNewOccupant: startsNewOccupant,
+                expectedPIDKey: expectedPIDKey,
+                expectedPID: expectedPID
+            )
         }
     }
 
@@ -88,6 +123,10 @@ enum ControlSidebarPanelOwner {
         key: String,
         panelId: UUID?,
         clearStatus: Bool,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPID: pid_t? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil,
         requireOwnedKey: Bool = false
     ) {
         switch self {
@@ -96,7 +135,11 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 panelId: panelId,
                 clearStatus: clearStatus,
-                requireOwnedKey: requireOwnedKey
+                requireOwnedKey: requireOwnedKey,
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds
             )
         case .dock(let dock):
             guard let panelId else { return }
@@ -104,6 +147,10 @@ enum ControlSidebarPanelOwner {
                 key: key,
                 panelId: panelId,
                 clearStatus: clearStatus,
+                expectedLifecycleSessionID: expectedLifecycleSessionID,
+                expectedPID: expectedPID,
+                expectedPIDStartSeconds: expectedPIDStartSeconds,
+                expectedPIDStartMicroseconds: expectedPIDStartMicroseconds,
                 requireOwnedKey: requireOwnedKey
             )
         }

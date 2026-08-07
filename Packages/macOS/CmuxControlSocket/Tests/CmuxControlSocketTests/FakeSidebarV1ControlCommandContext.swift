@@ -15,7 +15,21 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
         requireOwnedKey: Bool
+    )?
+    nonisolated(unsafe) var agentLifecycleCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?
     )?
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -31,9 +45,57 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
         requireOwnedKey: Bool
     ) {
-        agentPIDClearCall = (target, key, panelID, clearStatus, requireOwnedKey)
+        agentPIDClearCall = (
+            target,
+            key,
+            panelID,
+            clearStatus,
+            expectedLifecycleSessionID,
+            expectedPID,
+            expectedPIDStartSeconds,
+            expectedPIDStartMicroseconds,
+            requireOwnedKey
+        )
+    }
+
+    nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String? {
+        raw == "running" ? raw : nil
+    }
+
+    nonisolated func controlSidebarIsAllowedAgentLifecycleKey(
+        _ key: String,
+        target: ControlSidebarTabTarget,
+        panelID: UUID?
+    ) -> Bool {
+        true
+    }
+
+    nonisolated func controlSidebarScheduleAgentLifecycle(
+        target: ControlSidebarTabTarget,
+        key: String,
+        lifecycleRawValue: String,
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?
+    ) {
+        agentLifecycleCall = (
+            target,
+            key,
+            lifecycleRawValue,
+            panelID,
+            sessionID,
+            startsNewOccupant,
+            expectedPIDKey,
+            expectedPID
+        )
     }
 
     func controlSidebarSetWorkspaceLoading(

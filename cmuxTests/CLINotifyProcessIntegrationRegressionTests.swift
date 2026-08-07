@@ -39,6 +39,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected clear SessionStart to mark Claude running, saw \(context.state.commands)"
         )
+        XCTAssertTrue(
+            context.state.commands.contains {
+                $0.hasPrefix("set_agent_lifecycle claude_code running --tab=\(context.workspaceId)")
+                    && $0.contains("--panel=\(context.surfaceId)")
+                    && $0.contains("--session-id=\"clear-session\"")
+                    && $0.hasSuffix(" --new-occupant")
+            },
+            "Expected clear SessionStart to rotate the authoritative lifecycle occupant, saw \(context.state.commands)"
+        )
     }
 
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {

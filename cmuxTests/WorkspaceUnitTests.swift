@@ -3290,6 +3290,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
                 $0.hasCompleteManagedSessionIdentity ? $0 : nil
             },
             agentRuntime: nil,
+            agentLifecycleRecords: [:],
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,

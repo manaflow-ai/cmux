@@ -74,12 +74,19 @@ public protocol ControlSidebarContext: AnyObject {
         target: ControlSidebarTabTarget,
         key: String,
         pid: Int32,
-        panelID: UUID?
+        panelID: UUID?,
+        expectedLifecycleSessionID: String?
     )
 
     /// Parses an agent lifecycle CLI token, returning the canonical raw value
     /// (the app owns the `AgentHibernationLifecycleState` token table).
     nonisolated func controlSidebarParseAgentLifecycle(_ raw: String) -> String?
+
+    /// Localized usage text for `set_agent_lifecycle`.
+    nonisolated func controlSidebarSetAgentLifecycleUsage() -> String
+
+    /// Localized usage text for `clear_agent_pid`.
+    nonisolated func controlSidebarClearAgentPIDUsage() -> String
 
     /// Whether a lifecycle key is allowed (built-in status keys or a
     /// registered vault agent id for the target tab).
@@ -90,11 +97,19 @@ public protocol ControlSidebarContext: AnyObject {
     ) -> Bool
 
     /// Enqueues the `set_agent_lifecycle` mutation.
+    ///
+    /// `sessionID` identifies the agent occupant that owns the lifecycle.
+    /// `expectedPIDKey` and `expectedPID` atomically reject a stale anonymous
+    /// hook after a replacement process has claimed the panel.
     nonisolated func controlSidebarScheduleAgentLifecycle(
         target: ControlSidebarTabTarget,
         key: String,
         lifecycleRawValue: String,
-        panelID: UUID?
+        panelID: UUID?,
+        sessionID: String?,
+        startsNewOccupant: Bool,
+        expectedPIDKey: String?,
+        expectedPID: Int32?
     )
 
     /// Workspace-scoped manual loading toggle for `workspace_loading`. `on`
@@ -113,11 +128,18 @@ public protocol ControlSidebarContext: AnyObject {
     nonisolated func controlSidebarSetAgentHibernation(enabled: Bool)
 
     /// Enqueues the `clear_agent_pid` mutation.
+    ///
+    /// `expectedLifecycleSessionID` prevents an old hook from clearing a
+    /// replacement occupant's lifecycle.
     nonisolated func controlSidebarScheduleAgentPIDClear(
         target: ControlSidebarTabTarget,
         key: String,
         panelID: UUID?,
         clearStatus: Bool,
+        expectedLifecycleSessionID: String?,
+        expectedPID: Int32?,
+        expectedPIDStartSeconds: Int64?,
+        expectedPIDStartMicroseconds: Int64?,
         requireOwnedKey: Bool
     )
 

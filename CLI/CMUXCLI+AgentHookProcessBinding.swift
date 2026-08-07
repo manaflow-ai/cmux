@@ -93,7 +93,8 @@ extension CMUXCLI {
                 client: client,
                 workspaceId: record.workspaceId,
                 surfaceId: record.surfaceId,
-                sessionId: record.sessionId
+                sessionId: record.sessionId,
+                expectedBindingUpdatedAt: record.resumeBindingUpdatedAt
             )
             guard resumeClearOutcome != .failed else {
                 continue

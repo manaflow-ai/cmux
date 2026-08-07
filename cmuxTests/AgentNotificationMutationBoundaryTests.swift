@@ -567,7 +567,11 @@ extension AgentNotificationRegressionTests {
             target: .workspace(fixture.source.id),
             key: "claude_code",
             lifecycleRawValue: AgentHibernationLifecycleState.running.rawValue,
-            panelID: fixture.panelId
+            panelID: fixture.panelId,
+            sessionID: "session-1",
+            startsNewOccupant: false,
+            expectedPIDKey: nil,
+            expectedPID: nil
         )
 
         try movePanel(fixture)
@@ -579,6 +583,10 @@ extension AgentNotificationRegressionTests {
         #expect(fixture.destination.agentPIDs["claude_code"] == 43_210)
         #expect(
             fixture.destination.agentLifecycleStatesByPanelId[fixture.panelId]?["claude_code"] == .running
+        )
+        #expect(
+            fixture.destination.agentLifecycleRecordsByPanelId[fixture.panelId]?["claude_code"]?.sessionID
+                == "session-1"
         )
     }
 

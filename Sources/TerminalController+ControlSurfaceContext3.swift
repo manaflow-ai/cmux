@@ -14,6 +14,10 @@ extension TerminalController {
                 localized: "socket.surface.resume.agentSessionEndedMustBeBoolean",
                 defaultValue: "agent_session_ended must be a boolean"
             ),
+            invalidExpectedUpdatedAt: String(
+                localized: "socket.surface.resume.invalidExpectedUpdatedAt",
+                defaultValue: "Missing or invalid internal resume-binding revision"
+            ),
             launchCommandMustBeValid: String(
                 localized: "socket.surface.resume.launchCommandMustBeValid",
                 defaultValue: "launch_command.arguments must be a non-empty array of strings"

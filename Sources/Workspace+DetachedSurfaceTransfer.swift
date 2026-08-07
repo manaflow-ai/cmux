@@ -55,6 +55,7 @@ extension Workspace {
         /// process-detected binding.
         let managedAgentResumeBinding: SurfaceResumeBindingSnapshot?
         var agentRuntime: DetachedAgentRuntimeState?
+        let agentLifecycleRecords: [String: AgentLifecycleRecord]
         let isRemoteTerminal: Bool
         var remoteTerminalSessionPhase: WorkspaceRemoteTerminalSessionPhase? = nil
         var remoteTerminalAuthority: WorkspaceRemoteTerminalAuthority? = nil
@@ -109,6 +110,7 @@ extension Workspace {
                 resumeBinding: resumeBinding,
                 managedAgentResumeBinding: managedAgentResumeBinding,
                 agentRuntime: agentRuntime,
+                agentLifecycleRecords: agentLifecycleRecords,
                 isRemoteTerminal: isRemoteTerminal,
                 remoteTerminalSessionPhase: remoteTerminalSessionPhase,
                 remoteTerminalAuthority: remoteTerminalAuthority,

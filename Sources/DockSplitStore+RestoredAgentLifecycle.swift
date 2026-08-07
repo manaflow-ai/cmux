@@ -4,6 +4,22 @@ import Darwin
 import Foundation
 
 extension DockSplitStore {
+    func agentWaitSurfaceSnapshot(panelID: UUID) -> AgentWaitSurfaceSnapshot? {
+        guard panels[panelID] != nil else { return nil }
+        let occupants = detachedSurfaceTransfersByPanelId[panelID]?.agentLifecycleRecords
+            .filter { !AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
+            .map(\.value)
+            ?? []
+        let occupant = occupants.count == 1 ? occupants[0] : nil
+        return AgentWaitSurfaceSnapshot(
+            workspaceID: workspaceId,
+            surfaceID: panelID,
+            paneID: paneId(forPanelId: panelID)?.id,
+            occupant: occupant,
+            hasAuthoritativeLiveLifecycle: false
+        )
+    }
+
     func clearSessionRestoreState(panelId: UUID) {
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
         restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
@@ -193,7 +209,18 @@ extension DockSplitStore {
     }
 
     @discardableResult
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID) -> Bool {
+    func recordAgentPID(
+        key: String,
+        pid: pid_t,
+        panelId: UUID,
+        expectedLifecycleSessionID: String? = nil
+    ) -> Bool {
+        if let expectedLifecycleSessionID {
+            guard key.hasSuffix(".\(expectedLifecycleSessionID)"),
+                  agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) == true else {
+                return false
+            }
+        }
         var didReplaceRuntime = false
         mutateAgentRuntime(panelId: panelId) { runtime in
             if Self.isStructuredAgentHookPIDKey(key, runtime: runtime) {
@@ -223,8 +250,22 @@ extension DockSplitStore {
     func setAgentLifecycle(
         key: String,
         panelId: UUID,
-        lifecycle: AgentHibernationLifecycleState
+        lifecycle: AgentHibernationLifecycleState,
+        sessionID: String? = nil,
+        startsNewOccupant: Bool = false,
+        expectedPIDKey: String? = nil,
+        expectedPID: pid_t? = nil
     ) {
+        if sessionID != nil || startsNewOccupant || expectedPIDKey != nil || expectedPID != nil {
+            guard let expectedPIDKey,
+                  let expectedPID,
+                  expectedPID > 0,
+                  let runtime = agentRuntimeByPanelId[panelId],
+                  runtime.agentPIDs[expectedPIDKey] == expectedPID,
+                  Self.agentStatusKey(forAgentPIDKey: expectedPIDKey, runtime: runtime) == key else {
+                return
+            }
+        }
         mutateAgentRuntime(panelId: panelId) {
             $0.agentLifecycleStates[key] = lifecycle
         }
@@ -235,8 +276,40 @@ extension DockSplitStore {
         key: String,
         panelId: UUID,
         clearStatus: Bool,
+        expectedLifecycleSessionID: String? = nil,
+        expectedPID: pid_t? = nil,
+        expectedPIDStartSeconds: Int64? = nil,
+        expectedPIDStartMicroseconds: Int64? = nil,
         requireOwnedKey: Bool = false
     ) -> Bool {
+        if let expectedLifecycleSessionID {
+            guard key.hasSuffix(".\(expectedLifecycleSessionID)"),
+                  agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) == true else {
+                return false
+            }
+        }
+        if let expectedPID {
+            guard agentRuntimeByPanelId[panelId]?.agentPIDs[key] == expectedPID else {
+                return false
+            }
+            switch (expectedPIDStartSeconds, expectedPIDStartMicroseconds) {
+            case (nil, nil):
+                break
+            case let (startSeconds?, startMicroseconds?):
+                guard agentRuntimeByPanelId[panelId]?.agentPIDProcessIdentities[key]
+                    == AgentPIDProcessIdentity(
+                        pid: expectedPID,
+                        startSeconds: startSeconds,
+                        startMicroseconds: startMicroseconds
+                    ) else {
+                    return false
+                }
+            case (nil, _?), (_?, nil):
+                return false
+            }
+        } else if expectedPIDStartSeconds != nil || expectedPIDStartMicroseconds != nil {
+            return false
+        }
         if requireOwnedKey,
            agentRuntimeByPanelId[panelId]?.agentPIDKeys.contains(key) != true {
             return false

@@ -292,6 +292,10 @@ extension DockSplitStore {
             resumeBinding: resumeBinding,
             managedAgentResumeBinding: managedResumeBinding,
             agentRuntime: agentProvenExited ? nil : cachedRuntime,
+            // The Dock cannot refresh structured lifecycle records. Keep the
+            // live runtime routing above, but never promote its entry-time
+            // lifecycle cache back into an authoritative Workspace record.
+            agentLifecycleRecords: [:],
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteTerminalSessionPhase: preservedTransfer?.remoteTerminalSessionPhase,
             remoteTerminalAuthority: preservedTransfer?.remoteTerminalAuthority,

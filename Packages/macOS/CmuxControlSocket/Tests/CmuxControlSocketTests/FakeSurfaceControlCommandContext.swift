@@ -9,8 +9,10 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeClearAgentSessionEnded: Bool?
+    var resumeClearExpectedBindingUpdatedAt: Double?
     var resumeStrings = ControlSurfaceResumeStrings(
         agentSessionEndedMustBeBoolean: "agent_session_ended must be a boolean",
+        invalidExpectedUpdatedAt: "invalid expected updated at",
         launchCommandMustBeValid: "launch_command must be valid"
     )
     var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
@@ -78,9 +80,11 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
-        agentSessionEnded: Bool
+        agentSessionEnded: Bool,
+        expectedBindingUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution {
         resumeClearAgentSessionEnded = agentSessionEnded
+        resumeClearExpectedBindingUpdatedAt = expectedBindingUpdatedAt
         return resumeResolution
     }
 
