@@ -1386,6 +1386,9 @@ fn run_server(
     }
     surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
     surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    if let Ok(executable) = std::env::current_exe() {
+        surface_options.extra_env.push(("CMUX_TUI_BIN".into(), executable.display().to_string()));
+    }
 
     let state_root = if args.ephemeral {
         None

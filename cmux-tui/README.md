@@ -13,6 +13,7 @@
 - [Mouse](docs/mouse.md)
 - [Configuration](docs/configuration.md)
 - [Machines and remote sessions](docs/machines.md)
+- [Persistent Pi sessions](docs/pi-sessions.md)
 - [Public CLI](spec/cli.md)
 - [SDK contract](spec/bindings.md)
 - [Public resource protocol](spec/resource-api-v2.md)
