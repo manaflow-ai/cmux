@@ -1727,6 +1727,7 @@ final class WindowTerminalPortal: NSObject {
             let anchorId = ObjectIdentifier(anchorView)
             if let hostedId = hostedByAnchorId[anchorId] {
                 synchronizeHostedView(withId: hostedId, syncLayout: false)
+                reconcileRootBackdropExclusion(forHostedId: hostedId)
             }
             scheduleExternalGeometrySynchronize(forceImmediate: false)
             return
