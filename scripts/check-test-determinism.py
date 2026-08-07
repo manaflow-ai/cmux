@@ -1220,6 +1220,33 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/assigned-export.ts",
+            'export const endpoint = "https://api.openai.com/v1/items"; '
+            'await fetch(endpoint)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "cmuxTests/assigned-private.swift",
+            'private let endpoint = "https://api.openai.com/v1/items"; '
+            'fetch(endpoint)\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-export.sh",
+            'export ENDPOINT="https://cmux.com/install.sh"; curl "$ENDPOINT"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-readonly.sh",
+            'readonly endpoint="https://cmux.com/install.sh"; curl "$endpoint"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/assigned-local.sh",
+            'local endpoint="https://cmux.com/install.sh"; curl "$endpoint"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/assigned-request.py",
             'url = "https://api.openai.com/v1/items"; requests.get(url)\n',
             {RULE_LIVE_NETWORK_HOST},
