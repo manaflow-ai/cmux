@@ -1,5 +1,5 @@
 import type { StackServerApp } from "@stackframe/stack";
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
@@ -26,6 +26,7 @@ import {
   billingInterval,
   type BillingInterval,
 } from "../../../../services/billing/plans";
+import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
 
 export const dynamic = "force-dynamic";
 
@@ -178,6 +179,12 @@ async function stripeProCheckout(
       cancel_url: cancelUrl.toString(),
     });
     if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
+      sessionId: session.id,
+      subject: { scope: "user", stackUserId: user.id },
+      plan: "pro",
+      billingInterval: interval,
+    }));
     return NextResponse.redirect(session.url);
   } catch (error) {
     captureBillingError(error, {
@@ -243,6 +250,12 @@ async function stripeTeamCheckout(
       cancel_url: cancelUrl.toString(),
     });
     if (!session.url) throw new Error("Stripe Checkout Session did not include a URL");
+    deferCheckoutAnalytics(() => captureBillingCheckoutStarted({
+      sessionId: session.id,
+      subject: { scope: "team", stackTeamId: teamId },
+      plan: "team",
+      billingInterval: interval,
+    }));
     return NextResponse.redirect(session.url);
   } catch (error) {
     captureBillingError(error, {
@@ -259,6 +272,16 @@ function accountDeletionCheckoutRedirect(request: NextRequest) {
   return NextResponse.redirect(
     new URL("/pricing?billing=account_deletion_in_progress", request.url),
   );
+}
+
+function deferCheckoutAnalytics(task: () => Promise<void>): void {
+  try {
+    after(task);
+  } catch {
+    // Unit tests and non-Next callers have no request work store. Analytics is
+    // best effort and must never turn a valid Checkout session into an error.
+    void task();
+  }
 }
 
 function isAccountDeletionInProgress(user: { readonly clientReadOnlyMetadata?: unknown }): boolean {
