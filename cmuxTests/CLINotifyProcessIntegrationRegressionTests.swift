@@ -8853,12 +8853,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSurfaceResumeSetCLIAcceptsDashPrefixedShellValue() throws {
         let cliPath = try bundledCLIPath()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-dash-shell-value-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let socketPath = makeSocketPath("resume-set-dash-shell-value")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
         }
 
         let surfaceId = "22222222-2222-2222-2222-222222222222"
@@ -8875,6 +8879,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
 
@@ -8905,12 +8911,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testWorkspaceGroupMoveCLIAcceptsDashPrefixedIndex() throws {
         let cliPath = try bundledCLIPath()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-group-dash-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let socketPath = makeSocketPath("workspace-group-move-dash-index")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
         }
 
         let groupId = "33333333-3333-3333-3333-333333333333"
@@ -8927,6 +8937,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
 
