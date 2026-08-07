@@ -218,6 +218,26 @@ def assert_non_terminal_command_rejected(
         )
 
 
+def assert_missing_command_value_rejected(
+    cli_path: str,
+    socket_path: str,
+    state: FakeCmuxState,
+    label: str,
+    args: list[str],
+) -> None:
+    proc, requests = invoke_cli(cli_path, socket_path, state, args)
+    if proc.returncode == 0:
+        raise AssertionError(f"{label} should reject --command without command text")
+    if requests:
+        raise AssertionError(
+            f"{label} should fail before sending a request: {requests!r}"
+        )
+    if "--command requires <text>" not in proc.stderr:
+        raise AssertionError(
+            f"{label} returned an unclear error: stderr={proc.stderr.strip()!r}"
+        )
+
+
 def assert_creation_request(
     label: str,
     requests: list[tuple[str, dict[str, object]]],
@@ -275,6 +295,21 @@ def main() -> int:
                 )
                 assert_creation_request(
                     label,
+                    requests,
+                    expected_method=method,
+                    expected_input=creation_initial_input(COMMAND_TEXT),
+                )
+
+            for label, args, method in creation_cases(None):
+                requests = invoke_creation(
+                    cli_path,
+                    socket_path,
+                    state,
+                    f"{label} equals syntax",
+                    [*args, f"--command={COMMAND_TEXT}"],
+                )
+                assert_creation_request(
+                    f"{label} equals syntax",
                     requests,
                     expected_method=method,
                     expected_input=creation_initial_input(COMMAND_TEXT),
@@ -346,6 +381,24 @@ def main() -> int:
                     label,
                     args,
                 )
+
+            for label, args, _ in creation_cases(None):
+                invalid_command_args = [
+                    (f"{label} trailing command flag", [*args, "--command"]),
+                    (
+                        f"{label} command followed by flag",
+                        [*args, "--command", "--focus", "false"],
+                    ),
+                    (f"{label} empty equals command", [*args, "--command="]),
+                ]
+                for invalid_label, invalid_args in invalid_command_args:
+                    assert_missing_command_value_rejected(
+                        cli_path,
+                        socket_path,
+                        state,
+                        invalid_label,
+                        invalid_args,
+                    )
         except (AssertionError, subprocess.TimeoutExpired) as exc:
             print(f"FAIL: {exc}")
             return 1

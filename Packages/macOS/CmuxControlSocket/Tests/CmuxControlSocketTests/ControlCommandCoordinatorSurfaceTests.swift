@@ -121,6 +121,53 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(capture.initialInput == nil)
     }
 
+    @Test(
+        "terminal creation RPCs reject initial input for non-terminal types before creation",
+        arguments: [
+            ("surface.split", "browser"),
+            ("surface.split", "simulator"),
+            ("surface.split", "agent-session"),
+            ("pane.create", "browser"),
+            ("pane.create", "simulator"),
+            ("pane.create", "agent-session"),
+            ("surface.create", "browser"),
+            ("surface.create", "simulator"),
+            ("surface.create", "agent-session"),
+        ] as [(String, String)]
+    )
+    func terminalCreationRejectsNonTerminalInitialInput(
+        method: String,
+        type: String
+    ) {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        var params: [String: JSONValue] = [
+            "type": .string(type),
+            "initial_input": .string("echo should-not-run\r"),
+        ]
+        if method != "surface.create" {
+            params["direction"] = .string("right")
+        }
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: method,
+            params: params
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: String(
+                localized: "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType",
+                defaultValue: "Initial command input can only be used with terminal surfaces"
+            ),
+            data: .object(["type": .string(type)])
+        ))
+        #expect(context.paneCreateInputs == nil)
+        #expect(context.splitInputs == nil)
+        #expect(context.createInputs == nil)
+    }
+
     @Test func surfaceCreateDockPayloadUsesDockScopedIDs() throws {
         let windowID = UUID()
         let workspaceID = UUID()
