@@ -154,6 +154,8 @@ struct MobileShellStateSyncTests {
         // A workspace.updated push must no longer trigger the legacy full-list
         // refetch while v2 owns the list.
         let listCallsBefore = await router.count(of: "mobile.workspace.list")
+        let legacyEventGenerationBefore =
+            store.workspaceListEventGeneration
         let transport = try #require(box.get())
         await transport.deliver(try workspaceUpdatedEventFrame())
         // Deliver a delta behind it; its application proves the updated event
@@ -191,6 +193,11 @@ struct MobileShellStateSyncTests {
         #expect(
             listCallsAfter == listCallsBefore,
             "workspace.updated must not schedule a full-list refetch while state sync is active"
+        )
+        #expect(
+            store.workspaceListEventGeneration
+                == legacyEventGenerationBefore,
+            "state-sync events must not impersonate pending legacy refresh work"
         )
     }
 
@@ -231,6 +238,72 @@ struct MobileShellStateSyncTests {
         #expect(repaired, "a gapped delta must trigger a cursor fetch that re-bases the mirror")
         let fetches = await router.count(of: "mobile.sync.fetch")
         #expect(fetches >= 2, "gap repair must issue a second mobile.sync.fetch")
+    }
+
+    @Test func removedWorkspaceEvictsSummaryBatchesMapsAndChipImmediately() async throws {
+        let removedID = UUID().uuidString
+        let keptID = UUID().uuidString
+        let router = LivenessHostRouter()
+        await router.scriptSyncFetchResult(
+            jsonData: try syncSnapshotResultData(
+                epoch: "epoch-1",
+                rev: 3,
+                records: [
+                    workspaceRecord(id: removedID, title: "removed", sortIndex: 0),
+                    workspaceRecord(id: keptID, title: "kept", sortIndex: 1),
+                ]
+            )
+        )
+        let box = TransportBox()
+        let clock = TestClock()
+        let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+        _ = try await pollUntil { store.stateSyncActive }
+        _ = try await pollUntil {
+            store.foregroundWorkspaceChangesIDs.contains(removedID)
+        }
+        store.workspaceChangesSummaryFetchedAtByWorkspaceID = [
+            removedID: clock.now,
+            keptID: clock.now,
+        ]
+        store.workspaceChangesSummaryTrailingExpiryByWorkspaceID = [
+            removedID: clock.now.addingTimeInterval(15),
+            keptID: clock.now.addingTimeInterval(15),
+        ]
+        store.setWorkspaceChangeChipsByWorkspaceID([
+            removedID: MobileWorkspaceChangesChip(
+                filesChanged: 1,
+                additions: 2,
+                deletions: 3
+            ),
+            keptID: MobileWorkspaceChangesChip(
+                filesChanged: 4,
+                additions: 5,
+                deletions: 6
+            ),
+        ])
+
+        let transport = try #require(box.get())
+        await transport.deliver(try syncDeltaEventFrame(
+            epoch: "epoch-1",
+            fromRev: 3,
+            toRev: 4,
+            records: [],
+            removedIDs: [removedID]
+        ))
+        _ = try await pollUntil {
+            !store.foregroundWorkspaceChangesIDs.contains(removedID)
+        }
+        let batches = store.workspaceChangesSummaryFetchPolicy.batches(
+            workspaceIDs: store.foregroundWorkspaceChangesIDs,
+            fetchedAtByWorkspaceID: [:],
+            now: clock.now,
+            force: true
+        )
+
+        #expect(batches.flatMap { $0 } == [keptID])
+        #expect(Set(store.workspaceChangesSummaryFetchedAtByWorkspaceID.keys) == [keptID])
+        #expect(Set(store.workspaceChangesSummaryTrailingExpiryByWorkspaceID.keys) == [keptID])
+        #expect(Set(store.workspaceChangeChipsByWorkspaceID.keys) == [keptID])
     }
 
     @Test func failedRepairFetchFallsBackToLegacyListAndReenablesRefetch() async throws {

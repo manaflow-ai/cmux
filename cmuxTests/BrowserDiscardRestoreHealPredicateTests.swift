@@ -202,6 +202,26 @@ struct BrowserDiscardRestoreHealPredicateTests {
 
 }
 
+/// WebKit constructs a `WKNavigation`'s embedded C++ `API::Navigation` itself, so an instance
+/// made with a bare `WKNavigation()` carries unconstructed storage. Allocating one is harmless;
+/// releasing it is not — `-[WKNavigation dealloc]` traps, which kills the whole xctest host
+/// rather than failing a test, and takes every suite sharing that host down with it. Reproduced
+/// directly outside the test bundle: EXC_BREAKPOINT inside CFRetain from that dealloc with WebKit
+/// initialised, and SIGSEGV via WebCoreObjCScheduleDeallocateOnMainRunLoop without it.
+///
+/// The discard-restore bookkeeping under test only ever compares these by identity, so minting
+/// them here and holding them for the run is behaviour-preserving and keeps the host alive.
+@MainActor
+private enum BrowserDiscardRestoreNavigationStub {
+    private static var retained: [WKNavigation] = []
+
+    static func make() -> WKNavigation {
+        let navigation = WKNavigation()
+        retained.append(navigation)
+        return navigation
+    }
+}
+
 private final class BrowserDiscardRestorePolicyCancelAlert: NSAlert {
     var response: NSApplication.ModalResponse = .alertThirdButtonReturn
 
@@ -240,7 +260,7 @@ struct BrowserDiscardRestorePolicyCancelTests {
             now: Date(timeIntervalSince1970: 100)
         )
         panel.hiddenWebViewDiscardManager.noteRestoreNavigationStarted(reason: "test.restore")
-        panel.pendingDiscardRestoreNavigation = WKNavigation()
+        panel.pendingDiscardRestoreNavigation = BrowserDiscardRestoreNavigationStub.make()
 
         #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.reveal"))
 
@@ -275,8 +295,8 @@ struct BrowserDiscardRestorePolicyCancelTests {
     @Test func staleRestoreCancelDoesNotClearCurrentAttemptedRequest() throws {
         let staleURL = try #require(URL(string: "https://example.com/cmux-issue-7504-stale"))
         let currentURL = try #require(URL(string: "https://example.com/cmux-issue-7504-current"))
-        let staleNavigation = WKNavigation()
-        let currentNavigation = WKNavigation()
+        let staleNavigation = BrowserDiscardRestoreNavigationStub.make()
+        let currentNavigation = BrowserDiscardRestoreNavigationStub.make()
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: nil,
@@ -445,6 +465,11 @@ struct BrowserDiscardRestorePolicyCancelTests {
             backing: .buffered,
             defer: false
         )
+        // This test owns the window through ARC, so AppKit must not release it as well when the
+        // deferred close runs. Leaving the default on drops the last retain while other references
+        // to that address are still live, which aborts the test host rather than failing a test.
+        // cmuxTests sets this guard at about seventy other window-closing sites.
+        window.isReleasedWhenClosed = false
         defer {
             panel.resetInsecureHTTPAlertHooksForTesting()
             window.close()
@@ -465,7 +490,7 @@ struct BrowserDiscardRestorePolicyCancelTests {
             now: Date(timeIntervalSince1970: 300)
         )
         panel.noteDiscardedWebViewRestoreNavigationStarted()
-        panel.pendingDiscardRestoreNavigation = WKNavigation()
+        panel.pendingDiscardRestoreNavigation = BrowserDiscardRestoreNavigationStub.make()
         panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))
 
         let alert = BrowserDiscardRestoreDeferredPolicyAlert()
@@ -477,7 +502,7 @@ struct BrowserDiscardRestorePolicyCancelTests {
         let staleCompletion = try #require(alert.completionHandler)
 
         panel.noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "test.old_cancel")
-        let currentNavigation = WKNavigation()
+        let currentNavigation = BrowserDiscardRestoreNavigationStub.make()
         panel.noteDiscardedWebViewRestoreNavigationStarted()
         panel.pendingDiscardRestoreNavigation = currentNavigation
         panel.navigationDelegate?.recordAttemptedRequest(URLRequest(url: url))

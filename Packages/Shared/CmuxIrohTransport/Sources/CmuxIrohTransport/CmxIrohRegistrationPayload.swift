@@ -3,6 +3,9 @@ public import Foundation
 
 /// Endpoint-authenticated device state submitted to the Iroh trust broker.
 public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
+    /// Route contract understood by this client and its admission provider.
+    public static let currentRouteContractVersion = 1
+
     private enum CodingKeys: String, CodingKey {
         case routeContractVersion = "route_contract_version"
         case deviceID = "deviceId"
@@ -83,7 +86,7 @@ public struct CmxIrohRegistrationPayload: Encodable, Equatable, Sendable {
                 throw CmxIrohRegistrationError.invalidPayload
             }
         }
-        routeContractVersion = 1
+        routeContractVersion = Self.currentRouteContractVersion
         self.deviceID = cmxCanonicalDeviceID(deviceID)
         self.appInstanceID = appInstanceID.lowercased()
         self.tag = tag

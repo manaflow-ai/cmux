@@ -1,9 +1,14 @@
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
 struct WorkspaceNavigationRow: View {
     let workspace: MobileWorkspacePreview
+    /// Immutable changes summary projected by ``WorkspaceListView`` above `List`.
+    var changesChip: MobileWorkspaceChangesChip? = nil
+    /// Opens the immutable changes snapshot's workspace without selecting this row.
+    var onOpenChanges: (@MainActor () -> Void)? = nil
     let connectionStatus: MobileMacConnectionStatus
     let isSelected: Bool
     let navigationStyle: WorkspaceNavigationStyle
@@ -36,6 +41,7 @@ struct WorkspaceNavigationRow: View {
     var confirmCloseWorkspace: ((MobileWorkspacePreview.ID) -> Void)? = nil
 
     @State private var isRenaming = false
+    @State private var renameDraft = ""
     @State private var isCustomizing = false
 
     var body: some View {
@@ -63,19 +69,20 @@ struct WorkspaceNavigationRow: View {
                 .accessibilityIdentifier("MobileWorkspaceDeleteSwipeButton-\(workspace.id.rawValue)")
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: onOpenChanges == nil ? .combine : .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("MobileWorkspaceRow-\(workspace.id.rawValue)")
-        .accessibilityLabel(workspace.name)
+        .accessibilityLabel(rowAccessibilityLabel)
         .accessibilityValue(workspace.accessibilitySummary(connectionStatus: connectionStatus))
         .accessibilityActions {
             if customizeWorkspace != nil {
                 Button(L10n.string("mobile.workspace.customize.action", defaultValue: "Customize")) {
                     isCustomizing = true
                 }
-            } else if renameWorkspace != nil {
+            }
+            if renameWorkspace != nil {
                 Button(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename")) {
-                    isRenaming = true
+                    presentRename()
                 }
             }
             if let setPinned {
@@ -88,10 +95,10 @@ struct WorkspaceNavigationRow: View {
                 }
             }
         }
-        .sheet(isPresented: $isRenaming) {
-            WorkspaceRenameSheet(currentName: workspace.name) { newName in
-                renameWorkspace?(workspace.id, newName)
-            }
+        .workspaceRenameDialog(isPresented: $isRenaming, text: $renameDraft) {
+            let trimmed = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            renameWorkspace?(workspace.id, trimmed)
         }
         .sheet(isPresented: $isCustomizing) {
             WorkspaceCustomizationSheet(workspace: workspace) { initialDraft, submittedDraft in
@@ -138,13 +145,34 @@ struct WorkspaceNavigationRow: View {
     }
 
     private var rowLabel: some View {
+        // The chip renders inside WorkspaceRow so the UIKit table pipeline
+        // (which hosts WorkspaceRow directly) shows the same signifier.
         WorkspaceRow(
             workspace: workspace,
             connectionStatus: connectionStatus,
             isSelected: navigationStyle == .sidebar && isSelected,
+            changesChip: changesChip,
+            onOpenChanges: onOpenChanges,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
             previewLineLimit: previewLineLimit,
             unreadIndicatorLeftShift: unreadIndicatorLeftShift
+        )
+    }
+
+    private var rowAccessibilityLabel: String {
+        // An interactive chip is exposed as its own accessibility button, so
+        // the row must not repeat the same changes summary.
+        guard onOpenChanges == nil else { return workspace.name }
+        guard let changesChip, changesChip.filesChanged > 0 else { return workspace.name }
+        return String(
+            format: String(
+                localized: "workspace.changes.chip.row_accessibility",
+                defaultValue: "%1$@, %2$lld additions, %3$lld deletions",
+                bundle: .module
+            ),
+            workspace.name,
+            changesChip.additions,
+            changesChip.deletions
         )
     }
 
@@ -172,9 +200,10 @@ struct WorkspaceNavigationRow: View {
                 )
             }
             .accessibilityIdentifier("MobileWorkspaceCustomizeButton-\(workspace.id.rawValue)")
-        } else if renameWorkspace != nil {
+        }
+        if renameWorkspace != nil {
             Button {
-                isRenaming = true
+                presentRename()
             } label: {
                 Label(L10n.string("mobile.workspace.rename.action", defaultValue: "Rename"), systemImage: "pencil")
             }
@@ -206,5 +235,10 @@ struct WorkspaceNavigationRow: View {
 
     private var readStateActionSystemImage: String {
         workspace.hasUnread ? "envelope.open" : "envelope.badge"
+    }
+
+    private func presentRename() {
+        renameDraft = workspace.name
+        isRenaming = true
     }
 }

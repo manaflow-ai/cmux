@@ -1,11 +1,38 @@
 extension MobileShellComposite {
+    /// Whether the connected Mac supports browser-pane streaming.
+    public var supportsBrowserStream: Bool { supportedHostCapabilities.contains(Self.browserStreamCapability) }
+    /// Whether the connected Mac can reflow a browser stream to the phone viewport.
+    public var supportsBrowserStreamViewport: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamViewportCapability)
+    }
+    /// Whether the connected Mac supports native browser dialog mirroring.
+    public var supportsBrowserStreamDialogs: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamDialogCapability)
+    }
+    /// Whether the connected Mac can create a browser panel for the phone to stream.
+    public var supportsBrowserStreamCreate: Bool {
+        supportsBrowserStream && supportedHostCapabilities.contains(Self.browserStreamCreateCapability)
+    }
     static let chatArtifactFoldersCapability = "chat.artifact.folders.v1"
     static let terminalArtifactListCapability = "terminal.artifact.list.v1"
+
+    /// Whether the connected Mac supports workspace changes summaries and diffs.
+    public var workspaceChangesCapable: Bool { supportedHostCapabilities.contains(Self.workspaceChangesCapability) }
 
     /// Verified render-grid sessions present only Mac-ordered terminal state.
     public var usesVerifiedTerminalReplay: Bool {
         terminalOutputTransport == .renderGrid
             && supportedHostCapabilities.contains(Self.terminalVerifiedReplayCapability)
+    }
+
+    /// Screen-anchored render-grid sessions receive active-area-anchored
+    /// frames whose deltas carry exact scrolled-row counts, so this device
+    /// keeps a deep local scrollback and scrolls the primary screen locally
+    /// (no per-scroll round trip to the Mac). Full replays still flow through
+    /// the verified pipeline when the host supports it.
+    public var usesScreenAnchoredRenderGrid: Bool {
+        terminalOutputTransport == .renderGrid
+            && supportedHostCapabilities.contains(Self.terminalScreenAnchorCapability)
     }
 
     /// Whether the Mac supports workspace close requests.
@@ -15,9 +42,15 @@ extension MobileShellComposite {
     /// Whether the Mac supports workspace group mutation requests.
     public var supportsWorkspaceGroupActions: Bool { supportedHostCapabilities.contains(Self.workspaceGroupActionsCapability) && allowsMacScopedWorkspaceMutations }
     /// Whether the Mac supports creating a workspace directly inside a group.
-    public var supportsWorkspaceCreateInGroup: Bool { supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability) && allowsMacScopedWorkspaceMutations }
+    public var supportsWorkspaceCreateInGroup: Bool {
+        supportedHostCapabilities.contains(Self.workspaceCreateInGroupCapability)
+            && discoversMacScopedWorkspaceMutations
+    }
     /// Whether the Mac supports creating workspace groups from iOS.
-    public var supportsWorkspaceGroupCreate: Bool { supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability) && allowsMacScopedWorkspaceMutations }
+    public var supportsWorkspaceGroupCreate: Bool {
+        supportedHostCapabilities.contains(Self.workspaceGroupCreateCapability)
+            && discoversMacScopedWorkspaceMutations
+    }
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// Whether the Mac supports chat artifact stat/fetch/thumbnail/list RPCs.

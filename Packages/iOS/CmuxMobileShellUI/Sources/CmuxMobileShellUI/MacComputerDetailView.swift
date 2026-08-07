@@ -49,7 +49,15 @@ struct MacComputerDetailView: View {
         }
     }
     private var connectionStatus: MobileMacConnectionStatus? {
-        store.macConnectionStatuses[macDeviceID]
+        store.macConnectionStatuses[
+            MobilePairedMac.pairingID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        ] ?? MobileShellComposite.exactPairingConnectionStatus(
+            deviceStatus: store.macConnectionStatuses[macDeviceID],
+            connectedMacDeviceID: store.connectedMacDeviceID,
+            connectedMacInstanceTag: store.connectedMacInstanceTag,
+            rowMacDeviceID: macDeviceID,
+            rowInstanceTag: instanceTag
+        )
     }
     private var presence: PresenceMap.DeviceSummary? {
         store.presenceSummary(
@@ -66,7 +74,7 @@ struct MacComputerDetailView: View {
         return MobileIOSBuildScope.current()?.computerDisplayName(baseName) ?? baseName
     }
     private var workspaceCount: Int {
-        store.workspaceCount(for: macDeviceID)
+        store.workspaceCount(for: macDeviceID, instanceTag: instanceTag)
     }
     var body: some View {
         Form {

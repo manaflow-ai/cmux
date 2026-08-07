@@ -1,7 +1,16 @@
+import CMUXMobileCore
 import Foundation
 
 extension MobileHostService {
     nonisolated static let irohArtifactLaneCapability = "iroh.artifact_lane.v1"
+    nonisolated static let terminalInputOrderedCapability = "terminal.input.ordered.v1"
+    nonisolated static let workspaceChangesCapability = "workspace.changes.v1"
+    /// Authenticated status includes the Mac's independent phone-forwarding
+    /// gate, presence mode, account proof, and API endpoint identity.
+    nonisolated static let phonePushStatusCapability = "phone_push.status.v1"
+    nonisolated static let phonePushSettingsCapability = "phone_push.settings.v1"
+    /// Authenticated request to enqueue a truthful, correlated test alert.
+    nonisolated static let phonePushTestCapability = "phone_push.test.v1"
 
     /// The single source of truth for the capabilities advertised to mobile
     /// clients via `mobile.host.status`. Every status path (the public-status
@@ -17,7 +26,26 @@ extension MobileHostService {
     /// still gated by the same-account Stack-auth check the rest of the mobile
     /// data plane enforces.
     nonisolated static var mobileHostCapabilities: [String] {
-        let capabilities = [
+        mobileHostCapabilities(
+            includingWorkspaceChanges: CmuxFeatureFlags.offMainEffectiveValue(
+                for: CmuxFeatureFlags.mobileWorkspaceChangesFlag
+            )
+        )
+    }
+
+    /// The mobile diff viewer ships behind a remote feature flag: when the
+    /// flag is off this list omits `workspace.changes.v1`, and every iOS
+    /// entry point (chip, toolbar button, hint, sheet, summary polling)
+    /// feature-detects itself away. The RPC dispatch applies the same flag,
+    /// so a phone holding a stale capability list cannot call through.
+    nonisolated static func mobileHostCapabilities(
+        includingWorkspaceChanges: Bool
+    ) -> [String] {
+        var capabilities = [
+            MobileBrowserStreamCapability.identifier,
+            MobileBrowserStreamCapability.viewportIdentifier,
+            MobileBrowserStreamCapability.dialogIdentifier,
+            MobileBrowserStreamCapability.createIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -26,11 +54,18 @@ extension MobileHostService {
             "terminal.bytes.v1",
             "terminal.render_grid.v1",
             "terminal.render_grid.verified_replay.v1",
+            // Screen-anchored render grids: frames anchor to the active area
+            // (independent of the Mac's scroll position), deltas carry exact
+            // scrolled-row counts, and replays honor max_scrollback_rows, so
+            // the phone owns a deep local scrollback and scrolls it locally.
+            "terminal.render_grid.screen_anchor.v1",
             "terminal.replay.v1",
+            Self.terminalInputOrderedCapability,
             "terminal.viewport.v1",
             "terminal.artifact.v1",
             "terminal.artifact.list.v1",
             "workspace.actions.v1",
+            Self.workspaceChangesCapability,
             "workspace.metadata.v1",
             "workspace.read_state.v1",
             "workspace.close.v1",
@@ -38,7 +73,15 @@ extension MobileHostService {
             "workspace.group_actions.v1",
             "workspace.group_create.v1",
             "workspace.create_in_group.v1",
+            // Mac-scoped workspace mutations (move, group actions/create,
+            // create-in-group) are authorized by the signed-in Stack account;
+            // an attach ticket only narrows scope while current. iOS keeps the
+            // drag-and-drop and group-create affordances enabled after ticket
+            // expiry only against hosts that advertise this.
+            "workspace.mutations.account_auth.v1",
             "workspace.task_create.v1",
+            "task.attachments.v1",
+            "task.models.v1",
             "workspace.directory_browse.v1",
             "workspace.directory_search.v1",
             "workspace.directory_search.v2",
@@ -52,6 +95,15 @@ extension MobileHostService {
             // this to render collapsible groups only against a Mac that emits them.
             "workspace.groups.v1",
         ]
+        if !includingWorkspaceChanges {
+            capabilities.removeAll { $0 == Self.workspaceChangesCapability }
+        }
+        return applyingDebugCapabilitySuppressions(capabilities)
+    }
+
+    nonisolated static func applyingDebugCapabilitySuppressions(
+        _ capabilities: [String]
+    ) -> [String] {
         #if DEBUG
         // Lets a dev Mac impersonate an older host while dogfooding the iOS update hint.
         let suppressed = Set(
