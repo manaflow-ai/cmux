@@ -22,6 +22,12 @@ typedef enum {
     CMUX_FRONTEND_RENDER_EXIT = 5,
 } CmuxFrontendRenderEventKind;
 
+// CMUX_FRONTEND_RENDER_RESET payloads use the versioned CMNR v1 format:
+// magic (4 bytes), version (u8), replay length (u32), alias count (u16),
+// Kitty limits/cursors, aliases, then replay bytes. Consumers must reject
+// unknown versions rather than treating the payload as raw VT.
+#define CMUX_FRONTEND_RENDER_RESET_PAYLOAD_VERSION 1u
+
 typedef struct {
     uint32_t kind;
     uint16_t cols;

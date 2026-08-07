@@ -12,6 +12,12 @@ private final class EventLog: @unchecked Sendable {
     var snapshot: [String] { lock.lock(); defer { lock.unlock() }; return values }
 }
 
+private extension FixedWidthInteger {
+    var littleEndianBytes: [UInt8] {
+        withUnsafeBytes(of: littleEndian) { Array($0) }
+    }
+}
+
 @Test
 func decodesEveryNativeLayoutShape() throws {
     let data = Data(
@@ -147,6 +153,25 @@ func resizeQueueKeepsOnlyNewestPendingGeometry() {
     #expect(!thirdStarts)
     #expect(queue.take() == TerminalGeometry(cols: 120, rows: 40))
     #expect(queue.take() == nil)
+}
+
+@Test
+func decodesNativeResetSidecarKittyAliasesAndCursors() {
+    var payload = Data("CMNR".utf8)
+    payload.append(1)
+    payload.append(contentsOf: UInt32(3).littleEndianBytes)
+    payload.append(contentsOf: UInt16(1).littleEndianBytes)
+    for value in [UInt64(10), UInt64(20), UInt64(30), UInt64(40)] { payload.append(contentsOf: value.littleEndianBytes) }
+    for value in [UInt32(2), UInt32(3), UInt32(4), UInt32(5), UInt32(6)] { payload.append(contentsOf: value.littleEndianBytes) }
+    payload.append(contentsOf: UInt32(41).littleEndianBytes)
+    payload.append(contentsOf: UInt32(77).littleEndianBytes)
+    payload.append(contentsOf: Data("abc".utf8))
+    let metadata = NativeKittyResetMetadata.decode(payload)
+    #expect(metadata?.replay == Data("abc".utf8))
+    #expect(metadata?.aliases.first?.0 == 41)
+    #expect(metadata?.aliases.first?.1 == 77)
+    #expect(metadata?.replayNextIDs.0 == 3)
+    #expect(metadata?.nextIDs.1 == 6)
 }
 
 @Test

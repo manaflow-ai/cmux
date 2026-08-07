@@ -174,9 +174,16 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   func apply(_ event: TerminalRenderEvent) {
     switch event.kind {
     case .reset:
+      guard let reset = NativeKittyResetMetadata.decode(event.payload) else {
+        initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        return
+      }
       recreateSurface()
       setGrid(event.geometry)
-      processOutput(event.payload)
+      guard let surface, restoreKittyReplay(surface: surface, metadata: reset) else {
+        initializationError = L10n.text("error.terminal_snapshot", "The terminal snapshot was invalid.")
+        return
+      }
     case .bytes:
       processOutput(event.payload)
     case .resize:
@@ -186,6 +193,45 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       if let surface { ghostty_surface_refresh(surface) }
     case .exit:
       ready = false
+    }
+  }
+
+  private func restoreKittyReplay(
+    surface: ghostty_surface_t,
+    metadata: NativeKittyResetMetadata
+  ) -> Bool {
+    let aliases = metadata.aliases.map {
+      ghostty_surface_kitty_image_alias(image_id: $0.0, image_number: $0.1)
+    }
+    let limits = ghostty_surface_kitty_graphics_limits(
+      image_bytes: metadata.limits.0,
+      inflight_bytes: metadata.limits.1,
+      images: metadata.limits.2,
+      placements: metadata.limits.3
+    )
+    let cursors = ghostty_surface_kitty_image_id_cursor_state(
+      replay: ghostty_surface_kitty_image_id_cursors(
+        primary: metadata.replayNextIDs.0,
+        alternate: metadata.replayNextIDs.1
+      ),
+      next: ghostty_surface_kitty_image_id_cursors(
+        primary: metadata.nextIDs.0,
+        alternate: metadata.nextIDs.1
+      )
+    )
+    return metadata.replay.withUnsafeBytes { bytes in
+      aliases.withUnsafeBufferPointer { aliasBuffer in
+        ghostty_surface_restore_kitty_replay(
+          surface,
+          bytes.bindMemory(to: CChar.self).baseAddress,
+          UInt(bytes.count),
+          metadata.replayCursorOffset,
+          limits,
+          cursors,
+          aliasBuffer.baseAddress,
+          UInt(aliases.count)
+        )
+      }
     }
   }
 
@@ -698,5 +744,28 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     } else if clearIfNeeded {
       ghostty_surface_preedit(surface, nil, 0)
     }
+  }
+}
+
+struct NativeKittyResetMetadata: Sendable {
+  let replay: Data
+  let aliases: [(UInt32, UInt32)]
+  let limits: (UInt64, UInt64, UInt64, UInt64)
+  let replayCursorOffset: UInt32
+  let replayNextIDs: (UInt32, UInt32)
+  let nextIDs: (UInt32, UInt32)
+
+  static func decode(_ data: Data) -> NativeKittyResetMetadata? {
+    guard data.count >= 4 + 1 + 4 + 2 + 32 + 20, data.prefix(4) == Data("CMNR".utf8), data[4] == 1 else { return nil }
+    var offset = 5
+    func take(_ count: Int) -> Data? { guard offset + count <= data.count else { return nil }; defer { offset += count }; return data[offset..<(offset + count)] }
+    func u16() -> UInt16? { take(2).map { $0.withUnsafeBytes { UInt16(littleEndian: $0.loadUnaligned(as: UInt16.self)) } } }
+    func u32() -> UInt32? { take(4).map { $0.withUnsafeBytes { UInt32(littleEndian: $0.loadUnaligned(as: UInt32.self)) } } }
+    func u64() -> UInt64? { take(8).map { $0.withUnsafeBytes { UInt64(littleEndian: $0.loadUnaligned(as: UInt64.self)) } } }
+    guard let replayLength = u32(), let aliasCount = u16(), let imageBytes = u64(), let inflightBytes = u64(), let images = u64(), let placements = u64(), let replayOffset = u32(), let replayPrimary = u32(), let nextPrimary = u32(), let replayAlternate = u32(), let nextAlternate = u32() else { return nil }
+    var aliases: [(UInt32, UInt32)] = []
+    for _ in 0..<aliasCount { guard let imageID = u32(), let imageNumber = u32() else { return nil }; aliases.append((imageID, imageNumber)) }
+    guard let replay = take(Int(replayLength)), offset == data.count else { return nil }
+    return NativeKittyResetMetadata(replay: replay, aliases: aliases, limits: (imageBytes, inflightBytes, images, placements), replayCursorOffset: replayOffset, replayNextIDs: (replayPrimary, replayAlternate), nextIDs: (nextPrimary, nextAlternate))
   }
 }

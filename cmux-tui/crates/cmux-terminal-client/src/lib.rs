@@ -71,10 +71,11 @@ struct RendererSnapshot {
     rows: u16,
     cell_pixels: (u16, u16),
     replay: Vec<u8>,
-    #[cfg(feature = "text-renderer")]
-    kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
-    #[cfg(feature = "text-renderer")]
-    kitty_state: ghostty_vt::KittyReplayState,
+    kitty_image_aliases: Vec<(u32, u32)>,
+    kitty_limits: (u64, u64, u64, u64),
+    replay_cursor_offset: u32,
+    replay_next_image_ids: (u32, u32),
+    next_image_ids: (u32, u32),
 }
 
 struct SnapshotDecoder<'a> {
@@ -149,7 +150,6 @@ fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, Stri
     for _ in 0..argument_count {
         decoder.string()?;
     }
-    #[cfg(feature = "text-renderer")]
     let mut kitty_image_aliases = Vec::new();
     let alias_count = decoder.u16()? as usize;
     if alias_count > MAX_KITTY_IMAGE_ALIASES {
@@ -162,14 +162,17 @@ fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, Stri
         if image_id == 0 || image_number == 0 || !image_ids.insert(image_id) {
             return Err("terminal snapshot has invalid Kitty image aliases".into());
         }
-        #[cfg(feature = "text-renderer")]
-        kitty_image_aliases.push(ghostty_vt::KittyImageAlias { image_id, image_number });
+        kitty_image_aliases.push((image_id, image_number));
     }
     let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
     let _kitty_limits = (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?);
     let replay_cursor_offset = decoder.u32()?;
-    let replay_next_image_ids = (decoder.u32()?, decoder.u32()?);
-    let next_image_ids = (decoder.u32()?, decoder.u32()?);
+    let replay_primary = decoder.u32()?;
+    let next_primary = decoder.u32()?;
+    let replay_alternate = decoder.u32()?;
+    let next_alternate = decoder.u32()?;
+    let replay_next_image_ids = (replay_primary, replay_alternate);
+    let next_image_ids = (next_primary, next_alternate);
     if replay_cursor_offset as usize > replay.len()
         || replay_next_image_ids.0 == 0
         || replay_next_image_ids.1 == 0
@@ -178,34 +181,17 @@ fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, Stri
     {
         return Err("terminal snapshot has invalid Kitty replay state".into());
     }
-    #[cfg(feature = "text-renderer")]
-    let kitty_state = ghostty_vt::KittyReplayState {
-        limits: ghostty_vt::KittyGraphicsLimits {
-            image_bytes: _kitty_limits.0,
-            inflight_bytes: _kitty_limits.1,
-            images: _kitty_limits.2,
-            placements: _kitty_limits.3,
-        },
-        replay_cursor_offset,
-        replay_next_image_ids: ghostty_vt::KittyImageIdCursors {
-            primary: replay_next_image_ids.0,
-            alternate: replay_next_image_ids.1,
-        },
-        next_image_ids: ghostty_vt::KittyImageIdCursors {
-            primary: next_image_ids.0,
-            alternate: next_image_ids.1,
-        },
-    };
     decoder.finish()?;
     Ok(RendererSnapshot {
         cols,
         rows,
         cell_pixels,
         replay,
-        #[cfg(feature = "text-renderer")]
         kitty_image_aliases,
-        #[cfg(feature = "text-renderer")]
-        kitty_state,
+        kitty_limits: _kitty_limits,
+        replay_cursor_offset,
+        replay_next_image_ids,
+        next_image_ids,
     })
 }
 
@@ -297,6 +283,38 @@ fn decode_terminal_color_overrides(payload: &[u8]) -> Result<Vec<u8>, String> {
         }
     }
     Ok(out)
+}
+
+fn encode_native_reset_payload(snapshot: &RendererSnapshot) -> Vec<u8> {
+    // This is the CMUX_FRONTEND_RENDER_RESET_PAYLOAD_VERSION 1 wire format.
+    let mut output = Vec::with_capacity(snapshot.replay.len() + 96);
+    output.extend_from_slice(b"CMNR");
+    output.push(1);
+    output.extend_from_slice(&(snapshot.replay.len() as u32).to_le_bytes());
+    output.extend_from_slice(&(snapshot.kitty_image_aliases.len() as u16).to_le_bytes());
+    for value in [
+        snapshot.kitty_limits.0,
+        snapshot.kitty_limits.1,
+        snapshot.kitty_limits.2,
+        snapshot.kitty_limits.3,
+    ] {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.replay_cursor_offset.to_le_bytes());
+    for value in [
+        snapshot.replay_next_image_ids.0,
+        snapshot.next_image_ids.0,
+        snapshot.replay_next_image_ids.1,
+        snapshot.next_image_ids.1,
+    ] {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    for (image_id, image_number) in &snapshot.kitty_image_aliases {
+        output.extend_from_slice(&image_id.to_le_bytes());
+        output.extend_from_slice(&image_number.to_le_bytes());
+    }
+    output.extend_from_slice(&snapshot.replay);
+    output
 }
 
 pub struct CmuxTerminalClient {
@@ -688,8 +706,31 @@ impl ClientState {
                     terminal
                         .apply_vt_replay_parts(
                             &snapshot.replay,
-                            &snapshot.kitty_image_aliases,
-                            snapshot.kitty_state,
+                            &snapshot
+                                .kitty_image_aliases
+                                .iter()
+                                .map(|(image_id, image_number)| ghostty_vt::KittyImageAlias {
+                                    image_id: *image_id,
+                                    image_number: *image_number,
+                                })
+                                .collect::<Vec<_>>(),
+                            ghostty_vt::KittyReplayState {
+                                limits: ghostty_vt::KittyGraphicsLimits {
+                                    image_bytes: snapshot.kitty_limits.0,
+                                    inflight_bytes: snapshot.kitty_limits.1,
+                                    images: snapshot.kitty_limits.2,
+                                    placements: snapshot.kitty_limits.3,
+                                },
+                                replay_cursor_offset: snapshot.replay_cursor_offset,
+                                replay_next_image_ids: ghostty_vt::KittyImageIdCursors {
+                                    primary: snapshot.replay_next_image_ids.0,
+                                    alternate: snapshot.replay_next_image_ids.1,
+                                },
+                                next_image_ids: ghostty_vt::KittyImageIdCursors {
+                                    primary: snapshot.next_image_ids.0,
+                                    alternate: snapshot.next_image_ids.1,
+                                },
+                            },
                         )
                         .map_err(|error| error.to_string())?;
                     self.terminal = Some(terminal);
@@ -713,7 +754,7 @@ impl ClientState {
                     NativeRenderEventKind::Reset,
                     snapshot.cols,
                     snapshot.rows,
-                    snapshot.replay,
+                    encode_native_reset_payload(&snapshot),
                 )
             }
             MessageKind::Colors
@@ -2253,6 +2294,19 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_decodes_interleaved_kitty_cursor_wire_order() {
+        let mut payload = test_snapshot_payload(b"");
+        let cursor = 21 + 32;
+        for (index, value) in [11u32, 22, 33, 44].into_iter().enumerate() {
+            let start = cursor + 4 + index * 4;
+            payload[start..start + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let snapshot = decode_host_snapshot_payload(&payload).unwrap();
+        assert_eq!(snapshot.replay_next_image_ids, (11, 33));
+        assert_eq!(snapshot.next_image_ids, (22, 44));
+    }
+
+    #[test]
     fn native_render_queue_coalesces_and_resets() {
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
@@ -2657,6 +2711,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "text-renderer")]
     fn named_key_encoding_uses_the_local_terminal_keyboard_modes() {
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
@@ -2697,6 +2752,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "text-renderer")]
     fn snapshot_render_is_published_only_after_same_boundary_ready() {
         let mut state =
             ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
