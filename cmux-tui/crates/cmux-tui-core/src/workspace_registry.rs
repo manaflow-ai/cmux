@@ -1716,11 +1716,18 @@ fn reset_stat_inode(stat: &libc::stat) -> u64 {
 fn remove_reset_dir_all(
     path: &Path,
     label: &str,
-    fingerprint_label: &str,
-    expected_fingerprint: &str,
+    _fingerprint_label: &str,
+    _expected_fingerprint: &str,
 ) -> anyhow::Result<()> {
-    ensure_reset_dir_fingerprint(path, fingerprint_label, expected_fingerprint)?;
-    fs::remove_dir_all(path).with_context(|| format!("remove {label} {}", path.display()))
+    unsupported_checked_reset_deletion(path, label)
+}
+
+#[cfg(any(not(unix), test))]
+fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Result<()> {
+    anyhow::bail!(
+        "safe saved-state reset is not supported on this platform because cmux cannot verify {label} during deletion: {}",
+        path.display()
+    )
 }
 
 fn reset_path_fingerprint(

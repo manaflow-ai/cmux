@@ -304,6 +304,21 @@ fn reset_dir_child_names_rewinds_between_scans() {
 }
 
 #[test]
+fn unsupported_checked_reset_deletion_does_not_mutate_tree() {
+    let root = temp_root("reset-unsupported-platform-delete");
+    let target = root.join("session");
+    let child = target.join("child");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(&child, b"must-remain").unwrap();
+
+    let error = unsupported_checked_reset_deletion(&target, "workspace session state").unwrap_err();
+
+    assert!(error.to_string().contains("safe saved-state reset is not supported"), "{error:#}");
+    assert_eq!(fs::read(&child).unwrap(), b"must-remain");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn reset_device_boundary_rejects_nested_device_change() {
     let error = ensure_reset_device_boundary(Path::new("nested"), Some(1), Some(2)).unwrap_err();
 
