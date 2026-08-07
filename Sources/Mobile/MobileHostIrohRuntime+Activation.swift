@@ -142,6 +142,13 @@ extension MobileHostIrohRuntime {
                     _ = try await auth.forceRefreshAccessToken()
                 }
             ),
+            discoveryScope: try CmxConnectivityDiscoveryScope(
+                deviceID: deviceID,
+                appInstanceID: appInstanceID,
+                tag: tag,
+                platform: .mac,
+                peerPlatform: .ios
+            ),
             backpressureMode: .callerOwned
         )
         let broker = CmxIrohBackpressuredHostBroker(
