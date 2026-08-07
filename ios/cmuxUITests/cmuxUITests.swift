@@ -770,6 +770,70 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testComputerVisibilitySwitchesKeepShownAndHiddenMacsInOneSection() throws {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",
+        ])
+        defer { app.terminate() }
+
+        func waitForValue(_ value: String, on toggle: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "value == %@", value),
+                object: toggle
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func waitForLabel(_ label: String, on element: XCUIElement) {
+            let expectation = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "label == %@", label),
+                object: element
+            )
+            XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed)
+        }
+
+        func assertUnifiedRowsRemainVisible() {
+            XCTAssertTrue(app.navigationBars["Computers"].exists)
+            XCTAssertTrue(app.staticTexts["Studio Mac"].exists)
+            XCTAssertTrue(app.staticTexts["Preview Mac"].exists)
+            XCTAssertFalse(app.staticTexts["Hidden Computers"].exists)
+        }
+
+        let shownToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-2"]
+        let hiddenToggle = app.switches["MobileComputerVisibilityToggle-preview-mac-1"]
+        let shownPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-2"
+        ]
+        let hiddenPersistence = app.staticTexts[
+            "MobileComputerVisibilityPersisted-preview-mac-1"
+        ]
+        XCTAssertTrue(shownToggle.waitForExistence(timeout: 8))
+        XCTAssertTrue(hiddenToggle.waitForExistence(timeout: 3))
+        XCTAssertTrue(shownPersistence.waitForExistence(timeout: 3))
+        XCTAssertTrue(hiddenPersistence.waitForExistence(timeout: 3))
+        waitForLabel("shown", on: shownPersistence)
+        waitForLabel("hidden", on: hiddenPersistence)
+        waitForValue("1", on: shownToggle)
+        waitForValue("0", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        shownToggle.tap()
+        waitForLabel("hidden", on: shownPersistence)
+        waitForValue("0", on: shownToggle)
+        assertUnifiedRowsRemainVisible()
+
+        hiddenToggle.tap()
+        waitForLabel("shown", on: hiddenPersistence)
+        waitForValue("1", on: hiddenToggle)
+        assertUnifiedRowsRemainVisible()
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "computer-visibility-switches-unified-section"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
     func testHiddenComputersForgetSwipeConfirmsWithoutRemovingRow() throws {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_HIDDEN_COMPUTERS_PREVIEW": "1",

@@ -1565,6 +1565,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceChangesSummaryTrailingTask?.cancel()
         pullToRefreshTask?.cancel()
         foregroundWorkspaceMutationRefreshTask?.cancel()
+        for task in computerVisibilityMutationTasksByID.values {
+            task.cancel()
+        }
         foregroundWorkspaceMutationRefreshPending = false
         foregroundWorkspaceMutationRefreshGeneration = UUID()
         notificationFeedOpenTask?.cancel()
@@ -1610,6 +1613,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     public func signOut() {
+        cancelComputerVisibilityMutations()
         // Reset analytics identity to anonymous on the signed-in→signed-out edge
         // only (this is called on every unauthenticated auth-state sync).
         if isSignedIn {
@@ -1766,6 +1770,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// never drops the terminal the user is in (the chosen "keep session, re-scope
     /// lists" behavior).
     public func currentTeamDidChange() {
+        cancelComputerVisibilityMutations()
         secondaryAggregationScopeGeneration &+= 1
         let teamScopeGeneration = secondaryAggregationScopeGeneration
         // Presence: cancel + re-subscribe so the online dots reflect the new team
@@ -2720,6 +2725,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var hiddenComputers: [MobileHiddenComputer] = []
     /// True when the current account/team scope has at least one hidden computer.
     public internal(set) var hasHiddenComputers = false
+    /// Computer identities whose visibility preference is being persisted.
+    public internal(set) var computerVisibilityMutationIDs: Set<String> = []
+    @ObservationIgnored var computerVisibilityMutationTasksByID: [String: Task<Void, Never>] = [:]
+    @ObservationIgnored var computerVisibilityMutationOperationIDsByID: [String: UUID] = [:]
 
     var pairedMacsForIdentityMatching: [MobilePairedMac] {
         storedPairedMacs.isEmpty ? pairedMacs : storedPairedMacs
