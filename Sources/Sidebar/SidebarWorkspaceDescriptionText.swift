@@ -1,7 +1,9 @@
 import CmuxFoundation
+import Foundation
 import SwiftUI
 
 /// Legacy SwiftUI renderer for a workspace description in the sidebar.
+@MainActor
 struct SidebarWorkspaceDescriptionText: View {
     struct RenderedContent {
         let displayMarkdown: String
@@ -20,65 +22,73 @@ struct SidebarWorkspaceDescriptionText: View {
             maxDisplayedLines: Self.maxDisplayedLines,
             maxDisplayedCharacters: Self.maxDisplayedCharacters
         )
-        return RenderedContent(
-            displayMarkdown: displayMarkdown,
-            renderedMarkdown: SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription
-        )
+        let renderedMarkdown = SidebarMarkdownRenderer(markdown: displayMarkdown).workspaceDescription
+        return RenderedContent(displayMarkdown: displayMarkdown, renderedMarkdown: renderedMarkdown)
     }
 
     var body: some View {
         let content = renderedContent
-        Group {
-            if let renderedMarkdown = content.renderedMarkdown {
-                Text(renderedMarkdown)
-            } else {
-                Text(content.displayMarkdown)
-            }
+        let text: Text
+        if let renderedMarkdown = content.renderedMarkdown {
+            text = Text(renderedMarkdown)
+        } else {
+            text = Text(content.displayMarkdown)
         }
-        .cmuxFont(size: 10.5 * fontScale)
-        .foregroundColor(foregroundColor)
-        .multilineTextAlignment(.leading)
-        .lineLimit(Self.maxDisplayedLines)
-        .truncationMode(.tail)
-        .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
-        .accessibilityLabel(
-            accessibilityText(
-                renderedMarkdown: content.renderedMarkdown,
-                displayMarkdown: content.displayMarkdown
+        return text
+            .cmuxFont(size: 10.5 * fontScale)
+            .foregroundColor(foregroundColor)
+            .multilineTextAlignment(.leading)
+            .lineLimit(Self.maxDisplayedLines)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("SidebarWorkspaceDescriptionText")
+            .accessibilityLabel(
+                accessibilityText(
+                    renderedMarkdown: content.renderedMarkdown,
+                    displayMarkdown: content.displayMarkdown
+                )
             )
-        )
-        .onAppear {
+            .onAppear {
 #if DEBUG
-            let newlineCount = markdown.reduce(into: 0) { count, character in
-                if character == "\n" { count += 1 }
-            }
-            cmuxDebugLog(
-                "sidebar.description.render workspaceState=appear " +
-                "len=\((markdown as NSString).length) " +
-                "newlines=\(newlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(markdown))\""
-            )
+                let newlineCount = markdown.reduce(into: 0) { count, character in
+                    if character == "\n" { count += 1 }
+                }
+                cmuxDebugLog(
+                    "sidebar.description.render workspaceState=appear " +
+                    "len=\((markdown as NSString).length) " +
+                    "newlines=\(newlineCount) " +
+                    "text=\"\(logTextPreview(markdown))\""
+                )
 #endif
-        }
-        .onChange(of: markdown) { newValue in
+            }
+            .onChange(of: markdown) { newValue in
 #if DEBUG
-            let newlineCount = newValue.reduce(into: 0) { count, character in
-                if character == "\n" { count += 1 }
-            }
-            cmuxDebugLog(
-                "sidebar.description.render workspaceState=change " +
-                "len=\((newValue as NSString).length) " +
-                "newlines=\(newlineCount) " +
-                "text=\"\(debugCommandPaletteTextPreview(newValue))\""
-            )
+                let newlineCount = newValue.reduce(into: 0) { count, character in
+                    if character == "\n" { count += 1 }
+                }
+                cmuxDebugLog(
+                    "sidebar.description.render workspaceState=change " +
+                    "len=\((newValue as NSString).length) " +
+                    "newlines=\(newlineCount) " +
+                    "text=\"\(logTextPreview(newValue))\""
+                )
 #endif
-        }
+            }
     }
 
     private var foregroundColor: Color {
         isActive ? activeForegroundColor : .secondary.opacity(0.95)
+    }
+
+    private func logTextPreview(_ text: String, limit: Int = 120) -> String {
+        let escaped = text
+            .replacing("\\", with: "\\\\")
+            .replacing("\n", with: "\\n")
+            .replacing("\r", with: "\\r")
+            .replacing("\t", with: "\\t")
+        guard escaped.count > limit else { return escaped }
+        return "\(escaped.prefix(limit))..."
     }
 
     private func accessibilityText(
