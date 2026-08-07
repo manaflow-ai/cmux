@@ -303,6 +303,28 @@ struct SidebarEmptyAreaWindowDragTests {
         return { _ in remaining.isEmpty ? nil : remaining.removeFirst() }
     }
 
+    /// Verifies that AppKit replays the same mouse-up payload after queueing it.
+    private static func expectReplayedMouseUp(in window: NSWindow, matches original: NSEvent) throws {
+        let replayed = try #require(
+            window.nextEvent(
+                matching: [.leftMouseUp],
+                until: .now,
+                inMode: .eventTracking,
+                dequeue: true
+            )
+        )
+
+        // postEvent may reconstitute the NSEvent, so compare the event identity
+        // fields instead of requiring the dequeued object to be pointer-identical.
+        #expect(replayed.type == .leftMouseUp)
+        #expect(replayed.windowNumber == original.windowNumber)
+        #expect(replayed.eventNumber == original.eventNumber)
+        #expect(replayed.timestamp == original.timestamp)
+        #expect(replayed.locationInWindow == original.locationInWindow)
+        #expect(replayed.clickCount == original.clickCount)
+        #expect(replayed.modifierFlags == original.modifierFlags)
+    }
+
     /// A threshold-crossing press invokes AppKit exactly once and restores window state.
     @Test func dragPastThresholdMovesWindowAndRestoresMovability() throws {
         let window = Self.makeWindow()
@@ -333,16 +355,10 @@ struct SidebarEmptyAreaWindowDragTests {
 
         let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([up]))
         let handled = controller.perform(with: down, in: view)
-        let replayed = window.nextEvent(
-            matching: [.leftMouseUp],
-            until: .now,
-            inMode: .eventTracking,
-            dequeue: true
-        )
 
         #expect(!handled)
         #expect(window.performDragCallCount == 0)
-        #expect(replayed === up)
+        try Self.expectReplayedMouseUp(in: window, matches: up)
     }
 
     /// Sub-threshold pointer jitter remains a click and replays its mouse-up.
@@ -357,16 +373,10 @@ struct SidebarEmptyAreaWindowDragTests {
 
         let controller = SidebarEmptyAreaWindowDragController(nextEvent: Self.pump([jitter, up]))
         let handled = controller.perform(with: down, in: view)
-        let replayed = window.nextEvent(
-            matching: [.leftMouseUp],
-            until: .now,
-            inMode: .eventTracking,
-            dequeue: true
-        )
 
         #expect(!handled)
         #expect(window.performDragCallCount == 0)
-        #expect(replayed === up)
+        try Self.expectReplayedMouseUp(in: window, matches: up)
     }
 
     /// A detached view declines the drag without consulting the injected event source.
