@@ -11826,6 +11826,7 @@ struct VerticalTabsSidebar: View, Equatable {
             settings: input.settings,
             isActive: input.isActive,
             isMultiSelected: input.isMultiSelected,
+            hasUserCustomTitle: input.hasUserCustomTitle,
             canCloseWorkspace: input.canCloseWorkspace,
             accessibilityWorkspaceCount: input.workspaceCount,
             unreadCount: input.unreadCount,
