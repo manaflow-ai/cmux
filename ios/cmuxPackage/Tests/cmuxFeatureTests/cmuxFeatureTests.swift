@@ -4105,11 +4105,26 @@ struct InertPushRegistration: PushRegistering {
     var isEnabled: Bool {
         get async { false }
     }
+    var snapshot: PushRegistrationSnapshot {
+        get async { .disabled }
+    }
+    func snapshots() async -> AsyncStream<PushRegistrationSnapshot> {
+        AsyncStream { continuation in
+            continuation.yield(.disabled)
+            continuation.finish()
+        }
+    }
     func setEnabled(_ enabled: Bool) async {}
     func register(deviceToken: Data) async {}
+    func deviceTokenRegistrationFailed() async {}
     func syncTokenIfPossible() async {}
     func unregisterFromServer() async {}
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
+    func unregisterFromServer(
+        accountID: String?,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {}
 }
 
 @MainActor func deeplinkTestStore() -> CMUXMobileShellStore {

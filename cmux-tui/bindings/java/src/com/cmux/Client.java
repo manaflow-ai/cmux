@@ -2202,9 +2202,22 @@ public final class Client implements AutoCloseable {
                 )
             ));
         }
+        Optional<Ids.TabId> tabId = requiredNullableExactId(
+            fields,
+            "tab_id",
+            Ids.TabId::new
+        );
+        List<Ids.TabId> tabIds = fields.containsKey("tab_ids")
+            ? decodeIds(
+                fields.get("tab_ids"),
+                "terminal tab_ids",
+                Ids.TabId::new
+            )
+            : tabId.map(List::of).orElseGet(List::of);
         return new Snapshots.TerminalSnapshot(
             new Ids.TerminalId(Wire.string(fields.get("id"), "terminal id")),
-            requiredExactId(fields, "tab_id", Ids.TabId::new),
+            tabId,
+            tabIds,
             Wire.string(fields.get(Wire.TITLE), "terminal title"),
             optionalString(fields, Wire.CWD),
             positiveUint16(fields, Wire.COLS),
@@ -2216,6 +2229,7 @@ public final class Client implements AutoCloseable {
                 fields,
                 "id",
                 "tab_id",
+                "tab_ids",
                 Wire.TITLE,
                 Wire.CWD,
                 Wire.COLS,
