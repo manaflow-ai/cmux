@@ -7,6 +7,12 @@ public extension Notification.Name {
     static let terminalSurfaceDidBecomeReady =
         Notification.Name("cmux.terminalSurfaceDidBecomeReady")
 
+    /// Posted by ``TerminalSurface`` when a runtime creation attempt fails
+    /// (`userInfo`: `surfaceId`, `workspaceId`, `reason`;
+    /// `object`: the surface model).
+    static let terminalSurfaceRuntimeCreationFailed =
+        Notification.Name("cmux.terminalSurfaceRuntimeCreationFailed")
+
     /// Posted by ``TerminalSurface`` after a runtime clipboard read
     /// completes (`object`: the surface model).
     static let terminalSurfaceDidCompleteClipboardRead =

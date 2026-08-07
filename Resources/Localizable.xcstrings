@@ -143028,6 +143028,31 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux-tui 終端拒絕了更新。" } }
       }
     },
+    "cmuxTUI.terminal.rendererStartFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر بدء عارض الوحدة الطرفية الأصلي." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nije moguće pokrenuti izvorni prikaz terminala." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Den indbyggede terminalrenderer kunne ikke starte." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der native Terminal-Renderer konnte nicht gestartet werden." } },
+        "en": { "stringUnit": { "state": "translated", "value": "The native terminal renderer could not start." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo iniciar el renderizador nativo del terminal." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le moteur de rendu natif du terminal n’a pas pu démarrer." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile avviare il renderer nativo del terminale." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ネイティブターミナルレンダラーを起動できませんでした。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "មិនអាចចាប់ផ្ដើមកម្មវិធីបង្ហាញស្ថានីយដើមបានទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "네이티브 터미널 렌더러를 시작할 수 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Den innebygde terminalgjengiveren kunne ikke starte." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie udało się uruchomić natywnego modułu renderującego terminal." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível iniciar o renderizador nativo do terminal." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось запустить встроенный модуль отрисовки терминала." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถเริ่มตัวแสดงผลเทอร์มินัลแบบเนทีฟได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yerel terminal işleyicisi başlatılamadı." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося запустити вбудований засіб відтворення термінала." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法启动原生终端渲染器。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法啟動原生終端算繪器。" } }
+      }
+    },
     "remoteTmux.error.commandFailed": {
       "extractionState": "manual",
       "localizations": {

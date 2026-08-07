@@ -593,6 +593,19 @@ extension TerminalSurface {
     }
 
     @MainActor
+    private func publishRuntimeSurfaceCreationFailure(reason: String) {
+        NotificationCenter.default.post(
+            name: .terminalSurfaceRuntimeCreationFailed,
+            object: self,
+            userInfo: [
+                "surfaceId": id,
+                "workspaceId": tabId,
+                "reason": reason,
+            ]
+        )
+    }
+
+    @MainActor
     private func deferRuntimeSurfaceCreationForConfigurationReload(
         view: any TerminalSurfaceNativeViewing,
         source: RuntimeSurfaceCreationSource
@@ -694,6 +707,7 @@ extension TerminalSurface {
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
             #endif
+            publishRuntimeSurfaceCreationFailure(reason: "appNotInitialized")
             return
         }
 
@@ -730,6 +744,7 @@ extension TerminalSurface {
                 Self.surfaceLog("createSurface diagnostics: config=nil")
             }
             #endif
+            publishRuntimeSurfaceCreationFailure(reason: "surfaceNewNil")
             return
         }
         guard let createdSurface = surface else { return }

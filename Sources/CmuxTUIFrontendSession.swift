@@ -148,9 +148,10 @@ final class CmuxTUITerminalTransportForwarder: Sendable {
 
 @MainActor
 final class CmuxTUITerminalBinding {
-    private enum ErrorKind: Equatable {
-        case transport
+    private enum ErrorKind: Int, Equatable {
         case renderer
+        case runtime
+        case transport
     }
 
     let id: UUID
@@ -163,6 +164,7 @@ final class CmuxTUITerminalBinding {
     private weak var surface: TerminalSurface?
     private var transportFailureTask: Task<Void, Never>?
     private var updateTask: Task<Void, Never>?
+    private var runtimeCreationFailureObserver: NSObjectProtocol?
     private var previousRuntimeReadyHandler: (@MainActor () -> Void)?
     private var isWaitingForResetRuntime = false
     private var didStart = false
@@ -223,11 +225,36 @@ final class CmuxTUITerminalBinding {
         surface.onRuntimeReady = { [weak self] in
             previousRuntimeReadyHandler?()
             Task { @MainActor [weak self] in
+                self?.clearError(kind: .runtime)
                 await self?.consumeUpdates()
+            }
+        }
+        runtimeCreationFailureObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceRuntimeCreationFailed,
+            object: surface,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.runtimeCreationDidFail()
             }
         }
         beginTransportFailureObservation()
         beginUpdates()
+    }
+
+    private func runtimeCreationDidFail() {
+        guard !isShuttingDown, isWaitingForResetRuntime else { return }
+        isWaitingForResetRuntime = false
+        recordError(
+            kind: .runtime,
+            message: String(
+                localized: "cmuxTUI.terminal.rendererStartFailed",
+                defaultValue: "The native terminal renderer could not start."
+            )
+        )
+        Task { @MainActor [weak self] in
+            await self?.consumeUpdates()
+        }
     }
 
     private func beginTransportFailureObservation() {
@@ -320,7 +347,7 @@ final class CmuxTUITerminalBinding {
     }
 
     private func recordError(kind: ErrorKind, message: String) {
-        if errorKind == .transport, kind == .renderer { return }
+        if let errorKind, errorKind.rawValue > kind.rawValue { return }
         errorKind = kind
         errorMessage = message
     }
@@ -340,6 +367,10 @@ final class CmuxTUITerminalBinding {
         isShuttingDown = true
         transportFailureTask?.cancel()
         updateTask?.cancel()
+        if let runtimeCreationFailureObserver {
+            NotificationCenter.default.removeObserver(runtimeCreationFailureObserver)
+            self.runtimeCreationFailureObserver = nil
+        }
         transportForwarder.shutdown()
         transportFailureContinuation.finish()
         if let surface {
