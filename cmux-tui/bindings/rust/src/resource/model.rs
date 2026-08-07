@@ -479,7 +479,8 @@ pub enum TerminalLifecycle {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TerminalSnapshot {
     pub id: TerminalId,
-    pub tab_id: TabId,
+    pub tab_id: Option<TabId>,
+    pub tab_ids: Vec<TabId>,
     pub title: String,
     pub cwd: Option<String>,
     pub cols: u16,
@@ -499,7 +500,10 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
         #[serde(deny_unknown_fields)]
         struct Wire {
             id: TerminalId,
-            tab_id: TabId,
+            #[serde(deserialize_with = "deserialize_nullable")]
+            tab_id: Option<TabId>,
+            #[serde(default, deserialize_with = "deserialize_optional_non_null")]
+            tab_ids: Option<Vec<TabId>>,
             title: String,
             #[serde(default, deserialize_with = "deserialize_optional_non_null")]
             cwd: Option<String>,
@@ -526,9 +530,14 @@ impl<'de> Deserialize<'de> for TerminalSnapshot {
                 "terminal exit must be present exactly when lifecycle is exited",
             ));
         }
+        let tab_ids = wire.tab_ids.unwrap_or_else(|| wire.tab_id.iter().cloned().collect());
+        if wire.tab_id.as_ref() != tab_ids.first() {
+            return Err(serde::de::Error::custom("terminal tab_id must be the first tab_ids item"));
+        }
         Ok(Self {
             id: wire.id,
             tab_id: wire.tab_id,
+            tab_ids,
             title: wire.title,
             cwd: wire.cwd,
             cols: wire.cols,

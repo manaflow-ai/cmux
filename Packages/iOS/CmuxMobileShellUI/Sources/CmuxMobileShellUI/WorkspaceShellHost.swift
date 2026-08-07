@@ -22,6 +22,7 @@ struct WorkspaceShellHost: View {
     let showAddDevice: (() -> Void)?
     let showPairingScanner: (() -> Void)?
     let reconnectStoredMac: () -> Void
+    let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
 
     @Environment(AuthCoordinator.self) private var authManager
     @State private var loadingTimedOut = false
@@ -39,6 +40,9 @@ struct WorkspaceShellHost: View {
         )
         .task(id: deadlineTaskID) {
             await updateLoadingDeadline()
+        }
+        .task {
+            await workspaceListDidBecomeVisible()
         }
     }
 

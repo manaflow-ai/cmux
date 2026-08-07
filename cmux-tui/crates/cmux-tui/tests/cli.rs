@@ -1,9 +1,6 @@
 use std::fs;
 #[cfg(unix)]
-use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
-#[cfg(unix)]
-use std::os::fd::FromRawFd;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 #[cfg(unix)]
@@ -24,15 +21,27 @@ struct HeadlessServer {
 
 impl HeadlessServer {
     fn start(name: &str) -> Self {
+        Self::start_with_config(name, None)
+    }
+
+    fn start_with_config(name: &str, config_contents: Option<&str>) -> Self {
         let dir = unique_temp_dir(name);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("mux.sock");
         let state = dir.join("state");
+        // A headless fixture must never inherit the developer's real plugin
+        // configuration. Server-owned plugins are configured explicitly by
+        // the tests that exercise them.
+        let config = dir.join("config.json");
+        if let Some(contents) = config_contents {
+            fs::write(&config, contents).unwrap();
+        }
         let child = Command::new(bin())
             .args(["--headless", "--socket"])
             .arg(&socket)
             .arg("--state")
             .arg(&state)
+            .env("CMUX_TUI_CONFIG", &config)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
@@ -53,7 +62,7 @@ impl HeadlessServer {
         panic!("headless server did not create socket at {}", self.socket.display());
     }
 
-    fn close_all_surfaces(&self) -> bool {
+    fn close_all_resources(&self) -> bool {
         let host_root =
             cmux_tui_core::terminal_host_runtime::terminal_host_root(&self.state, "main");
         // Capture exact host PIDs before close can remove their discovery
@@ -92,6 +101,34 @@ impl HeadlessServer {
             })
             .filter_map(|pid| u32::try_from(pid).ok())
             .collect::<Vec<_>>();
+
+        // A terminal runtime is independent of its placements. Explicitly
+        // close every terminal resource, including zero-view terminals that
+        // cannot appear in the legacy workspace tree below.
+        if let Ok(output) = Command::new(bin())
+            .args(["--json", "--socket"])
+            .arg(&self.socket)
+            .args(["terminal", "list"])
+            .env_remove("CMUX_TUI_SOCKET")
+            .output()
+            && output.status.success()
+            && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+            && let Some(terminals) = terminals.as_array()
+        {
+            for terminal in terminals {
+                let Some(terminal_id) = terminal["id"].as_str() else { continue };
+                let _ = Command::new(bin())
+                    .args(["--quiet", "--socket"])
+                    .arg(&self.socket)
+                    .args(["terminal", terminal_id, "close"])
+                    .env_remove("CMUX_TUI_SOCKET")
+                    .output();
+            }
+        }
+
+        // Close any remaining browser placements. Terminal placements were
+        // already removed by terminal.close, so missing-surface responses are
+        // expected and harmless here.
         for (index, surface) in surfaces.into_iter().enumerate() {
             let index = u64::try_from(index).expect("surface count fits a protocol request id");
             let _ = try_json_socket_request(
@@ -126,12 +163,46 @@ impl HeadlessServer {
     }
 }
 
+#[cfg(unix)]
+fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if child.try_wait().unwrap().is_some() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+#[cfg(unix)]
+fn wait_for_processes_to_exit(pids: &[u32], timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if pids.iter().copied().all(|pid| !process_exists(pid) && !process_group_exists(pid)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
+}
+
+#[cfg(unix)]
+fn signal_test_process_group(pid: u32, signal: libc::c_int) {
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return };
+    // SAFETY: the test just captured this isolated PTY process group from its
+    // private terminal-host record or process-info response.
+    unsafe {
+        libc::kill(-pid, signal);
+    }
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
         // Durable terminal hosts intentionally outlive the daemon. Tests must
-        // close their canonical surfaces first rather than assuming SIGKILL
-        // of the daemon also owns or reaps its per-terminal processes.
-        let hosts_stopped = self.close_all_surfaces();
+        // close their terminal resources first rather than assuming SIGKILL
+        // of the daemon also owns or reaps their processes.
+        let hosts_stopped = self.close_all_resources();
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = fs::remove_file(&self.socket);
@@ -725,7 +796,7 @@ fn noun_first_ratio_commands_reject_nonfinite_values_before_connecting() {
 
 #[cfg(unix)]
 struct PtyChild {
-    child: Child,
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
     output_drain: Option<std::thread::JoinHandle<()>>,
 }
 
@@ -736,37 +807,13 @@ impl PtyChild {
     }
 
     fn start_with_env(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let mut master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
+        let spawned = spawn_pty_child(args, env);
+        let mut master = spawned.master.try_clone_reader().unwrap();
         let output_drain = std::thread::spawn(move || {
             let mut buffer = [0; 8192];
             while master.read(&mut buffer).is_ok_and(|read| read > 0) {}
         });
-        let mut command = Command::new(bin());
-        command.args(args).env_remove("CMUX_TUI_SOCKET");
-        for (key, value) in env {
-            command.env(key, value);
-        }
-        let child = command
-            .stdin(Stdio::from(slave.try_clone().unwrap()))
-            .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
-            .spawn()
-            .unwrap();
-        Self { child, output_drain: Some(output_drain) }
+        Self { child: spawned.child, output_drain: Some(output_drain) }
     }
 }
 
@@ -783,47 +830,55 @@ impl Drop for PtyChild {
 
 #[cfg(unix)]
 struct DisconnectablePtyChild {
-    child: Child,
-    master: Option<File>,
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    master: Option<Box<dyn cmux_pty::MasterPty + Send>>,
 }
 
 #[cfg(unix)]
 impl DisconnectablePtyChild {
     fn start(args: &[&str]) -> Self {
-        let mut master = -1;
-        let mut slave = -1;
-        let mut size = libc::winsize { ws_row: 24, ws_col: 80, ws_xpixel: 0, ws_ypixel: 0 };
-        let opened = unsafe {
-            libc::openpty(
-                &mut master,
-                &mut slave,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                &raw mut size,
-            )
-        };
-        assert_eq!(opened, 0, "openpty failed: {}", std::io::Error::last_os_error());
-        let flags = unsafe { libc::fcntl(master, libc::F_GETFD) };
-        assert_ne!(flags, -1, "fcntl(F_GETFD) failed: {}", std::io::Error::last_os_error());
-        let cloexec = unsafe { libc::fcntl(master, libc::F_SETFD, flags | libc::FD_CLOEXEC) };
-        assert_ne!(cloexec, -1, "fcntl(F_SETFD) failed: {}", std::io::Error::last_os_error());
-
-        let master = unsafe { File::from_raw_fd(master) };
-        let slave = unsafe { File::from_raw_fd(slave) };
-        let child = Command::new(bin())
-            .args(args)
-            .env_remove("CMUX_TUI_SOCKET")
-            .stdin(Stdio::from(slave.try_clone().unwrap()))
-            .stdout(Stdio::from(slave.try_clone().unwrap()))
-            .stderr(Stdio::from(slave))
-            .spawn()
-            .unwrap();
-        Self { child, master: Some(master) }
+        let spawned = spawn_pty_child(args, &[]);
+        Self { child: spawned.child, master: Some(spawned.master) }
     }
 
     fn disconnect_host_terminal(&mut self) {
         self.master.take();
     }
+}
+
+#[cfg(unix)]
+fn spawn_pty_child(args: &[&str], env: &[(&str, &std::ffi::OsStr)]) -> cmux_pty::SpawnedPty {
+    let pair =
+        cmux_pty::open(cmux_pty::PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .unwrap();
+    let mut command = cmux_pty::PtyCommand::new(bin());
+    command.args(args.iter().copied());
+    command.env_clear();
+    for (key, value) in std::env::vars() {
+        if key != "CMUX_TUI_SOCKET" {
+            command.env(key, value);
+        }
+    }
+    for (key, value) in env {
+        command.env(*key, value.to_string_lossy());
+    }
+    pair.spawn(command).unwrap()
+}
+
+#[cfg(unix)]
+fn plain_tui_is_ready(server: &HeadlessServer) -> bool {
+    let clients = json_cli(server, &["client", "list"]);
+    if !clients.status.success()
+        || !json_output(&clients).as_array().is_some_and(|clients| {
+            clients.iter().any(|client| client["client_kind"].as_str() == Some("tui"))
+        })
+    {
+        return false;
+    }
+
+    let terminals = json_cli(server, &["terminal", "list"]);
+    terminals.status.success()
+        && json_output(&terminals).as_array().is_some_and(|terminals| !terminals.is_empty())
 }
 
 #[cfg(unix)]
@@ -891,22 +946,13 @@ fn plain_launch_attaches_to_existing_local_session() {
         if let Some(status) = tui.child.try_wait().unwrap() {
             panic!("plain launch exited instead of attaching: {status}");
         }
-        let clients = json_cli(&server, &["client", "list"]);
-        if clients.status.success() {
-            let clients = json_output(&clients);
-            if clients
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|client| client["client_kind"].as_str() == Some("tui"))
-            {
-                return;
-            }
+        if plain_tui_is_ready(&server) {
+            return;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    panic!("plain launch never attached as a TUI client");
+    panic!("plain launch never attached to its committed initial terminal");
 }
 
 #[cfg(unix)]
@@ -921,22 +967,13 @@ fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
         if let Some(status) = tui.child.try_wait().unwrap() {
             panic!("plain launch exited before host disconnect: {status}");
         }
-        let clients = json_cli(&server, &["client", "list"]);
-        if clients.status.success() {
-            let clients = json_output(&clients);
-            if clients
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|client| client["client_kind"].as_str() == Some("tui"))
-            {
-                attached = true;
-                break;
-            }
+        if plain_tui_is_ready(&server) {
+            attached = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(attached, "plain launch never attached before host disconnect");
+    assert!(attached, "plain launch never attached to its committed terminal before disconnect");
 
     tui.disconnect_host_terminal();
     let exit_deadline = Instant::now() + Duration::from_secs(5);
@@ -1018,6 +1055,80 @@ fn explicit_attach_registers_a_full_session_tui_client() {
     }
 
     panic!("explicit attach never registered the full session");
+}
+
+#[cfg(unix)]
+#[test]
+fn graceful_shutdown_stops_server_owned_sidebar_process() {
+    let mut server = HeadlessServer::start_with_config(
+        "sidebar-host-shutdown",
+        Some(r#"{"sidebar":{"plugin":{"command":["/bin/cat"]}}}"#),
+    );
+    let sidebar = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({
+            "id": 1,
+            "cmd": "sidebar-plugin",
+            "cols": 20,
+            "rows": 8,
+            "relaunch": true,
+        }),
+    )
+    .expect("start configured sidebar plugin");
+    let surface = sidebar["surface"].as_u64().expect("sidebar plugin surface");
+    let plugin_pid = try_json_socket_request(
+        &server.socket,
+        serde_json::json!({"id": 2, "cmd": "process-info", "surface": surface}),
+    )
+    .and_then(|response| response["pid"].as_u64())
+    .and_then(|pid| u32::try_from(pid).ok())
+    .expect("sidebar plugin PID");
+
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    let records = cmux_tui_core::terminal_host_runtime::load_terminal_host_records(&host_root)
+        .expect("load sidebar terminal-host record");
+    let used_durable_host = !records.is_empty();
+    let mut owned_pids = vec![plugin_pid];
+    owned_pids.extend(records.iter().map(|(_, record)| record.host_pid));
+
+    let server_pid = libc::pid_t::try_from(server.child.id()).unwrap();
+    // SAFETY: this PID is the live child owned by the test fixture.
+    assert_eq!(unsafe { libc::kill(server_pid, libc::SIGINT) }, 0);
+    let server_stopped = wait_for_child_exit(&mut server.child, Duration::from_secs(10));
+    let owned_processes_stopped = wait_for_processes_to_exit(&owned_pids, Duration::from_secs(5));
+
+    // Keep lifecycle regressions leak-free. Every captured process group and
+    // record belongs to this fixture's private state root.
+    if !owned_processes_stopped {
+        for pid in &owned_pids {
+            signal_test_process_group(*pid, libc::SIGTERM);
+        }
+        if !wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)) {
+            for pid in &owned_pids {
+                signal_test_process_group(*pid, libc::SIGKILL);
+            }
+            assert!(
+                wait_for_processes_to_exit(&owned_pids, Duration::from_secs(2)),
+                "fixture could not reap its isolated sidebar processes"
+            );
+        }
+        for (record_path, record) in &records {
+            let _ = cmux_tui_core::terminal_host_runtime::remove_stale_terminal_host_record(
+                record_path,
+                record,
+            );
+        }
+    }
+
+    assert!(server_stopped, "SIGINT did not complete graceful server shutdown");
+    assert!(
+        !used_durable_host,
+        "server-owned sidebar process entered the durable terminal-host registry"
+    );
+    assert!(
+        owned_processes_stopped,
+        "graceful shutdown left its server-owned sidebar process alive"
+    );
 }
 
 #[cfg(unix)]
@@ -1142,6 +1253,7 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let sizing_workspace = json_cli(&server, &["workspace", "create", "--name", "cli-test"]);
     assert_success(&sizing_workspace);
     let created = json_output(&sizing_workspace);
+    let workspace_id = created["value"]["workspace_id"].as_str().unwrap().to_string();
     let screen_id = created["value"]["screen_id"].as_str().unwrap().to_string();
     let pane0 = created["value"]["pane_id"].as_str().unwrap().to_string();
     let terminal = created["value"]["terminal_id"].as_str().unwrap().to_string();
@@ -1247,6 +1359,55 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     let split = json_cli(&server, &["pane", &pane0, "split", "--right"]);
     assert_success(&split);
     let pane1 = json_output(&split)["value"]["pane_id"].as_str().unwrap().to_string();
+    let projected = json_cli(
+        &server,
+        &[
+            "terminal",
+            &terminal,
+            "project",
+            "--workspace",
+            &workspace_id,
+            "--screen",
+            &screen_id,
+            "--pane",
+            &pane1,
+            "--index",
+            "0",
+            "--name",
+            "mirror",
+        ],
+    );
+    assert_success(&projected);
+    let projected = json_output(&projected);
+    assert_eq!(projected["value"]["focused"], false);
+    let projected_tab = projected["value"]["id"].as_str().unwrap();
+    let terminals = json_cli(&server, &["terminal", "list"]);
+    assert_success(&terminals);
+    let terminals = json_output(&terminals);
+    let source =
+        terminals.as_array().unwrap().iter().find(|candidate| candidate["id"] == terminal).unwrap();
+    assert_eq!(source["tab_ids"].as_array().unwrap().len(), 2);
+    let snapshot = json_cli(&server, &["session", "current", "snapshot"]);
+    assert_success(&snapshot);
+    let snapshot_json = json_output(&snapshot);
+    let projected_record = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["id"].as_str() == Some(projected_tab))
+        .unwrap();
+    assert_eq!(projected_record["pane_id"], pane1);
+    assert_eq!(projected_record["focused"], false);
+    let focused_tab = snapshot_json["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == pane1 && tab["focused"] == true)
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(focused_tab, projected_tab);
 
     let new_pane = json_cli(
         &server,
@@ -1843,6 +2004,7 @@ fn layout_split_ratio(node: &serde_json::Value, split_id: &str) -> Option<f64> {
     }
 }
 
+#[track_caller]
 fn assert_success(output: &Output) {
     assert!(
         output.status.success(),

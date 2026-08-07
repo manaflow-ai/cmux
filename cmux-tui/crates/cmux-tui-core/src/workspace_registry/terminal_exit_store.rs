@@ -2,10 +2,11 @@ use anyhow::Context;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Value, json};
 
+use super::resource_store::validate_resource_patch;
 use super::{
-    RegistryTerminal, TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry, canonical_json,
-    read_terminal, transaction_resource_revision, transaction_terminal_revision,
-    validate_terminal_transition,
+    RegistryTerminal, ResourcePatch, TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
+    apply_resource_patch, canonical_json, read_terminal, transaction_resource_revision,
+    transaction_terminal_revision, validate_terminal_transition,
 };
 use crate::terminal_host_protocol::TerminalExit;
 
@@ -22,8 +23,16 @@ impl WorkspaceRegistry {
         incarnation: Option<&str>,
         observed: &TerminalExit,
         mut terminal_snapshot: Value,
+        topology: Option<(&ResourcePatch, &Value)>,
     ) -> anyhow::Result<(RegistryTerminal, u64, u64, bool)> {
         anyhow::ensure!(observed.is_valid(), "terminal exit outcome is invalid");
+        if let Some((patch, changes)) = topology {
+            validate_resource_patch(patch)?;
+            anyhow::ensure!(
+                changes.is_array(),
+                "terminal exit topology changes must be a JSON array"
+            );
+        }
         let tx = self.connection.transaction()?;
         let mut terminal = read_terminal(&tx, terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("unknown terminal {terminal_id}"))?;
@@ -98,13 +107,23 @@ impl WorkspaceRegistry {
         snapshot.insert("lifecycle".to_string(), Value::String("exited".to_string()));
         snapshot.insert("exit".to_string(), exit.clone());
         let terminal_snapshot = Value::Object(snapshot.clone());
-        let changes = json!([{
+        let mut changes = vec![json!({
             "kind": "upsert",
             "sequence": 0,
             "resource": "terminal",
             "id": public_id,
             "value": terminal_snapshot,
-        }]);
+        })];
+        if let Some((_, topology_changes)) = topology {
+            for change in topology_changes.as_array().expect("validated topology changes") {
+                let mut change = change.as_object().cloned().ok_or_else(|| {
+                    anyhow::anyhow!("terminal exit topology change is not an object")
+                })?;
+                change.insert("sequence".to_string(), Value::from(changes.len()));
+                changes.push(Value::Object(change));
+            }
+        }
+        let changes = Value::Array(changes);
         let mutation = WorkspaceMutation::local("cmux-tui-runtime");
         let fingerprint = json!({
             "op": "terminal-exited",
@@ -125,8 +144,12 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(&result)?;
         let changes_json = canonical_json(&changes)?;
 
+        if let Some((patch, _)) = topology {
+            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
+        }
+
         tx.execute(
-            "UPDATE terminal_placements
+            "UPDATE terminal_hosts
              SET incarnation = ?1, lifecycle = 'exited', exit_json = ?2,
                  updated_revision = ?3, deleted_revision = NULL
              WHERE terminal_id = ?4",

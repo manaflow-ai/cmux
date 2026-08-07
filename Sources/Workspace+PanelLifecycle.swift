@@ -374,6 +374,12 @@ extension Workspace {
         )
     }
 
+    /// Reads the identity the port scanner and session restore compare against.
+    ///
+    /// Delegates rather than reading the process table itself: a second reader
+    /// with different privilege behavior would record `nil` identities for
+    /// agents running under another euid, which `PortScanner.validateAgentRoots`
+    /// treats as permanently incomplete evidence.
     static func agentPIDProcessIdentity(pid: pid_t) -> AgentPIDProcessIdentity? {
         AgentPIDProcessIdentity(pid: pid)
     }
@@ -702,6 +708,7 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)

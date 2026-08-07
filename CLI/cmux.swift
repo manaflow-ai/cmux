@@ -4894,45 +4894,51 @@ struct CMUXCLI {
                 params["window_id"] = targetWindow
             }
             let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
-            if includeCaller {
-                let idWsFlag = optionValue(commandArgs, name: "--workspace")
-                let idSurfaceFlag = optionValue(commandArgs, name: "--surface")
-                let workspaceArg = idWsFlag ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-                let surfaceArg = idSurfaceFlag ?? (idWsFlag == nil && effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-                if workspaceArg != nil || surfaceArg != nil {
-                    let workspaceId = try normalizeWorkspaceHandle(
-                        workspaceArg,
-                        client: client,
-                        windowHandle: targetWindow,
-                        allowCurrent: surfaceArg != nil
-                    )
-                    var caller: [String: Any] = [:]
-                    if let workspaceId {
-                        caller["workspace_id"] = workspaceId
-                    }
-                    if surfaceArg != nil {
-                        guard let surfaceId = try normalizeSurfaceHandle(
-                            surfaceArg,
+            let idWsFlag = optionValue(commandArgs, name: "--workspace")
+            let idSurfaceFlag = optionValue(commandArgs, name: "--surface")
+            let usesImplicitCaller = includeCaller
+                && effectiveWindowRaw == nil
+                && idWsFlag == nil
+                && idSurfaceFlag == nil
+            let response: [String: Any]
+            if usesImplicitCaller {
+                response = try implicitCallerIdentifyResponse(
+                    client: client,
+                    processEnvironment: processEnv
+                )
+            } else {
+                if includeCaller {
+                    let workspaceArg = idWsFlag ?? (effectiveWindowRaw == nil ? processEnv["CMUX_WORKSPACE_ID"] : nil)
+                    let surfaceArg = idSurfaceFlag ?? (idWsFlag == nil && effectiveWindowRaw == nil ? processEnv["CMUX_SURFACE_ID"] : nil)
+                    if workspaceArg != nil || surfaceArg != nil {
+                        let workspaceId = try normalizeWorkspaceHandle(
+                            workspaceArg,
                             client: client,
-                            workspaceHandle: workspaceId,
-                            windowHandle: targetWindow
-                        ) else {
-                            throw CLIError(message: "Invalid surface handle")
+                            windowHandle: targetWindow,
+                            allowCurrent: surfaceArg != nil
+                        )
+                        var caller: [String: Any] = [:]
+                        if let workspaceId {
+                            caller["workspace_id"] = workspaceId
                         }
-                        caller["surface_id"] = surfaceId
-                    }
-                    if !caller.isEmpty {
-                        params["caller"] = caller
+                        if surfaceArg != nil {
+                            guard let surfaceId = try normalizeSurfaceHandle(
+                                surfaceArg,
+                                client: client,
+                                workspaceHandle: workspaceId,
+                                windowHandle: targetWindow
+                            ) else {
+                                throw CLIError(message: "Invalid surface handle")
+                            }
+                            caller["surface_id"] = surfaceId
+                        }
+                        if !caller.isEmpty {
+                            params["caller"] = caller
+                        }
                     }
                 }
-                if effectiveWindowRaw == nil,
-                   idWsFlag == nil,
-                   idSurfaceFlag == nil,
-                   let callerTTY = resolveCallerDescriptorTTYName() {
-                    params["caller_tty"] = callerTTY
-                }
+                response = try client.sendV2(method: "system.identify", params: params)
             }
-            let response = try client.sendV2(method: "system.identify", params: params)
             print(jsonString(formatIDs(response, mode: idFormat)))
 
         case "list-windows":
@@ -5069,6 +5075,14 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId
+            )
+
+        case "comments":
+            try runCommentsNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
             )
 
         case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
@@ -15927,6 +15941,8 @@ struct CMUXCLI {
             return Self.remotesUsage
         case "todo":
             return Self.todoUsage
+        case "comments":
+            return Self.commentsUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
         case "ping":
@@ -16167,11 +16183,13 @@ struct CMUXCLI {
             """
         case "restore":
             return String(localized: "cli.restore.help", defaultValue: """
-            Usage: cmux restore <kind> <checkpoint-id>
+            Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
+                   cmux restore <kind> <checkpoint-id> --surface <id|ref>
+                   cmux restore --surface=<id|ref> <kind> <checkpoint-id>
                    cmux restore --surface [id|ref]
 
             Replace this CLI process with the persisted surface process. New
-            records preserve argv, environment, and cwd as structured values;
+            records preserve launch arguments and cwd as structured values;
             command-only records from older builds use a compatibility shell.
             With no id or ref, --surface uses the calling cmux surface.
             """)
@@ -26641,6 +26659,97 @@ struct CMUXCLI {
         return resolveCallerDescriptorTTYName()
     }
 
+    func implicitCallerIdentifyResponse(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> [String: Any] {
+        let callerTTY = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        if let callerTTY {
+            let ttyResponse = try client.sendV2(
+                method: "system.identify",
+                params: ["caller_tty": callerTTY]
+            )
+            if identifiedCallerSurfaceID(in: ttyResponse) != nil
+                || identifyResponseHasMalformedCallerSurface(ttyResponse) {
+                return ttyResponse
+            }
+            if let environmentParams = try implicitCallerEnvironmentIdentifyParams(
+                client: client,
+                processEnvironment: processEnvironment
+            ) {
+                return try client.sendV2(
+                    method: "system.identify",
+                    params: environmentParams
+                )
+            }
+            return ttyResponse
+        }
+
+        if let environmentParams = try implicitCallerEnvironmentIdentifyParams(
+            client: client,
+            processEnvironment: processEnvironment
+        ) {
+            return try client.sendV2(
+                method: "system.identify",
+                params: environmentParams
+            )
+        }
+        return try client.sendV2(method: "system.identify")
+    }
+
+    func identifiedCallerSurfaceID(in response: [String: Any]) -> String? {
+        guard let caller = response["caller"] as? [String: Any],
+              let surfaceID = normalizedHandleValue(caller["surface_id"] as? String),
+              isUUID(surfaceID) else {
+            return nil
+        }
+        return surfaceID
+    }
+
+    private func implicitCallerEnvironmentIdentifyParams(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> [String: Any]? {
+        let workspaceArg = normalizedHandleValue(processEnvironment["CMUX_WORKSPACE_ID"])
+        let surfaceArg = normalizedHandleValue(processEnvironment["CMUX_SURFACE_ID"])
+        guard workspaceArg != nil || surfaceArg != nil else { return nil }
+
+        let workspaceID = try normalizeWorkspaceHandle(
+            workspaceArg,
+            client: client,
+            allowCurrent: surfaceArg != nil
+        )
+        var caller: [String: Any] = [:]
+        if let workspaceID {
+            caller["workspace_id"] = workspaceID
+        }
+        if let surfaceArg {
+            guard let surfaceID = try normalizeSurfaceHandle(
+                surfaceArg,
+                client: client,
+                workspaceHandle: workspaceID,
+                windowHandle: nil
+            ) else {
+                return nil
+            }
+            caller["surface_id"] = surfaceID
+        }
+        guard !caller.isEmpty else { return nil }
+        return ["caller": caller]
+    }
+
+    private func identifyResponseHasMalformedCallerSurface(
+        _ response: [String: Any]
+    ) -> Bool {
+        guard let caller = response["caller"] as? [String: Any],
+              let surface = caller["surface_id"],
+              !(surface is NSNull) else {
+            return false
+        }
+        return identifiedCallerSurfaceID(in: response) == nil
+    }
+
     func resolveCallerDescriptorTTYName() -> String? {
         for fileDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
             if let rawTTYName = ttyname(fileDescriptor),
@@ -36743,7 +36852,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
-          restore <kind> <checkpoint-id> | restore --surface [id|ref]
+          \(restoreCommandUsageLine)
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
@@ -36783,6 +36892,7 @@ export default CMUXSessionRestore;
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          comments list [--repo <path>] [--all] [--json]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]

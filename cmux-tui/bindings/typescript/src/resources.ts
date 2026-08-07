@@ -240,6 +240,17 @@ function requiredId<Id extends string>(
   return value;
 }
 
+function requiredNullableId<Id extends string>(
+  payload: Record<string, unknown>,
+  key: string,
+  factory: IdFactory<Id>,
+): Id | null {
+  if (!Object.hasOwn(payload, key)) {
+    throw new CmuxProtocolError(`resource result omitted required nullable ${key}`);
+  }
+  return payload[key] === null ? null : requiredId(payload, [key], factory);
+}
+
 function requiredString(payload: Record<string, unknown>, key: string): string {
   const value = payload[key];
   if (typeof value !== "string") {
@@ -546,6 +557,23 @@ function tabSnapshot(value: unknown): TabSnapshot {
 
 function terminalSnapshot(value: unknown): TerminalSnapshot {
   const payload = unwrap(value, ["terminal"]);
+  const selectedTabId = requiredNullableId(payload, "tab_id", tabId);
+  let decodedTabIds: TabId[];
+  if (Object.hasOwn(payload, "tab_ids")) {
+    const rawTabIds = payload.tab_ids;
+    if (!Array.isArray(rawTabIds)) {
+      throw new CmuxProtocolError("terminal tab_ids must be an array");
+    }
+    decodedTabIds = rawTabIds.map(
+      (item) => requiredId({ id: item }, ["id"], tabId),
+    );
+  } else {
+    decodedTabIds = selectedTabId === null ? [] : [selectedTabId];
+  }
+  const tabIds = Object.freeze(decodedTabIds);
+  if (selectedTabId !== (tabIds[0] ?? null)) {
+    throw new CmuxProtocolError("terminal tab_id must be the first tab_ids item");
+  }
   const running = requiredBoolean(payload, "running");
   const lifecycle = requiredEnum(
     payload,
@@ -570,11 +598,12 @@ function terminalSnapshot(value: unknown): TerminalSnapshot {
       payload,
       terminalId,
       [
-        "tab_id", "title", "cwd", "cols", "rows", "running", "lifecycle",
+        "tab_id", "tab_ids", "title", "cwd", "cols", "rows", "running", "lifecycle",
         "exit",
       ],
     ),
-    tabId: requiredId(payload, ["tab_id"], tabId),
+    tabId: selectedTabId,
+    tabIds,
     title: requiredString(payload, "title"),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),
     cols: requiredPositiveUint16(payload, "cols"),
@@ -3563,6 +3592,46 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
       options,
       terminalSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),
+    );
+  }
+
+  project(
+    destination: {
+      workspace: SelectorInput<WorkspaceId>;
+      screen: SelectorInput<ScreenId>;
+      pane: SelectorInput<PaneId>;
+      index: number;
+      name?: string;
+    },
+    options: MutationOptions = {},
+  ): Promise<MutationResult<Tab>> {
+    const encodedWorkspace = encodeSelector(destination.workspace);
+    const encodedScreen = encodeSelector(destination.screen);
+    const encodedPane = encodeSelector(destination.pane);
+    const sessionScope = Object.fromEntries(
+      Object.entries(this.scope).filter(
+        ([key]) => !["workspace", "screen", "pane", "tab"].includes(key),
+      ),
+    );
+    const tabScope = {
+      ...sessionScope,
+      workspace: encodedWorkspace,
+      screen: encodedScreen,
+      pane: encodedPane,
+    };
+    return this.client[mutateOperation](
+      operations.terminalProject,
+      {
+        ...this.params(),
+        destination_workspace: encodedWorkspace,
+        destination_screen: encodedScreen,
+        destination_pane: encodedPane,
+        index: destination.index,
+        ...(destination.name === undefined ? {} : { name: destination.name }),
+      },
+      options,
+      tabSnapshot,
+      (snapshot) => new Tab(this.client, selectId(snapshot.id), tabScope, snapshot),
     );
   }
 
