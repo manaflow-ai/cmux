@@ -27,21 +27,33 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
         fi
       done
     fi
-    if [ "$attempt_lease_state" != "inherited" ] && /usr/bin/python3 -c '
+    if [ "$attempt_lease_state" != "inherited" ]; then
+      if /usr/bin/python3 -c '
 import fcntl
 import os
 import sys
 
-descriptor = os.open(sys.argv[1], os.O_RDWR)
+try:
+    descriptor = os.open(sys.argv[1], os.O_RDWR)
+except OSError:
+    raise SystemExit(2)
 try:
     fcntl.lockf(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
     raise SystemExit(1)
+except OSError:
+    raise SystemExit(2)
 raise SystemExit(0)
 ' "$attempt_lease"; then
-      attempt_lease_state=unlocked
-    else
-      attempt_lease_state=locked
+        attempt_lease_status=0
+      else
+        attempt_lease_status=$?
+      fi
+      case "$attempt_lease_status" in
+        0) attempt_lease_state=unlocked ;;
+        1) attempt_lease_state=locked ;;
+        *) attempt_lease_state=probe-failed ;;
+      esac
     fi
   fi
   printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \

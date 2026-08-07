@@ -2,6 +2,7 @@
 """Guard app-host XCTest against persistent console-user configuration."""
 
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
@@ -480,25 +481,25 @@ def main() -> int:
         "cmux_recover_owned_app_host_attempt",
         "current-run retry recovery",
     )
-    for unsafe_signal in (
-        '/bin/kill -TERM "$pid"',
-        '/bin/kill -KILL "$pid"',
-    ):
-        if unsafe_signal in APP_HOST_PROCESSES:
-            raise SystemExit(
-                "FAIL: verified app-host cleanup must not signal a reusable PID: "
-                f"{unsafe_signal}"
-            )
-    for opportunistic_deletion in (
-        'rm -rf -- "$CMUX_VALIDATED_ABANDONED_APP_HOST_HOME"',
-        'rm -rf -- "$CMUX_VALIDATED_ABANDONED_APP_HOST_RECEIPT_DIR"',
-        'rm -f -- "$confirmation_file"',
-    ):
-        if opportunistic_deletion in APP_HOST_PROCESSES:
-            raise SystemExit(
-                "FAIL: retry recovery must not delete prior scopes without the "
-                f"current cleanup confirmation: {opportunistic_deletion}"
-            )
+    unsafe_signal = re.search(
+        r"(?m)^\s*(?:/bin/)?kill\s+-(?:TERM|KILL|9|15)(?:\s|$)",
+        APP_HOST_PROCESSES,
+    )
+    if unsafe_signal:
+        raise SystemExit(
+            "FAIL: verified app-host cleanup must not signal a reusable PID: "
+            f"{unsafe_signal.group(0).strip()}"
+        )
+    opportunistic_deletion = re.search(
+        r"(?m)^\s*(?:/bin/)?rm\s+-(?:rf|fr|f)\s+--(?:\s|$)",
+        APP_HOST_PROCESSES,
+    )
+    if opportunistic_deletion:
+        raise SystemExit(
+            "FAIL: retry recovery must not delete prior scopes without the "
+            "current cleanup confirmation: "
+            f"{opportunistic_deletion.group(0).strip()}"
+        )
 
     for forbidden_process_authority in (
         "ps -axww -o pid=,command=",

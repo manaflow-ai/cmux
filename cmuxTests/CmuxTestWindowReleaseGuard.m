@@ -90,6 +90,9 @@ static void CmuxWriteAppHostProcessReceipt(void) {
     if (receiptDirectory.length == 0 || appHostKey.length != 12 || leasePath.length == 0) {
         CmuxFailAppHostProcessReceipt(@"required identity is incomplete");
     }
+    if ([leasePath rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location != NSNotFound) {
+        CmuxFailAppHostProcessReceipt(@"attempt lease path is malformed");
+    }
     NSCharacterSet *nonHex = [[NSCharacterSet characterSetWithCharactersInString:@"0123456789abcdef"] invertedSet];
     if ([appHostKey rangeOfCharacterFromSet:nonHex].location != NSNotFound) {
         CmuxFailAppHostProcessReceipt(@"run key is malformed");
