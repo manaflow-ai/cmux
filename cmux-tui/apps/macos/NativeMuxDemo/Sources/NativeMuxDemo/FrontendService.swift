@@ -59,6 +59,22 @@ private func decodeError(_ buffer: [CChar]) -> String {
   )
 }
 
+final class SerialFFIExecutor: @unchecked Sendable {
+  private let queue: DispatchQueue
+
+  init(label: String) { queue = DispatchQueue(label: label) }
+
+  func run<T: Sendable>(
+    _ operation: @escaping @Sendable () -> T,
+    onEnqueued: (@Sendable () -> Void)? = nil
+  ) async -> T {
+    await withCheckedContinuation { continuation in
+      queue.async { continuation.resume(returning: operation()) }
+      onEnqueued?()
+    }
+  }
+}
+
 func copyFrontendCString(
   _ copy: (_ buffer: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
 ) -> String {
@@ -78,7 +94,7 @@ func copyFrontendCString(
 
 actor FrontendService {
   private var raw: OpaquePointer?
-  private let ffiQueue = DispatchQueue(label: "cmux.native-frontend.ffi")
+  private let ffiQueue = SerialFFIExecutor(label: "cmux.native-frontend.ffi")
   private var updateSink: FrontendUpdateSink?
   private var updateGeneration: UInt64 = 0
 
@@ -87,9 +103,7 @@ actor FrontendService {
   }
 
   private func enqueue<T: Sendable>(_ operation: @escaping @Sendable () -> T) async -> T {
-    await withCheckedContinuation { continuation in
-      ffiQueue.async { continuation.resume(returning: operation()) }
-    }
+    await ffiQueue.run(operation)
   }
 
   static func connect(invitation: String) async throws -> FrontendService {
@@ -185,8 +199,8 @@ actor FrontendService {
     return TerminalHandle(rawAddress: address)
   }
 
-  func updates() -> FrontendUpdateSubscription {
-    stopUpdates()
+  func updates() async -> FrontendUpdateSubscription {
+    await stopUpdates()
     updateGeneration &+= 1
     let generation = updateGeneration
     let pair = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -196,32 +210,38 @@ actor FrontendService {
     }
     let sink = FrontendUpdateSink(pair.continuation)
     updateSink = sink
-    cmux_frontend_client_set_update_callback(
-      raw,
-      frontendUpdateCallback,
-      Unmanaged.passUnretained(sink).toOpaque()
-    )
+    let address = UInt(bitPattern: raw)
+    await enqueue {
+      cmux_frontend_client_set_update_callback(
+        OpaquePointer(bitPattern: address),
+        frontendUpdateCallback,
+        Unmanaged.passUnretained(sink).toOpaque()
+      )
+    }
     return FrontendUpdateSubscription(generation: generation, stream: pair.stream)
   }
 
-  func stopUpdates(generation: UInt64? = nil) {
+  func stopUpdates(generation: UInt64? = nil) async {
     if let generation, generation != updateGeneration { return }
     guard let sink = updateSink else { return }
     if let raw {
-      cmux_frontend_client_set_update_callback(raw, nil, nil)
+      let address = UInt(bitPattern: raw)
+      await enqueue { cmux_frontend_client_set_update_callback(OpaquePointer(bitPattern: address), nil, nil) }
     }
     sink.continuation.finish()
     updateSink = nil
     updateGeneration &+= 1
   }
 
-  func diagnostics() -> String {
-    guard let raw else { return "" }
-    return copyFrontendCString { cmux_frontend_client_copy_diagnostics(raw, $0, $1) }
+  func diagnostics() async -> String {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return "" }
+    return await enqueue {
+      copyFrontendCString { cmux_frontend_client_copy_diagnostics(OpaquePointer(bitPattern: rawAddress), $0, $1) }
+    }
   }
 
   func shutdown() async {
-    stopUpdates()
+    await stopUpdates()
     guard let raw else { return }
     self.raw = nil
     let address = UInt(bitPattern: raw)
@@ -235,7 +255,7 @@ private struct JSONValueResult: Decodable, Sendable {}
 
 actor TerminalHandle {
   private var raw: OpaquePointer?
-  private let ffiQueue = DispatchQueue(label: "cmux.native-terminal.ffi")
+  private let ffiQueue = SerialFFIExecutor(label: "cmux.native-terminal.ffi")
   private var updateSink: FrontendUpdateSink?
   private var updateGeneration: UInt64 = 0
 
@@ -244,9 +264,7 @@ actor TerminalHandle {
   }
 
   private func enqueue<T: Sendable>(_ operation: @escaping @Sendable () -> T) async -> T {
-    await withCheckedContinuation { continuation in
-      ffiQueue.async { continuation.resume(returning: operation()) }
-    }
+    await ffiQueue.run(operation)
   }
 
   func submit(_ input: TerminalInput) async -> Bool {
@@ -272,8 +290,8 @@ actor TerminalHandle {
     }
   }
 
-  func updates() -> FrontendUpdateSubscription {
-    stopUpdates()
+  func updates() async -> FrontendUpdateSubscription {
+    await stopUpdates()
     updateGeneration &+= 1
     let generation = updateGeneration
     let pair = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
@@ -283,67 +301,61 @@ actor TerminalHandle {
     }
     let sink = FrontendUpdateSink(pair.continuation)
     updateSink = sink
-    cmux_frontend_terminal_set_update_callback(
-      raw,
-      frontendUpdateCallback,
-      Unmanaged.passUnretained(sink).toOpaque()
-    )
+    let address = UInt(bitPattern: raw)
+    await enqueue {
+      cmux_frontend_terminal_set_update_callback(
+        OpaquePointer(bitPattern: address),
+        frontendUpdateCallback,
+        Unmanaged.passUnretained(sink).toOpaque()
+      )
+    }
     return FrontendUpdateSubscription(generation: generation, stream: pair.stream)
   }
 
-  func snapshot() -> TerminalRenderSnapshot? {
-    guard let raw else { return nil }
-    return TerminalRenderSnapshot(
-      diagnostics: copyFrontendCString {
-        cmux_frontend_terminal_copy_diagnostics(raw, $0, $1)
-      },
-      didExit: cmux_frontend_terminal_has_exited(raw)
-    )
-  }
-
-  func drainRenderEvents() -> [TerminalRenderEvent] {
-    guard let raw else { return [] }
-    var result: [TerminalRenderEvent] = []
-    while true {
-      var descriptor = CmuxFrontendRenderEvent()
-      guard cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, nil, 0) else {
-        break
-      }
-      guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else {
-        // Unknown empty events have already been consumed. A future
-        // non-empty event stays queued so an older frontend does not
-        // silently discard renderer state it cannot understand.
-        if descriptor.payload_length > 0 { break }
-        continue
-      }
-      var payload = Data()
-      if descriptor.payload_length > 0 {
-        payload = Data(count: descriptor.payload_length)
-        let copied = payload.withUnsafeMutableBytes { bytes in
-          cmux_frontend_terminal_copy_next_render_event(
-            raw,
-            &descriptor,
-            bytes.bindMemory(to: UInt8.self).baseAddress,
-            bytes.count
-          )
-        }
-        guard copied else { break }
-      }
-      result.append(
-        TerminalRenderEvent(
-          kind: kind,
-          geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows),
-          payload: payload
-        ))
+  func snapshot() async -> TerminalRenderSnapshot? {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return nil }
+    return await enqueue {
+      TerminalRenderSnapshot(
+        diagnostics: copyFrontendCString {
+          cmux_frontend_terminal_copy_diagnostics(OpaquePointer(bitPattern: rawAddress), $0, $1)
+        },
+        didExit: cmux_frontend_terminal_has_exited(OpaquePointer(bitPattern: rawAddress))
+      )
     }
-    return result
   }
 
-  func stopUpdates(generation: UInt64? = nil) {
+  func drainRenderEvents() async -> [TerminalRenderEvent] {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return [] }
+    return await enqueue {
+      let raw = OpaquePointer(bitPattern: rawAddress)!
+      var result: [TerminalRenderEvent] = []
+      while true {
+        var descriptor = CmuxFrontendRenderEvent()
+        guard cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, nil, 0) else { break }
+        guard let kind = TerminalRenderEvent.Kind(rawValue: descriptor.kind) else {
+          if descriptor.payload_length > 0 { break }
+          continue
+        }
+        var payload = Data()
+        if descriptor.payload_length > 0 {
+          payload = Data(count: descriptor.payload_length)
+          let copied = payload.withUnsafeMutableBytes { bytes in
+            cmux_frontend_terminal_copy_next_render_event(raw, &descriptor, bytes.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+          }
+          guard copied else { break }
+        }
+        result.append(TerminalRenderEvent(kind: kind, geometry: TerminalGeometry(cols: descriptor.cols, rows: descriptor.rows), payload: payload))
+      }
+      return result
+    }
+  }
+
+  func stopUpdates(generation: UInt64? = nil) async {
     if let generation, generation != updateGeneration { return }
     guard let sink = updateSink else { return }
     if let raw {
-      cmux_frontend_terminal_set_update_callback(raw, nil, nil)
+      let address = UInt(bitPattern: raw)
+      await enqueue { cmux_frontend_terminal_set_update_callback(OpaquePointer(bitPattern: address), nil, nil) }
     }
     sink.continuation.finish()
     updateSink = nil
@@ -351,7 +363,7 @@ actor TerminalHandle {
   }
 
   func shutdown() async {
-    stopUpdates()
+    await stopUpdates()
     guard let raw else { return }
     self.raw = nil
     let address = UInt(bitPattern: raw)

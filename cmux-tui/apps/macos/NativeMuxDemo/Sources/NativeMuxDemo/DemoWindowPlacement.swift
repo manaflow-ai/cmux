@@ -45,15 +45,15 @@ enum DemoWindowPlacement {
     guard
       let layoutPath = environment["CMUX_NATIVE_WINDOW_LAYOUT_FILE"],
       !layoutPath.isEmpty,
-      let screen = NSScreen.screens.first,
-      let window = NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first
+      let window = NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first,
+      let screen = window.screen
     else { return }
 
     let layout = SideBySideWindowLayout.fit(visibleFrame: screen.visibleFrame)
     window.setFrame(layout.nativeFrame, display: true)
 
     let placement = GhosttyWindowPlacement(
-      x: layout.ghosttyPositionX,
+      x: Int(screen.visibleFrame.minX) + layout.ghosttyPositionX,
       y: layout.ghosttyPositionY,
       columns: layout.ghosttyColumns,
       rows: layout.ghosttyRows

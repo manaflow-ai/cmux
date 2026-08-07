@@ -272,13 +272,13 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
 
   override func becomeFirstResponder() -> Bool {
     let accepted = super.becomeFirstResponder()
-    if accepted { ghostty_surface_set_focus(surface, true) }
+    if accepted, let surface { ghostty_surface_set_focus(surface, true) }
     return accepted
   }
 
   override func resignFirstResponder() -> Bool {
     let resigned = super.resignFirstResponder()
-    if resigned { ghostty_surface_set_focus(surface, false) }
+    if resigned, let surface { ghostty_surface_set_focus(surface, false) }
     return resigned
   }
 

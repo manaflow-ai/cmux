@@ -4,6 +4,14 @@ import Foundation
 import Testing
 @testable import NativeMuxDemo
 
+private final class EventLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) { lock.lock(); values.append(value); lock.unlock() }
+    var snapshot: [String] { lock.lock(); defer { lock.unlock() }; return values }
+}
+
 @Test
 func decodesEveryNativeLayoutShape() throws {
     let data = Data(
@@ -85,6 +93,60 @@ func resourceParametersPreserveMixedJSONTypes() throws {
 func terminalGeometryIsBoundedAndNonzero() {
     #expect(terminalGeometry(width: 0, height: 0) == TerminalGeometry(cols: 1, rows: 1))
     #expect(terminalGeometry(width: 856, height: 424) == TerminalGeometry(cols: 100, rows: 24))
+}
+
+@Test
+func terminalHandleFFIQueuePreservesFIFOAndDisconnectDrain() async {
+    let executor = SerialFFIExecutor(label: "test.native-terminal.fifo")
+    let started = AsyncStream<Void>.makeStream()
+    let release = DispatchSemaphore(value: 0)
+    let order = EventLog()
+    let first = Task {
+        await executor.run {
+            order.append("send")
+            started.continuation.yield()
+            release.wait()
+            return true
+        }
+    }
+    for await _ in started.stream { break }
+    #expect(order.snapshot == ["send"])
+    let readEnqueued = AsyncStream<Void>.makeStream()
+    let read = Task {
+        await executor.run({ order.append("read"); return true }, onEnqueued: { readEnqueued.continuation.yield() })
+    }
+    for await _ in readEnqueued.stream { break }
+    let removeEnqueued = AsyncStream<Void>.makeStream()
+    let removeCallback = Task {
+        await executor.run({ order.append("callback-removal"); return true }, onEnqueued: { removeEnqueued.continuation.yield() })
+    }
+    for await _ in removeEnqueued.stream { break }
+    let disconnectEnqueued = AsyncStream<Void>.makeStream()
+    let disconnect = Task {
+        await executor.run({ order.append("disconnect"); return true }, onEnqueued: { disconnectEnqueued.continuation.yield() })
+    }
+    for await _ in disconnectEnqueued.stream { break }
+    #expect(order.snapshot == ["send"])
+    release.signal()
+    _ = await first.value
+    _ = await read.value
+    _ = await removeCallback.value
+    _ = await disconnect.value
+    #expect(order.snapshot == ["send", "read", "callback-removal", "disconnect"])
+}
+
+@Test
+func resizeQueueKeepsOnlyNewestPendingGeometry() {
+    var queue = NewestResizeQueue()
+    let firstStarts = queue.submit(TerminalGeometry(cols: 80, rows: 24))
+    #expect(firstStarts)
+    #expect(queue.take() == TerminalGeometry(cols: 80, rows: 24))
+    let secondStarts = queue.submit(TerminalGeometry(cols: 100, rows: 30))
+    #expect(secondStarts)
+    let thirdStarts = queue.submit(TerminalGeometry(cols: 120, rows: 40))
+    #expect(!thirdStarts)
+    #expect(queue.take() == TerminalGeometry(cols: 120, rows: 40))
+    #expect(queue.take() == nil)
 }
 
 @Test

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::ffi::{CStr, c_char, c_void};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -16,15 +16,9 @@ use cmux_remote::provider::{
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
-#[cfg(feature = "text-renderer")]
-use cmux_tui_core::apply_terminal_color_overrides;
-use cmux_tui_core::resource::TerminalPublicId;
-use cmux_tui_core::terminal_color_override_full_state;
-use cmux_tui_core::terminal_host_protocol::{
-    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
-};
-use cmux_tui_core::terminal_host_runtime::{
-    decode_host_snapshot_payload, decode_terminal_color_overrides,
+use cmux_terminal_host_protocol::{
+    Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
+    RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
 };
 #[cfg(feature = "text-renderer")]
 use ghostty_vt::{
@@ -43,6 +37,267 @@ const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(2
 const TERMINAL_RECONNECT_MAX_DELAY: StdDuration = StdDuration::from_secs(4);
 const MAX_NATIVE_RENDER_EVENT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_NATIVE_RENDER_EVENTS: usize = 4096;
+
+#[derive(Clone, PartialEq, Eq)]
+struct TerminalPublicId(String);
+
+impl TerminalPublicId {
+    fn parse(value: impl Into<String>) -> Result<Self, String> {
+        let value = value.into();
+        let Some(payload) = value.strip_prefix("term_") else {
+            return Err("expected a term_ public ID".into());
+        };
+        if payload.len() != 32
+            || !payload.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("expected 32 lowercase hexadecimal digits after term_".into());
+        }
+        Ok(Self(value))
+    }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for TerminalPublicId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+struct RendererSnapshot {
+    cols: u16,
+    rows: u16,
+    cell_pixels: (u16, u16),
+    replay: Vec<u8>,
+    #[cfg(feature = "text-renderer")]
+    kitty_image_aliases: Vec<ghostty_vt::KittyImageAlias>,
+    #[cfg(feature = "text-renderer")]
+    kitty_state: ghostty_vt::KittyReplayState,
+}
+
+struct SnapshotDecoder<'a> {
+    payload: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> SnapshotDecoder<'a> {
+    fn new(payload: &'a [u8]) -> Self {
+        Self { payload, offset: 0 }
+    }
+    fn take(&mut self, length: usize) -> Result<&'a [u8], String> {
+        let end = self
+            .offset
+            .checked_add(length)
+            .filter(|end| *end <= self.payload.len())
+            .ok_or_else(|| "truncated terminal snapshot".to_string())?;
+        let bytes = &self.payload[self.offset..end];
+        self.offset = end;
+        Ok(bytes)
+    }
+    fn u8(&mut self) -> Result<u8, String> {
+        Ok(self.take(1)?[0])
+    }
+    fn u16(&mut self) -> Result<u16, String> {
+        Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+    }
+    fn u32(&mut self) -> Result<u32, String> {
+        Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
+    fn u64(&mut self) -> Result<u64, String> {
+        Ok(u64::from_le_bytes(self.take(8)?.try_into().unwrap()))
+    }
+    fn bytes(&mut self, maximum: usize) -> Result<&'a [u8], String> {
+        let length = self.u32()? as usize;
+        if length > maximum {
+            return Err("terminal snapshot field is too large".into());
+        }
+        self.take(length)
+    }
+    fn string(&mut self) -> Result<(), String> {
+        std::str::from_utf8(self.bytes(256 * 1024)?)
+            .map(|_| ())
+            .map_err(|_| "terminal snapshot string is not UTF-8".into())
+    }
+    fn finish(self) -> Result<(), String> {
+        if self.offset != self.payload.len() {
+            return Err("terminal snapshot has trailing bytes".into());
+        }
+        Ok(())
+    }
+}
+
+fn decode_host_snapshot_payload(payload: &[u8]) -> Result<RendererSnapshot, String> {
+    let mut decoder = SnapshotDecoder::new(payload);
+    let cols = decoder.u16()?;
+    let rows = decoder.u16()?;
+    if cols == 0 || rows == 0 {
+        return Err("terminal snapshot dimensions must be nonzero".into());
+    }
+    let _pid = decoder.u32()?;
+    let replay = decoder.bytes(8 * 1024 * 1024)?.to_vec();
+    match decoder.u8()? {
+        0 => {}
+        1 => decoder.string()?,
+        _ => return Err("terminal snapshot has an invalid optional string".into()),
+    }
+    let argument_count = decoder.u16()? as usize;
+    if argument_count > 256 {
+        return Err("terminal snapshot has too many command arguments".into());
+    }
+    for _ in 0..argument_count {
+        decoder.string()?;
+    }
+    #[cfg(feature = "text-renderer")]
+    let mut kitty_image_aliases = Vec::new();
+    let alias_count = decoder.u16()? as usize;
+    if alias_count > MAX_KITTY_IMAGE_ALIASES {
+        return Err("terminal snapshot has too many Kitty image aliases".into());
+    }
+    let mut image_ids = HashSet::with_capacity(alias_count);
+    for _ in 0..alias_count {
+        let image_id = decoder.u32()?;
+        let image_number = decoder.u32()?;
+        if image_id == 0 || image_number == 0 || !image_ids.insert(image_id) {
+            return Err("terminal snapshot has invalid Kitty image aliases".into());
+        }
+        #[cfg(feature = "text-renderer")]
+        kitty_image_aliases.push(ghostty_vt::KittyImageAlias { image_id, image_number });
+    }
+    let cell_pixels = (decoder.u16()?.max(1), decoder.u16()?.max(1));
+    let _kitty_limits = (decoder.u64()?, decoder.u64()?, decoder.u64()?, decoder.u64()?);
+    let replay_cursor_offset = decoder.u32()?;
+    let replay_next_image_ids = (decoder.u32()?, decoder.u32()?);
+    let next_image_ids = (decoder.u32()?, decoder.u32()?);
+    if replay_cursor_offset as usize > replay.len()
+        || replay_next_image_ids.0 == 0
+        || replay_next_image_ids.1 == 0
+        || next_image_ids.0 == 0
+        || next_image_ids.1 == 0
+    {
+        return Err("terminal snapshot has invalid Kitty replay state".into());
+    }
+    #[cfg(feature = "text-renderer")]
+    let kitty_state = ghostty_vt::KittyReplayState {
+        limits: ghostty_vt::KittyGraphicsLimits {
+            image_bytes: _kitty_limits.0,
+            inflight_bytes: _kitty_limits.1,
+            images: _kitty_limits.2,
+            placements: _kitty_limits.3,
+        },
+        replay_cursor_offset,
+        replay_next_image_ids: ghostty_vt::KittyImageIdCursors {
+            primary: replay_next_image_ids.0,
+            alternate: replay_next_image_ids.1,
+        },
+        next_image_ids: ghostty_vt::KittyImageIdCursors {
+            primary: next_image_ids.0,
+            alternate: next_image_ids.1,
+        },
+    };
+    decoder.finish()?;
+    Ok(RendererSnapshot {
+        cols,
+        rows,
+        cell_pixels,
+        replay,
+        #[cfg(feature = "text-renderer")]
+        kitty_image_aliases,
+        #[cfg(feature = "text-renderer")]
+        kitty_state,
+    })
+}
+
+fn decode_terminal_color_overrides(payload: &[u8]) -> Result<Vec<u8>, String> {
+    if payload.len() < 8 || payload.len() > 8 + 9 + 2 + 256 * 4 {
+        return Err("terminal Colors payload length is out of range".into());
+    }
+    let version = u16::from_le_bytes(payload[0..2].try_into().unwrap());
+    let flags = u16::from_le_bytes(payload[2..4].try_into().unwrap());
+    let count = u16::from_le_bytes(payload[4..6].try_into().unwrap()) as usize;
+    let reserved = u16::from_le_bytes(payload[6..8].try_into().unwrap());
+    let allowed = match version {
+        1 => 0b111,
+        2 if flags & 8 != 0 => 0b1111,
+        2 => return Err("terminal Colors v2 is missing cursor state".into()),
+        _ => return Err("terminal Colors version is unsupported".into()),
+    };
+    if flags & !allowed != 0 || reserved != 0 || count > 256 {
+        return Err("terminal Colors header is invalid".into());
+    }
+    let expected =
+        8 + (flags & 7).count_ones() as usize * 3 + usize::from(flags & 8 != 0) * 2 + count * 4;
+    if payload.len() != expected {
+        return Err("terminal Colors payload is malformed".into());
+    }
+    let mut offset = 8;
+    let rgb = |p: &[u8], o: &mut usize| {
+        let c = [p[*o], p[*o + 1], p[*o + 2]];
+        *o += 3;
+        c
+    };
+    let fg = (flags & 1 != 0).then(|| rgb(payload, &mut offset));
+    let bg = (flags & 2 != 0).then(|| rgb(payload, &mut offset));
+    let cursor = (flags & 4 != 0).then(|| rgb(payload, &mut offset));
+    let visual = if flags & 8 != 0 {
+        let style = payload[offset];
+        let blink = payload[offset + 1];
+        offset += 2;
+        if !(1..=3).contains(&style) || blink > 1 {
+            return Err("terminal Colors cursor state is invalid".into());
+        }
+        Some((style, blink != 0))
+    } else {
+        None
+    };
+    let mut palette = [None; 256];
+    for _ in 0..count {
+        let index = payload[offset] as usize;
+        if palette[index].is_some() {
+            return Err("terminal Colors contains a duplicate palette index".into());
+        }
+        palette[index] = Some([payload[offset + 1], payload[offset + 2], payload[offset + 3]]);
+        offset += 4;
+    }
+    let mut out = if visual.is_some() { b"\x1b[0 q".to_vec() } else { Vec::new() };
+    let mut dynamic = |code: u16, color: [u8; 3]| {
+        out.extend_from_slice(
+            format!("\x1b]{code};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color[0], color[1], color[2])
+                .as_bytes(),
+        )
+    };
+    if let Some(c) = fg {
+        dynamic(10, c);
+    }
+    if let Some(c) = bg {
+        dynamic(11, c);
+    }
+    if let Some(c) = cursor {
+        dynamic(12, c);
+    }
+    if let Some((style, blink)) = visual {
+        let value = match (style, blink) {
+            (1, true) => 1,
+            (1, false) => 2,
+            (2, true) => 3,
+            (2, false) => 4,
+            (3, true) => 5,
+            (3, false) => 6,
+            _ => unreachable!(),
+        };
+        out.extend_from_slice(format!("\x1b[{value} q").as_bytes());
+    }
+    for (index, color) in palette.into_iter().enumerate() {
+        if let Some(c) = color {
+            out.extend_from_slice(
+                format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", c[0], c[1], c[2])
+                    .as_bytes(),
+            );
+        }
+    }
+    Ok(out)
+}
 
 pub struct CmuxTerminalClient {
     runtime: Runtime,
@@ -464,23 +719,19 @@ impl ClientState {
             MessageKind::Colors
                 if self.snapshot_applied && frame.sequence == self.snapshot_boundary =>
             {
-                let colors = decode_terminal_color_overrides(&frame.payload)
-                    .map_err(|error| error.to_string())?;
+                let native_colors = decode_terminal_color_overrides(&frame.payload)?;
                 #[cfg(feature = "text-renderer")]
                 {
-                    apply_terminal_color_overrides(
-                        self.terminal
-                            .as_mut()
-                            .ok_or_else(|| "Colors arrived before snapshot".to_string())?,
-                        &colors,
-                    );
+                    self.terminal
+                        .as_mut()
+                        .ok_or_else(|| "Colors arrived before snapshot".to_string())?
+                        .vt_write(&native_colors);
                 }
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
                 #[cfg(feature = "text-renderer")]
                 {
                     self.render_dirty = true;
                 }
-                let native_colors = terminal_color_override_full_state(&colors);
                 self.continue_after_native_event(
                     NativeRenderEventKind::Bytes,
                     self.cols,
@@ -1979,12 +2230,26 @@ mod tests {
         payload.extend_from_slice(&[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99]);
         payload.extend_from_slice(&[3, 1]);
         payload.extend_from_slice(&[5, 0xaa, 0xbb, 0xcc]);
-        let colors = decode_terminal_color_overrides(&payload).unwrap();
-        let encoded = terminal_color_override_full_state(&colors);
+        let encoded = decode_terminal_color_overrides(&payload).unwrap();
         assert_eq!(
             encoded,
             b"\x1b[0 q\x1b]10;rgb:11/22/33\x1b\\\x1b]11;rgb:44/55/66\x1b\\\x1b]12;rgb:77/88/99\x1b\\\x1b[5 q\x1b]4;5;rgb:aa/bb/cc\x1b\\"
         );
+    }
+
+    #[test]
+    fn snapshot_rejects_malformed_kitty_state_in_every_renderer_mode() {
+        let valid = test_snapshot_payload(b"");
+        let kitty_cursor_offset = 21 + 32;
+        let mut invalid_offset = valid.clone();
+        invalid_offset[kitty_cursor_offset..kitty_cursor_offset + 4]
+            .copy_from_slice(&1u32.to_le_bytes());
+        assert!(decode_host_snapshot_payload(&invalid_offset).is_err());
+
+        let mut invalid_id = valid;
+        let first_id = kitty_cursor_offset + 4;
+        invalid_id[first_id..first_id + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(decode_host_snapshot_payload(&invalid_id).is_err());
     }
 
     #[test]
@@ -2320,22 +2585,32 @@ mod tests {
     }
 
     fn test_snapshot_payload(replay: &[u8]) -> Vec<u8> {
-        cmux_tui_core::terminal_host_runtime::encode_host_snapshot_payload(
-            &cmux_tui_core::terminal_host_runtime::HostSnapshot {
-                cols: 80,
-                rows: 24,
-                cell_pixels: (8, 16),
-                replay: replay.to_vec(),
-                kitty_image_aliases: Vec::new(),
-                kitty_state: ghostty_vt::KittyReplayState::disabled(),
-                sequence_boundary: 0,
-                colors: ghostty_vt::TerminalColorOverrides::default(),
-                pid: None,
-                command: Vec::new(),
-                cwd: None,
-            },
-        )
-        .unwrap()
+        let mut output = Vec::new();
+        output.extend_from_slice(&80u16.to_le_bytes());
+        output.extend_from_slice(&24u16.to_le_bytes());
+        output.extend_from_slice(&0u32.to_le_bytes());
+        output.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+        output.extend_from_slice(replay);
+        output.push(0);
+        output.extend_from_slice(&0u16.to_le_bytes());
+        output.extend_from_slice(&0u16.to_le_bytes());
+        output.extend_from_slice(&8u16.to_le_bytes());
+        output.extend_from_slice(&16u16.to_le_bytes());
+        output.extend_from_slice(&[0u8; 32]);
+        output.extend_from_slice(&0u32.to_le_bytes());
+        for _ in 0..4 {
+            output.extend_from_slice(&2_147_483_647u32.to_le_bytes());
+        }
+        output
+    }
+
+    fn test_colors_payload() -> Vec<u8> {
+        let mut output = Vec::from(
+            [2u16.to_le_bytes(), 8u16.to_le_bytes(), 0u16.to_le_bytes(), 0u16.to_le_bytes()]
+                .concat(),
+        );
+        output.extend_from_slice(&[1, 0]);
+        output
     }
 
     async fn send_test_terminal_frame(stream: &ServiceStream, frame: Frame) {
@@ -2743,15 +3018,7 @@ mod tests {
 
                         let colors = Frame {
                             sequence: boundary,
-                            ..Frame::new(
-                                MessageKind::Colors,
-                                cmux_tui_core::terminal_host_runtime::encode_terminal_color_overrides(
-                                    &ghostty_vt::TerminalColorOverrides {
-                                        cursor_visual: Some((ghostty_vt::CursorShape::Block, false)),
-                                        ..Default::default()
-                                    },
-                                ),
-                            )
+                            ..Frame::new(MessageKind::Colors, test_colors_payload())
                         };
                         send_test_terminal_frame(&incoming.stream, colors).await;
                         let mut ready = Frame::new(MessageKind::Ready, Vec::new());
@@ -2759,8 +3026,7 @@ mod tests {
                         send_test_terminal_frame(&incoming.stream, ready).await;
 
                         if round == 0 {
-                            let mut resync =
-                                Frame::new(MessageKind::ResyncRequired, Vec::new());
+                            let mut resync = Frame::new(MessageKind::ResyncRequired, Vec::new());
                             resync.sequence = boundary + 1;
                             send_test_terminal_frame(&incoming.stream, resync).await;
                         } else {

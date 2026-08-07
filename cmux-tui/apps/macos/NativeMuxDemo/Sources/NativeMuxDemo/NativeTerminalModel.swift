@@ -12,6 +12,21 @@ struct TerminalGeometry: Equatable, Sendable {
   let rows: UInt16
 }
 
+struct NewestResizeQueue: Sendable {
+  private(set) var pending: TerminalGeometry?
+
+  mutating func submit(_ geometry: TerminalGeometry) -> Bool {
+    let shouldStart = pending == nil
+    pending = geometry
+    return shouldStart
+  }
+
+  mutating func take() -> TerminalGeometry? {
+    defer { pending = nil }
+    return pending
+  }
+}
+
 func terminalGeometry(width: CGFloat, height: CGFloat) -> TerminalGeometry {
   TerminalGeometry(
     cols: UInt16(max(1, min(10_000, Int(max(0, width - 16) / 8.4)))),
@@ -34,7 +49,7 @@ final class NativeTerminalModel {
   @ObservationIgnored private var inputTask: Task<Void, Never>?
   @ObservationIgnored private var attachTask: Task<Void, Never>?
   @ObservationIgnored private var resizeTask: Task<Void, Never>?
-  @ObservationIgnored private var pendingResize: TerminalGeometry?
+  @ObservationIgnored private var resizeQueue = NewestResizeQueue()
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
   @ObservationIgnored private var latestGeometry: TerminalGeometry?
@@ -79,6 +94,7 @@ final class NativeTerminalModel {
         beginUpdates(from: handle)
         await consumeUpdates(from: handle)
       } catch {
+        if !isShuttingDown { didStart = false }
         errorMessage = L10n.text(
           "error.terminal_attach",
           "The terminal could not be attached."
@@ -145,15 +161,14 @@ final class NativeTerminalModel {
     guard geometry != latestGeometry else { return }
     latestGeometry = geometry
     guard let handle, isAttached else { return }
-    pendingResize = geometry
-    guard resizeTask == nil else { return }
+    let shouldStart = resizeQueue.submit(geometry)
+    guard shouldStart, resizeTask == nil else { return }
     resizeTask = Task { [weak self] in
       guard let self else { return }
-      while !Task.isCancelled, let next = pendingResize {
-        pendingResize = nil
+      while !Task.isCancelled, let next = resizeQueue.take() {
         let accepted = await handle.resize(cols: next.cols, rows: next.rows)
         guard !Task.isCancelled else { return }
-        if !accepted, pendingResize == nil, !isShuttingDown {
+        if !accepted, resizeQueue.pending == nil, !isShuttingDown {
           errorMessage = L10n.text(
             "error.terminal_resize_rejected",
             "Terminal resize was rejected."
@@ -173,7 +188,7 @@ final class NativeTerminalModel {
     isShuttingDown = true
     attachTask?.cancel()
     resizeTask?.cancel()
-    pendingResize = nil
+    _ = resizeQueue.take()
     updateTask?.cancel()
     inputTask?.cancel()
     inputContinuation.finish()

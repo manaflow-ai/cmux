@@ -24,7 +24,6 @@ bytes.workspace = true
 cmux-remote = { path = "../cmux-remote", default-features = false, features = ["iroh-transport"] }
 cmux-remote-protocol.workspace = true
 cmux-terminal-host-protocol.workspace = true
-cmux-tui-core.workspace = true
 getrandom.workspace = true
 ghostty-vt = { workspace = true, optional = true }
 serde.workspace = true
