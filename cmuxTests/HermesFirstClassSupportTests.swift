@@ -34,8 +34,8 @@ struct HermesFirstClassSupportTests {
         }
     }
 
-    @Test("A bare Hermes process binds the unique active state.db session")
-    func bareProcessBindsUniqueActiveSession() throws {
+    @Test("A bare Hermes process does not claim an uncorrelated active state.db session")
+    func bareProcessRejectsUncorrelatedActiveSession() throws {
         let fixture = try makeFixture { repo in
             [
                 StateRow("ended-newer", cwd: repo.path, startedAt: 30, endedAt: 40),
@@ -55,14 +55,7 @@ struct HermesFirstClassSupportTests {
             ]
         )
 
-        let snapshot = try #require(detected.values.first?.snapshot)
-        #expect(snapshot.kind == .hermesAgent)
-        #expect(snapshot.sessionId == "live-session")
-        #expect(snapshot.workingDirectory == fixture.repo.path)
-        let command = try #require(snapshot.resumeCommand)
-        #expect(command.contains("'--resume' 'live-session'"))
-        #expect(command.contains("'--tui'"))
-        #expect(command.contains("'HERMES_HOME=\(fixture.hermesHome.path)'"))
+        #expect(detected.isEmpty)
     }
 
     @Test("The installed Python Hermes launcher remains live and restores through cmux")
@@ -84,7 +77,7 @@ struct HermesFirstClassSupportTests {
         )
 
         let liveProcess = CmuxTopProcessArguments(
-            arguments: [pythonExecutable, hermesEntrypoint, "--tui"],
+            arguments: [pythonExecutable, hermesEntrypoint, "--resume", "python-session", "--tui"],
             environment: hermesEnvironment(fixture)
         )
         let detected = try detectedHermesSnapshots(
@@ -97,7 +90,7 @@ struct HermesFirstClassSupportTests {
         #expect(snapshot.kind == .hermesAgent)
         #expect(snapshot.sessionId == "python-session")
         #expect(snapshot.launchCommand?.executablePath == "hermes")
-        #expect(snapshot.launchCommand?.arguments == ["hermes", "--tui"])
+        #expect(snapshot.launchCommand?.arguments == ["hermes", "--resume", "python-session", "--tui"])
         #expect(snapshot.resumeStartupInput() == " cmux restore hermes-agent python-session\n")
         #expect(CachedAgentProcessIdentityValidator().currentProcess(liveProcess, matches: snapshot))
     }
@@ -142,6 +135,135 @@ struct HermesFirstClassSupportTests {
             argumentsByPID: [process.pid: liveProcess]
         )
         #expect(detected.isEmpty)
+    }
+
+    @Test(
+        "Hermes one-shot commands are detected but never restored",
+        arguments: [
+            ["-z", "report status"],
+            ["-zreport status"],
+            ["--oneshot", "report status"],
+            ["--oneshot=report status"],
+            ["chat", "-q", "report status"],
+            ["chat", "-qreport status"],
+            ["chat", "--query", "report status"],
+            ["chat", "--query=report status"],
+        ]
+    )
+    func oneShotCommandsAreNotRestorable(arguments: [String]) throws {
+        let fixture = try makeFixture { [StateRow("one-shot-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let process = hermesProcess(
+            pid: 9_529,
+            workspaceID: fixture.workspaceID,
+            panelID: fixture.panelID
+        )
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [fixture.hermesExecutable] + arguments,
+            environment: hermesEnvironment(fixture)
+        )
+        let observed = VaultObservedAgentProcess(
+            processName: process.name,
+            processPath: process.path,
+            arguments: liveProcess.arguments,
+            environment: liveProcess.environment
+        )
+        let registration = CmuxVaultAgentRegistration.builtInHermes
+
+        #expect(registration.detect.matches(observed))
+        #expect(registration.processDetectedSnapshotIsRestorable(for: observed) == false)
+        let detected = try detectedHermesSnapshots(
+            fixture: fixture,
+            processes: [process],
+            argumentsByPID: [process.pid: liveProcess]
+        )
+        #expect(detected.isEmpty)
+    }
+
+    @Test("A hook-owned Python Hermes process remains live without state.db inference")
+    func hookOwnedPythonProcessRemainsLive() throws {
+        let fixture = try makeFixture { [StateRow("hook-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let processID = 9_530
+        let identity = AgentPIDProcessIdentity(pid: pid_t(processID), startSeconds: 100, startMicroseconds: 200)
+        let pythonExecutable = fixture.hermesHome
+            .appendingPathComponent("hermes-agent/venv/bin/python", isDirectory: false)
+            .path
+        let hermesEntrypoint = fixture.hermesHome
+            .appendingPathComponent("hermes-agent/hermes", isDirectory: false)
+            .path
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessionID: "hook-session",
+            processID: processID,
+            identity: identity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--tui"]
+        )
+        let liveProcess = CmuxTopProcessArguments(
+            arguments: [pythonExecutable, hermesEntrypoint, "--tui"],
+            environment: hermesEnvironment(fixture).merging([
+                "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+            ]) { _, incoming in incoming }
+        )
+
+        let index = try loadHookBackedHermesIndex(
+            fixture: fixture,
+            processID: processID,
+            identity: identity,
+            liveProcess: liveProcess
+        )
+        let entry = try #require(index.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID))
+
+        #expect(entry.snapshot.sessionId == "hook-session")
+        #expect(entry.processLiveness == .running)
+        #expect(entry.agentProcessIDs == [processID])
+    }
+
+    @Test("Quit-time save revalidates a cached Hermes process against the current snapshot")
+    func quitTimeSaveRevalidatesCachedHermesProcess() throws {
+        let fixture = try makeFixture { [StateRow("cached-session", cwd: $0.path)] }
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let processID = Int(Int32.max) - 9_530
+        let identity = AgentPIDProcessIdentity(pid: pid_t(processID), startSeconds: 300, startMicroseconds: 400)
+        try writeHermesHookStore(
+            fixture: fixture,
+            sessionID: "cached-session",
+            processID: processID,
+            identity: identity,
+            executablePath: fixture.hermesExecutable,
+            arguments: [fixture.hermesExecutable, "--resume", "cached-session"]
+        )
+        let cached = try loadHookBackedHermesIndex(
+            fixture: fixture,
+            processID: processID,
+            identity: identity,
+            liveProcess: CmuxTopProcessArguments(
+                arguments: [fixture.hermesExecutable, "--resume", "cached-session"],
+                environment: hermesEnvironment(fixture).merging([
+                    "CMUX_WORKSPACE_ID": fixture.workspaceID.uuidString,
+                    "CMUX_SURFACE_ID": fixture.panelID.uuidString,
+                ]) { _, incoming in incoming }
+            )
+        )
+        #expect(cached.entry(workspaceId: fixture.workspaceID, panelId: fixture.panelID)?.processLiveness == .running)
+
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+            homeDirectory: fixture.root.path,
+            fileManager: .default,
+            cachedRestorableAgentIndex: cached,
+            persistedSessionStoreReadsAllowed: false
+        )
+        let revalidated = try #require(
+            resumeIndexes.restorableAgentIndex.entry(
+                workspaceId: fixture.workspaceID,
+                panelId: fixture.panelID
+            )
+        )
+
+        #expect(revalidated.processLiveness == .exited)
+        #expect(revalidated.agentProcessIDs.isEmpty)
     }
 
     @Test(
@@ -616,6 +738,73 @@ struct HermesFirstClassSupportTests {
             "CMUX_AGENT_LAUNCH_CWD": fixture.repo.path,
             "PWD": fixture.repo.path,
         ]
+    }
+
+    private func writeHermesHookStore(
+        fixture: Fixture,
+        sessionID: String,
+        processID: Int,
+        identity: AgentPIDProcessIdentity,
+        executablePath: String,
+        arguments: [String]
+    ) throws {
+        let stateDirectory = fixture.root.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try FileManager.default.createDirectory(at: stateDirectory, withIntermediateDirectories: true)
+        let data = try JSONSerialization.data(
+            withJSONObject: [
+                "version": 1,
+                "sessions": [
+                    sessionID: [
+                        "sessionId": sessionID,
+                        "workspaceId": fixture.workspaceID.uuidString,
+                        "surfaceId": fixture.panelID.uuidString,
+                        "cwd": fixture.repo.path,
+                        "pid": processID,
+                        "pidStartSeconds": identity.startSeconds,
+                        "pidStartMicroseconds": identity.startMicroseconds,
+                        "isRestorable": true,
+                        "updatedAt": 42,
+                        "launchCommand": [
+                            "launcher": "hermes-agent",
+                            "executablePath": executablePath,
+                            "arguments": arguments,
+                            "workingDirectory": fixture.repo.path,
+                            "environment": ["HERMES_HOME": fixture.hermesHome.path],
+                            "capturedAt": 42,
+                            "source": "environment",
+                        ],
+                    ],
+                ],
+            ],
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(
+            to: stateDirectory.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false),
+            options: .atomic
+        )
+    }
+
+    private func loadHookBackedHermesIndex(
+        fixture: Fixture,
+        processID: Int,
+        identity: AgentPIDProcessIdentity,
+        liveProcess: CmuxTopProcessArguments
+    ) throws -> RestorableAgentSessionIndex {
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: fixture.root.path,
+            environment: ["HOME": fixture.root.path],
+            fileManager: .default
+        )
+        _ = try #require(registry.registration(id: "hermes-agent"))
+        return RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: .default,
+            registry: registry,
+            detectedSnapshots: [:],
+            processArgumentsProvider: { $0 == processID ? liveProcess : nil },
+            processPresenceProvider: { $0 == processID ? .present : .absent },
+            processIdentityProvider: { $0 == processID ? identity : nil }
+        )
     }
 
     private func temporaryDirectory(prefix: String) throws -> URL {

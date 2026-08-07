@@ -276,7 +276,6 @@ def test_session_entrypoints(failures: list[str]) -> None:
         ("resume", ["--resume", SESSION_ID, "--no-restore-cwd", "--pass-session-id"]),
         ("continue-latest", ["--continue"]),
         ("continue-name", ["--continue", "my project"]),
-        ("oneshot", ["--oneshot", "report status"]),
         ("global-options", ["--provider", "openrouter", "--tui"]),
     )
     for label, argv in entrypoints:
@@ -297,6 +296,24 @@ def test_administrative_entrypoints_bypass_install(failures: list[str]) -> None:
         expect(result.returncode == 0, f"{label}: wrapper exited {result.returncode}: {result.stderr}", failures)
         expect(result.real_argv == argv, f"{label}: original argv changed: {result.real_argv}", failures)
         expect(result.cmux_calls == [], f"{label}: administrative command installed hooks: {result.cmux_calls}", failures)
+
+
+def test_noninteractive_entrypoints_bypass_install(failures: list[str]) -> None:
+    entrypoints = (
+        ("oneshot-short", ["-z", "report status"]),
+        ("oneshot-short-attached", ["-zreport status"]),
+        ("oneshot-long", ["--oneshot", "report status"]),
+        ("oneshot-long-equals", ["--oneshot=report status"]),
+        ("chat-query-short", ["chat", "-q", "report status"]),
+        ("chat-query-short-attached", ["chat", "-qreport status"]),
+        ("chat-query-long", ["chat", "--query", "report status"]),
+        ("chat-query-long-equals", ["chat", "--query=report status"]),
+    )
+    for label, argv in entrypoints:
+        result = run_wrapper(argv)
+        expect(result.returncode == 0, f"{label}: wrapper exited {result.returncode}: {result.stderr}", failures)
+        expect(result.real_argv == argv, f"{label}: original argv changed: {result.real_argv}", failures)
+        expect(result.cmux_calls == [], f"{label}: noninteractive command installed hooks: {result.cmux_calls}", failures)
 
 
 def test_opt_out_and_non_cmux_launches_bypass_install(failures: list[str]) -> None:
@@ -353,6 +370,7 @@ def main() -> int:
     else:
         test_session_entrypoints(failures)
         test_administrative_entrypoints_bypass_install(failures)
+        test_noninteractive_entrypoints_bypass_install(failures)
         test_opt_out_and_non_cmux_launches_bypass_install(failures)
         test_installer_failures_never_block_hermes(failures)
         test_stalled_installer_is_bounded(failures)
