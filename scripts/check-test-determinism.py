@@ -266,19 +266,18 @@ _EXPLICIT_SHELL_MODE = re.compile(
 
 _SHELL_EXECUTABLES = frozenset({"bash", "dash", "fish", "ksh", "sh", "zsh"})
 _SHELL_COMMAND_FLAG = re.compile(r"^(?:-[A-Za-z]*c[A-Za-z]*|--command)$")
+_SHELL_OPTIONS_WITH_VALUES = frozenset(
+    {"+O", "+o", "-O", "-o", "--init-file", "--profile", "--rcfile"}
+)
 
-# Shell -c/-lc evaluates its following argument as source. Keep this separate
-# from function-call launchers because there is no parenthesis range to follow.
+# Locate a shell program; `_shell_command_source_bounds` owns option parsing and
+# identifies the exact word consumed by -c/-lc/--command.
 _SHELL_COMMAND_LAUNCHER = re.compile(
     r"""(?x)
     (?<![A-Za-z0-9_.-])
-    (?:/usr/bin/env\s+)?
     (?:/(?:usr/)?bin/)?
     (?:bash|dash|fish|ksh|sh|zsh)
-    \s+
-    (?:-[A-Za-z]+\s+)*
-    (?:-[A-Za-z]*c[A-Za-z]*|--command)
-    \s+
+    \b
     """
 )
 
@@ -725,71 +724,194 @@ def _quoted_literals_in_range(line: str, start: int, end: int) -> list[tuple[int
     return bounds
 
 
+def _trim_bounds(line: str, start: int, end: int) -> tuple[int, int]:
+    while start < end and line[start].isspace():
+        start += 1
+    while end > start and line[end - 1].isspace():
+        end -= 1
+    return start, end
+
+
+def _call_argument_bounds(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> list[tuple[int, int]]:
+    """Return top-level call arguments without splitting nested expressions."""
+    call_end = _call_end(line, opening_paren, path_suffix)
+    executable = _executable_code_positions(line, path_suffix)
+    arguments: list[tuple[int, int]] = []
+    argument_start = opening_paren + 1
+    paren_depth = 0
+    bracket_depth = 0
+    brace_depth = 0
+
+    for index in range(argument_start, call_end):
+        if not executable[index]:
+            continue
+        character = line[index]
+        if character == "(":
+            paren_depth += 1
+        elif character == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif character == "[":
+            bracket_depth += 1
+        elif character == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif character == "{":
+            brace_depth += 1
+        elif character == "}":
+            brace_depth = max(0, brace_depth - 1)
+        elif character == "," and not (paren_depth or bracket_depth or brace_depth):
+            bounds = _trim_bounds(line, argument_start, index)
+            if bounds[0] < bounds[1]:
+                arguments.append(bounds)
+            argument_start = index + 1
+
+    bounds = _trim_bounds(line, argument_start, call_end)
+    if bounds[0] < bounds[1]:
+        arguments.append(bounds)
+    return arguments
+
+
+def _argument_value_bounds(
+    line: str,
+    bounds: tuple[int, int],
+) -> tuple[int, int]:
+    """Strip a Python/Swift-style argument label from top-level argument bounds."""
+    start, end = bounds
+    label = re.match(
+        r"[A-Za-z_][A-Za-z0-9_]*\s*(?:=|:)\s*",
+        line[start:end],
+    )
+    if label:
+        start += len(label.group(0))
+    return _trim_bounds(line, start, end)
+
+
+def _argv_source_ranges(
+    line: str,
+    opening_paren: int,
+    path_suffix: str = "",
+) -> list[tuple[int, int]]:
+    """Return only command/argv inputs, excluding later launcher options."""
+    arguments = _call_argument_bounds(line, opening_paren, path_suffix)
+    if not arguments:
+        return []
+
+    first = _argument_value_bounds(line, arguments[0])
+    ranges = [first]
+    if line[first[0] : first[0] + 1] in ("(", "["):
+        return ranges
+
+    if len(arguments) > 1:
+        second = _argument_value_bounds(line, arguments[1])
+        if line[second[0] : second[0] + 1] in ("(", "["):
+            ranges.append(second)
+    return ranges
+
+
 def _argv_literal_tokens(
     line: str,
     opening_paren: int,
     path_suffix: str = "",
 ) -> list[tuple[int, int]]:
     """Return argv literals only when argv[0] itself is a quoted literal."""
-    call_end = _call_end(line, opening_paren, path_suffix)
-    argument_start = opening_paren + 1
-    while argument_start < call_end and line[argument_start].isspace():
-        argument_start += 1
+    ranges = _argv_source_ranges(line, opening_paren, path_suffix)
+    if not ranges:
+        return []
 
-    keyword = re.match(
-        r"[A-Za-z_][A-Za-z0-9_]*\s*=\s*",
-        line[argument_start:call_end],
-    )
-    if keyword:
-        argument_start += len(keyword.group(0))
-
-    while argument_start < call_end and line[argument_start].isspace():
+    argument_start, first_end = ranges[0]
+    while argument_start < first_end and line[argument_start] in "([":
         argument_start += 1
-    while argument_start < call_end and line[argument_start] in "([":
-        argument_start += 1
-        while argument_start < call_end and line[argument_start].isspace():
+        while argument_start < first_end and line[argument_start].isspace():
             argument_start += 1
 
     first_literal = _quoted_argument_bounds(line, argument_start)
-    if first_literal is None or first_literal[1] > call_end:
+    if first_literal is None or first_literal[1] > first_end:
         return []
 
-    literals = _quoted_literals_in_range(
-        line,
-        opening_paren + 1,
-        call_end,
-    )
+    literals = [
+        literal
+        for start, end in ranges
+        for literal in _quoted_literals_in_range(line, start, end)
+    ]
     if not literals or literals[0] != first_literal:
         return []
     return literals
 
 
-def _quoted_argument_contains_offset(line: str, argument_start: int, offset: int) -> bool:
-    """Whether ``offset`` remains inside the first quoted shell argument."""
-    bounds = _quoted_argument_bounds(line, argument_start)
-    return bounds is not None and bounds[0] <= offset < bounds[1]
+def _shell_statement_end(line: str, start: int) -> int:
+    executable = _executable_code_positions(line, ".sh")
+    for index in range(start, len(line)):
+        if executable[index] and line[index] in ";|&\n":
+            return index
+    return len(line)
 
 
-def _shell_eval_source_contains_offset(
+def _shell_word_bounds(
+    line: str,
+    start: int,
+    end: int,
+) -> list[tuple[int, int]]:
+    """Return shell words while preserving their source offsets."""
+    executable = _executable_code_positions(line, ".sh")
+    words: list[tuple[int, int]] = []
+    index = start
+    while index < end:
+        while index < end and executable[index] and line[index].isspace():
+            index += 1
+        if index >= end or (executable[index] and line[index] in ";|&\n"):
+            break
+        word_start = index
+        while index < end:
+            if executable[index] and (
+                line[index].isspace() or line[index] in ";|&\n"
+            ):
+                break
+            index += 1
+        words.append((word_start, index))
+    return words
+
+
+def _shell_word_value(line: str, bounds: tuple[int, int]) -> str:
+    start, end = bounds
+    value = line[start:end]
+    if len(value) >= 2 and value[0] in ("'", '"') and value[-1] == value[0]:
+        return value[1:-1]
+    return value
+
+
+def _shell_command_source_bounds(
+    line: str,
+    launcher_end: int,
+) -> Optional[tuple[int, int]]:
+    statement_end = _shell_statement_end(line, launcher_end)
+    words = _shell_word_bounds(line, launcher_end, statement_end)
+    index = 0
+    while index < len(words):
+        option = _shell_word_value(line, words[index])
+        if _SHELL_COMMAND_FLAG.fullmatch(option):
+            if index + 1 >= len(words):
+                return None
+            command_start = words[index + 1][0]
+            return _quoted_argument_bounds(line, command_start) or words[index + 1]
+        if option in _SHELL_OPTIONS_WITH_VALUES:
+            index += 2
+            continue
+        if option.startswith(("-", "+")):
+            index += 1
+            continue
+        return None
+    return None
+
+
+def _shell_eval_source_ranges(
     line: str,
     argument_start: int,
-    offset: int,
-) -> bool:
-    """Whether a quoted eval argument in the current shell statement owns offset."""
-    executable = _executable_code_positions(line, ".sh")
-    statement_end = len(line)
-    for index in range(argument_start, len(line)):
-        if executable[index] and line[index] in ";|&\n":
-            statement_end = index
-            break
-    return any(
-        start <= offset < end
-        for start, end in _quoted_literals_in_range(
-            line,
-            argument_start,
-            statement_end,
-        )
-    )
+) -> list[tuple[int, int]]:
+    statement_end = _shell_statement_end(line, argument_start)
+    return _quoted_literals_in_range(line, argument_start, statement_end)
 
 
 def _call_uses_explicit_shell(
@@ -808,31 +930,33 @@ def _call_uses_explicit_shell(
     )
 
 
-def _argv_shell_source_contains_offset(
+def _argv_shell_source_bounds(
     line: str,
     opening_paren: int,
-    offset: int,
     path_suffix: str = "",
-) -> bool:
-    """Whether argv launches a shell whose command-source argument owns offset."""
+) -> Optional[tuple[int, int]]:
+    """Return the argv word a launched shell consumes as command source."""
     literals = _argv_literal_tokens(line, opening_paren, path_suffix)
     token_index = _argv_executable_index(line, literals)
     if token_index is None or len(literals) - token_index < 3:
-        return False
+        return None
 
     executable = line[literals[token_index][0] : literals[token_index][1]]
     if executable.rsplit("/", 1)[-1] not in _SHELL_EXECUTABLES:
-        return False
+        return None
 
-    for flag_index in range(token_index + 1, len(literals) - 1):
-        flag_bounds = literals[flag_index]
-        flag = line[flag_bounds[0] : flag_bounds[1]]
+    flag_index = token_index + 1
+    while flag_index < len(literals):
+        flag = line[literals[flag_index][0] : literals[flag_index][1]]
         if _SHELL_COMMAND_FLAG.fullmatch(flag):
-            command_bounds = literals[flag_index + 1]
-            return command_bounds[0] <= offset < command_bounds[1]
-        if not flag.startswith("-"):
-            return False
-    return False
+            return literals[flag_index + 1] if flag_index + 1 < len(literals) else None
+        if flag in _SHELL_OPTIONS_WITH_VALUES:
+            flag_index += 2
+            continue
+        if not flag.startswith(("-", "+")):
+            return None
+        flag_index += 1
+    return None
 
 
 def _argv_executable_index(
@@ -874,14 +998,46 @@ def _argv_executable_bounds(
     return literals[index] if index is not None else None
 
 
-def _is_executable_network_verb(
+def _bounds_contain_offset(bounds: tuple[int, int], offset: int) -> bool:
+    return bounds[0] <= offset < bounds[1]
+
+
+def _argv_execution_target_ranges(
+    line: str,
+    opening_paren: int,
+    verb_start: int,
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    shell_source = _argv_shell_source_bounds(line, opening_paren, path_suffix)
+    if shell_source is not None and _bounds_contain_offset(shell_source, verb_start):
+        return [shell_source]
+
+    executable_bounds = _argv_executable_bounds(line, opening_paren, path_suffix)
+    if executable_bounds is None or not _bounds_contain_offset(
+        executable_bounds,
+        verb_start,
+    ):
+        return []
+
+    command = line[executable_bounds[0] : executable_bounds[1]]
+    if any(character.isspace() for character in command) and not _call_uses_explicit_shell(
+        line,
+        opening_paren,
+        path_suffix,
+    ):
+        return []
+
+    source_ranges = _argv_source_ranges(line, opening_paren, path_suffix)
+    if not source_ranges:
+        return []
+    return [(verb_start, source_ranges[0][1]), *source_ranges[1:]]
+
+
+def _launcher_target_ranges(
     line: str,
     verb_start: int,
-    path_suffix: str = "",
-) -> bool:
-    if not _is_inside_string_literal(line, verb_start, path_suffix):
-        return True
-
+    path_suffix: str,
+) -> list[tuple[int, int]]:
     for launcher in _SHELL_CALL_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
@@ -891,8 +1047,8 @@ def _is_executable_network_verb(
         if opening_paren == -1:
             continue
         bounds = _quoted_argument_bounds(line, opening_paren + 1)
-        if bounds is not None and bounds[0] <= verb_start < bounds[1]:
-            return True
+        if bounds is not None and _bounds_contain_offset(bounds, verb_start):
+            return [bounds]
 
     for launcher in _ARGV_CALL_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
@@ -902,29 +1058,23 @@ def _is_executable_network_verb(
         opening_paren = line.find("(", launcher.start(), launcher.end())
         if opening_paren == -1:
             continue
-        if _argv_shell_source_contains_offset(
+        ranges = _argv_execution_target_ranges(
             line,
             opening_paren,
             verb_start,
             path_suffix,
-        ):
-            return True
-        bounds = _argv_executable_bounds(line, opening_paren, path_suffix)
-        if bounds is None or not (bounds[0] <= verb_start < bounds[1]):
-            continue
-        command = line[bounds[0] : bounds[1]]
-        if not any(character.isspace() for character in command):
-            return True
-        if _call_uses_explicit_shell(line, opening_paren, path_suffix):
-            return True
+        )
+        if ranges:
+            return ranges
 
     for launcher in _SHELL_COMMAND_LAUNCHER.finditer(line):
         if launcher.start() >= verb_start:
             break
         if _is_inside_string_literal(line, launcher.start(), path_suffix):
             continue
-        if _quoted_argument_contains_offset(line, launcher.end(), verb_start):
-            return True
+        bounds = _shell_command_source_bounds(line, launcher.end())
+        if bounds is not None and _bounds_contain_offset(bounds, verb_start):
+            return [bounds]
 
     if path_suffix == ".sh":
         for launcher in _SHELL_EVAL_LAUNCHER.finditer(line):
@@ -932,13 +1082,57 @@ def _is_executable_network_verb(
                 break
             if _is_inside_string_literal(line, launcher.start(), path_suffix):
                 continue
-            if _shell_eval_source_contains_offset(
-                line,
-                launcher.end(),
-                verb_start,
-            ):
-                return True
-    return False
+            ranges = _shell_eval_source_ranges(line, launcher.end())
+            if any(_bounds_contain_offset(bounds, verb_start) for bounds in ranges):
+                return ranges
+    return []
+
+
+def _direct_network_target_ranges(
+    line: str,
+    match: re.Match[str],
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    matched_verb = match.group(0).lower()
+    if matched_verb.strip() == "curl":
+        statement_end = (
+            _shell_statement_end(line, match.start())
+            if path_suffix == ".sh"
+            else line.find("\n", match.start())
+        )
+        return [(match.start(), len(line) if statement_end == -1 else statement_end)]
+
+    opening_paren = line.find("(", match.start(), match.end())
+    if opening_paren == -1:
+        following = match.end()
+        while following < len(line) and line[following].isspace():
+            following += 1
+        if following < len(line) and line[following] == "(":
+            opening_paren = following
+    if opening_paren == -1:
+        return []
+
+    arguments = _call_argument_bounds(line, opening_paren, path_suffix)
+    target_index = 0
+    if ".open" in matched_verb or re.search(
+        r"(?:httpx|requests|session)\.request",
+        matched_verb,
+    ):
+        target_index = 1
+    if target_index >= len(arguments):
+        return []
+    return [_argument_value_bounds(line, arguments[target_index])]
+
+
+def _network_target_ranges(
+    line: str,
+    match: re.Match[str],
+    path_suffix: str,
+) -> list[tuple[int, int]]:
+    verb_start = match.start()
+    if _is_inside_string_literal(line, verb_start, path_suffix):
+        return _launcher_target_ranges(line, verb_start, path_suffix)
+    return _direct_network_target_ranges(line, match, path_suffix)
 
 
 def detect_assert_on_duration(line: str) -> bool:
@@ -997,11 +1191,15 @@ def _live_network_verb_offsets(
 ) -> list[int]:
     if not _contains_public_network_url(source):
         return []
-    return [
-        match.start()
-        for match in _NETWORK_VERB.finditer(source)
-        if _is_executable_network_verb(source, match.start(), path_suffix)
-    ]
+    offsets: list[int] = []
+    for match in _NETWORK_VERB.finditer(source):
+        target_ranges = _network_target_ranges(source, match, path_suffix)
+        if any(
+            _contains_public_network_url(source[start:end])
+            for start, end in target_ranges
+        ):
+            offsets.append(match.start())
+    return offsets
 
 
 def _looks_like_ipv4(text: str) -> bool:
@@ -1438,6 +1636,14 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_long_options_network.sh",
+            (
+                "bash --noprofile --norc --rcfile /tmp/empty "
+                '-c "curl -fsSL https://api.openai.com/v1/items"\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_eval_network.sh",
             'eval "curl -fsSL https://api.openai.com/v1/items"\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1453,6 +1659,16 @@ def _self_test() -> int:
         (
             "web/tests/eval_fetch.ts",
             'eval(\'fetch("https://api.openai.com/v1/items")\');\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/xhr_open.ts",
+            'xhr.open("GET", "https://api.openai.com/v1/items");\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/requests_request.py",
+            'requests.request("GET", "https://api.openai.com/v1/items")\n',
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -1729,6 +1945,35 @@ def _self_test() -> int:
             (
                 'eval "printf ok"; '
                 'printf "%s\\n" "curl https://api.openai.com/v1/items"\n'
+            ),
+        ),
+        # Public metadata does not turn a loopback argv target into live access.
+        (
+            "tests/n18r_argv_env_url.py",
+            (
+                "subprocess.run(\n"
+                '    ["curl", "http://127.0.0.1:4321/health"],\n'
+                '    env={"DOCS_URL": "https://cmux.com"},\n'
+                ")\n"
+            ),
+        ),
+        # Network API metadata is not the target URL.
+        (
+            "web/tests/n18s_fetch_header.ts",
+            (
+                "await fetch(\n"
+                '  "http://127.0.0.1:4321/health",\n'
+                '  { headers: { Referer: "https://cmux.com" } },\n'
+                ");\n"
+            ),
+        ),
+        (
+            "tests/n18t_requests_header.py",
+            (
+                "requests.get(\n"
+                '    "http://127.0.0.1:4321/health",\n'
+                '    headers={"Referer": "https://cmux.com"},\n'
+                ")\n"
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
