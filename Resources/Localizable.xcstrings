@@ -265117,6 +265117,23 @@
         }
       }
     },
+    "cli.artifact.error.batchTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact batch is too large (%lld bytes; limit %lld)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクトのバッチが大きすぎます（%lld バイト、上限 %lld）。"
+          }
+        }
+      }
+    },
     "cli.artifact.error.candidateLimit": {
       "extractionState": "manual",
       "localizations": {

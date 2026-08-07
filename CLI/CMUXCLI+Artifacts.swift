@@ -297,6 +297,8 @@ extension CMUXCLI {
             return String(format: String(localized: "cli.artifact.error.unsupported", defaultValue: "Unsupported artifact extension: %@"), pathExtension)
         case .fileTooLarge(let actual, let limit):
             return String(format: String(localized: "cli.artifact.error.tooLarge", defaultValue: "Artifact is too large (%lld bytes; limit %lld)."), actual, limit)
+        case .batchByteLimitReached(let actual, let limit):
+            return String(format: String(localized: "cli.artifact.error.batchTooLarge", defaultValue: "Artifact batch is too large (%lld bytes; limit %lld)."), actual, limit)
         case .artifactNotFound(let name):
             return String(format: String(localized: "cli.artifact.error.notFound", defaultValue: "Artifact not found: %@"), name)
         case .ambiguousArtifactName(let name, let matches):
