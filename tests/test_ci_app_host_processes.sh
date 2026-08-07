@@ -27,6 +27,25 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
     esac
   done
 
+  if [ "$fd_filter" = "txt" ] \
+    && [ -n "$pid_filter" ] \
+    && [ -n "${CMUX_FAKE_LSOF_EXIT_AFTER_TXT_CALLS:-}" ]; then
+    case " ${CMUX_FAKE_LSOF_EXIT_PIDS:-} " in
+      *" $pid_filter "*)
+        counter_file="$CMUX_FAKE_LSOF_EXIT_COUNTER_DIR/$pid_filter"
+        call_count=0
+        if [ -f "$counter_file" ]; then
+          call_count="$(< "$counter_file")"
+        fi
+        call_count=$((call_count + 1))
+        printf '%s\n' "$call_count" > "$counter_file"
+        if [ "$call_count" -eq "$CMUX_FAKE_LSOF_EXIT_AFTER_TXT_CALLS" ]; then
+          /bin/kill -TERM "$pid_filter" 2>/dev/null || true
+        fi
+        ;;
+    esac
+  fi
+
   found=0
   while IFS='|' read -r state_pid state_executable; do
     [ -n "$state_pid" ] || continue
@@ -105,7 +124,9 @@ ln -s "$ROOT_DIR/tests/test_ci_app_host_processes.sh" "$FAKE_LSOF"
 export CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1
 export CMUX_APP_HOST_LSOF="$FAKE_LSOF"
 export CMUX_FAKE_LSOF_STATE="$TMP_DIR/lsof-state"
+export CMUX_FAKE_LSOF_EXIT_COUNTER_DIR="$TMP_DIR/lsof-exit-counters"
 export GITHUB_REPOSITORY_ID=1234567
+mkdir -p "$CMUX_FAKE_LSOF_EXIT_COUNTER_DIR"
 : > "$CMUX_FAKE_LSOF_STATE"
 
 # shellcheck source=scripts/ci/app-host-processes.sh
@@ -239,15 +260,22 @@ write_receipt() {
     > "$receipt_dir/app-host-$pid.receipt"
 }
 
-simulate_attempt_lease_release() {
-  (
-    /bin/sleep 0.2
-    local pid
-    for pid in "$@"; do
-      /bin/kill -TERM "$pid" 2>/dev/null || true
-    done
-  ) &
-  CMUX_TEST_LEASE_RELEASE_HELPER_PID=$!
+arm_attempt_lease_release() {
+  local threshold="$1"
+  shift
+  local pid
+  # Release the fixture on a specific executable-vnode observation so the
+  # production wait path, rather than wall-clock scheduling, controls exit.
+  export CMUX_FAKE_LSOF_EXIT_AFTER_TXT_CALLS="$threshold"
+  export CMUX_FAKE_LSOF_EXIT_PIDS="$*"
+  for pid in "$@"; do
+    rm -f -- "$CMUX_FAKE_LSOF_EXIT_COUNTER_DIR/$pid"
+  done
+}
+
+disarm_attempt_lease_release() {
+  unset CMUX_FAKE_LSOF_EXIT_AFTER_TXT_CALLS
+  unset CMUX_FAKE_LSOF_EXIT_PIDS
 }
 
 make_scope() {
@@ -476,12 +504,13 @@ printf '%s|%s (deleted)\n' \
 write_receipt \
   "$deleted_receipt_dir" "$deleted_key" \
   "$deleted_stale_pid" "$deleted_executable"
-simulate_attempt_lease_release "$deleted_stale_pid"
+# One stale-receipt verification precedes the exit wait observation.
+arm_attempt_lease_release 2 "$deleted_stale_pid"
 cmux_wait_for_one_verified_app_host_exit \
   "$deleted_receipt_dir/app-host-$deleted_stale_pid.receipt" \
   "$deleted_key" "$deleted_derived_data" "$deleted_runner_root" \
   || fail "deleted stale product was not verified and observed exiting"
-wait "$CMUX_TEST_LEASE_RELEASE_HELPER_PID"
+disarm_attempt_lease_release
 wait "$deleted_stale_pid" 2>/dev/null || true
 untrack_pid "$deleted_stale_pid"
 [ ! -e "$deleted_derived_data" ] \
@@ -596,13 +625,14 @@ for foreign_pid in "$old_pid_one" "$old_pid_two"; do
   wait "$foreign_pid" 2>/dev/null || true
   untrack_pid "$foreign_pid"
 done
-simulate_attempt_lease_release "$current_pid" "$current_pid_two"
+# Three ownership observations precede each current-host exit wait.
+arm_attempt_lease_release 4 "$current_pid" "$current_pid_two"
 cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
   "${current_executable%%/Build/Products/*}" \
   "$stale_runner_root" "$system_temp_root" \
   || fail "current retry did not observe its owned app hosts exit"
-wait "$CMUX_TEST_LEASE_RELEASE_HELPER_PID"
+disarm_attempt_lease_release
 for exited_pid in "$current_pid" "$current_pid_two"; do
   wait "$exited_pid" 2>/dev/null || true
   untrack_pid "$exited_pid"
@@ -638,14 +668,15 @@ printf '%s|%s (deleted)\n%s|%s (deleted)\n' \
   "$old_orphan_pid_one" "$old_executable" \
   "$old_orphan_pid_two" "$old_executable" \
   > "$CMUX_FAKE_LSOF_STATE"
-simulate_attempt_lease_release "$old_orphan_pid_one" "$old_orphan_pid_two"
+# Three ownership observations precede each prior-host exit wait.
+arm_attempt_lease_release 4 "$old_orphan_pid_one" "$old_orphan_pid_two"
 cmux_recover_owned_app_host_attempt \
   "$current_receipt_dir" "$current_key" \
   "${current_executable%%/Build/Products/*}" \
   "$stale_runner_root" "$system_temp_root" \
   "$old_orphan_recovery_now" \
   || fail "authenticated old prior-run app hosts were not recovered"
-wait "$CMUX_TEST_LEASE_RELEASE_HELPER_PID"
+disarm_attempt_lease_release
 for old_orphan_pid in "$old_orphan_pid_one" "$old_orphan_pid_two"; do
   wait "$old_orphan_pid" 2>/dev/null || true
   untrack_pid "$old_orphan_pid"
