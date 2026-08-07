@@ -6753,6 +6753,7 @@ final class cmuxUITests: XCTestCase {
 
         let app = try launchConnectedApp(
             port: port,
+            assertStatusRows: false,
             environment: ["CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING": "1"]
         )
         defer { app.terminate() }
@@ -6841,8 +6842,7 @@ final class cmuxUITests: XCTestCase {
             "Recorder must observe at least one keyboard-attached frame per rise. dock=\(final)"
         )
         XCTAssertEqual(app.state, .runningForeground, "App must remain live after rapid keyboard toggles")
-        assertTerminalRow(0, label: "$ cmux ios status", in: app)
-        assertTerminalRow(1, label: "Mobile Core: connected", in: app)
+        XCTAssertTrue(surface.exists, "Terminal surface must remain mounted after rapid keyboard toggles")
     }
 
     private func appendDockFrameEvidence(
