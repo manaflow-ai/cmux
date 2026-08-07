@@ -10,6 +10,140 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test func activityFeedKeepsOnlyLatestCardPerSession() {
+        let firstStop = feedItem(
+            id: "00000000-0000-0000-0000-000000000001",
+            workstreamId: "codex-session-a",
+            kind: .stop,
+            minute: 1,
+            payload: .stop(reason: nil)
+        )
+        let secondStop = feedItem(
+            id: "00000000-0000-0000-0000-000000000002",
+            workstreamId: "codex-session-a",
+            kind: .stop,
+            minute: 2,
+            payload: .stop(reason: nil)
+        )
+        let otherSession = feedItem(
+            id: "00000000-0000-0000-0000-000000000003",
+            workstreamId: "codex-session-b",
+            kind: .stop,
+            minute: 3,
+            payload: .stop(reason: nil)
+        )
+
+        let visible = FeedPresentation.activityItems([
+            firstStop,
+            secondStop,
+            otherSession,
+        ])
+
+        #expect(visible.map(\.id) == [otherSession.id, secondStop.id])
+    }
+
+    @Test func newPromptRemovesPassedStopUntilSessionStopsAgain() {
+        let oldStop = feedItem(
+            id: "00000000-0000-0000-0000-000000000011",
+            workstreamId: "codex-session-a",
+            kind: .stop,
+            minute: 1,
+            payload: .stop(reason: nil)
+        )
+        let resumedPrompt = feedItem(
+            id: "00000000-0000-0000-0000-000000000012",
+            workstreamId: "codex-session-a",
+            kind: .userPrompt,
+            minute: 2,
+            payload: .userPrompt(text: "continue")
+        )
+
+        #expect(FeedPresentation.activityItems([oldStop, resumedPrompt]).isEmpty)
+
+        let currentStop = feedItem(
+            id: "00000000-0000-0000-0000-000000000013",
+            workstreamId: "codex-session-a",
+            kind: .stop,
+            minute: 3,
+            payload: .stop(reason: nil)
+        )
+        #expect(
+            FeedPresentation.activityItems([oldStop, resumedPrompt, currentStop]).map(\.id)
+                == [currentStop.id]
+        )
+    }
+
+    @Test func actionableFeedContainsOnlyPendingDecisions() {
+        let pending = feedItem(
+            id: "00000000-0000-0000-0000-000000000021",
+            workstreamId: "codex-session-a",
+            kind: .permissionRequest,
+            minute: 1,
+            payload: .permissionRequest(
+                requestId: "pending",
+                toolName: "shell",
+                toolInputJSON: "{}",
+                pattern: nil
+            ),
+            status: .pending
+        )
+        let resolved = feedItem(
+            id: "00000000-0000-0000-0000-000000000022",
+            workstreamId: "codex-session-b",
+            kind: .permissionRequest,
+            minute: 2,
+            payload: .permissionRequest(
+                requestId: "resolved",
+                toolName: "shell",
+                toolInputJSON: "{}",
+                pattern: nil
+            ),
+            status: .resolved(.permission(.once), at: Date(timeIntervalSince1970: 180))
+        )
+
+        #expect(FeedPresentation.actionableItems([pending, resolved]).map(\.id) == [pending.id])
+    }
+
+    @Test func feedSessionTitlePrefersSurfaceThenWorkspace() {
+        #expect(
+            FeedSessionTitlePolicy.preferredTitle(
+                surfaceTitle: "Jero",
+                workspaceTitle: "Scope"
+            ) == "Jero"
+        )
+        #expect(
+            FeedSessionTitlePolicy.preferredTitle(
+                surfaceTitle: "  ",
+                workspaceTitle: "Retrieval"
+            ) == "Retrieval"
+        )
+        #expect(
+            FeedSessionTitlePolicy.preferredTitle(
+                surfaceTitle: nil,
+                workspaceTitle: nil
+            ) == nil
+        )
+    }
+
+    private func feedItem(
+        id: String,
+        workstreamId: String,
+        kind: WorkstreamKind,
+        minute: TimeInterval,
+        payload: WorkstreamPayload,
+        status: WorkstreamStatus = .telemetry
+    ) -> WorkstreamItem {
+        WorkstreamItem(
+            id: UUID(uuidString: id)!,
+            workstreamId: workstreamId,
+            source: .codex,
+            kind: kind,
+            createdAt: Date(timeIntervalSince1970: minute * 60),
+            status: status,
+            payload: payload
+        )
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
