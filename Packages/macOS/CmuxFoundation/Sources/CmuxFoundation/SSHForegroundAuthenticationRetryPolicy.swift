@@ -497,9 +497,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
         cmux_ssh_auth_recovery_lock() {
           cmux_ssh_auth_recovery_prepare || return 1
           exec 9>> "$cmux_ssh_auth_recovery_root/lock" || return 1
-          # macOS lockf(1)'s descriptor synopsis is `lockf [-s] [-t seconds] fd`.
-          # The lock stays on this shared open-file description until fd 9 closes.
-          if ! /usr/bin/lockf -s -t 1 9; then
+          # Perl's flock uses the macOS flock(2) interface available across our
+          # deployment range. The child aliases fd 9, so the lock stays on the
+          # shared open-file description until the parent closes that fd.
+          if ! /usr/bin/perl -MFcntl=:flock -e '
+            open(my $lock, ">&=9") or exit 1;
+            local $SIG{ALRM} = sub { exit 1 };
+            alarm 1;
+            flock($lock, LOCK_EX) or exit 1;
+            alarm 0;
+          '; then
             exec 9>&-
             return 1
           fi
