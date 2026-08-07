@@ -71,6 +71,14 @@ struct FeedEventClassifier {
         /// only. Used by agents that expose a *separate* approval event
         /// (Claude, Codex, Hermes) so their pre-tool hook never escalates.
         case toolStart
+        /// The agent is blocked waiting for the user in its OWN approval
+        /// UI (e.g. Codex's approval reviewer). The feed event stays
+        /// non-actionable telemetry — an actionable cmux Feed card would
+        /// compete with the agent's native prompt and bypass features like
+        /// Codex's "Approve for me" — but the bridge raises the
+        /// "Agent Needs Permission"-gated notification so the blocked
+        /// agent is not silent (#9592).
+        case nativeApprovalPrompt
         /// A tool is about to run and the agent has *no* dedicated approval
         /// event, so a side-effecting tool is escalated to an approval and
         /// read-only tools stay telemetry. Resolved against the tool name.
@@ -147,6 +155,14 @@ struct FeedEventClassifier {
             return telemetry("PreToolUse")
         case .toolStart:
             return telemetry("PreToolUse")
+        case .nativeApprovalPrompt:
+            // Same telemetry wire mapping as .toolStart (no blocking, no
+            // actionable card), plus the permission-prompt notification.
+            return FeedEventClassification(
+                hookEventName: "PreToolUse",
+                isActionable: false,
+                notifiesNativeApprovalPrompt: true
+            )
         case .toolEnd:
             return telemetry("PostToolUse")
         case .preCompact:
@@ -214,10 +230,12 @@ struct FeedEventClassifier {
         ],
         "codex": [
             // Codex runs PermissionRequest hooks before its own approval
-            // reviewer. Treat this as telemetry so "Approve for me" can still
-            // use Codex's auto-review path instead of blocking on cmux Feed.
-            "PermissionRequest": .toolStart,
-            "permission_request": .toolStart,
+            // reviewer. Keep the feed side telemetry so "Approve for me" can
+            // still use Codex's auto-review path instead of blocking on cmux
+            // Feed, but raise the permission-prompt notification: this is the
+            // only hook Codex fires while blocked on the user (#9592).
+            "PermissionRequest": .nativeApprovalPrompt,
+            "permission_request": .nativeApprovalPrompt,
             "PreToolUse": .toolStart,
             "pre_tool_use": .toolStart,
             "beforeShellExecution": .toolStart,

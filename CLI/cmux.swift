@@ -34644,6 +34644,49 @@ export default CMUXSessionRestore;
 
     // MARK: - Feed (workstream) hook bridge
 
+    /// Builds the fire-and-forget `notify_target_async` line for a feed
+    /// event classified as a native approval prompt (the agent is blocked
+    /// in its OWN approval UI, e.g. Codex's reviewer — see
+    /// ``FeedEventClassification/notifiesNativeApprovalPrompt``). Routes
+    /// through the same classifier + payload meta the generic agent
+    /// `notification` hook uses, so the alert gates under the app's
+    /// "Agent Needs Permission" setting exactly like Claude's
+    /// permission_prompt. Returns `nil` when the caller's workspace or
+    /// surface identity is missing or not a UUID: the notification is
+    /// best-effort and must never fail or delay the hook.
+    private func nativeApprovalPromptNotifyCommand(
+        source: String,
+        eventDict: [String: Any],
+        env: [String: String]
+    ) -> String? {
+        guard let workspaceRaw = (eventDict["workspace_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceId = UUID(uuidString: workspaceRaw),
+              let surfaceRaw = env["CMUX_SURFACE_ID"]?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let surfaceId = UUID(uuidString: surfaceRaw)
+        else { return nil }
+        let displayName = Self.agentDef(named: source)?.displayName ?? source
+        let toolSummary = (eventDict["context"] as? [String: Any])?["toolSummary"] as? String
+        // "PermissionRequest" is the classifier's permission cue, yielding the
+        // shared "Permission" / "Approval needed" strings and the
+        // needs-permission gate category; the tool summary (command, path)
+        // becomes the body when present.
+        let summary = AgentHookNotificationClassifier.classify(
+            displayName: displayName,
+            signal: "PermissionRequest",
+            message: toolSummary ?? "",
+            isFallback: false
+        )
+        let payload = notificationPayload(
+            title: displayName,
+            subtitle: summary.subtitle,
+            body: summary.body,
+            meta: summary.notifyCategory.metaSegment(pending: false)
+        )
+        return "notify_target_async \(workspaceId.uuidString) \(surfaceId.uuidString) \(payload)"
+    }
+
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
     /// actionable events: ExitPlanMode, AskUserQuestion, permission-
@@ -34855,14 +34898,30 @@ export default CMUXSessionRestore;
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
+            // Codex-style agents block in their own approval UI while this
+            // (telemetry) event is their only signal, so the permission-prompt
+            // notification rides the same best-effort lane as the feed frame.
+            let notifyLine = classification.notifiesNativeApprovalPrompt
+                ? nativeApprovalPromptNotifyCommand(source: source, eventDict: eventDict, env: env)
+                : nil
             if let client {
                 _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
+                if let notifyLine {
+                    _ = try? client.sendOneWay(command: notifyLine, writeTimeout: 0.05)
+                }
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
                     socketPath: socketPath,
                     line: line,
                     socketPassword: socketPassword
                 )
+                if let notifyLine {
+                    sendBestEffortFeedTelemetry(
+                        socketPath: socketPath,
+                        line: notifyLine,
+                        socketPassword: socketPassword
+                    )
+                }
             }
             print("{}")
             return
