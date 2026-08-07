@@ -729,6 +729,15 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/curl-subprocess-multiline.py",
+            "assert subprocess.run(\n"
+            '    "curl -fsSL https://cmux.com/install.sh",\n'
+            "    shell=True,\n"
+            "    check=False,\n"
+            ").returncode == 0\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "web/tests/fetch-template.ts",
             "const result = `${await fetch('https://api.openai.com/v1/items')}`\n",
             {RULE_LIVE_NETWORK_HOST},
