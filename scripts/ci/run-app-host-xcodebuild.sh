@@ -120,8 +120,9 @@ validate_app_host_config_paths() {
     return 1
   fi
 
-  local expected_config_path
+  local expected_config_path expected_config_path_input
   expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+  expected_config_path_input="${app_host_home_input%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
   local matches scan_status line reported_path
   if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
@@ -140,8 +141,11 @@ validate_app_host_config_paths() {
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
       reported_path="${line#*path=}"
+      # The published /tmp identity and its canonical /private/tmp spelling
+      # were both authenticated above. Apple frameworks may log either form.
       case "$reported_path" in
-        "$app_host_home"|"${app_host_home%/}/"*) ;;
+        "$app_host_home"|"${app_host_home%/}/"* \
+          |"$app_host_home_input"|"${app_host_home_input%/}/"*) ;;
         *)
           echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
           echo "$line" >&2
@@ -157,6 +161,12 @@ validate_app_host_config_paths() {
       "$log_path" \
       && ! grep -Fq \
         "[config] reading configuration file path=$expected_config_path" \
+        "$log_path" \
+      && ! grep -Fq \
+        "[default] reading configuration file path=$expected_config_path_input" \
+        "$log_path" \
+      && ! grep -Fq \
+        "[config] reading configuration file path=$expected_config_path_input" \
         "$log_path"; then
       echo "FAIL: app-host configuration evidence is missing" >&2
       return 1
