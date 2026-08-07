@@ -30,52 +30,31 @@ extension TerminalController {
         let outputPath = outputDir.appendingPathComponent(filename)
 
         let captureCoordinator = windowScreenshotCaptureCoordinator
-        var claimTask: Task<WindowScreenshotCaptureAdmission?, Never>?
-        let admissionResult: WindowScreenshotCaptureAdmission?? = socketAwaitCallback(
-            timeout: 1
-        ) { completion in
-            claimTask = Task {
-                let admission = await captureCoordinator.claim()
-                completion(admission)
-                return admission
-            }
-        }
-        guard let admissionResult else {
-            if let claimTask {
-                claimTask.cancel()
-                Task {
-                    await captureCoordinator.finishAfterClaim(claimTask)
-                }
-            }
-            return "ERROR: screenshot capture admission timed out"
-        }
-        guard let admission = admissionResult else {
+        guard let admission = captureCoordinator.claim() else {
             return "ERROR: screenshot capture already in progress"
         }
 
         var screenCaptureKitDidTimeOut = false
         defer {
-            let timedOut = screenCaptureKitDidTimeOut
-            Task {
-                await captureCoordinator.finish(
-                    admission,
-                    screenCaptureKitDidTimeOut: timedOut
-                )
-            }
+            captureCoordinator.finish(
+                admission,
+                screenCaptureKitDidTimeOut: screenCaptureKitDidTimeOut
+            )
         }
 
         let captureTarget: CGWindowID? = v2MainSync {
-            let candidateWindows = NSApp.orderedWindows.filter { window in
+            let candidateWindows = NSApp.windows.filter { window in
                 window.isVisible &&
                 !window.isMiniaturized &&
                 window.contentView != nil &&
-                !window.frame.isEmpty &&
-                (AppDelegate.shared?.isMainTerminalWindow(window) ?? false)
+                !window.frame.isEmpty
             }
-            let preferredWindow = [self.tabManager?.window, NSApp.keyWindow, NSApp.mainWindow]
-                .compactMap { $0 }
-                .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.first
+            let window = WindowScreenshotWindowSelector.select(
+                eligibleWindows: candidateWindows,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow,
+                terminalWindow: self.tabManager?.window
+            )
 
             guard let window,
                   let windowID = WindowScreenshotTarget(

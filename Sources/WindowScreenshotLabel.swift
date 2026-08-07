@@ -3,6 +3,8 @@ import Foundation
 
 /// Converts an optional screenshot label into one safe filename component.
 struct WindowScreenshotLabel: Sendable, Equatable {
+    private static let maximumUTF8ByteCount = 80
+
     let value: String
 
     init(_ input: String) {
@@ -20,7 +22,20 @@ struct WindowScreenshotLabel: Sendable, Equatable {
         }
         let cleaned = String(scalars)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-_."))
-        value = cleaned.isEmpty ? "capture" : String(cleaned.prefix(80))
+        guard !cleaned.isEmpty else {
+            value = "capture"
+            return
+        }
+
+        var byteCount = 0
+        value = String(cleaned.prefix { character in
+            let characterByteCount = String(character).utf8.count
+            guard byteCount + characterByteCount <= Self.maximumUTF8ByteCount else {
+                return false
+            }
+            byteCount += characterByteCount
+            return true
+        })
     }
 }
 #endif

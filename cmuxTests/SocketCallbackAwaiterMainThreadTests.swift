@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -96,43 +97,66 @@ import Testing
         #expect(WindowScreenshotTarget(windowNumber: Int(UInt32.max) + 1) == nil)
     }
 
-    @Test func coordinatorSerializesCaptureAndDisablesTimedOutCompositor() async throws {
+    @Test func coordinatorSerializesCaptureAndDisablesTimedOutCompositor() throws {
         let coordinator = WindowScreenshotCaptureCoordinator()
 
-        let firstClaim = await coordinator.claim()
+        let firstClaim = coordinator.claim()
         let first = try #require(firstClaim)
         #expect(first.allowsScreenCaptureKit)
-        let contendedClaim = await coordinator.claim()
+        let contendedClaim = coordinator.claim()
         #expect(contendedClaim == nil)
 
-        await coordinator.finish(first, screenCaptureKitDidTimeOut: true)
+        coordinator.finish(first, screenCaptureKitDidTimeOut: true)
 
-        let secondClaim = await coordinator.claim()
+        let secondClaim = coordinator.claim()
         let second = try #require(secondClaim)
         #expect(!second.allowsScreenCaptureKit)
-        await coordinator.finish(second, screenCaptureKitDidTimeOut: false)
-        let third = await coordinator.claim()
+        coordinator.finish(second, screenCaptureKitDidTimeOut: false)
+        let third = coordinator.claim()
         #expect(third != nil)
         if let third {
-            await coordinator.finish(third, screenCaptureKitDidTimeOut: false)
+            coordinator.finish(third, screenCaptureKitDidTimeOut: false)
         }
     }
 
-    @Test func coordinatorRetiresAdmissionDeliveredAfterSocketWaiterTimesOut() async throws {
+    @Test func coordinatorReleasesAdmissionBeforeFinishReturns() throws {
         let coordinator = WindowScreenshotCaptureCoordinator()
-        let lateClaimTask = Task {
-            await coordinator.claim()
-        }
+        let first = try #require(coordinator.claim())
 
-        let lateAdmission = try #require(await lateClaimTask.value)
-        let contendedClaim = await coordinator.claim()
-        #expect(contendedClaim == nil)
+        coordinator.finish(first, screenCaptureKitDidTimeOut: false)
 
-        await coordinator.finishAfterClaim(lateClaimTask)
+        let replacement = try #require(coordinator.claim())
+        #expect(replacement.id != first.id)
+        coordinator.finish(first, screenCaptureKitDidTimeOut: false)
+        #expect(coordinator.claim() == nil)
+        coordinator.finish(replacement, screenCaptureKitDidTimeOut: false)
+        let final = try #require(coordinator.claim())
+        coordinator.finish(final, screenCaptureKitDidTimeOut: false)
+    }
 
-        let replacement = try #require(await coordinator.claim())
-        #expect(replacement.id != lateAdmission.id)
-        await coordinator.finish(replacement, screenCaptureKitDidTimeOut: false)
+    @MainActor
+    @Test func keyAuxiliaryWindowWinsOverMainTerminalWindow() throws {
+        let auxiliaryWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 720),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let terminalWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 800),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+
+        let selected = WindowScreenshotWindowSelector.select(
+            eligibleWindows: [terminalWindow, auxiliaryWindow],
+            keyWindow: auxiliaryWindow,
+            mainWindow: terminalWindow,
+            terminalWindow: terminalWindow
+        )
+
+        #expect(selected === auxiliaryWindow)
     }
 
     @Test func screenshotLabelsCannotCreatePathComponents() {
@@ -143,5 +167,9 @@ import Testing
         )
         #expect(WindowScreenshotLabel("../../outside/file").value == "outside-file")
         #expect(WindowScreenshotLabel("///").value == "capture")
+
+        let unicodeLabel = WindowScreenshotLabel(String(repeating: "界", count: 80)).value
+        #expect(unicodeLabel.utf8.count <= 80)
+        #expect(unicodeLabel == String(repeating: "界", count: 26))
     }
 }

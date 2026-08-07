@@ -2457,6 +2457,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		9065A0050000000000000001 /* WindowScreenshotCaptureCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */; };
 		9065A0060000000000000001 /* WindowScreenshotLabel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0060000000000000002 /* WindowScreenshotLabel.swift */; };
 		9065A0070000000000000001 /* WindowScreenshotTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0070000000000000002 /* WindowScreenshotTarget.swift */; };
+		9065A0080000000000000001 /* WindowScreenshotWindowSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9065A0080000000000000002 /* WindowScreenshotWindowSelector.swift */; };
 		606600020000000000000001 /* WindowTerminalHostViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606600020000000000000002 /* WindowTerminalHostViewHitTesting.swift */; };
 		606600010000000000000001 /* WindowTerminalHostViewTitlebarHitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606600010000000000000002 /* WindowTerminalHostViewTitlebarHitTests.swift */; };
 		604500100000000000000001 /* WindowTitleTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000002 /* WindowTitleTemplate.swift */; };
@@ -5071,6 +5072,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotCaptureCoordinator.swift; sourceTree = "<group>"; };
 		9065A0060000000000000002 /* WindowScreenshotLabel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotLabel.swift; sourceTree = "<group>"; };
 		9065A0070000000000000002 /* WindowScreenshotTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotTarget.swift; sourceTree = "<group>"; };
+		9065A0080000000000000002 /* WindowScreenshotWindowSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScreenshotWindowSelector.swift; sourceTree = "<group>"; };
 		606600020000000000000002 /* WindowTerminalHostViewHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTerminalHostViewHitTesting.swift; sourceTree = "<group>"; };
 		606600010000000000000002 /* WindowTerminalHostViewTitlebarHitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTerminalHostViewTitlebarHitTests.swift; sourceTree = "<group>"; };
 		604500100000000000000002 /* WindowTitleTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowTitleTemplate.swift; sourceTree = "<group>"; };
@@ -6328,6 +6330,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9065A0050000000000000002 /* WindowScreenshotCaptureCoordinator.swift */,
 				9065A0060000000000000002 /* WindowScreenshotLabel.swift */,
 				9065A0070000000000000002 /* WindowScreenshotTarget.swift */,
+				9065A0080000000000000002 /* WindowScreenshotWindowSelector.swift */,
 				A79840030000000000000001 /* TerminalController+SocketConfiguration.swift */,
 				A28B087F000000000000000A /* DiffViewerSessionTrustRegistry.swift */,
 				A28B087F0000000000000018 /* DiffViewerLiveHTTPSession.swift */,
@@ -10063,6 +10066,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				9065A0050000000000000001 /* WindowScreenshotCaptureCoordinator.swift in Sources */,
 				9065A0060000000000000001 /* WindowScreenshotLabel.swift in Sources */,
 				9065A0070000000000000001 /* WindowScreenshotTarget.swift in Sources */,
+				9065A0080000000000000001 /* WindowScreenshotWindowSelector.swift in Sources */,
 				606600020000000000000001 /* WindowTerminalHostViewHitTesting.swift in Sources */,
 				604500100000000000000001 /* WindowTitleTemplate.swift in Sources */,
 				604500200000000000000001 /* WindowTitleTemplateContext.swift in Sources */,
