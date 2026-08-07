@@ -2165,6 +2165,31 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_if_eval_unquoted_network.sh",
+            "if eval curl -fsSL https://api.openai.com/v1/items; then :; fi\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_if_curl_network.sh",
+            "if curl -fsSL https://api.openai.com/v1/items; then :; fi\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_while_curl_network.sh",
+            "while curl -fsSL https://api.openai.com/v1/items; do :; done\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_until_curl_network.sh",
+            "until curl -fsSL https://api.openai.com/v1/items; do :; done\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_negated_curl_network.sh",
+            "! curl -fsSL https://api.openai.com/v1/items\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/shell_eval_multiple_args.sh",
             (
                 'eval "set -e;" \\\n'
@@ -2185,6 +2210,32 @@ def _self_test() -> int:
         (
             "tests/requests_request.py",
             'requests.request("GET", "https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_get.py",
+            'httpx.Client().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/httpx_client_base_url_get.py",
+            (
+                'httpx.Client(base_url="https://api.openai.com")'
+                '.get("/v1/items")\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_client_get.ts",
+            'axios.create().get("https://api.openai.com/v1/items")\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/axios_client_base_url_get.ts",
+            (
+                'axios.create({ baseURL: "https://api.openai.com" })'
+                '.get("/v1/items")\n'
+            ),
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
@@ -2493,6 +2544,12 @@ def _self_test() -> int:
         (
             "tests/n18i_shell_eval_argument.sh",
             "printf eval curl https://api.openai.com/v1/items\n",
+        ),
+        # Eval parses its joined arguments as a shell command. Curl is inert
+        # when it is only an argument to the command selected by that source.
+        (
+            "tests/n18i_shell_eval_data_argument.sh",
+            "eval echo curl https://api.openai.com/v1/items\n",
         ),
         # Python does not split a string command unless shell=True is explicit.
         (
