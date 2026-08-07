@@ -85,6 +85,10 @@ extension CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the provider binary would otherwise shadow the real executable and
+            // fail at execv (#8743). Reject directories the way the configured-candidate
+            // path in `resolveClaudeExecutable` already does.
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
                   !isDirectory.boolValue,

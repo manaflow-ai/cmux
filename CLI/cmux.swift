@@ -1795,6 +1795,7 @@ final class SocketClient {
 
     private let path: String
     private(set) var socketFD: Int32 = -1
+    private var streamReadBuffer = Data()
     private var lastConfiguredReceiveTimeout: TimeInterval?
     private var lastOperationTelemetry: CLISocketOperationTelemetry.State?
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
@@ -1959,6 +1960,7 @@ final class SocketClient {
             Darwin.close(socketFD)
             socketFD = -1
         }
+        streamReadBuffer.removeAll(keepingCapacity: true)
         lastConfiguredReceiveTimeout = nil
     }
 
@@ -2943,6 +2945,7 @@ final class SocketClient {
     func streamV2(
         method: String,
         params: [String: Any] = [:],
+        deadline: Date? = nil,
         onLine: (String) throws -> Void
     ) throws {
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
@@ -2960,26 +2963,60 @@ final class SocketClient {
         try writeAll(
             Data((capabilityWrappedCommand(requestLine) + "\n").utf8),
             timeoutMessage: "Stream request timed out",
-            failureMessage: "Failed to write stream request"
+            failureMessage: "Failed to write stream request",
+            deadline: deadline
         )
 
         while true {
-            let line = try readStreamLine()
+            let line = try readStreamLine(deadline: deadline)
             try onLine(line)
         }
     }
 
-    private func readStreamLine(maxBytes: Int = 4 * 1024 * 1024) throws -> String {
-        var data = Data()
-        try configureReceiveTimeout(45)
-        while data.count < maxBytes {
-            var byte: UInt8 = 0
-            let count = Darwin.read(socketFD, &byte, 1)
+    private func readStreamLine(
+        maxBytes: Int = 4 * 1024 * 1024,
+        deadline: Date? = nil
+    ) throws -> String {
+        if deadline == nil {
+            try configureReceiveTimeout(45)
+        }
+        while true {
+            if let newlineIndex = streamReadBuffer.firstIndex(of: 0x0A) {
+                let lineByteCount = streamReadBuffer.distance(
+                    from: streamReadBuffer.startIndex,
+                    to: newlineIndex
+                )
+                guard lineByteCount < maxBytes else {
+                    throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+                }
+                let lineData = streamReadBuffer[..<newlineIndex]
+                guard let line = String(data: Data(lineData), encoding: .utf8) else {
+                    throw CLIError(message: "Invalid UTF-8 event stream frame")
+                }
+                streamReadBuffer.removeSubrange(...newlineIndex)
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard streamReadBuffer.count < maxBytes else {
+                throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+            }
+            if let deadline {
+                try waitForReadableStream(deadline: deadline)
+            }
+            var chunk = [UInt8](repeating: 0, count: 8 * 1_024)
+            let count = chunk.withUnsafeMutableBytes { bytes in
+                Darwin.read(socketFD, bytes.baseAddress, bytes.count)
+            }
             if count < 0 {
                 if errno == EINTR {
                     continue
                 }
                 if errno == EAGAIN || errno == EWOULDBLOCK {
+                    if let deadline {
+                        guard deadline.timeIntervalSinceNow > 0 else {
+                            throw CLIError(message: "Event stream deadline exceeded")
+                        }
+                        continue
+                    }
                     throw CLIError(message: "Timed out waiting for event stream frame")
                 }
                 throw CLIError(message: "Event stream socket read error")
@@ -2987,15 +3024,36 @@ final class SocketClient {
             if count == 0 {
                 throw CLIError(message: "Event stream closed")
             }
-            if byte == 0x0A {
-                guard let line = String(data: data, encoding: .utf8) else {
-                    throw CLIError(message: "Invalid UTF-8 event stream frame")
-                }
-                return line.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            data.append(byte)
+            streamReadBuffer.append(contentsOf: chunk.prefix(count))
         }
-        throw CLIError(message: "Event stream frame exceeded \(maxBytes) bytes")
+    }
+
+    private func waitForReadableStream(deadline: Date) throws {
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Event stream deadline exceeded")
+            }
+            var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
+            let timeoutMilliseconds = min(
+                max(Int(ceil(remaining * 1_000)), 0),
+                Int(Int32.max)
+            )
+            let ready = Darwin.poll(
+                &descriptor,
+                1,
+                Int32(timeoutMilliseconds)
+            )
+            if ready > 0 {
+                return
+            }
+            if ready == 0 {
+                throw CLIError(message: "Event stream deadline exceeded")
+            }
+            if errno != EINTR {
+                throw CLIError(message: "Event stream socket read error")
+            }
+        }
     }
 }
 
@@ -4498,45 +4556,51 @@ struct CMUXCLI {
                 params["window_id"] = targetWindow
             }
             let includeCaller = !hasFlag(commandArgs, name: "--no-caller")
-            if includeCaller {
-                let idWsFlag = optionValue(commandArgs, name: "--workspace")
-                let idSurfaceFlag = optionValue(commandArgs, name: "--surface")
-                let workspaceArg = idWsFlag ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-                let surfaceArg = idSurfaceFlag ?? (idWsFlag == nil && effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-                if workspaceArg != nil || surfaceArg != nil {
-                    let workspaceId = try normalizeWorkspaceHandle(
-                        workspaceArg,
-                        client: client,
-                        windowHandle: targetWindow,
-                        allowCurrent: surfaceArg != nil
-                    )
-                    var caller: [String: Any] = [:]
-                    if let workspaceId {
-                        caller["workspace_id"] = workspaceId
-                    }
-                    if surfaceArg != nil {
-                        guard let surfaceId = try normalizeSurfaceHandle(
-                            surfaceArg,
+            let idWsFlag = optionValue(commandArgs, name: "--workspace")
+            let idSurfaceFlag = optionValue(commandArgs, name: "--surface")
+            let usesImplicitCaller = includeCaller
+                && effectiveWindowRaw == nil
+                && idWsFlag == nil
+                && idSurfaceFlag == nil
+            let response: [String: Any]
+            if usesImplicitCaller {
+                response = try implicitCallerIdentifyResponse(
+                    client: client,
+                    processEnvironment: processEnv
+                )
+            } else {
+                if includeCaller {
+                    let workspaceArg = idWsFlag ?? (effectiveWindowRaw == nil ? processEnv["CMUX_WORKSPACE_ID"] : nil)
+                    let surfaceArg = idSurfaceFlag ?? (idWsFlag == nil && effectiveWindowRaw == nil ? processEnv["CMUX_SURFACE_ID"] : nil)
+                    if workspaceArg != nil || surfaceArg != nil {
+                        let workspaceId = try normalizeWorkspaceHandle(
+                            workspaceArg,
                             client: client,
-                            workspaceHandle: workspaceId,
-                            windowHandle: targetWindow
-                        ) else {
-                            throw CLIError(message: "Invalid surface handle")
+                            windowHandle: targetWindow,
+                            allowCurrent: surfaceArg != nil
+                        )
+                        var caller: [String: Any] = [:]
+                        if let workspaceId {
+                            caller["workspace_id"] = workspaceId
                         }
-                        caller["surface_id"] = surfaceId
-                    }
-                    if !caller.isEmpty {
-                        params["caller"] = caller
+                        if surfaceArg != nil {
+                            guard let surfaceId = try normalizeSurfaceHandle(
+                                surfaceArg,
+                                client: client,
+                                workspaceHandle: workspaceId,
+                                windowHandle: targetWindow
+                            ) else {
+                                throw CLIError(message: "Invalid surface handle")
+                            }
+                            caller["surface_id"] = surfaceId
+                        }
+                        if !caller.isEmpty {
+                            params["caller"] = caller
+                        }
                     }
                 }
-                if effectiveWindowRaw == nil,
-                   idWsFlag == nil,
-                   idSurfaceFlag == nil,
-                   let callerTTY = resolveCallerDescriptorTTYName() {
-                    params["caller_tty"] = callerTTY
-                }
+                response = try client.sendV2(method: "system.identify", params: params)
             }
-            let response = try client.sendV2(method: "system.identify", params: params)
             print(jsonString(formatIDs(response, mode: idFormat)))
 
         case "list-windows":
@@ -4673,6 +4737,14 @@ struct CMUXCLI {
                 jsonOutput: jsonOutput,
                 idFormat: idFormat,
                 windowOverride: windowId
+            )
+
+        case "comments":
+            try runCommentsNamespace(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat
             )
 
         case "layout": try runLayoutNamespace(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat, windowOverride: windowId)
@@ -4951,13 +5023,35 @@ struct CMUXCLI {
             let csWsFlag = optionValue(commandArgs, name: "--workspace")
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
             let workspaceArg = csWsFlag ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel") ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            let explicitSurfaceRaw = optionValue(commandArgs, name: "--surface") ?? optionValue(commandArgs, name: "--panel")
+            let surfaceRaw = explicitSurfaceRaw ?? (csWsFlag == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
-            let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            let sfId: String?
+            if let explicitSurfaceRaw {
+                let explicitSurfaceHandle = explicitSurfaceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !explicitSurfaceHandle.isEmpty else {
+                    throw CLIError(message: String(
+                        localized: "cli.surface.error.handleBlank",
+                        defaultValue: "Surface handle is blank"
+                    ))
+                }
+                if let wsId {
+                    sfId = try resolveSurfaceId(explicitSurfaceHandle, workspaceId: wsId, client: client)
+                } else if let winId {
+                    sfId = try normalizeSurfaceHandle(explicitSurfaceHandle, client: client, workspaceHandle: nil, windowHandle: winId)
+                } else {
+                    throw CLIError(message: String(
+                        localized: "cli.closeSurface.error.explicitSurfaceRequiresWorkspaceOrWindow",
+                        defaultValue: "close-surface requires --workspace or --window with explicit --surface"
+                    ))
+                }
+            } else {
+                sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
+            }
             if let sfId { params["surface_id"] = sfId }
             let payload = try client.sendV2(method: "surface.close", params: params)
             if let closedWorkspaceId = (payload["workspace_id"] as? String) ?? wsId,
@@ -7074,6 +7168,17 @@ struct CMUXCLI {
 
         if shellCommand != nil, let unexpected = (remaining + (splitArgs.argv ?? [])).first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
+        }
+        if let unknownFlag = remaining.first(where: { $0.hasPrefix("-") && $0 != "-" }) {
+            let knownFlags = Self.surfaceResumeSetValueOptions.sorted().joined(separator: ", ")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.surfaceResume.set.error.unknownFlag",
+                    defaultValue: "surface resume set: unknown flag '%1$@'. Known flags: %2$@. Use -- <argv...> for command arguments."
+                ),
+                unknownFlag,
+                knownFlags
+            ))
         }
         if splitArgs.argv != nil, let unexpected = remaining.first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
@@ -10238,10 +10343,10 @@ struct CMUXCLI {
                 "  cmux_relay_cli=\"$HOME/.cmux/bin/cmux\"",
                 "  if [ ! -x \"$cmux_relay_cli\" ]; then cmux_relay_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
                 "  if [ -n \"$cmux_relay_cli\" ]; then",
-                "    ( cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "    ( cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\",\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
                 "      cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"reason\":\"command\"}'",
                 "      if [ -n \"__CMUX_SURFACE_ID__\" ]; then",
-                "        cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\"}'",
+                "        cmux_relay_report_tty='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"tty_name\":\"'$cmux_bootstrap_tty'\",\"terminal_lifecycle_id\":\"__CMUX_TERMINAL_LIFECYCLE_ID__\",\"attempt_id\":\"__CMUX_SSH_ATTEMPT_ID__\"}'",
                 "        cmux_relay_ports_kick='{\"workspace_id\":\"__CMUX_WORKSPACE_ID__\",\"surface_id\":\"__CMUX_SURFACE_ID__\",\"reason\":\"command\"}'",
                 "      fi",
                 "      env -u CMUX_SOCKET CMUX_SOCKET_PATH=\"127.0.0.1:\(remoteRelayPort)\" \"$cmux_relay_cli\" rpc surface.report_tty \"$cmux_relay_report_tty\" >/dev/null 2>&1 || true",
@@ -15374,26 +15479,51 @@ struct CMUXCLI {
     }
 
     private func resolveSurfaceId(_ raw: String?, workspaceId: String, client: SocketClient) throws -> String {
-        if let raw, isUUID(raw) {
-            return raw
-        }
-        if let raw, isHandleRef(raw) {
-            let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
-            let items = listed["surfaces"] as? [[String: Any]] ?? []
-            for item in items where (item["ref"] as? String) == raw {
-                if let id = item["id"] as? String { return id }
-            }
-            throw CLIError(message: "Surface ref not found: \(raw)")
-        }
-
         let listed = try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])
         let items = listed["surfaces"] as? [[String: Any]] ?? []
 
-        if let raw, let index = Int(raw) {
+        if let raw {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw CLIError(message: String(
+                    localized: "cli.surface.error.handleBlank",
+                    defaultValue: "Surface handle is blank"
+                ))
+            }
+            if isUUID(trimmed) {
+                for item in items where surfaceHandleMatches(trimmed, item: item) {
+                    if let id = item["id"] as? String { return id }
+                }
+                throw CLIError(message: localizedFormat(
+                    "cli.surface.error.notFound",
+                    defaultValue: "Surface not found: %@",
+                    trimmed
+                ))
+            }
+            if isHandleRef(trimmed) {
+                for item in items where surfaceHandleMatches(trimmed, item: item) {
+                    if let id = item["id"] as? String { return id }
+                }
+                throw CLIError(message: localizedFormat(
+                    "cli.surface.error.refNotFound",
+                    defaultValue: "Surface ref not found: %@",
+                    trimmed
+                ))
+            }
+            guard let index = Int(trimmed) else {
+                throw CLIError(message: localizedFormat(
+                    "cli.surface.error.invalidHandle",
+                    defaultValue: "Invalid surface handle: %@ (expected UUID, ref like surface:1, or index)",
+                    trimmed
+                ))
+            }
             for item in items where intFromAny(item["index"]) == index {
                 if let id = item["id"] as? String { return id }
             }
-            throw CLIError(message: "Surface index not found")
+            throw CLIError(message: String(
+                localized: "cli.surface.error.indexNotFound",
+                defaultValue: "Surface index not found"
+            ))
         }
 
         if let focused = items.first(where: { ($0["focused"] as? Bool) == true }) {
@@ -15473,6 +15603,8 @@ struct CMUXCLI {
             return Self.remotesUsage
         case "todo":
             return Self.todoUsage
+        case "comments":
+            return Self.commentsUsage
         case "ai-accounts":
             return Self.aiAccountsUsage
         case "ping":
@@ -15482,12 +15614,15 @@ struct CMUXCLI {
             Check connectivity to the cmux socket server.
             """
         case "iroh-diag":
-            return """
-            Usage: cmux iroh-diag
+            return String(
+                localized: "cli.help.irohDiag",
+                defaultValue: """
+                Usage: cmux iroh-diag
 
-            Print the host's iroh Connection Report (cmuxdiag v1 compact export),
-            the same data as Settings > Networking > Connection Report.
-            """
+                Print the host's Iroh Connection Report as a plain-language timeline,
+                the same data as Settings > Networking > Connection Report.
+                """
+            )
         case "capabilities":
             return """
             Usage: cmux capabilities
@@ -15532,6 +15667,14 @@ struct CMUXCLI {
         case "ios":
             return iosSubcommandUsage()
         case "events":
+            let timeoutDescription = String(
+                localized: "cli.events.help.timeout",
+                defaultValue: "Exit unsuccessfully if no matching event arrives before the deadline"
+            )
+            let snapshotDescription = String(
+                localized: "cli.events.help.snapshot",
+                defaultValue: "Print the subscription snapshot and exit"
+            )
             return """
             Usage: cmux events [options]
 
@@ -15544,6 +15687,8 @@ struct CMUXCLI {
               --category <name>      Filter by category, repeatable
               --reconnect            Reconnect forever and resume from the last received sequence
               --limit <n>            Exit after printing n event frames
+              --timeout <seconds>    \(timeoutDescription)
+              --snapshot             \(snapshotDescription)
               --no-ack               Do not print the subscription ack frame
               --no-heartbeat         Do not print heartbeat frames
 
@@ -15700,11 +15845,13 @@ struct CMUXCLI {
             """
         case "restore":
             return String(localized: "cli.restore.help", defaultValue: """
-            Usage: cmux restore <kind> <checkpoint-id>
+            Usage: cmux restore [--surface <id|ref>] <kind> <checkpoint-id>
+                   cmux restore <kind> <checkpoint-id> --surface <id|ref>
+                   cmux restore --surface=<id|ref> <kind> <checkpoint-id>
                    cmux restore --surface [id|ref]
 
             Replace this CLI process with the persisted surface process. New
-            records preserve argv, environment, and cwd as structured values;
+            records preserve launch arguments and cwd as structured values;
             command-only records from older builds use a compatibility shell.
             With no id or ref, --surface uses the calling cmux surface.
             """)
@@ -22428,7 +22575,12 @@ struct CMUXCLI {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
-            if FileManager.default.isExecutableFile(atPath: candidate) {
+            // `isExecutableFile(atPath:)` is true for directories, so a directory named
+            // like the binary would otherwise shadow the real executable (#8743).
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
+               !isDirectory.boolValue,
+               FileManager.default.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
@@ -26132,6 +26284,97 @@ struct CMUXCLI {
         return resolveCallerDescriptorTTYName()
     }
 
+    func implicitCallerIdentifyResponse(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> [String: Any] {
+        let callerTTY = resolveCallerDescriptorTTYName()
+            ?? resolveCallerTTYName(includeAmbientTTY: false)
+        if let callerTTY {
+            let ttyResponse = try client.sendV2(
+                method: "system.identify",
+                params: ["caller_tty": callerTTY]
+            )
+            if identifiedCallerSurfaceID(in: ttyResponse) != nil
+                || identifyResponseHasMalformedCallerSurface(ttyResponse) {
+                return ttyResponse
+            }
+            if let environmentParams = try implicitCallerEnvironmentIdentifyParams(
+                client: client,
+                processEnvironment: processEnvironment
+            ) {
+                return try client.sendV2(
+                    method: "system.identify",
+                    params: environmentParams
+                )
+            }
+            return ttyResponse
+        }
+
+        if let environmentParams = try implicitCallerEnvironmentIdentifyParams(
+            client: client,
+            processEnvironment: processEnvironment
+        ) {
+            return try client.sendV2(
+                method: "system.identify",
+                params: environmentParams
+            )
+        }
+        return try client.sendV2(method: "system.identify")
+    }
+
+    func identifiedCallerSurfaceID(in response: [String: Any]) -> String? {
+        guard let caller = response["caller"] as? [String: Any],
+              let surfaceID = normalizedHandleValue(caller["surface_id"] as? String),
+              isUUID(surfaceID) else {
+            return nil
+        }
+        return surfaceID
+    }
+
+    private func implicitCallerEnvironmentIdentifyParams(
+        client: SocketClient,
+        processEnvironment: [String: String]
+    ) throws -> [String: Any]? {
+        let workspaceArg = normalizedHandleValue(processEnvironment["CMUX_WORKSPACE_ID"])
+        let surfaceArg = normalizedHandleValue(processEnvironment["CMUX_SURFACE_ID"])
+        guard workspaceArg != nil || surfaceArg != nil else { return nil }
+
+        let workspaceID = try normalizeWorkspaceHandle(
+            workspaceArg,
+            client: client,
+            allowCurrent: surfaceArg != nil
+        )
+        var caller: [String: Any] = [:]
+        if let workspaceID {
+            caller["workspace_id"] = workspaceID
+        }
+        if let surfaceArg {
+            guard let surfaceID = try normalizeSurfaceHandle(
+                surfaceArg,
+                client: client,
+                workspaceHandle: workspaceID,
+                windowHandle: nil
+            ) else {
+                return nil
+            }
+            caller["surface_id"] = surfaceID
+        }
+        guard !caller.isEmpty else { return nil }
+        return ["caller": caller]
+    }
+
+    private func identifyResponseHasMalformedCallerSurface(
+        _ response: [String: Any]
+    ) -> Bool {
+        guard let caller = response["caller"] as? [String: Any],
+              let surface = caller["surface_id"],
+              !(surface is NSNull) else {
+            return false
+        }
+        return identifiedCallerSurfaceID(in: response) == nil
+    }
+
     func resolveCallerDescriptorTTYName() -> String? {
         for fileDescriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
             if let rawTTYName = ttyname(fileDescriptor),
@@ -28573,7 +28816,7 @@ struct CMUXCLI {
     }
 
     private func selectedAgentLaunchEnvironment(from env: [String: String], kind: String? = nil) -> [String: String] {
-        var selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: env, kind: kind)
+        var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(from: env, kind: kind)
         if kind == "hermes-agent" {
             selected = HermesAgentCodexEnvironment.applyingDefaultCodexBaseURL(
                 to: selected,
@@ -30980,6 +31223,27 @@ export default CMUXSessionRestore;
                 body: body
             )
         }
+        func notificationTitle(workspaceId: String, surfaceId: String) -> String {
+            let surfaceTitle: String? = {
+                guard def.name == "pi",
+                      let listed = try? client.sendV2(
+                          method: "surface.list",
+                          params: ["workspace_id": workspaceId]
+                      ),
+                      let surfaces = listed["surfaces"] as? [[String: Any]],
+                      let surface = surfaces.first(where: {
+                          surfaceHandleMatches(surfaceId, item: $0)
+                      }) else {
+                    return nil
+                }
+                return surface["title"] as? String
+            }()
+            return AgentHookNotificationPolicy.notificationTitle(
+                agentName: def.name,
+                displayName: def.displayName,
+                surfaceTitle: surfaceTitle
+            )
+        }
         func hasActiveAntigravityBackgroundWork() -> Bool {
             def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
         }
@@ -31860,7 +32124,12 @@ export default CMUXSessionRestore;
                 let stopMeta: String? = stopNotificationStatus == .idle
                     ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
                     : nil
-                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body, meta: stopMeta)
+                let payload = notificationPayload(
+                    title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
+                    subtitle: subtitle,
+                    body: body,
+                    meta: stopMeta
+                )
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -32259,7 +32528,12 @@ export default CMUXSessionRestore;
                     pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
                         && hasActiveAntigravityBackgroundWork()
                 )
-                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body, meta: notificationMeta)
+                let payload = notificationPayload(
+                    title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
+                    subtitle: summary.subtitle,
+                    body: summary.body,
+                    meta: notificationMeta
+                )
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
@@ -35278,6 +35552,9 @@ export default CMUXSessionRestore;
                 print(subcommandUsage("hooks") ?? "Usage: cmux hooks <setup|uninstall|agent>")
                 return true
             }
+            if def.name == "pi", action == "session-start" {
+                refreshManagedPiExtensionIfNeeded(def)
+            }
             let actionArgs = Array(rest.dropFirst())
             switch action {
             case "inject-args" where def.name == "codex":
@@ -35897,7 +36174,7 @@ export default CMUXSessionRestore;
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>
-          restore <kind> <checkpoint-id> | restore --surface [id|ref]
+          \(restoreCommandUsageLine)
           restore-session
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
@@ -35937,6 +36214,7 @@ export default CMUXSessionRestore;
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           workspace status [set <lane|auto>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           todo <add|list|check|uncheck|start|rm|clear> [args] [--workspace <id|ref|index>] [--window <id|ref|index>]
+          comments list [--repo <path>] [--all] [--json]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
