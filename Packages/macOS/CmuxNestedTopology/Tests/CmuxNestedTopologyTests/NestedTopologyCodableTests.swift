@@ -40,6 +40,80 @@ struct NestedTopologyCodableTests {
         ])
     }
 
+    @Test("opaque identity and association bytes survive Codable round trips")
+    func opaqueUTF8RoundTrip() throws {
+        let leadingByteOrderMark = "\u{FEFF}"
+        let provider = NestedProviderIdentity(
+            kind: NestedProviderKind(rawValue: "\(leadingByteOrderMark)herdr"),
+            instanceID: NestedProviderInstanceID(
+                rawValue: "\(leadingByteOrderMark)provider",
+                generation: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+            )
+        )
+        func id(_ rawID: String, kind: NestedNodeKind) -> NestedNodeID {
+            NestedNodeID(
+                provider: provider,
+                kind: kind,
+                rawID: "\(leadingByteOrderMark)\(rawID)"
+            )
+        }
+        let workspaceID = id("workspace", kind: .workspace)
+        let tabID = id("tab", kind: .tab)
+        let paneID = id("pane", kind: .pane)
+        let agentID = id("agent", kind: .agent)
+        let snapshot = try NestedTopologySnapshot(
+            provider: provider,
+            capabilities: NestedProviderCapabilities([
+                NestedProviderCapability(rawValue: "\(leadingByteOrderMark)capability"),
+            ]),
+            workspaces: [NestedWorkspaceNode(
+                id: workspaceID,
+                order: 0,
+                title: nil
+            )],
+            tabs: [NestedTabNode(
+                id: tabID,
+                workspaceID: workspaceID,
+                order: 0,
+                title: nil
+            )],
+            panes: [NestedPaneNode(
+                id: paneID,
+                association: NestedParentAssociation(
+                    key: NestedAssociationKey(
+                        paneID: paneID,
+                        sessionID: "\(leadingByteOrderMark)pane-session"
+                    ),
+                    tabID: tabID,
+                    authority: .provider,
+                    heuristicAlreadySatisfied: false
+                ),
+                order: 0,
+                title: nil
+            )],
+            agents: [NestedAgentNode(
+                id: agentID,
+                paneID: paneID,
+                sessionID: "\(leadingByteOrderMark)agent-session",
+                order: 0,
+                title: nil,
+                status: NestedAgentStatus(presentation: .idle, providerRawValue: "idle")
+            )],
+            focus: .none
+        )
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(NestedTopologySnapshot.self, from: data)
+
+        #expect(decoded.provider == snapshot.provider)
+        #expect(decoded.capabilities == snapshot.capabilities)
+        #expect(decoded.workspaces[0].id == workspaceID)
+        #expect(decoded.panes[0].association.key == snapshot.panes[0].association.key)
+        #expect(decoded.agents[0].sessionID.map(ExactUTF8String.init)
+            == snapshot.agents[0].sessionID.map(ExactUTF8String.init))
+        #expect(decoded == snapshot)
+    }
+
     @Test("events round-trip as typed structured mutations")
     func eventRoundTrip() throws {
         let fixture = NestedTopologyTestFixture()
