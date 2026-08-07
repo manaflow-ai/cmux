@@ -6777,7 +6777,10 @@ final class cmuxUITests: XCTestCase {
         let initialKeyboardSamples = initial["dockFrameKeyboardSamples"].flatMap(Int.init) ?? 0
 
         for cycle in 1...12 {
-            field.tap()
+            XCTAssertTrue(
+                focusTextInput(field, in: app),
+                "cycle \(cycle): MobileComposerField must acquire keyboard focus"
+            )
             let keyboardUp = waitForDock(
                 in: app,
                 timeout: 4,
