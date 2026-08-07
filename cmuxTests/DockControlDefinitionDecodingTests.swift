@@ -438,7 +438,7 @@ struct DockControlDefinitionDecodingTests {
             }
 
             let workspace = try #require(manager.tabs.first)
-            let store = workspace.dockSplit
+            let store = workspace.requiredDockSplitForTesting
             let rootPane = try #require(
                 store.bonsplitController.allPaneIds.first
             )
