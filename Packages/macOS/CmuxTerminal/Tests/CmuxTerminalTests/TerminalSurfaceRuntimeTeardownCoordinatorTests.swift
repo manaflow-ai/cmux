@@ -179,6 +179,74 @@ private final class LifetimeRecordingByteTeeLease: TerminalByteTeeLease, @unchec
         #expect(await stuckTicket.wait(timeout: .seconds(5)))
     }
 
+    @Test func allBlockedCloseSlotsStillBeginLaterProcessTeardown() async throws {
+        let begunSurfaceBits = OSAllocatedUnfairLock(initialState: Set<UInt>())
+        let coordinator = TerminalSurfaceRuntimeTeardownCoordinator(
+            beginSurfaceTeardown: { surface in
+                begunSurfaceBits.withLock {
+                    _ = $0.insert(UInt(bitPattern: surface))
+                }
+            }
+        )
+        let surfaces = (0..<3).map { _ in
+            UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        }
+        defer { for surface in surfaces { surface.deallocate() } }
+        let blockedFreeStarted = AsyncStream<UInt>.makeStream()
+        let releaseBlockedFrees = DispatchSemaphore(value: 0)
+        let laterFreeCount = OSAllocatedUnfairLock(initialState: 0)
+        defer {
+            releaseBlockedFrees.signal()
+            releaseBlockedFrees.signal()
+            blockedFreeStarted.continuation.finish()
+        }
+
+        let blockedTickets = surfaces.prefix(2).map { surface in
+            coordinator.enqueueRuntimeTeardown(
+                id: UUID(),
+                workspaceId: UUID(),
+                reason: "test.blockedCloseSlot",
+                surface: surface,
+                callbackContext: nil,
+                freeSurface: { pointer in
+                    blockedFreeStarted.continuation.yield(
+                        UInt(bitPattern: pointer)
+                    )
+                    _ = releaseBlockedFrees.wait(timeout: .distantFuture)
+                }
+            )
+        }
+        var blockedFreeIterator = blockedFreeStarted.stream.makeAsyncIterator()
+        _ = await blockedFreeIterator.next()
+        _ = await blockedFreeIterator.next()
+
+        let laterTicket = coordinator.enqueueRuntimeTeardown(
+            id: UUID(),
+            workspaceId: UUID(),
+            reason: "test.closeBeyondBlockedSlots",
+            surface: surfaces[2],
+            callbackContext: nil,
+            freeSurface: { _ in
+                laterFreeCount.withLock { $0 += 1 }
+            }
+        )
+
+        #expect(
+            begunSurfaceBits.withLock { $0 } ==
+                Set(surfaces.map { UInt(bitPattern: $0) })
+        )
+        #expect(laterFreeCount.withLock { $0 } == 0)
+        #expect(await laterTicket.wait(timeout: .zero) == false)
+
+        releaseBlockedFrees.signal()
+        releaseBlockedFrees.signal()
+        for ticket in blockedTickets {
+            #expect(await ticket.wait(timeout: .seconds(5)))
+        }
+        #expect(await laterTicket.wait(timeout: .seconds(5)))
+        #expect(laterFreeCount.withLock { $0 } == 1)
+    }
+
     @Test func stuckHibernationFreeDoesNotStrandAnotherAdmissionOrClose() async throws {
         let coordinator = TerminalSurfaceRuntimeTeardownCoordinator()
         let isolatedSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
