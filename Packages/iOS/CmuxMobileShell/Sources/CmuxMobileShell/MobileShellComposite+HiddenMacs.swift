@@ -638,8 +638,9 @@ extension MobileShellComposite {
                 includeUserWideScope: teamlessLegacyIDs.contains(mac.id)
             )
         }
-        guard !Task.isCancelled else { return }
-        guard await isScopeCurrent(scope), !Task.isCancelled else {
+        guard !Task.isCancelled,
+              await isScopeCurrent(scope),
+              !Task.isCancelled else {
             for pairingID in targetPairingIDs {
                 await clearHiddenMacDeviceID(pairingID, scope: scope)
             }
