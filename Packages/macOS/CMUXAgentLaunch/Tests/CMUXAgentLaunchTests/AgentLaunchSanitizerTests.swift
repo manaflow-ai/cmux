@@ -640,5 +640,43 @@ struct AgentLaunchSanitizerTests {
                 workingDirectory: "/tmp/project"
             ) == ["qoder", "--model", "best"]
         )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "--work-dir=/tmp/project", "--model", "kimi-k2"],
+                workingDirectory: "/tmp/project"
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+    }
+
+    @Test("Removes every cwd option while preserving arguments after the boundary")
+    func removesWorkingDirectoryOptions() {
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "--work-dir", "/local/repo", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["grok", "-r", "session", "--cwd=/local/repo", "--", "--cwd", "prompt text"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["grok", "-r", "session", "--", "--cwd", "prompt text"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["codex", "resume", "session", "-C/local/repo", "--model", "gpt-5.4"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
+        )
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: ["kimi", "--resume", "session", "-w/local/repo", "--model", "kimi-k2"],
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
     }
 }

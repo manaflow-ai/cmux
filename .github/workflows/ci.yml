@@ -625,6 +625,26 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      - name: Run remote agent restore cwd regressions
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep remote restore's trusted-cwd boundary on a
+          # non-tolerant focused invocation so a local path cannot leak into a
+          # remote resume command while the broad shard still reports success.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/RemoteAgentRestoreWorkingDirectoryTests \
+            test
+
       - name: Run agent chat transcript lifecycle regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |

@@ -1428,7 +1428,23 @@ extension Workspace {
                     return nil
                 }
                 if restoresRemoteWorkspaceTerminalSnapshot {
-                    return workingDirectory
+                    // Keep directory-keyed agents in the launch namespace while
+                    // id-keyed agents may follow the latest remote runtime cwd.
+                    // Snapshot agent paths are eligible only when the panel's
+                    // remote-directory provenance says they are trusted.
+                    let hasTrustedRemoteDirectory = snapshot.directoryIsTrustedRemoteReport == true
+                    let trustedRuntimeWorkingDirectory = hasTrustedRemoteDirectory
+                        ? savedWorkingDirectory
+                        : nil
+                    let trustedAgentWorkingDirectory = hasTrustedRemoteDirectory
+                        ? (restorableAgent.workingDirectory
+                            ?? restorableAgent.launchCommand?.workingDirectory)
+                        : nil
+                    return AgentResumeWorkingDirectory().resolve(
+                        kind: restorableAgent.kind.rawValue,
+                        runtimeCwd: trustedRuntimeWorkingDirectory,
+                        launchWorkingDirectory: trustedAgentWorkingDirectory
+                    )
                 }
                 return restorableAgent.workingDirectory
                     ?? restorableAgent.launchCommand?.workingDirectory
@@ -1480,7 +1496,7 @@ extension Workspace {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             useLocalRestoreVerb: false,
-                            restoringWorkingDirectory: resumeSessionWorkingDirectory
+                            workingDirectorySelection: .exact(resumeSessionWorkingDirectory)
                         )
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
