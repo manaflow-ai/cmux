@@ -261,6 +261,38 @@ public final class GhosttySurfaceCallbackContext {
         _ id: UInt,
         completingNativeRequest: Bool
     ) {
+        Self.invalidateRuntimeClipboardRequest(
+            id,
+            completingNativeRequest: completingNativeRequest,
+            in: runtimeClipboardState
+        )
+    }
+
+    /// Creates a main-actor invalidation capability for one request.
+    ///
+    /// The returned closure captures only the Sendable, lock-protected request
+    /// registry rather than sending this callback context across isolation
+    /// domains.
+    public func makeRuntimeClipboardInvalidationHandler(
+        for id: UInt,
+        completingNativeRequest: Bool
+    ) -> @MainActor @Sendable () -> Void {
+        let runtimeClipboardState = runtimeClipboardState
+        return {
+            Self.invalidateRuntimeClipboardRequest(
+                id,
+                completingNativeRequest: completingNativeRequest,
+                in: runtimeClipboardState
+            )
+        }
+    }
+
+    @MainActor
+    private static func invalidateRuntimeClipboardRequest(
+        _ id: UInt,
+        completingNativeRequest: Bool,
+        in runtimeClipboardState: OSAllocatedUnfairLock<RuntimeClipboardState>
+    ) {
         let request = runtimeClipboardState.withLock { state in
             state.requests.removeValue(forKey: id)
         }

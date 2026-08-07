@@ -193,6 +193,40 @@ private final class FakeSurfaceHost: TerminalSurfaceHosting {
     }
 
     @Test @MainActor
+    func invalidationHandlerReclaimsItsRequestExactlyOnce() throws {
+        let controller = FakeSurfaceController()
+        let host = FakeSurfaceHost()
+        let context = GhosttySurfaceCallbackContext(
+            surfaceHost: host,
+            surfaceController: controller
+        )
+        let surface = try #require(ghostty_surface_t(bitPattern: 0x19))
+        #expect(context.bindRuntimeClipboardSurface(surface))
+        let invalidationCount = AtomicUInt64Generation()
+        let completedNativeRequest = AtomicBooleanGate(false)
+
+        #expect(context.registerRuntimeClipboardRequest(
+            id: 25,
+            onInvalidation: { _, completesNativeRequest in
+                _ = invalidationCount.advanceRelaxed()
+                completedNativeRequest.storeRelease(completesNativeRequest)
+            }
+        ))
+        #expect(context.commitRuntimeClipboardRequest(25))
+        let invalidate = context.makeRuntimeClipboardInvalidationHandler(
+            for: 25,
+            completingNativeRequest: true
+        )
+
+        invalidate()
+        invalidate()
+
+        #expect(invalidationCount.loadRelaxed() == 1)
+        #expect(completedNativeRequest.loadAcquire())
+        #expect(!context.completeRuntimeClipboardRequest(25))
+    }
+
+    @Test @MainActor
     func invalidatingUncommittedRequestLeavesNativeReclamationToCallback() throws {
         let controller = FakeSurfaceController()
         let host = FakeSurfaceHost()

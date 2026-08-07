@@ -14,12 +14,10 @@ extension GhosttySurfaceCallbackContext {
             return nil
         }
         let inputSequencer = surfaceView?.terminalClipboardInputSequencer
-        let overflowHandler: @MainActor @Sendable () -> Void = { [weak self] in
-            self?.invalidateRuntimeClipboardRequest(
-                id,
-                completingNativeRequest: true
-            )
-        }
+        let overflowHandler = makeRuntimeClipboardInvalidationHandler(
+            for: id,
+            completingNativeRequest: true
+        )
         guard registerRuntimeClipboardRequest(
             id: id,
             reserveAdmission: {
