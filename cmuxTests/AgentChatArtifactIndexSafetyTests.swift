@@ -1,4 +1,5 @@
 import CmuxAgentChat
+import CmuxArtifacts
 import Foundation
 import Testing
 
