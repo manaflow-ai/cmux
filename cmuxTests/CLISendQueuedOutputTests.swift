@@ -88,13 +88,16 @@ struct CLISendQueuedOutputTests {
         environment["LANG"] = "en_US.UTF-8"
         environment["LC_ALL"] = "en_US.UTF-8"
 
+        // Generous bounds: the tolerant full-suite pass runs this alongside
+        // dozens of parallel suites on a loaded app host, where CLI process
+        // startup alone can exceed a few seconds.
         let result = Self.runProcess(
             executablePath: try BundledCLITestSupport.bundledCLIPath(for: CLISendQueuedOutputBundleToken.self),
             arguments: ["send", "--surface", Self.surfaceRef, "echo issue9769"],
             environment: environment,
-            timeout: 5
+            timeout: 30
         )
-        guard handled.wait(timeout: .now() + 5) == .success else {
+        guard handled.wait(timeout: .now() + 30) == .success else {
             throw NSError(
                 domain: "cmux.tests",
                 code: Int(ETIMEDOUT),
