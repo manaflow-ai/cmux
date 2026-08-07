@@ -60,3 +60,5 @@ public struct NestedTabNode: Codable, Equatable, Sendable {
             : order < candidate.order
     }
 }
+
+extension NestedTabNode: NestedTopologyTitledNode {}

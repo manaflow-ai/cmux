@@ -43,3 +43,5 @@ public struct NestedWorkspaceNode: Codable, Equatable, Sendable {
             : order < candidate.order
     }
 }
+
+extension NestedWorkspaceNode: NestedTopologyTitledNode {}

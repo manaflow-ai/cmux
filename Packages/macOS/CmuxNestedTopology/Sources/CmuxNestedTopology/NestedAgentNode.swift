@@ -87,3 +87,5 @@ public struct NestedAgentNode: Codable, Equatable, Sendable {
             : order < candidate.order
     }
 }
+
+extension NestedAgentNode: NestedTopologyTitledNode {}

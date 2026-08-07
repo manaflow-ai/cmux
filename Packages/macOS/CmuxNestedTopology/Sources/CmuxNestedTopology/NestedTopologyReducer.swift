@@ -192,7 +192,7 @@ public struct NestedTopologyReducer: Sendable {
     ) throws {
         try validator.validateEventNode(node, provider: provider)
         if let index = state.lookup.workspaceIndices[node.id] {
-            guard state.workspaces[index] == node else {
+            guard isIdempotentCreate(existing: state.workspaces[index], candidate: node) else {
                 throw NestedTopologyError.duplicateNode(id: node.id)
             }
             return
@@ -235,7 +235,7 @@ public struct NestedTopologyReducer: Sendable {
             exists: state.lookup.workspaceIndices[node.workspaceID] != nil
         )
         if let index = state.lookup.tabIndices[node.id] {
-            guard state.tabs[index] == node else {
+            guard isIdempotentCreate(existing: state.tabs[index], candidate: node) else {
                 throw NestedTopologyError.duplicateNode(id: node.id)
             }
             return
@@ -287,7 +287,7 @@ public struct NestedTopologyReducer: Sendable {
             exists: state.lookup.tabIndices[node.association.tabID] != nil
         )
         if let index = state.lookup.paneIndices[node.id] {
-            guard state.panes[index] == node else {
+            guard isIdempotentCreate(existing: state.panes[index], candidate: node) else {
                 throw NestedTopologyError.duplicateNode(id: node.id)
             }
             return
@@ -339,7 +339,7 @@ public struct NestedTopologyReducer: Sendable {
             exists: state.lookup.paneIndices[node.paneID] != nil
         )
         if let index = state.lookup.agentIndices[node.id] {
-            guard state.agents[index] == node else {
+            guard isIdempotentCreate(existing: state.agents[index], candidate: node) else {
                 throw NestedTopologyError.duplicateNode(id: node.id)
             }
             return
@@ -348,6 +348,17 @@ public struct NestedTopologyReducer: Sendable {
         state.append(node)
         state.agentOrderingChanged = true
         state.didChange = true
+    }
+
+    private func isIdempotentCreate<Node: NestedTopologyTitledNode>(
+        existing: Node,
+        candidate: Node
+    ) -> Bool {
+        guard let localTitle = existing.title,
+              !localTitle.authority.canBeClearedByProvider else {
+            return existing == candidate
+        }
+        return existing == candidate.replacingTitle(with: localTitle)
     }
 
     private func update(

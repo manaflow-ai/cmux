@@ -67,3 +67,5 @@ public struct NestedPaneNode: Codable, Equatable, Sendable {
             : order < candidate.order
     }
 }
+
+extension NestedPaneNode: NestedTopologyTitledNode {}
