@@ -510,6 +510,8 @@ impl PersistentSessionStateResetter {
         } else {
             None
         };
+        #[cfg(test)]
+        inject_reset_recreated_session_dir_after_staging(&session_dir)?;
         drop(lease);
         for (reset_dir, expected_fingerprint) in
             pending_reset_dirs.iter().zip(&confirmation.pending_reset_dir_fingerprints)
@@ -533,6 +535,9 @@ impl PersistentSessionStateResetter {
             )?;
             reset.removed_session_state = true;
         }
+        if reset.removed_session_state && validate_session_reset_dir(&session_dir)? {
+            anyhow::bail!("reset path changed during reset: {}", session_dir.display());
+        }
         if let Some(reset_dir) = terminal_host_reset_dir {
             remove_reset_dir_all(
                 &reset_dir,
@@ -541,6 +546,9 @@ impl PersistentSessionStateResetter {
                 &confirmation.terminal_host_fingerprint,
             )?;
             reset.removed_terminal_hosts = true;
+        }
+        if reset.removed_terminal_hosts && validate_terminal_host_reset_dir(&terminal_host_root)? {
+            anyhow::bail!("reset path changed during reset: {}", terminal_host_root.display());
         }
         platform::sync_directory(root)
             .with_context(|| format!("sync workspace state root {}", root.display()))?;
@@ -1273,6 +1281,25 @@ fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("remove injected reset file {}", path.display()))?;
     fs::write(path, b"replacement")
         .with_context(|| format!("write injected reset file {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(test)]
+fn inject_reset_recreated_session_dir_after_staging(path: &Path) -> anyhow::Result<()> {
+    let mut injected = RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap();
+    let Some(session_dir) = injected.take() else {
+        return Ok(());
+    };
+    if session_dir != path {
+        *injected = Some(session_dir);
+        return Ok(());
+    }
+    fs::create_dir_all(&session_dir)
+        .with_context(|| format!("recreate injected session dir {}", session_dir.display()))?;
+    fs::write(session_dir.join(SESSION_WRITER_LOCK_FILE), b"recreated")
+        .with_context(|| format!("write injected session lock {}", session_dir.display()))?;
+    fs::write(session_dir.join("recreated-sidecar"), b"new")
+        .with_context(|| format!("write injected session sidecar {}", session_dir.display()))?;
     Ok(())
 }
 
@@ -4313,6 +4340,9 @@ static RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS: std::sync::Mutex<Option<
     std::sync::Mutex::new(None);
 #[cfg(test)]
 static RESET_UNSUPPORTED_CHECKED_DELETION_ROOT: std::sync::Mutex<Option<PathBuf>> =
+    std::sync::Mutex::new(None);
+#[cfg(test)]
+static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {

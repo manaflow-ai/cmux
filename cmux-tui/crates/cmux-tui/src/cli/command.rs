@@ -2224,27 +2224,27 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
             }
         };
     let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state_root);
-    let preview = match resetter.preview(&plan.session) {
-        Ok(preview) => preview,
-        Err(error) => {
-            let advice = reset_failure_advice(&error);
-            return super::wire::print_local_error(
-                &json!({
-                    "code": advice.code,
-                    "message": format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery),
-                    "details": {
-                        "session": &plan.session,
-                        "reason": advice.reason,
-                        "recovery": advice.recovery,
-                    },
-                    "retryable": false,
-                }),
-                output,
-                1,
-            );
-        }
-    };
     if !plan.force {
+        let preview = match resetter.preview(&plan.session) {
+            Ok(preview) => preview,
+            Err(error) => {
+                let advice = reset_failure_advice(&error);
+                return super::wire::print_local_error(
+                    &json!({
+                        "code": advice.code,
+                        "message": format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery),
+                        "details": {
+                            "session": &plan.session,
+                            "reason": advice.reason,
+                            "recovery": advice.recovery,
+                        },
+                        "retryable": false,
+                    }),
+                    output,
+                    1,
+                );
+            }
+        };
         return super::wire::print_local_success(
             &json!({
                 "session": plan.session,

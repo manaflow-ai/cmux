@@ -195,6 +195,25 @@ fn reset_refuses_restored_session_when_legacy_writer_lock_is_busy() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn reset_rejects_session_dir_recreated_after_staging() {
+    let root = temp_root("reset-recreated-after-staging");
+    let session = "reset-recreated-after-staging";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"db").unwrap();
+    let preview = resetter.preview(session).unwrap();
+    *RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap() = Some(session_dir.clone());
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"), "{error:#}");
+    assert!(session_dir.exists(), "reset removed recreated session state");
+    assert_eq!(fs::read(session_dir.join("recreated-sidecar")).unwrap(), b"new");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn reset_accepts_partial_session_without_registry() {
