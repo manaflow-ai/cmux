@@ -91,9 +91,7 @@ struct NotificationsPage: View {
             focusedNotificationId = nil
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusedNotificationId = firstId
-        }
+        focusedNotificationId = firstId
     }
 
     private var header: some View {
