@@ -5,6 +5,7 @@ import SwiftUI
 final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let model: FrontendModel
     private(set) var window: NSWindow?
+    private var terminationRequested = false
 
     override init() {
         model = FrontendModel()
@@ -49,8 +50,17 @@ final class NativeMuxDemoAppDelegate: NSObject, NSApplicationDelegate, NSWindowD
 
     func windowWillClose(_ notification: Notification) {
         guard notification.object as? NSWindow === window else { return }
-        model.shutdown()
         window = nil
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationRequested else { return .terminateNow }
+        terminationRequested = true
+        Task { @MainActor in
+            await model.shutdownAndWait()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

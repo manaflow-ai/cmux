@@ -454,7 +454,7 @@ final class FrontendModel {
                     params: params,
                     mutation: true
                 )
-                try await refreshNow()
+                scheduleRefresh()
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -466,6 +466,12 @@ final class FrontendModel {
     }
 
     func shutdown() {
+        Task { @MainActor in
+            await shutdownAndWait()
+        }
+    }
+
+    func shutdownAndWait() async {
         guard !isShuttingDown else { return }
         isShuttingDown = true
         connectTask?.cancel()
@@ -477,11 +483,9 @@ final class FrontendModel {
         let ownedService = service
         service = nil
         snapshot = nil
-        Task {
-            for controller in controllers {
-                await controller.shutdownAndWait()
-            }
-            await ownedService?.shutdown()
+        for controller in controllers {
+            await controller.shutdownAndWait()
         }
+        await ownedService?.shutdown()
     }
 }

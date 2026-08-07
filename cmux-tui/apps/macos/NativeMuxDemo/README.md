@@ -18,7 +18,7 @@ the Swift-hosted `GhosttyKit` surface.
 The demo renders workspaces as vertical tabs, screens as spaces, viewport
 columns as a horizontally scrolling niri layout, recursive splits, stacked
 panes, and terminal/browser content as vertical pane tabs. Pane controls create
-and focus each layout form through `cmux.protocol/1`.
+and focus each layout form through `cmux.protocol/2`.
 
 From the cmuxterm-hq root:
 
