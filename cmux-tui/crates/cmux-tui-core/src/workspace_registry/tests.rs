@@ -3612,6 +3612,139 @@ fn agent_projection_is_derived_from_pi_journal_and_reopen_preserves_continuity()
 }
 
 #[test]
+fn canonical_agent_state_preserves_sequential_roots_children_and_providers() {
+    let root = temp_root("agent-canonical-state");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    let validated = crate::journal_kernel::ValidatedJournalIngress {
+        class: JournalClass::Observation,
+        replay: JournalReplayPolicy::Advisory,
+        sensitivity: JournalSensitivity::Sensitive,
+    };
+    let canonical_rows = {
+        let mut registry = WorkspaceRegistry::open(&root, "agent-canonical-state").unwrap();
+        commit_terminal_topology(&mut registry, "agent-canonical-state-seed");
+        for (key, ingress) in [
+            (
+                "pi_root",
+                crate::agent_hook_journal_ingress(
+                    "pi",
+                    "agent_start",
+                    Some(terminal_id.as_str()),
+                    json!({
+                        "session_id":"pi-root-session",
+                        "agent_id":"pi-root",
+                        "root_agent_id":"pi-root",
+                        "cwd":"/tmp/project"
+                    }),
+                )
+                .unwrap(),
+            ),
+            (
+                "pi_child",
+                crate::agent_hook_journal_ingress(
+                    "pi",
+                    "child_started",
+                    Some(terminal_id.as_str()),
+                    json!({
+                        "session_id":"pi-root-session",
+                        "agent_id":"pi-parent-emitter",
+                        "child_agent_id":"pi-child",
+                        "parent_agent_id":"pi-root",
+                        "root_agent_id":"pi-root"
+                    }),
+                )
+                .unwrap(),
+            ),
+            (
+                "codex_root",
+                crate::agent_hook_journal_ingress(
+                    "codex",
+                    "SessionStart",
+                    Some(terminal_id.as_str()),
+                    json!({
+                        "session_id":"codex-root-session",
+                        "agent_id":"codex-root",
+                        "root_agent_id":"codex-root"
+                    }),
+                )
+                .unwrap(),
+            ),
+        ] {
+            registry.append_journal_ingress(&ingress, &validated, "client_test", key).unwrap();
+        }
+
+        let agents = registry.public_projections().unwrap().agents;
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].terminal_id, terminal_id);
+        assert_eq!(agents[0].source_session.as_deref(), Some("codex-root-session"));
+        assert_eq!(registry.resource_agent_projection_count_for_test().unwrap(), 1);
+
+        registry
+            .connection
+            .prepare(
+                "SELECT result_json
+                 FROM journal_agent_states
+                 ORDER BY json_extract(result_json, '$.provider') ASC,
+                          json_extract(result_json, '$.agent_node_id') ASC",
+            )
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    assert_eq!(
+        canonical_rows.len(),
+        3,
+        "canonical agent state must not collapse roots, children, or providers"
+    );
+    let decoded = canonical_rows
+        .iter()
+        .map(|row| serde_json::from_str::<Value>(row).unwrap())
+        .collect::<Vec<_>>();
+    assert!(decoded.iter().any(|row| {
+        row["provider"] == "pi"
+            && row["source_session"] == "pi-root-session"
+            && row["agent_relation"] == "root"
+    }));
+    assert!(decoded.iter().any(|row| {
+        row["provider"] == "pi"
+            && row["source_session"] == "pi-root-session"
+            && row["agent_relation"] == "explicit"
+            && row["parent_agent_node_id"].is_string()
+    }));
+    assert!(decoded.iter().any(|row| {
+        row["provider"] == "codex"
+            && row["source_session"] == "codex-root-session"
+            && row["agent_relation"] == "root"
+    }));
+
+    let reopened = WorkspaceRegistry::open(&root, "agent-canonical-state").unwrap();
+    let reopened_rows = reopened
+        .connection
+        .prepare(
+            "SELECT result_json
+             FROM journal_agent_states
+             ORDER BY json_extract(result_json, '$.provider') ASC,
+                      json_extract(result_json, '$.agent_node_id') ASC",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        reopened_rows, canonical_rows,
+        "canonical agent state rebuild must be deterministic"
+    );
+    let current = reopened.public_projections().unwrap().agents;
+    assert_eq!(current.len(), 1);
+    assert_eq!(current[0].source_session.as_deref(), Some("codex-root-session"));
+    drop(reopened);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 #[ignore = "manual release-mode journal writer throughput probe"]
 fn terminal_journal_writer_throughput_probe() {
     const BATCH_SIZE: usize = 1_024;
