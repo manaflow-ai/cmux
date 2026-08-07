@@ -32,6 +32,8 @@ use tokio::runtime::Runtime;
 use url::Url;
 use zeroize::Zeroizing;
 
+mod frontend;
+
 const CONNECTION_TIMEOUT_ERROR: &str = "terminal connection timed out";
 const TERMINAL_RECONNECT_MAX_ATTEMPTS: u32 = 8;
 const TERMINAL_RECONNECT_INITIAL_DELAY: StdDuration = StdDuration::from_millis(250);
@@ -719,6 +721,74 @@ async fn open_terminal_stream_with_timeout(
         return Err(error);
     }
     Ok(stream)
+}
+
+pub(crate) struct ConnectedTransport {
+    pub(crate) connection: Arc<ClientConnection>,
+    pub(crate) provider: Arc<IrohProvider>,
+    pub(crate) multiplexer: Arc<ServiceMultiplexer>,
+    pub(crate) provider_name: String,
+    pub(crate) path: String,
+    pub(crate) generation: u64,
+}
+
+pub(crate) async fn connect_transport(
+    invitation_uri: &str,
+    device_name: &str,
+) -> Result<ConnectedTransport, String> {
+    let invitation = EnrollmentInvitation::from_uri(invitation_uri)
+        .map_err(|error| format!("invitation: {error}"))?;
+    let route = invitation
+        .route_hints
+        .iter()
+        .find(|route| route.starts_with("iroh://"))
+        .ok_or_else(|| "invitation has no Iroh route".to_string())?;
+    let (endpoint, routing) = resolve_iroh_route(route)?;
+    let mut session_bytes = [0u8; 16];
+    getrandom::fill(&mut session_bytes).map_err(|error| error.to_string())?;
+    let session = SessionId(session_bytes);
+    let provider = Arc::new(
+        IrohProvider::new(IrohProviderConfig { discovery_n0: true, ..Default::default() })
+            .map_err(|error| error.to_string())?,
+    );
+    let group = provider
+        .connect(ConnectRequest { endpoint, session, lane_policy: LanePolicy::Isolated, routing })
+        .await
+        .map_err(|error| format!("Iroh connect: {error}"))?;
+    let daemon_key = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&invitation.daemon_public_key)
+        .map_err(|error| format!("daemon key: {error}"))?
+        .try_into()
+        .map_err(|bytes: Vec<u8>| format!("daemon key is {} bytes", bytes.len()))?;
+    let invitation_secret = invitation.secret_bytes().map_err(|error| error.to_string())?;
+    let connection = ClientConnection::connect(
+        group,
+        ClientConnectionConfig {
+            identity: StaticIdentity::generate().map_err(|error| error.to_string())?,
+            expected_daemon: Some(daemon_key),
+            auth: ClientAuthMode::Invitation { id: invitation.id, secret: Zeroizing::new(invitation_secret) },
+            device_name: device_name.into(),
+            session,
+            lane_policy: LanePolicy::Isolated,
+            limits: Default::default(),
+            reconnect: ReconnectPolicy::default(),
+        },
+    )
+    .await
+    .map_err(|error| format!("Noise enrollment: {error}"))?;
+    let snapshot = connection.snapshot().await;
+    let path = snapshot.transport.selected_path.as_ref()
+        .map(|path| format!("{:?}", path.kind).to_lowercase())
+        .unwrap_or_else(|| snapshot.transport.route.clone());
+    let multiplexer = ServiceMultiplexer::new(connection.clone(), EndpointRole::Client);
+    Ok(ConnectedTransport {
+        connection,
+        provider,
+        multiplexer,
+        provider_name: snapshot.transport.provider,
+        path,
+        generation: snapshot.generation,
+    })
 }
 
 async fn connect_client(

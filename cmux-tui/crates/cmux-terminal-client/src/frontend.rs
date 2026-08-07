@@ -558,7 +558,7 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
     };
     let updates = Arc::new(ClientUpdates::default());
     let active = start_terminal_tasks(
-        client.runtime.handle(),
+        &client.runtime,
         stream,
         client.multiplexer.clone(),
         terminal_id,
