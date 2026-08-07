@@ -228,6 +228,107 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func storedReconnectDiscoversAndPersistsCompatibleSiblingInstances() async throws {
+        let candidates = [
+            try candidate(
+                deviceID: "shared-mac",
+                endpointByte: "a",
+                instanceTag: "phand1",
+                routeID: "iroh-phand1"
+            ),
+            try candidate(
+                deviceID: "shared-mac",
+                endpointByte: "b",
+                instanceTag: "phand2",
+                routeID: "iroh-phand2"
+            ),
+            try candidate(
+                deviceID: "shared-mac",
+                endpointByte: "c",
+                instanceTag: "phand3",
+                routeID: "iroh-phand3"
+            ),
+        ]
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let store = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        var routers: [String: LivenessHostRouter] = [:]
+        for candidate in candidates {
+            let router = LivenessHostRouter()
+            await router.setHostIdentity(
+                deviceID: candidate.deviceID,
+                instanceTag: candidate.instanceTag,
+                displayName: candidate.displayName
+            )
+            routers[candidate.routes[0].id] = router
+        }
+        let factory = RoutedZeroTouchFactory(routers: routers)
+        let defaults = UserDefaults(
+            suiteName: "iroh-sibling-discovery-\(UUID().uuidString)"
+        )!
+        defaults.set(true, forKey: "multiMacAggregation")
+        let shell = MobileShellComposite(
+            runtime: LivenessTestRuntime(
+                transportFactory: factory,
+                now: { Self.fixedNow },
+                supportedRouteKinds: [.iroh]
+            ),
+            isSignedIn: true,
+            pairedMacStore: store,
+            buildCompatibilityPolicy: .development(
+                expectedInstanceTag: "phand1",
+                additionalInstanceTags: ["phand2", "phand3"]
+            ),
+            personalIrohDiscovery: ScriptedIrohDiscovery(
+                snapshots: [candidates]
+            ),
+            identityProvider: StaticIdentityProvider(userID: "user-1"),
+            reachability: AlwaysOnlineReachability(),
+            pairingHintDefaults: defaults,
+            multiMacAggregationDefaults: defaults
+        )
+        defer {
+            for subscription in shell.secondaryMacSubscriptions.values {
+                subscription.cancel()
+            }
+            Task { await shell.remoteClient?.disconnect() }
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let foreground = candidates[0]
+        try await store.upsert(
+            macDeviceID: foreground.deviceID,
+            displayName: foreground.displayName,
+            routes: foreground.routes,
+            instanceTag: foreground.instanceTag,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: foreground.lastSeenAt
+        )
+        await shell.loadPairedMacs()
+
+        #expect(await shell.reconnectActiveMacIfAvailable(stackUserID: "user-1"))
+        #expect(try await pollUntil {
+            shell.liveMacConnections.count == 3
+                && shell.pairedMacs.count == 3
+        })
+        let rows = try await store.loadAll(stackUserID: "user-1", teamID: nil)
+        #expect(rows.compactMap(\.instanceTag).sorted() == [
+            "phand1", "phand2", "phand3",
+        ])
+        #expect(rows.first(where: \.isActive)?.instanceTag == "phand1")
+        #expect(Set(factory.attemptedRouteIDs()) == [
+            "iroh-phand1", "iroh-phand2", "iroh-phand3",
+        ])
+    }
+
+    @Test
     func signOutWhileDiscoveryIsSuspendedPreventsDialAndPersistence() async throws {
         let live = try candidate(deviceID: "mac-a", endpointByte: "a")
         let discovery = SuspendedIrohDiscovery(candidates: [live])
@@ -374,6 +475,7 @@ struct IrohZeroTouchDiscoveryTests {
         deviceID: String,
         endpointByte: Character,
         instanceTag: String = "stable",
+        routeID: String? = nil,
         extraRoutes: [CmxAttachRoute] = []
     ) throws -> MobileDiscoveredIrohMac {
         let endpointID = String(repeating: String(endpointByte), count: 64)
@@ -382,7 +484,7 @@ struct IrohZeroTouchDiscoveryTests {
             displayName: "Test \(deviceID)",
             instanceTag: instanceTag,
             routes: [try CmxAttachRoute(
-                id: "iroh-\(deviceID)",
+                id: routeID ?? "iroh-\(deviceID)",
                 kind: .iroh,
                 endpoint: .peer(
                     identity: CmxIrohPeerIdentity(endpointID: endpointID),
@@ -392,6 +494,28 @@ struct IrohZeroTouchDiscoveryTests {
             )] + extraRoutes,
             lastSeenAt: Self.fixedNow
         )
+    }
+}
+
+private final class RoutedZeroTouchFactory: CmxByteTransportFactory, @unchecked Sendable {
+    private let routers: [String: LivenessHostRouter]
+    private let lock = NSLock()
+    private var attempts: [String] = []
+
+    init(routers: [String: LivenessHostRouter]) {
+        self.routers = routers
+    }
+
+    func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
+        lock.withLock { attempts.append(route.id) }
+        guard let router = routers[route.id] else {
+            throw ZeroTouchRouteError.unreachable
+        }
+        return LivenessTransport(router: router)
+    }
+
+    func attemptedRouteIDs() -> [String] {
+        lock.withLock { attempts }
     }
 }
 
