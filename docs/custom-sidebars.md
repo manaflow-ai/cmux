@@ -4,7 +4,8 @@ cmux lets you build your own sidebar UI by writing a small SwiftUI-style file.
 It is interpreted at runtime (no Xcode, no build step, no signing), renders as
 native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
-for you or a coding agent.
+for you or a coding agent. It also covers HTML sidebars, which trade the live
+bindings for the whole web platform.
 
 It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
@@ -30,8 +31,9 @@ SwiftUI, files, or syntax. Concretely:
   status dot / pill / highlight patterns below so it is scannable at a glance.
 - Lazy-load / cap large lists (see Performance). Do not render hundreds of rows.
 - Iterate by saving the file and opening it as a pane with
-  `cmux sidebar open <name>`; it hot-reloads there while you edit. Verify it
-  shows real data and that taps do the right thing before declaring it done.
+  `cmux sidebar open <name>`; an interpreted sidebar hot-reloads there while you
+  edit, and a web one refreshes on `cmux sidebar reload <name>`. Verify it shows
+  real data and that taps do the right thing before declaring it done.
 - Stay inside the supported subset below. If something is not supported, choose
   the closest supported approach rather than failing.
 
@@ -46,10 +48,21 @@ Write a named file (the name becomes the menu label; use short kebab-case):
 
 Each file shows up as an option in the **sidebar toggle button's right-click
 menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
-for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
-edit the file and save and it hot-reloads. When one name has several files, the
-first of `.swift`, `.json`, `.html`, `.url` wins, so adding an `.html` file never
-shadows an existing interpreted sidebar.
+for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane.
+When one name has several files, the first of `.swift`, `.json`, `.html`, `.url`
+wins, so adding an `.html` file never shadows an existing interpreted sidebar.
+
+Interpreted sidebars (`.swift`, `.json`) hot-reload on save: edit the file, save,
+and the sidebar re-renders. **Web sidebars do not.** `.html` and `.url` sidebars
+refresh when you ask for it:
+
+    cmux sidebar reload <name>     # this sidebar
+    cmux sidebar reload            # all of them
+
+That re-reads the file, re-resolves which file the name points at (so adding or
+deleting a `.swift` beside your `.html` switches renderer), and for a `.url`
+sidebar re-fetches from the server rather than the cache. Editing a page and
+expecting the sidebar to notice on its own will not work — run the reload.
 
 ## HTML sidebars
 
@@ -66,8 +79,13 @@ a browser produces a valid sidebar:
 
     printf 'http://127.0.0.1:8787/\n' > ~/.config/cmux/sidebars/board.url
 
-Only `http` and `https` are honoured. A `file://` or custom-scheme target is
-ignored, since a `.url` file is untrusted input that can arrive by drag-and-drop.
+Only `http` and `https` are honoured, and the address must name a host. A
+`file://` target, a custom scheme, or a hostless string like `http:` is ignored
+and the sidebar renders nothing, since a `.url` file is untrusted input that can
+arrive by drag-and-drop.
+
+A web sidebar refreshes on `cmux sidebar reload <name>`, not on save. See
+[Where to put a sidebar](#where-to-put-a-sidebar).
 
 The trade-off against an interpreted sidebar: the live data bindings above
 (`workspaces`, `clock`, and the rest) and `cmux(...)` tap actions are features of

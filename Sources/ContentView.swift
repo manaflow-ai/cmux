@@ -10218,7 +10218,11 @@ enum CmuxExtensionSidebarSelection {
         ) else { return [] }
         var extensionByName: [String: String] = [:]
         for url in entries {
-            let ext = url.pathExtension.lowercased()
+            // Matched exactly, not case-folded. Resolution builds `<name>.<ext>` from the lowercase
+            // list and the classifier matches exactly, so a folded `board.HTML` is a sidebar the
+            // picker offers and then cannot open. Listing only what resolves is the version of this
+            // that is right on a case-sensitive volume too.
+            let ext = url.pathExtension
             guard customSidebarFileExtensions.contains(ext) else { continue }
             let name = url.deletingPathExtension().lastPathComponent
             // First match by preference order wins, so a name backed by several files resolves the
@@ -10254,12 +10258,16 @@ enum CmuxExtensionSidebarSelection {
         guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
         let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
         guard isValidCustomSidebarFileBaseName(name) else { return nil }
+        let lookup = CustomSidebarFileLookup()
         for fileExtension in customSidebarFileExtensions {
             let candidate = sidebarsDirectory.appendingPathComponent(
                 "\(name).\(fileExtension)",
                 isDirectory: false
             )
-            if FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            // Exact-name lookup: APFS is case-insensitive by default, so `fileExists` would
+            // resolve `board.HTML` for a `board.html` candidate — a file the classifier then
+            // refuses, leaving a sidebar that resolves and renders nothing.
+            if lookup.exists(candidate) { return candidate }
         }
         return nil
     }
@@ -12088,7 +12096,8 @@ struct VerticalTabsSidebar: View, Equatable {
         fileURL: URL?,
         reloadToken: CustomSidebarWebReloadToken
     ) -> some View {
-        if let fileURL, case let .web(webSource)? = CustomSidebarSource.classify(fileURL: fileURL) {
+        switch CustomSidebarMountDecision(fileURL: fileURL) {
+        case let .web(webSource):
             CustomSidebarWebView(
                 source: webSource,
                 insets: CustomSidebarWebInsets(
@@ -12113,7 +12122,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-        } else if let fileURL {
+        case let .interpreted(interpretedURL):
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
@@ -12129,7 +12138,7 @@ struct VerticalTabsSidebar: View, Equatable {
             SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     CustomSidebarSurface(
-                        fileURL: fileURL,
+                        fileURL: interpretedURL,
                         dataContext: customSidebarDataContext(
                             now: timeline.date,
                             unreadSnapshot: unreadSnapshot
@@ -12150,7 +12159,10 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-        } else {
+        case .unavailable:
+            // A rejected web source must not fall through to the interpreter, which does not check
+            // extensions and would decode the file as a declarative sidebar with live action
+            // dispatch. Nothing is the honest render for a sidebar that named nothing loadable.
             Color.clear
         }
     }

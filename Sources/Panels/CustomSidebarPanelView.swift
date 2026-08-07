@@ -84,12 +84,13 @@ struct CustomSidebarPanelView: View {
 
     @ViewBuilder
     private func resolvedContent(fileURL: URL, reloadToken: CustomSidebarWebReloadToken) -> some View {
-        if case let .web(webSource)? = CustomSidebarSource.classify(fileURL: fileURL) {
+        switch CustomSidebarMountDecision(fileURL: fileURL) {
+        case let .web(webSource):
             CustomSidebarWebView(source: webSource, reloadToken: reloadToken)
-        } else {
+        case let .interpreted(interpretedURL):
             TimelineView(.periodic(from: .now, by: 1)) { timeline in
                 CustomSidebarSurface(
-                    fileURL: fileURL,
+                    fileURL: interpretedURL,
                     dataContext: customSidebarDataContext(now: timeline.date),
                     dispatch: makeCmuxSidebarActionDispatch(),
                     contentInsets: CustomSidebarContentInsets.zero,
@@ -97,6 +98,11 @@ struct CustomSidebarPanelView: View {
                     client: $renderWorkerClient
                 )
             }
+        case .unavailable:
+            // A rejected web source must not fall through to the interpreter, which does not check
+            // extensions and would decode the file as a declarative sidebar with live action
+            // dispatch. Nothing is the honest render for a sidebar that named nothing loadable.
+            Color.clear
         }
     }
 

@@ -262,6 +262,13 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             guard loadedSource != source || reloadRequested else { return }
             loadedSource = source
             issuedLoadCount += 1
+            // An explicit reload is a request for the server's *current* bytes. Left on the default
+            // policy, a second load of the same URL is entitled to come back from the URL cache and
+            // repaint the identical stale document — which, from the user's side, is
+            // indistinguishable from the reload never having run.
+            let cachePolicy: URLRequest.CachePolicy = reloadRequested
+                ? .reloadIgnoringLocalCacheData
+                : .useProtocolCachePolicy
             // A reload replaces the document, so any previous full-bleed opt-in no longer applies;
             // the incoming page re-declares it or gets the safe default.
             container?.isFullBleed = false
@@ -269,9 +276,12 @@ public struct CustomSidebarWebView: NSViewRepresentable {
             case let .document(fileURL):
                 // Read access is scoped to the document's own directory so a sidebar can pull in
                 // sibling assets without being handed the rest of the filesystem.
+                //
+                // `loadFileURL` takes no cache policy; a local document is re-read from disk, and
+                // its subresources are the case the author controls by filename anyway.
                 webView.loadFileURL(fileURL, allowingReadAccessTo: fileURL.deletingLastPathComponent())
             case let .remote(url):
-                webView.load(URLRequest(url: url))
+                webView.load(URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: 60))
             }
         }
 
