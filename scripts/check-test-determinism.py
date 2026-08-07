@@ -412,6 +412,15 @@ _INERT_TEXT_MATCHER = re.compile(r"\.(?:toContain|toStartWith)\s*\(")
 _ASSIGNED_REFERENCE = re.compile(
     r"""(?x)
     ^\s*
+    (?:
+        (?:
+            export|default|declare|local|readonly|typeset|
+            private(?:\(set\))?|fileprivate(?:\(set\))?|
+            internal(?:\(set\))?|public(?:\(set\))?|protected|open|
+            static|class|final|lazy|abstract|override|nonisolated
+        )
+        \s+
+    )*
     (?:(?:const|let|var)\s+)?
     (
         [A-Za-z_$][A-Za-z0-9_$]*
