@@ -368,12 +368,11 @@ await waitFor(
     && attentionCalls("identify")[0].closedWith === 1,
   "Amp did not observe the transient process-identity failure"
 );
-thread.setState("awaiting-approval");
 await waitFor(
   () => attentionCalls("identify").length === 2
     && attentionCalls("begin").length === 1
     && attentionCalls("begin")[0].closedWith === 0,
-  "Amp did not recover native attention after identity capture failed"
+  "Amp did not retry identity capture while approval remained pending"
 );
 thread.setState("running");
 thread.setState("running");
@@ -531,11 +530,11 @@ if (stopCalls().length !== completionCount + 2) {
 const concurrentSettled = JSON.parse(stopCalls().at(-1).stdin);
 if (
   concurrentSettled.cmux_turn_boundary !== "settled" ||
-  concurrentSettled.cmux_active_background_work_count !== 1 ||
+  concurrentSettled.cmux_active_background_work_count !== 0 ||
   concurrentSettled.turn_id !== provisional.turn_id
 ) {
   throw new Error(
-    `a newer thread idled the shared Amp lifecycle while an older thread was active: ${
+    `a settled Amp session inherited another session's background work: ${
       JSON.stringify(concurrentSettled)
     }`
   );

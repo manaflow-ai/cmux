@@ -12,6 +12,11 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         key: String,
         panelID: UUID?
     )?
+    nonisolated(unsafe) var statusUpsertCall: (
+        target: ControlSidebarTabTarget,
+        key: String,
+        pid: Int32?
+    )?
     nonisolated(unsafe) var agentPIDClearCall: (
         target: ControlSidebarTabTarget,
         key: String,
@@ -40,6 +45,21 @@ final class FakeSidebarV1ControlCommandContext: ControlCommandContext {
         panelID: UUID?
     ) {
         statusClearCall = (target, key, panelID)
+    }
+
+    nonisolated func controlSidebarScheduleStatusUpsert(
+        target: ControlSidebarTabTarget,
+        key: String,
+        value: String,
+        icon: String?,
+        color: String?,
+        url: URL?,
+        priority: Int,
+        format: ControlSidebarMetadataFormat,
+        panelID: UUID?,
+        pid: Int32?
+    ) {
+        statusUpsertCall = (target, key, pid)
     }
 
     nonisolated func controlSidebarScheduleAgentPIDClear(
