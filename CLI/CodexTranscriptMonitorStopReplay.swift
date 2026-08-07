@@ -12,7 +12,8 @@ struct CodexTranscriptMonitorStopReplay {
         workspaceId: String? = nil,
         surfaceId: String?,
         lastAssistantMessage: String?,
-        boundary: AgentTurnBoundary
+        boundary: AgentTurnBoundary,
+        deferredSettlementID: UUID? = nil
     ) {
         guard !sessionId.isEmpty else { return nil }
         let workspaceId = workspaceId?
@@ -38,6 +39,10 @@ struct CodexTranscriptMonitorStopReplay {
         }
         if let lastAssistantMessage, !lastAssistantMessage.isEmpty {
             object["last_assistant_message"] = lastAssistantMessage
+        }
+        if let deferredSettlementID {
+            object["cmux_deferred_settlement_id"] =
+                deferredSettlementID.uuidString
         }
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let payload = String(data: data, encoding: .utf8) else {
