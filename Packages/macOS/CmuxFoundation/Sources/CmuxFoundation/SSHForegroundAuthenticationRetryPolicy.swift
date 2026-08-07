@@ -1332,22 +1332,19 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             # description. Close it before waiting for the owner publication.
             exec 9>&-
             trap - EXIT HUP INT TERM
-            cmux_ssh_auth_recovery_sweep_owner_attempt=0
-            while [ ! -s "$cmux_ssh_auth_recovery_sweep_lock/owner" ] && \
-              [ "$cmux_ssh_auth_recovery_sweep_owner_attempt" -lt 100 ]; do
-              /bin/sleep 0.01
-              cmux_ssh_auth_recovery_sweep_owner_attempt=$((
-                cmux_ssh_auth_recovery_sweep_owner_attempt + 1
-              ))
-            done
-            if ! cmux_ssh_auth_reaper_generation_is_current \
-                "$cmux_ssh_auth_recovery_sweep_lock" \
-                "$cmux_ssh_auth_recovery_sweep_generation" || ! \
-              cmux_ssh_auth_reaper_owner_matches_generation \
-                "$cmux_ssh_auth_recovery_sweep_lock" \
-                "$cmux_ssh_auth_recovery_sweep_generation"; then
-              exit 0
+            cmux_ssh_auth_recovery_sweep_ready=0
+            if cmux_ssh_auth_recovery_lock; then
+              if cmux_ssh_auth_reaper_generation_is_current \
+                  "$cmux_ssh_auth_recovery_sweep_lock" \
+                  "$cmux_ssh_auth_recovery_sweep_generation" && \
+                cmux_ssh_auth_reaper_owner_matches_generation \
+                  "$cmux_ssh_auth_recovery_sweep_lock" \
+                  "$cmux_ssh_auth_recovery_sweep_generation"; then
+                cmux_ssh_auth_recovery_sweep_ready=1
+              fi
+              cmux_ssh_auth_recovery_unlock
             fi
+            if [ "$cmux_ssh_auth_recovery_sweep_ready" != 1 ]; then exit 0; fi
             trap 'cmux_ssh_auth_release_reaper_lock_if_current \
               "$cmux_ssh_auth_recovery_sweep_lock" \
               "$cmux_ssh_auth_recovery_sweep_generation" 1 \
