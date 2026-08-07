@@ -3223,6 +3223,7 @@ mod tests {
         let _guard = CONFIG_ENV_LOCK.lock().unwrap();
         let old_ghostty_bin = std::env::var_os("GHOSTTY_BIN");
         let old_ghostty_resources = std::env::var_os("GHOSTTY_RESOURCES_DIR");
+        let old_cmux_tui_config = std::env::var_os("CMUX_TUI_CONFIG");
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         let old_xdg_config_home = std::env::var_os("XDG_CONFIG_HOME");
         let dir = std::env::temp_dir()
@@ -3248,6 +3249,8 @@ mod tests {
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::remove_var("GHOSTTY_RESOURCES_DIR") };
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::remove_var("CMUX_TUI_CONFIG") };
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::remove_var("CMUX_MUX_CONFIG") };
         // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
         unsafe { std::env::set_var("XDG_CONFIG_HOME", &dir) };
@@ -3256,6 +3259,7 @@ mod tests {
 
         restore_env_var("GHOSTTY_BIN", old_ghostty_bin);
         restore_env_var("GHOSTTY_RESOURCES_DIR", old_ghostty_resources);
+        restore_env_var("CMUX_TUI_CONFIG", old_cmux_tui_config);
         restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
         restore_env_var("XDG_CONFIG_HOME", old_xdg_config_home);
         let resolver_ran = marker.exists();
