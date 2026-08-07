@@ -16,14 +16,17 @@ use cmux_remote::provider::{
 };
 use cmux_remote::service::{EndpointRole, ServiceMultiplexer, ServiceStream};
 use cmux_remote_protocol::{Lane, LanePolicy, Service, ServiceControl, SessionId};
+#[cfg(feature = "text-renderer")]
+use cmux_tui_core::apply_terminal_color_overrides;
 use cmux_tui_core::resource::TerminalPublicId;
+use cmux_tui_core::terminal_color_override_full_state;
 use cmux_tui_core::terminal_host_protocol::{
     Frame, FrameDecoder, MAX_FRAME_PAYLOAD, MessageKind, RESIZE_ACK_CANONICAL_CHANGED, encode_frame,
 };
 use cmux_tui_core::terminal_host_runtime::{
     decode_host_snapshot_payload, decode_terminal_color_overrides,
 };
-use cmux_tui_core::{apply_terminal_color_overrides, terminal_color_override_full_state};
+#[cfg(feature = "text-renderer")]
 use ghostty_vt::{
     Callbacks, CellWidth, KeyAction, KeyEncoder, RenderState, Terminal, key_input_from_chord,
 };
@@ -164,12 +167,16 @@ impl ActiveTerminal {
 }
 
 struct ClientState {
+    #[cfg(feature = "text-renderer")]
     terminal: Option<Terminal>,
+    #[cfg(feature = "text-renderer")]
     key_encoder: KeyEncoder,
+    #[cfg(feature = "text-renderer")]
     render: RenderState,
     frame_text: String,
     frame_rows: Vec<String>,
     frame_dirty_rows: Vec<u16>,
+    #[cfg(feature = "text-renderer")]
     render_dirty: bool,
     status: String,
     transport_provider: String,
@@ -253,12 +260,16 @@ impl ClientState {
         terminal_id: TerminalPublicId,
     ) -> Result<Self, String> {
         Ok(Self {
+            #[cfg(feature = "text-renderer")]
             terminal: None,
+            #[cfg(feature = "text-renderer")]
             key_encoder: KeyEncoder::new().map_err(|error| error.to_string())?,
+            #[cfg(feature = "text-renderer")]
             render: RenderState::new().map_err(|error| error.to_string())?,
             frame_text: String::new(),
             frame_rows: Vec::new(),
             frame_dirty_rows: Vec::new(),
+            #[cfg(feature = "text-renderer")]
             render_dirty: false,
             status: "bootstrap".into(),
             transport_provider: provider,
@@ -345,9 +356,12 @@ impl ClientState {
     }
 
     fn prepare_handshake(&mut self, terminal_id: TerminalPublicId) -> Result<(), String> {
-        self.terminal = None;
-        self.render = RenderState::new().map_err(|error| error.to_string())?;
-        self.render_dirty = false;
+        #[cfg(feature = "text-renderer")]
+        {
+            self.terminal = None;
+            self.render = RenderState::new().map_err(|error| error.to_string())?;
+            self.render_dirty = false;
+        }
         self.status = "resyncing".into();
         self.terminal_id = terminal_id;
         self.snapshot_boundary = 0;
@@ -369,6 +383,7 @@ impl ClientState {
         Ok(())
     }
 
+    #[cfg(feature = "text-renderer")]
     fn encode_key(&mut self, chord: &str, repeat: bool) -> Result<Vec<u8>, String> {
         let mut input = key_input_from_chord(chord)
             .ok_or_else(|| format!("unsupported terminal key chord: {chord}"))?;
@@ -385,29 +400,38 @@ impl ClientState {
         Ok(encoded)
     }
 
+    #[cfg(not(feature = "text-renderer"))]
+    fn encode_key(&mut self, _chord: &str, _repeat: bool) -> Result<Vec<u8>, String> {
+        Err("named key encoding is unavailable in a native-renderer build".into())
+    }
+
     fn apply(&mut self, frame: Frame) -> Result<FrameEffect, String> {
         let effect = match frame.kind {
             MessageKind::Snapshot => {
                 let snapshot = decode_host_snapshot_payload(&frame.payload)
                     .map_err(|error| error.to_string())?;
-                let mut terminal =
-                    Terminal::new(snapshot.cols, snapshot.rows, 100_000, Callbacks::default())
+                #[cfg(feature = "text-renderer")]
+                {
+                    let mut terminal =
+                        Terminal::new(snapshot.cols, snapshot.rows, 100_000, Callbacks::default())
+                            .map_err(|error| error.to_string())?;
+                    terminal
+                        .resize(
+                            snapshot.cols,
+                            snapshot.rows,
+                            u32::from(snapshot.cell_pixels.0),
+                            u32::from(snapshot.cell_pixels.1),
+                        )
                         .map_err(|error| error.to_string())?;
-                terminal
-                    .resize(
-                        snapshot.cols,
-                        snapshot.rows,
-                        u32::from(snapshot.cell_pixels.0),
-                        u32::from(snapshot.cell_pixels.1),
-                    )
-                    .map_err(|error| error.to_string())?;
-                terminal
-                    .apply_vt_replay_parts(
-                        &snapshot.replay,
-                        &snapshot.kitty_image_aliases,
-                        snapshot.kitty_state,
-                    )
-                    .map_err(|error| error.to_string())?;
+                    terminal
+                        .apply_vt_replay_parts(
+                            &snapshot.replay,
+                            &snapshot.kitty_image_aliases,
+                            snapshot.kitty_state,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    self.terminal = Some(terminal);
+                }
                 self.cols = snapshot.cols;
                 self.rows = snapshot.rows;
                 self.cell_pixels = snapshot.cell_pixels;
@@ -417,10 +441,12 @@ impl ClientState {
                 self.local_parser_cursor = frame.sequence;
                 self.source_cursor = frame.sequence;
                 self.expected_sequence = frame.sequence.checked_add(1);
-                self.terminal = Some(terminal);
                 self.snapshot_applied = true;
                 self.status = "snapshot".into();
-                self.render_dirty = true;
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
                 self.continue_after_native_event(
                     NativeRenderEventKind::Reset,
                     snapshot.cols,
@@ -433,14 +459,20 @@ impl ClientState {
             {
                 let colors = decode_terminal_color_overrides(&frame.payload)
                     .map_err(|error| error.to_string())?;
-                apply_terminal_color_overrides(
-                    self.terminal
-                        .as_mut()
-                        .ok_or_else(|| "Colors arrived before snapshot".to_string())?,
-                    &colors,
-                );
+                #[cfg(feature = "text-renderer")]
+                {
+                    apply_terminal_color_overrides(
+                        self.terminal
+                            .as_mut()
+                            .ok_or_else(|| "Colors arrived before snapshot".to_string())?,
+                        &colors,
+                    );
+                }
                 self.bootstrap_frames = self.bootstrap_frames.saturating_add(1);
-                self.render_dirty = true;
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
                 let native_colors = terminal_color_override_full_state(&colors);
                 self.continue_after_native_event(
                     NativeRenderEventKind::Bytes,
@@ -465,15 +497,20 @@ impl ClientState {
             }
             MessageKind::Output => {
                 self.require_sequence(frame.sequence)?;
-                let terminal = self
-                    .terminal
-                    .as_mut()
-                    .ok_or_else(|| "output arrived before snapshot".to_string())?;
-                terminal.vt_write(&frame.payload);
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.terminal
+                        .as_mut()
+                        .ok_or_else(|| "output arrived before snapshot".to_string())?
+                        .vt_write(&frame.payload);
+                }
                 self.raw_bytes = self.raw_bytes.saturating_add(frame.payload.len() as u64);
                 self.raw_frames = self.raw_frames.saturating_add(1);
                 self.local_parser_cursor = frame.sequence;
-                self.render_dirty = true;
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
                 self.continue_after_native_event(
                     NativeRenderEventKind::Bytes,
                     self.cols,
@@ -493,16 +530,22 @@ impl ClientState {
                 } else {
                     self.cell_pixels
                 };
-                self.terminal
-                    .as_mut()
-                    .ok_or_else(|| "resize arrived before snapshot".to_string())?
-                    .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
-                    .map_err(|error| error.to_string())?;
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.terminal
+                        .as_mut()
+                        .ok_or_else(|| "resize arrived before snapshot".to_string())?
+                        .resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))
+                        .map_err(|error| error.to_string())?;
+                }
                 self.cols = cols;
                 self.rows = rows;
                 self.cell_pixels = cell_pixels;
                 self.local_parser_cursor = frame.sequence;
-                self.render_dirty = true;
+                #[cfg(feature = "text-renderer")]
+                {
+                    self.render_dirty = true;
+                }
                 self.continue_after_native_event(
                     NativeRenderEventKind::Resize,
                     cols,
@@ -579,6 +622,7 @@ impl ClientState {
         Ok(())
     }
 
+    #[cfg(feature = "text-renderer")]
     fn materialize_frame(&mut self) -> Result<(), String> {
         // Snapshot and Colors are one bootstrap transaction. Do not expose
         // their renderable result until the host commits the same boundary
@@ -608,6 +652,11 @@ impl ClientState {
         Ok(())
     }
 
+    #[cfg(not(feature = "text-renderer"))]
+    fn materialize_frame(&mut self) -> Result<(), String> {
+        Err("plain-text rendering is unavailable in a native-renderer build".into())
+    }
+
     fn diagnostics(&self) -> String {
         serde_json::to_string(&Diagnostics {
             carrier: &self.transport_provider,
@@ -633,6 +682,7 @@ impl ClientState {
     }
 }
 
+#[cfg(feature = "text-renderer")]
 fn append_row(output: &mut String, row: &[ghostty_vt::Cell]) {
     for cell in row {
         match cell.width {
