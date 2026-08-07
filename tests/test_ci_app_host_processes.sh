@@ -40,7 +40,27 @@ if [ "$(basename "$0")" = "fake-lsof" ]; then
         call_count=$((call_count + 1))
         printf '%s\n' "$call_count" > "$counter_file"
         if [ "$call_count" -eq "$CMUX_FAKE_LSOF_EXIT_AFTER_TXT_CALLS" ]; then
-          /bin/kill -TERM "$pid_filter" 2>/dev/null || true
+          release_record="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$pid_filter"
+          if [ ! -f "$release_record" ]; then
+            printf 'fake-lsof: missing lease release record for %s\n' \
+              "$pid_filter" >&2
+            exit 1
+          fi
+          IFS= read -r release_fifo < "$release_record"
+          case "$release_fifo" in
+            "$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR"/*.fifo) ;;
+            *)
+              printf 'fake-lsof: invalid lease release FIFO for %s\n' \
+                "$pid_filter" >&2
+              exit 1
+              ;;
+          esac
+          if [ ! -p "$release_fifo" ]; then
+            printf 'fake-lsof: lease release FIFO is unavailable for %s\n' \
+              "$pid_filter" >&2
+            exit 1
+          fi
+          printf x > "$release_fifo"
         fi
         ;;
     esac
@@ -284,6 +304,7 @@ untrack_lease_holder() {
 }
 
 APP_HOST_FIXTURE_BINARY="$TMP_DIR/app-host-lease-watcher"
+LEASE_FIXTURE_SEQUENCE=0
 build_app_host_fixture() {
   [ -x "$APP_HOST_FIXTURE_BINARY" ] && return 0
   xcrun swiftc \
@@ -298,9 +319,12 @@ spawn_lease_watched_app_host() {
   local executable="$3"
   local fixture_id lease ready release_fifo holder_pid receipt_file attempts
   build_app_host_fixture
-  cp "$APP_HOST_FIXTURE_BINARY" "$executable"
-  chmod 700 "$executable"
-  fixture_id="$(basename "$receipt_dir")-${RANDOM}-$$"
+  if [ ! -x "$executable" ]; then
+    cp "$APP_HOST_FIXTURE_BINARY" "$executable"
+    chmod 700 "$executable"
+  fi
+  LEASE_FIXTURE_SEQUENCE=$((LEASE_FIXTURE_SEQUENCE + 1))
+  fixture_id="$(basename "$receipt_dir")-$LEASE_FIXTURE_SEQUENCE-$$"
   lease="$receipt_dir/app-host-attempt-$fixture_id.lease"
   ready="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$fixture_id.ready"
   release_fifo="$CMUX_FAKE_LSOF_LEASE_RELEASE_DIR/$fixture_id.fifo"
