@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt, symlink};
 #[cfg(unix)]
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
@@ -806,6 +806,104 @@ fn session_reset_state_refuses_orphan_terminal_host_live_marker() {
     assert!(!reset.status.success(), "reset unexpectedly succeeded");
     assert!(database.exists(), "reset removed the registry while a live marker was present");
     assert!(live_marker.exists(), "reset removed the orphan live marker");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_stale_preview_when_targets_change() {
+    let dir = unique_temp_dir("session-reset-stale-preview");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-stale-preview";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    assert!(!host_root.exists());
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let stale_confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("sentinel"), b"new-host-state").unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            stale_confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a stale preview token");
+    assert!(database.exists(), "reset removed the registry with a stale token");
+    assert!(host_root.join("sentinel").exists(), "reset removed newly appeared host state");
+
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn session_reset_state_rejects_symlinked_terminal_host_state() {
+    let dir = unique_temp_dir("session-reset-symlink-host");
+    fs::create_dir_all(&dir).unwrap();
+    let state = dir.join("state");
+    let session = "schema-reset-symlink-host";
+
+    drop(cmux_tui_core::WorkspaceRegistry::open(&state, session).unwrap());
+    let database = find_session_database(&state, session);
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&state, session);
+    let outside_host_root = dir.join("outside-host-state");
+    fs::create_dir_all(&outside_host_root).unwrap();
+    fs::set_permissions(&outside_host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    let outside_sentinel = outside_host_root.join("sentinel");
+    fs::write(&outside_sentinel, b"outside").unwrap();
+    symlink(&outside_host_root, &host_root).unwrap();
+
+    let preview = Command::new(bin())
+        .args(["--json", "session", session, "reset-state", "--state"])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert_success(&preview);
+    let preview: serde_json::Value = serde_json::from_slice(&preview.stdout).unwrap();
+    let confirm_reset = preview["confirm_reset"].as_str().unwrap();
+
+    let reset = Command::new(bin())
+        .args([
+            "session",
+            session,
+            "reset-state",
+            "--force",
+            "--confirm-reset",
+            confirm_reset,
+            "--state",
+        ])
+        .arg(&state)
+        .env_remove("CMUX_TUI_SOCKET")
+        .output()
+        .unwrap();
+    assert!(!reset.status.success(), "reset accepted a symlinked host root");
+    assert!(database.exists(), "reset removed the registry after rejecting host root");
+    assert!(fs::symlink_metadata(&host_root).unwrap().file_type().is_symlink());
+    assert!(outside_sentinel.exists(), "reset mutated the symlink target");
 
     fs::remove_dir_all(dir).unwrap();
 }

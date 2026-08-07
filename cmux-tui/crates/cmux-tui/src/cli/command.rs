@@ -8,7 +8,6 @@ use cmux_tui_core::resource::{
     OperationClass, ResourceOperation, Selector, validate_idempotency_key,
 };
 use serde_json::{Map, Number, Value, json};
-use sha2::{Digest, Sha256};
 
 use super::{GlobalArgs, UsageError};
 
@@ -2224,46 +2223,25 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
                 );
             }
         };
-    let session_dir = cmux_tui_core::persistent_session_state_dir(&state_root, &plan.session);
-    let terminal_host_root =
-        cmux_tui_core::terminal_host_runtime::terminal_host_root(&state_root, &plan.session);
-    let confirmation =
-        reset_confirmation_token(&state_root, &plan.session, &session_dir, &terminal_host_root);
+    let preview = cmux_tui_core::preview_persistent_session_state_reset(&state_root, &plan.session);
     if !plan.force {
         return super::wire::print_local_success(
             &json!({
                 "session": plan.session,
-                "state_root": state_root,
-                "session_dir": session_dir,
-                "terminal_host_root": terminal_host_root,
-                "requires_force": true,
-                "confirm_reset": confirmation,
+                "state_root": preview.state_root,
+                "session_dir": preview.session_dir,
+                "terminal_host_root": preview.terminal_host_root,
+                "requires_force": preview.requires_force,
+                "confirm_reset": preview.confirm_reset,
             }),
             output,
         );
     }
-    if (session_dir.exists() || terminal_host_root.exists())
-        && plan.confirm_reset.as_deref() != Some(confirmation.as_str())
-    {
-        return super::wire::print_local_error(
-            &json!({
-                "code": "session.reset_state.confirmation_required",
-                "message": format!(
-                    "{}; {}",
-                    messages.confirmation_required,
-                    messages.confirmation_recovery
-                ),
-                "details": {
-                    "session": plan.session,
-                    "recovery": messages.confirmation_recovery,
-                },
-                "retryable": false,
-            }),
-            output,
-            1,
-        );
-    }
-    match cmux_tui_core::reset_persistent_session_state(&state_root, &plan.session) {
+    match cmux_tui_core::reset_persistent_session_state(
+        &state_root,
+        &plan.session,
+        plan.confirm_reset.as_deref(),
+    ) {
         Ok(reset) => super::wire::print_local_success(
             &json!({
                 "session": plan.session,
@@ -2274,14 +2252,15 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
         ),
         Err(error) => {
             let advice = reset_failure_advice(&error);
+            let message = if advice.code == "session.reset_state.confirmation_required" {
+                format!("{}; {}", messages.confirmation_required, messages.confirmation_recovery)
+            } else {
+                format!("{}; {}", messages.reset_failed(&plan.session), advice.recovery)
+            };
             super::wire::print_local_error(
                 &json!({
                     "code": advice.code,
-                    "message": format!(
-                        "{}; {}",
-                        messages.reset_failed(&plan.session),
-                        advice.recovery
-                    ),
+                    "message": message,
                     "details": {
                         "session": plan.session,
                         "reason": advice.reason,
@@ -2296,33 +2275,6 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
     }
 }
 
-fn reset_confirmation_token(
-    state_root: &PathBuf,
-    session: &str,
-    session_dir: &PathBuf,
-    terminal_host_root: &PathBuf,
-) -> String {
-    let mut hash = Sha256::new();
-    for value in [
-        "cmux-session-reset-v1",
-        session,
-        &canonical_reset_path(state_root),
-        &canonical_reset_path(session_dir),
-        &canonical_reset_path(terminal_host_root),
-        if session_dir.exists() { "session:1" } else { "session:0" },
-        if terminal_host_root.exists() { "hosts:1" } else { "hosts:0" },
-    ] {
-        hash.update(value.len().to_le_bytes());
-        hash.update(value.as_bytes());
-    }
-    let digest = hash.finalize();
-    digest[..12].iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn canonical_reset_path(path: &PathBuf) -> String {
-    path.canonicalize().unwrap_or_else(|_| path.clone()).display().to_string()
-}
-
 struct ResetFailureAdvice {
     code: &'static str,
     reason: &'static str,
@@ -2332,7 +2284,13 @@ struct ResetFailureAdvice {
 fn reset_failure_advice(error: &anyhow::Error) -> ResetFailureAdvice {
     let messages = &crate::localization::catalog().session_reset;
     let error = error.to_string();
-    if error.contains("already owned by another daemon") {
+    if error.contains("reset confirmation is required") {
+        ResetFailureAdvice {
+            code: "session.reset_state.confirmation_required",
+            reason: messages.confirmation_required,
+            recovery: messages.confirmation_recovery,
+        }
+    } else if error.contains("already owned by another daemon") {
         ResetFailureAdvice {
             code: "session.reset_state.session_running",
             reason: messages.reason_session_running,

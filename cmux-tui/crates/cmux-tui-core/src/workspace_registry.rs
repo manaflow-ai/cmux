@@ -326,6 +326,15 @@ pub struct PersistentSessionStateReset {
     pub removed_terminal_hosts: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistentSessionStateResetPreview {
+    pub state_root: PathBuf,
+    pub session_dir: PathBuf,
+    pub terminal_host_root: PathBuf,
+    pub requires_force: bool,
+    pub confirm_reset: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerminalRegistryEvent {
     pub revision: u64,
@@ -374,9 +383,30 @@ pub fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf 
     root.join(session_storage_component(session_name))
 }
 
+pub fn preview_persistent_session_state_reset(
+    root: &Path,
+    session_name: &str,
+) -> PersistentSessionStateResetPreview {
+    let session_dir = persistent_session_state_dir(root, session_name);
+    let terminal_host_root = crate::terminal_host_runtime::terminal_host_root(root, session_name);
+    PersistentSessionStateResetPreview {
+        state_root: root.to_path_buf(),
+        session_dir: session_dir.clone(),
+        terminal_host_root: terminal_host_root.clone(),
+        requires_force: true,
+        confirm_reset: reset_confirmation_token(
+            root,
+            session_name,
+            &session_dir,
+            &terminal_host_root,
+        ),
+    }
+}
+
 pub fn reset_persistent_session_state(
     root: &Path,
     session_name: &str,
+    confirm_reset: Option<&str>,
 ) -> anyhow::Result<PersistentSessionStateReset> {
     let session_dir = persistent_session_state_dir(root, session_name);
     let terminal_host_root = crate::terminal_host_runtime::terminal_host_root(root, session_name);
@@ -392,44 +422,44 @@ pub fn reset_persistent_session_state(
     if !root.is_dir() {
         anyhow::bail!("workspace state root is not a directory: {}", root.display());
     }
-    if !session_dir.exists() && !terminal_host_root.exists() {
+    let session_dir_exists = validate_session_reset_dir(&session_dir)?;
+    let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
+    if !session_dir_exists && !terminal_host_root_exists {
         return Ok(reset);
     }
-    if session_dir.exists() {
-        if !session_dir.is_dir() {
-            anyhow::bail!(
-                "workspace session state path is not a directory: {}",
-                session_dir.display()
-            );
-        }
+    let _session_guard = acquire_existing_session_guard(root, session_name)?;
+    let session_dir_exists = validate_session_reset_dir(&session_dir)?;
+    let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
+    if !session_dir_exists && !terminal_host_root_exists {
+        return Ok(reset);
+    }
+    let confirmation =
+        reset_confirmation_token(root, session_name, &session_dir, &terminal_host_root);
+    if confirm_reset != Some(confirmation.as_str()) {
+        anyhow::bail!("reset confirmation is required");
+    }
+    if session_dir_exists {
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         if !db_path.is_file() {
             anyhow::bail!("workspace session state path has no registry");
         }
     }
-    if terminal_host_root.exists() && !terminal_host_root.is_dir() {
-        anyhow::bail!(
-            "terminal host state path is not a directory: {}",
-            terminal_host_root.display()
-        );
-    }
-    let _session_guard = acquire_existing_session_guard(root, session_name)?;
-    let _lease = if session_dir.exists() {
+    let _lease = if session_dir_exists {
         platform::restrict_directory(&session_dir)?;
         Some(SessionLease::acquire(&session_dir.join("writer.lock"))?)
     } else {
         None
     };
-    if terminal_host_root.exists() {
+    if terminal_host_root_exists {
         prepare_terminal_host_root_for_reset(&terminal_host_root)?;
     }
-    if terminal_host_root.exists() {
+    if terminal_host_root_exists {
         fs::remove_dir_all(&terminal_host_root).with_context(|| {
             format!("remove terminal host state {}", terminal_host_root.display())
         })?;
         reset.removed_terminal_hosts = true;
     }
-    if session_dir.exists() {
+    if session_dir_exists {
         fs::remove_dir_all(&session_dir)
             .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
         reset.removed_session_state = true;
@@ -437,6 +467,61 @@ pub fn reset_persistent_session_state(
     platform::sync_directory(root)
         .with_context(|| format!("sync workspace state root {}", root.display()))?;
     Ok(reset)
+}
+
+fn validate_session_reset_dir(path: &Path) -> anyhow::Result<bool> {
+    validate_reset_child_dir(path, "workspace session state path")
+}
+
+fn validate_terminal_host_reset_dir(path: &Path) -> anyhow::Result<bool> {
+    validate_reset_child_dir(path, "terminal host state path")
+}
+
+fn validate_reset_child_dir(path: &Path, label: &str) -> anyhow::Result<bool> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(error).with_context(|| format!("inspect {label} {}", path.display()));
+        }
+    };
+    if !metadata.file_type().is_dir() {
+        anyhow::bail!("{label} is not a directory: {}", path.display());
+    }
+    Ok(true)
+}
+
+fn reset_confirmation_token(
+    state_root: &Path,
+    session_name: &str,
+    session_dir: &Path,
+    terminal_host_root: &Path,
+) -> String {
+    let mut hash = Sha256::new();
+    update_reset_confirmation_part(&mut hash, "cmux-session-reset-v1");
+    update_reset_confirmation_part(&mut hash, session_name);
+    update_reset_confirmation_part(&mut hash, &canonical_reset_path(state_root));
+    update_reset_confirmation_part(&mut hash, &canonical_reset_path(session_dir));
+    update_reset_confirmation_part(&mut hash, &canonical_reset_path(terminal_host_root));
+    update_reset_confirmation_part(
+        &mut hash,
+        if session_dir.exists() { "session:1" } else { "session:0" },
+    );
+    update_reset_confirmation_part(
+        &mut hash,
+        if terminal_host_root.exists() { "hosts:1" } else { "hosts:0" },
+    );
+    let digest = hash.finalize();
+    digest[..12].iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn update_reset_confirmation_part(hash: &mut Sha256, value: &str) {
+    hash.update(value.len().to_le_bytes());
+    hash.update(value.as_bytes());
+}
+
+fn canonical_reset_path(path: &Path) -> String {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).display().to_string()
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {

@@ -66,9 +66,10 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
-    FrontendProjection, PersistentSessionStateReset, ProjectionCommit, RegistryCommit,
-    RegistryEvent, RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema,
-    WorkspaceMutation, WorkspaceRegistry, persistent_session_state_dir,
+    FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
+    ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace,
+    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    persistent_session_state_dir, preview_persistent_session_state_reset,
     reset_persistent_session_state,
 };
 
