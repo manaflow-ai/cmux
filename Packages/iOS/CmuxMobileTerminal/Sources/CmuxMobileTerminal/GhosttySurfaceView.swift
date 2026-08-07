@@ -1339,6 +1339,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             composer: composerContainer,
             toolbarRowHeight: Self.persistentToolbarHeight
         )
+        keyboardDockAccessory?.setSafeAreaBandColor(terminalTheme.terminalBackgroundUIColor)
         updateDockedToolbarVisibility()
     }
 
@@ -3529,6 +3530,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.textColor = terminalTheme.terminalForegroundUIColor
         configBackgroundColor = themeBackground
         inputProxy.terminalTheme = terminalTheme
+        keyboardDockAccessory?.setSafeAreaBandColor(themeBackground)
         needsDraw = true
     }
 

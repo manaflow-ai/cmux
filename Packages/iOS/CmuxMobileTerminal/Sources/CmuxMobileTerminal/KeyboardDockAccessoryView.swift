@@ -22,6 +22,13 @@ final class KeyboardDockAccessoryView: UIInputView {
     private let composerSlot: UIView
     private let toolbarHeight: NSLayoutConstraint
     private let composerHeight: NSLayoutConstraint
+    /// Paints the content-free safe-area band (home-indicator region) in the
+    /// docked state. The `UIInputView` backdrop behind this view follows the
+    /// OS appearance, not the terminal theme, so without this a light-mode
+    /// phone shows the system's white keyboard backdrop as a stripe under a
+    /// dark dock. Zero-height while the accessory rides the keyboard (no
+    /// bottom safe-area inset there).
+    private let safeAreaBand = UIView()
 
     /// Creates the dock accessory around the surface-owned toolbar and
     /// composer container views.
@@ -45,9 +52,17 @@ final class KeyboardDockAccessoryView: UIInputView {
 
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         composer.translatesAutoresizingMaskIntoConstraints = false
+        safeAreaBand.translatesAutoresizingMaskIntoConstraints = false
+        safeAreaBand.accessibilityIdentifier = "terminal.dockAccessory.safeAreaBand"
+        safeAreaBand.isUserInteractionEnabled = false
+        insertSubview(safeAreaBand, at: 0)
         addSubview(toolbar)
         addSubview(composer)
         NSLayoutConstraint.activate([
+            safeAreaBand.topAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor),
+            safeAreaBand.leadingAnchor.constraint(equalTo: leadingAnchor),
+            safeAreaBand.trailingAnchor.constraint(equalTo: trailingAnchor),
+            safeAreaBand.bottomAnchor.constraint(equalTo: bottomAnchor),
             toolbar.topAnchor.constraint(equalTo: topAnchor),
             toolbar.leadingAnchor.constraint(equalTo: leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -68,6 +83,12 @@ final class KeyboardDockAccessoryView: UIInputView {
     /// The dock's content height above the accessory's safe-area inset.
     var contentHeight: CGFloat {
         toolbarHeight.constant + composerHeight.constant
+    }
+
+    /// Recolors the safe-area band to the terminal background so the docked
+    /// dock reads as terminal material continuing through the home indicator.
+    func setSafeAreaBandColor(_ color: UIColor) {
+        safeAreaBand.backgroundColor = color
     }
 
     override var intrinsicContentSize: CGSize {
