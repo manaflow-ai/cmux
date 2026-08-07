@@ -20,4 +20,12 @@ public enum NestedTitleAuthority: String, Codable, Sendable {
         case .user: 3
         }
     }
+
+    /// Whether an absent provider title may remove a title with this authority.
+    var canBeClearedByProvider: Bool {
+        switch self {
+        case .inferred, .provider: true
+        case .host, .user: false
+        }
+    }
 }

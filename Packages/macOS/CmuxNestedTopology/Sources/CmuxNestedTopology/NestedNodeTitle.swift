@@ -16,8 +16,12 @@ public struct NestedNodeTitle: Codable, Equatable, Sendable {
         self.authority = authority
     }
 
-    func replacing(with candidate: NestedNodeTitle?) -> NestedNodeTitle {
-        guard let candidate, candidate.authority.precedence >= authority.precedence else {
+    /// Applies a provider-scoped title value while preserving host and user locks.
+    func replacing(with candidate: NestedNodeTitle?) -> NestedNodeTitle? {
+        guard let candidate else {
+            return authority.canBeClearedByProvider ? nil : self
+        }
+        guard candidate.authority.precedence >= authority.precedence else {
             return self
         }
         return candidate

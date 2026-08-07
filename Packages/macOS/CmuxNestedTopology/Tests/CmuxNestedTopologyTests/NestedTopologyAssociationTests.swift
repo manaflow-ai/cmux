@@ -133,6 +133,44 @@ struct NestedTopologyAssociationTests {
         #expect(!result.panes[0].association.heuristicAlreadySatisfied)
     }
 
+    @Test("a successful heuristic association drives focus and close cascades")
+    func heuristicAssociationIsTopologyBearing() throws {
+        let fixture = NestedTopologyTestFixture()
+        let heuristicPane = fixture.pane(
+            tabRawID: "tab-2",
+            associationAuthority: .heuristic,
+            heuristicAlreadySatisfied: true
+        )
+        let snapshot = try fixture.snapshot(
+            tabs: [
+                fixture.tab("tab-1", order: 0),
+                fixture.tab("tab-2", order: 1),
+            ],
+            panes: [heuristicPane],
+            focus: NestedTopologyFocus(
+                workspaceID: fixture.id("workspace-1", kind: .workspace),
+                tabID: fixture.id("tab-2", kind: .tab),
+                paneID: heuristicPane.id,
+                agentID: fixture.id("agent-1", kind: .agent)
+            )
+        )
+
+        let result = try NestedTopologyReducer().applying(
+            fixture.event(.nodeClosed(id: fixture.id("tab-2", kind: .tab))),
+            to: snapshot
+        )
+
+        #expect(result.tabs.map(\.id.rawID) == ["tab-1"])
+        #expect(result.panes.isEmpty)
+        #expect(result.agents.isEmpty)
+        #expect(result.focus == NestedTopologyFocus(
+            workspaceID: fixture.id("workspace-1", kind: .workspace),
+            tabID: nil,
+            paneID: nil,
+            agentID: nil
+        ))
+    }
+
     @Test("authoritative titles cannot be overwritten by inference")
     func titleAuthorityLock() throws {
         let fixture = NestedTopologyTestFixture()

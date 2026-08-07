@@ -1,9 +1,9 @@
-/// Resolved parentage and heuristic state for a provider-owned pane.
+/// Resolved, topology-bearing parentage and heuristic state for a provider-owned pane.
 public struct NestedParentAssociation: Codable, Equatable, Sendable {
     /// Pane/session generation to which the association applies.
     public let key: NestedAssociationKey
 
-    /// Provider-owned parent tab.
+    /// Provider-owned parent tab used for hierarchy, focus, and close cascades.
     public let tabID: NestedNodeID
 
     /// Source of the resolved parent relationship.

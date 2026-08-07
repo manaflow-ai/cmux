@@ -54,8 +54,12 @@ Published snapshots guarantee:
 - bounded event batches with indexed mutation and one ordering publication pass;
 - unknown provider capabilities and raw agent statuses remain available for forward compatibility;
 - duplicate creates are idempotent only when content matches, unknown updates fail for resynchronization, and closes cascade;
-- pane/session heuristics apply once while provider parentage remains authoritative;
-- inferred titles cannot overwrite provider, host, or user title authority.
+- a successful pane/session heuristic becomes the resolved topology parent used
+  for hierarchy, focus, and close cascades; it applies once and provider
+  parentage remains authoritative when later available;
+- inferred titles cannot overwrite provider, host, or user title authority;
+- a provider update with no title clears inferred/provider titles while host and
+  user title locks remain intact.
 
 Every event carries provider identity separately, including focus-clear events. Reducers reject a stale generation before applying any mutation.
 
