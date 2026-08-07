@@ -55220,6 +55220,23 @@
         }
       }
     },
+    "cli.terminalCreation.error.commandRequiresTerminalType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command can only be used with --type terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command は --type terminal でのみ使用できます"
+          }
+        }
+      }
+    },
     "cli.terminalCreation.help.initialCommandDescription": {
       "extractionState": "manual",
       "localizations": {

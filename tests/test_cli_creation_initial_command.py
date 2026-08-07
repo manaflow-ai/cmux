@@ -20,17 +20,12 @@ PANE_ID = "22222222-2222-4222-8222-222222222222"
 PANE_REF = "pane:2"
 SURFACE_ID = "33333333-3333-4333-8333-333333333333"
 SURFACE_REF = "surface:3"
-COMMAND_TEXT = r'''printf '%s\n' "spaces 'single' \"double\" $CMUX_VALUE $(printf nested) \\tail 日本語'''
+COMMAND_TEXT = r"""printf '%s\n' "spaces 'single' \"double\" $CMUX_VALUE $(printf nested) \\tail 日本語"""
 
 
-def legacy_initial_input(command: str) -> str:
-    """Match the established new-workspace text+Enter escape contract."""
-    return (
-        (command + r"\n")
-        .replace(r"\n", "\r")
-        .replace(r"\r", "\r")
-        .replace(r"\t", "\t")
-    )
+def creation_initial_input(command: str) -> str:
+    """Preserve command text literally and append one terminal Enter."""
+    return command + "\r"
 
 
 class FakeCmuxState:
@@ -152,18 +147,19 @@ def creation_cases(command: str | None) -> list[tuple[str, list[str], str]]:
     if command is None:
         return cases
     return [
-        (label, [*args, "--command", command], method)
-        for label, args, method in cases
+        (label, [*args, "--command", command], method) for label, args, method in cases
     ]
 
 
-def invoke_creation(
+def invoke_cli(
     cli_path: str,
     socket_path: str,
     state: FakeCmuxState,
-    label: str,
     args: list[str],
-) -> list[tuple[str, dict[str, object]]]:
+) -> tuple[
+    subprocess.CompletedProcess[str],
+    list[tuple[str, dict[str, object]]],
+]:
     env = os.environ.copy()
     for key in [
         "CMUX_SOCKET_PASSWORD",
@@ -183,12 +179,43 @@ def invoke_creation(
         env=env,
         timeout=10,
     )
+    return proc, state.requests_since(request_start)
+
+
+def invoke_creation(
+    cli_path: str,
+    socket_path: str,
+    state: FakeCmuxState,
+    label: str,
+    args: list[str],
+) -> list[tuple[str, dict[str, object]]]:
+    proc, requests = invoke_cli(cli_path, socket_path, state, args)
     if proc.returncode != 0:
         raise AssertionError(
             f"{label} exited non-zero: exit={proc.returncode} "
             f"stdout={proc.stdout.strip()!r} stderr={proc.stderr.strip()!r}"
         )
-    return state.requests_since(request_start)
+    return requests
+
+
+def assert_non_terminal_command_rejected(
+    cli_path: str,
+    socket_path: str,
+    state: FakeCmuxState,
+    label: str,
+    args: list[str],
+) -> None:
+    proc, requests = invoke_cli(cli_path, socket_path, state, args)
+    if proc.returncode == 0:
+        raise AssertionError(f"{label} should reject --command for a non-terminal type")
+    if requests:
+        raise AssertionError(
+            f"{label} should fail before sending a request: {requests!r}"
+        )
+    if "--command" not in proc.stderr or "--type terminal" not in proc.stderr:
+        raise AssertionError(
+            f"{label} returned an unclear error: stderr={proc.stderr.strip()!r}"
+        )
 
 
 def assert_creation_request(
@@ -250,7 +277,7 @@ def main() -> int:
                     label,
                     requests,
                     expected_method=method,
-                    expected_input=legacy_initial_input(COMMAND_TEXT),
+                    expected_input=creation_initial_input(COMMAND_TEXT),
                 )
 
             for label, args, method in creation_cases(None):
@@ -282,6 +309,43 @@ def main() -> int:
                     expected_method=method,
                     expected_input=None,
                 )
+
+            non_terminal_cases = [
+                (
+                    "new-pane browser",
+                    [
+                        "new-pane",
+                        "--workspace",
+                        WORKSPACE_ID,
+                        "--type",
+                        "browser",
+                        "--command",
+                        "echo ignored",
+                    ],
+                ),
+                (
+                    "new-surface agent-session",
+                    [
+                        "new-surface",
+                        "--workspace",
+                        WORKSPACE_ID,
+                        "--pane",
+                        PANE_ID,
+                        "--type",
+                        "agent-session",
+                        "--command",
+                        "echo ignored",
+                    ],
+                ),
+            ]
+            for label, args in non_terminal_cases:
+                assert_non_terminal_command_rejected(
+                    cli_path,
+                    socket_path,
+                    state,
+                    label,
+                    args,
+                )
         except (AssertionError, subprocess.TimeoutExpired) as exc:
             print(f"FAIL: {exc}")
             return 1
@@ -290,9 +354,7 @@ def main() -> int:
             server.server_close()
             thread.join(timeout=2)
 
-    print(
-        "PASS: terminal creation --command uses one spawn-time initial_input request"
-    )
+    print("PASS: terminal creation --command uses one spawn-time initial_input request")
     return 0
 
 

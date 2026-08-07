@@ -4942,6 +4942,11 @@ struct CMUXCLI {
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             let commandOpt = optionValue(commandArgs, name: "--command")
+            try validateTerminalCreationCommandOption(
+                commandOpt,
+                type: type,
+                commandName: "new-pane"
+            )
             var params: [String: Any] = ["direction": direction]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
@@ -4974,6 +4979,11 @@ struct CMUXCLI {
             let placement = optionValue(commandArgs, name: "--placement")
             let focusOpt = optionValue(commandArgs, name: "--focus")
             let commandOpt = optionValue(commandArgs, name: "--command")
+            try validateTerminalCreationCommandOption(
+                commandOpt,
+                type: type,
+                commandName: "new-surface"
+            )
             var params: [String: Any] = [:]
             let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
@@ -17661,20 +17671,47 @@ struct CMUXCLI {
         return "\"\(escaped)\""
     }
 
-    /// Adds a non-empty user command as spawn-time input for a new terminal.
+    /// Adds a non-empty user command plus Enter as spawn-time terminal input.
     ///
-    /// This preserves `new-workspace`'s legacy text+Enter behavior, including
-    /// its escape conversion, while letting Ghostty deliver the input only after
-    /// the interactive shell starts.
+    /// Command text does not use `send`'s escape grammar: literal `\n`, `\r`,
+    /// and `\t` sequences must reach the shell unchanged.
     private func applyTerminalCreationCommandOption(
         _ command: String?,
         to params: inout [String: Any]
     ) {
-        guard let command,
-              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        if let command = nonBlankTerminalCreationCommand(command) {
+            params["initial_input"] = command + "\r"
+        }
+    }
+
+    /// Rejects terminal-only command input for explicitly non-terminal types.
+    private func validateTerminalCreationCommandOption(
+        _ command: String?,
+        type: String?,
+        commandName: String
+    ) throws {
+        guard nonBlankTerminalCreationCommand(command) != nil,
+              let type,
+              type.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "terminal" else {
             return
         }
-        params["initial_input"] = unescapeSendText(command + "\\n")
+        throw CLIError(message: String(
+            format: String(
+                localized: "cli.terminalCreation.error.commandRequiresTerminalType",
+                defaultValue: "%@: --command can only be used with --type terminal"
+            ),
+            locale: .current,
+            commandName
+        ))
+    }
+
+    /// Returns the original command when it contains non-whitespace content.
+    private func nonBlankTerminalCreationCommand(_ command: String?) -> String? {
+        guard let command,
+              !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return command
     }
 
     func parseOption(_ args: [String], name: String) -> (String?, [String]) {
