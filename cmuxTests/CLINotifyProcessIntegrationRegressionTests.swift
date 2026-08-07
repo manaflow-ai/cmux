@@ -418,8 +418,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let allowFirstApplyResponse = DispatchSemaphore(value: 0)
         startDetachedMockServer(
             listenerFD: context.listenerFD,
-            state: context.state,
-            connectionCount: 4
+            state: context.state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
@@ -575,8 +574,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         startDetachedMockServer(
             listenerFD: context.listenerFD,
-            state: context.state,
-            connectionCount: 1
+            state: context.state
         ) { line in
             guard let payload = self.jsonObject(line),
                   let id = payload["id"] as? String,
