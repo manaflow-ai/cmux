@@ -19,16 +19,20 @@ They are separate from the public extension-author SDK.
 
 Sidebar extensions are ExtensionKit app extensions. `CmuxExtensionKit` and the reference projects target macOS 14+, matching CMUX.
 
-Use `Examples/SampleSidebarExtensionApp` as the reference project:
+Use [`Examples/SampleSidebarExtensionApp`](../../../Examples/SampleSidebarExtensionApp)
+as the reference project:
 
 1. Open `SampleSidebarExtensionApp.xcodeproj`.
 2. Change the app and extension bundle identifiers to your own reverse-DNS prefix.
 3. Change the signing team from Manaflow to your team.
 4. Keep the extension point identifier as `com.cmuxterm.app.cmux.sidebar`.
-5. Build and launch the containing app once so macOS registers the embedded extension.
-6. In CMUX, open Sidebar Extensions from the puzzle button next to the sidebar help button and enable your extension.
-7. Choose the extension sidebar provider from that puzzle menu.
-8. If more than one sidebar extension is enabled, choose your extension from the extension sidebar header.
+5. Keep App Sandbox enabled for the extension target.
+6. Build and launch the containing app once so macOS registers the embedded extension.
+7. In CMUX, open Sidebar Extensions from the puzzle button next to the sidebar
+   help button and enable your extension.
+8. Choose the extension sidebar provider from that puzzle menu.
+9. If more than one sidebar extension is enabled, choose your extension from the
+   extension sidebar header.
 
 The extension target declares the extension point manually in its `Info.plist`:
 
@@ -106,6 +110,109 @@ typed helpers for workspace, surface, and URL actions. Raw transport setup and
 host-side callbacks are SPI for CMUX's own host implementation.
 Creating or splitting a browser surface with a URL requires both the surface
 action scope and `openURL`.
+
+## Running External Tools
+
+`CmuxExtensionKit` permissions govern the data and actions CMUX shares with an
+extension. They do not relax the macOS App Sandbox or grant filesystem access.
+A child process inherits the extension's sandbox, so apply all of the following
+when launching `git` or another command-line tool.
+
+### Keep the extension sandboxed
+
+Leave **App Sandbox** enabled on the appex target
+(`ENABLE_APP_SANDBOX = YES`). An unsandboxed ExtensionKit appex can compile,
+embed, and sign but never register, with no useful error in CMUX. Check
+registration independently of CMUX with:
+
+```sh
+pluginkit -mAvvv -p com.cmuxterm.app.cmux.sidebar
+```
+
+If the extension is absent from that output, fix its sandbox, signing, bundle
+identifier, and extension point before debugging the CMUX connection.
+
+### Launch the real executable, not an Xcode shim
+
+Do not launch `/usr/bin/git` from an extension. On macOS it is an Xcode
+tool-selection shim that resolves the active developer tool through `xcrun`,
+and `xcrun` cannot run inside App Sandbox. Other developer-tool shims under
+`/usr/bin` have the same limitation.
+
+```text
+xcrun: error: cannot be used within an App Sandbox.
+```
+
+For local development, real Git paths reported to avoid the Xcode shim include:
+
+- `/opt/homebrew/bin/git`
+- `/Library/Developer/CommandLineTools/usr/bin/git`
+- `/Applications/Xcode.app/Contents/Developer/usr/bin/git`
+
+Treat host-installed paths as development-only diagnostics, not portable
+distribution targets: their availability and sandbox access vary by machine. A
+file-selection or bookmark grant authorizes data access, not an arbitrary
+executable. For a distributed extension, follow Apple's [sandboxed helper-tool
+guidance](https://developer.apple.com/documentation/xcode/embedding-a-helper-tool-in-a-sandboxed-app):
+embed and sign the required executable or helper in the extension's own bundle
+and configure sandbox inheritance as appropriate. A child tool still inherits
+the extension's sandbox and file access.
+
+### Set a readable working directory
+
+Always set `Process.currentDirectoryURL` before launch. ExtensionKit may start
+the appex in a directory that its sandbox cannot read. Git asks the operating
+system for the current directory before it processes `-C`, so `-C` alone cannot
+recover from this failure:
+
+```text
+fatal: Unable to read current working directory: Operation not permitted
+```
+
+Use an already authorized directory, normally the repository:
+
+```swift
+let process = Process()
+process.executableURL = gitURL
+process.currentDirectoryURL = repositoryURL
+process.arguments = ["status", "--short"]
+```
+
+If you keep `-C`, still set `currentDirectoryURL` to a readable directory.
+
+### Authorize repository access explicitly
+
+A `workspacePaths` grant tells the extension where a repository is; it does not
+authorize the extension process to open it. Enable the appropriate **User
+Selected File** entitlement and have the user choose the repository with a
+standard Open panel. If the containing app presents the panel, pass URL bookmark
+data to the extension and resolve it there. Keep the authorized URL's
+security-scoped access active for the entire child-process lifetime. Apple's
+[macOS App Sandbox file-access
+guide](https://developer.apple.com/documentation/security/accessing-files-from-the-macos-app-sandbox)
+covers user-selected URLs, persistent security-scoped bookmarks, and passing
+bookmarks between processes.
+
+Privacy controls such as Files and Folders still apply to locations including
+Desktop, Documents, and Downloads. [Apple documents embedded
+extensions](https://support.apple.com/guide/security/supporting-extensions-secabd3504cd/web)
+as sharing their containing app's privacy-control grants, but CMUX is the
+activating host, not the app that contains a third-party sidebar. That is
+separate from App Sandbox repository access: use explicit selection and
+bookmarks, and handle denial without assuming that extension activation will
+present a consent prompt.
+
+Full Disk Access is a user-granted System Settings permission intended for
+workflows that genuinely need access across the disk. If a broad-disk workflow
+still receives a denial during development, System Settings may require
+selecting the embedded `.appex` explicitly. Do not make it the normal setup path
+for a sidebar that reads selected repositories; prefer explicit selection and
+bookmarks.
+
+If you test privacy grants during development, sign the appex with a stable
+Apple Development or self-signed identity. An ad-hoc signature's designated
+requirement is derived from the changing binary hash, so a rebuild can be
+treated as a different program and lose an existing privacy decision.
 
 ## Permissions
 
