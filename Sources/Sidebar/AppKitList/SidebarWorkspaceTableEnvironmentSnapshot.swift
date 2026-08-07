@@ -16,6 +16,9 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
     /// view's effective appearance during focus or reparenting churn.
     let primaryTextColor: NSColor
     let secondaryTextColor: NSColor
+    /// Settable base AppKit appearance matching the table's SwiftUI color scheme.
+    /// AppKit's accessibility-high-contrast names are match-only appearances.
+    let appKitAppearance: NSAppearance?
 #if DEBUG
     let lazyContractProbe: SidebarLazyContractProbe
 #endif
@@ -32,6 +35,7 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
         self.primaryTextColor = colors.primary
         self.secondaryTextColor = colors.secondary
+        self.appKitAppearance = Self.appKitAppearance(for: environment.colorScheme)
         self.lazyContractProbe = lazyContractProbe
     }
 #else
@@ -45,6 +49,7 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
         self.globalFontMagnificationPercent = globalFontMagnificationPercent
         self.primaryTextColor = colors.primary
         self.secondaryTextColor = colors.secondary
+        self.appKitAppearance = Self.appKitAppearance(for: environment.colorScheme)
     }
 #endif
 
@@ -90,6 +95,10 @@ struct SidebarWorkspaceTableEnvironmentSnapshot {
                 fallback: fallbackPrimary.withAlphaComponent(fallbackSecondaryAlpha)
             )
         )
+    }
+
+    private static func appKitAppearance(for colorScheme: ColorScheme) -> NSAppearance? {
+        NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)
     }
 
     private static func appKitColor(

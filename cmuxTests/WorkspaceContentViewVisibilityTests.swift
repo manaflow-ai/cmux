@@ -258,11 +258,9 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
-    @Test(arguments: [true, false])
+    @Test
     @MainActor
-    func testUnrelatedEnvironmentChangeDoesNotReevaluateSidebarRenderContext(
-        appKitListEnabled: Bool
-    ) async throws {
+    func testUnrelatedEnvironmentChangeDoesNotReevaluateSidebarRenderContext() async throws {
         _ = NSApplication.shared
 
         let suiteName = "WorkspaceContentViewEnvironmentTests.\(UUID().uuidString)"
@@ -278,7 +276,6 @@ final class WorkspaceContentViewVisibilityTests {
         let counts = MinimalModeBodyProbeCounts()
         let root = SidebarUnrelatedEnvironmentHarness(
             state: state,
-            appKitListEnabled: appKitListEnabled,
             updateViewModel: UpdateStateModel(),
             fileExplorerState: FileExplorerState(),
             sidebarUnread: SidebarUnreadModel(),
@@ -809,7 +806,6 @@ private final class SidebarUnrelatedEnvironmentHarnessState {
 @MainActor
 private struct SidebarUnrelatedEnvironmentHarness: View {
     let state: SidebarUnrelatedEnvironmentHarnessState
-    let appKitListEnabled: Bool
     let updateViewModel: UpdateStateModel
     let fileExplorerState: FileExplorerState
     let sidebarUnread: SidebarUnreadModel
@@ -835,13 +831,7 @@ private struct SidebarUnrelatedEnvironmentHarness: View {
                 lastSidebarSelectionIndex: .constant(nil),
                 sidebarRenderWorkerClient: .constant(nil)
             )
-            Group {
-                if appKitListEnabled {
-                    sidebar.equatable()
-                } else {
-                    sidebar
-                }
-            }
+            sidebar
         }
         .environment(\.sidebarUnrelatedEnvironmentNoise, state.noise)
     }

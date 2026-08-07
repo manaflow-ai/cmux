@@ -248,6 +248,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
             fontSize: GlobalFontMagnification.scaledSize(9, percent: percent),
             emphasis: model.isAnchorActive ? 1.0 : 0.9,
             textColor: environment.primaryTextColor,
+            materialAppearance: environment.appKitAppearance,
             representedIdentity: model.groupId
         )
 
@@ -730,10 +731,12 @@ final class SidebarShortcutHintPillView: NSView {
         fontSize: CGFloat,
         emphasis: Double,
         textColor: NSColor,
+        materialAppearance: NSAppearance?,
         representedIdentity: UUID? = nil
     ) {
         let identityChanged = self.representedIdentity != representedIdentity
         self.representedIdentity = representedIdentity
+        materialView.appearance = materialAppearance
         guard let text else {
             setRevealed(false, animated: !identityChanged)
             return
@@ -780,6 +783,7 @@ final class SidebarShortcutHintPillView: NSView {
         visibilityGeneration &+= 1
         applyImmediateVisibility(false)
         label.stringValue = ""
+        materialView.appearance = nil
     }
 
     private func setRevealed(_ revealed: Bool, animated: Bool = true) {
