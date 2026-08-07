@@ -647,6 +647,27 @@ jobs:
             echo "::warning::Passwordless sudo unavailable; XCTest will use its default automation-mode setup"
           fi
 
+      - name: Run Sleepy Mode lock regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # Swift Testing assertion failures are tolerated in the full sharded
+          # app-host suite. Keep the Lock Mac regression (issue #9730: the
+          # CGSession binary was removed in macOS 26, so the old lock silently
+          # did nothing) on a non-tolerant focused invocation so a broken lock
+          # path cannot appear green.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/SleepyPowerControlsLockTests \
+            test
+
       - name: Run agent chat transcript lifecycle regressions
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -671,27 +692,6 @@ jobs:
               -only-testing:"cmuxTests/$suite" \
               test
           done
-
-      - name: Run Sleepy Mode lock regression
-        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
-        run: |
-          # Swift Testing assertion failures are tolerated in the full sharded
-          # app-host suite. Keep the Lock Mac regression (issue #9730: the
-          # CGSession binary was removed in macOS 26, so the old lock silently
-          # did nothing) on a non-tolerant focused invocation so a broken lock
-          # path cannot appear green.
-          set -euo pipefail
-          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          scripts/ci/run-in-console-session.sh \
-            scripts/ci/run-app-host-xcodebuild.sh \
-            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-            -disableAutomaticPackageResolution \
-            -destination "platform=macOS" \
-            CMUX_SKIP_ZIG_BUILD=1 \
-            -only-testing:cmuxTests/SleepyPowerControlsLockTests \
-            test
 
       - name: Run browser runtime viewport regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
