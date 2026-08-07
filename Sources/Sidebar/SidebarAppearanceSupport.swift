@@ -272,17 +272,25 @@ struct SidebarWorkspaceRowBackgroundStyle: Equatable, Hashable {
     static let clear = Self(color: nil, opacity: 0)
 }
 
+/// Rail color for a workspace row, or `nil` when no rail should be drawn.
+///
+/// `autoRailColorHex` is the identity-derived fallback used when the workspace
+/// has no manual color (see `WorkspaceAutoTabColorAssignment`). It is applied
+/// here rather than folded into `customColorHex` upstream so it can never leak
+/// into `sidebarWorkspaceRowBackgroundStyle`, where a row-filling color would
+/// compete with the selected-row highlight.
 func sidebarWorkspaceRowExplicitRailNSColor(
     activeTabIndicatorStyle: WorkspaceIndicatorStyle,
     customColorHex: String?,
+    autoRailColorHex: String? = nil,
     colorScheme: ColorScheme
 ) -> NSColor? {
     guard activeTabIndicatorStyle == .leftRail,
-          let customColorHex else {
+          let railHex = customColorHex ?? autoRailColorHex else {
         return nil
     }
     return WorkspaceTabColorSettings.displayNSColor(
-        hex: customColorHex,
+        hex: railHex,
         colorScheme: colorScheme,
         forceBright: true
     )

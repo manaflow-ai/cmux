@@ -198,6 +198,9 @@ class TabManager: ObservableObject {
     private let windowDockTitleRoutingStores =
         NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
+    /// Coalescing flag for `scheduleAutoWorkspaceColorReconcile()`.
+    var autoWorkspaceColorReconcileScheduled = false
+
     var tabs: [Workspace] {
         get { workspaces.tabs }
         set { workspaces.tabs = newValue }
@@ -250,6 +253,9 @@ class TabManager: ObservableObject {
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        // Deferred: reconciling writes UserDefaults, which must not re-enter
+        // this mutation.
+        scheduleAutoWorkspaceColorReconcile()
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
@@ -664,6 +670,7 @@ class TabManager: ObservableObject {
                 self?.focusHistoryScopeSettingsDidChange()
                 self?.refreshTabCloseButtonVisibility()
                 self?.refreshWindowTitle()
+                self?.scheduleAutoWorkspaceColorReconcile()
             }
         })
 #if DEBUG

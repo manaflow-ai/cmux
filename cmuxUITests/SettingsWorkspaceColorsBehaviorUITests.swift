@@ -83,6 +83,7 @@ final class SettingsWorkspaceColorsBehaviorUITests: SettingsUITestCase {
     /// UserDefaults keys (raw `userDefaultsKey`s) backing this section.
     private static let workspaceColorKeys = [
         "sidebarActiveTabIndicatorStyle",
+        "workspaceTabColor.autoAssignColors",
         "sidebarSelectionColorHex",
         "sidebarNotificationBadgeColorHex",
         "workspaceTabColor.colors",

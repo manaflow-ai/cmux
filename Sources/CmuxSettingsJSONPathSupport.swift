@@ -473,6 +473,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showCustomMetadata",
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
+        "workspaceColors.autoAssignColors",
         "workspaceColors.selectionColor",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.colors",

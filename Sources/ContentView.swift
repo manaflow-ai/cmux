@@ -16240,6 +16240,7 @@ struct TabItemView: View, Equatable {
         guard let railColor = sidebarWorkspaceRowExplicitRailNSColor(
             activeTabIndicatorStyle: activeTabIndicatorStyle,
             customColorHex: workspaceSnapshot.customColorHex,
+            autoRailColorHex: workspaceSnapshot.autoRailColorHex,
             colorScheme: colorScheme
         ) else {
             return nil

@@ -1152,6 +1152,11 @@
           "default": "leftRail",
           "description": "Active workspace indicator style. Legacy aliases are accepted and normalized."
         },
+        "autoAssignColors": {
+          "type": "boolean",
+          "default": false,
+          "description": "Give every workspace without an explicit color a stable palette color derived from its identity, drawn on the left rail. Ignored unless indicatorStyle is leftRail, because solidFill colors the whole row and would compete with the selected-workspace highlight."
+        },
         "selectionColor": {
           "$ref": "#/$defs/colorHexOrNull",
           "default": null,

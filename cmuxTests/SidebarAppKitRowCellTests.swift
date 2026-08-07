@@ -25,6 +25,7 @@ struct SidebarAppKitRowCellTests {
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: nil,
+            autoRailColorHex: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",

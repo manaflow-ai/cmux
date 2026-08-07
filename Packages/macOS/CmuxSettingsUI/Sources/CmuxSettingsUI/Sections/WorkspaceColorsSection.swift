@@ -14,6 +14,7 @@ public struct WorkspaceColorsSection: View {
     private let errorLog: SettingsErrorLog
 
     @State private var indicator: DefaultsValueModel<WorkspaceIndicatorStyle>
+    @State private var autoAssign: DefaultsValueModel<Bool>
     @State private var selectionHex: DefaultsValueModel<String>
     @State private var badgeHex: DefaultsValueModel<String>
     @State private var paneFlashHex: DefaultsValueModel<String>
@@ -54,6 +55,7 @@ public struct WorkspaceColorsSection: View {
         self.catalog = catalog
         self.errorLog = errorLog
         _indicator = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.indicatorStyle))
+        _autoAssign = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.autoAssignColors))
         _selectionHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.selectionColorHex))
         _badgeHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.workspaceColors.notificationBadgeColorHex))
         _paneFlashHex = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.notifications.paneFlashColorHex))
@@ -77,6 +79,7 @@ public struct WorkspaceColorsSection: View {
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             indicator,
+            autoAssign,
             selectionHex,
             badgeHex,
             paneFlashHex,
@@ -101,6 +104,19 @@ public struct WorkspaceColorsSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
             }
+            SettingsCardDivider()
+
+            SettingsCardRow(
+                configurationReview: .json("workspaceColors.autoAssignColors"),
+                String(localized: "settings.workspaceColors.autoAssign", defaultValue: "Assign Colors Automatically"),
+                subtitle: autoAssignSubtitle
+            ) {
+                Toggle("", isOn: Binding(get: { autoAssign.current }, set: { autoAssign.set($0) }))
+                    .labelsHidden()
+                    .controlSize(.small)
+                    .accessibilityIdentifier("SettingsWorkspaceColorsAutoAssignToggle")
+            }
+            .disabled(indicator.current != .leftRail)
             SettingsCardDivider()
 
             colorRow(
@@ -286,6 +302,29 @@ public struct WorkspaceColorsSection: View {
         case .leftRail: return String(localized: "sidebar.activeTabIndicator.leftRail", defaultValue: "Left Rail")
         case .solidFill: return String(localized: "sidebar.activeTabIndicator.solidFill", defaultValue: "Solid Fill")
         }
+    }
+
+    /// Explains the current auto-assign state, including why the row is
+    /// unavailable under Solid Fill: that indicator paints the whole row, so an
+    /// auto color on every workspace would compete with the selected-row
+    /// highlight instead of merely identifying the workspace.
+    private var autoAssignSubtitle: String {
+        guard indicator.current == .leftRail else {
+            return String(
+                localized: "settings.workspaceColors.autoAssign.subtitleUnavailable",
+                defaultValue: "Requires the Left Rail indicator. Solid Fill colors the whole row, which would hide the selected workspace."
+            )
+        }
+        if autoAssign.current {
+            return String(
+                localized: "settings.workspaceColors.autoAssign.subtitleOn",
+                defaultValue: "Workspaces without a color get a palette color from their identity, shown on the left rail. The same workspace keeps its color across restarts."
+            )
+        }
+        return String(
+            localized: "settings.workspaceColors.autoAssign.subtitleOff",
+            defaultValue: "Only workspaces you color manually show a left rail."
+        )
     }
 
 

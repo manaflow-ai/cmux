@@ -397,6 +397,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let railColor = sidebarWorkspaceRowExplicitRailNSColor(
             activeTabIndicatorStyle: settings.activeTabIndicatorStyle,
             customColorHex: snapshot.customColorHex,
+            autoRailColorHex: snapshot.autoRailColorHex,
             colorScheme: palette.colorScheme
         )
         railView.isHidden = railColor == nil

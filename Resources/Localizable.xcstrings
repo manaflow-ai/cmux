@@ -195742,6 +195742,23 @@
         }
       }
     },
+    "settings.search.alias.setting.workspaceColors.auto-assign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.autoAssignColors automatic auto random assign colors every workspace rail stable unique distinct"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspaceColors.autoAssignColors 自動 ランダム 色 割り当て ワークスペース レール 一意 区別 • workspaceColors.autoAssignColors automatic auto random assign colors every workspace rail stable unique distinct"
+          }
+        }
+      }
+    },
     "settings.search.alias.setting.workspaceColors.badge": {
       "extractionState": "manual",
       "localizations": {
@@ -203886,6 +203903,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法載入設定。請重新啟動 cmux 並回報此問題。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.autoAssign": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assign Colors Automatically"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動的に色を割り当てる"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.autoAssign.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only workspaces you color manually show a left rail."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で色を設定したワークスペースだけに左レールが表示されます。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.autoAssign.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces without a color get a palette color from their identity, shown on the left rail. The same workspace keeps its color across restarts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色が設定されていないワークスペースには、その識別子から決まるパレットの色が左レールに表示されます。同じワークスペースは再起動後も同じ色を保ちます。"
+          }
+        }
+      }
+    },
+    "settings.workspaceColors.autoAssign.subtitleUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requires the Left Rail indicator. Solid Fill colors the whole row, which would hide the selected workspace."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「左レール」インジケータが必要です。「塗りつぶし」は行全体を着色するため、選択中のワークスペースが分からなくなります。"
           }
         }
       }
