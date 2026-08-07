@@ -130,6 +130,11 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         }
     }
 
+    func updateWorkspaceAttentionColor(_ color: WorkspaceAttentionColor) {
+        guard let lastRenderState else { return }
+        update(state: lastRenderState.replacingWorkspaceAttentionColor(with: color))
+    }
+
     func scheduleGeometryRefresh(stateProvider: @MainActor @escaping () -> TmuxWorkspacePaneOverlayRenderState?) {
         guard !pendingGeometryRefresh else { return }
         pendingGeometryRefresh = true

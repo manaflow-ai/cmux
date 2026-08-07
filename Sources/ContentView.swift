@@ -2923,8 +2923,14 @@ struct ContentView: View {
             refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
         })
 
-        view = AnyView(view.onChange(of: paneFlashColorHex) { _, _ in
-            refreshTmuxWorkspacePaneWindowOverlay(in: observedWindow)
+        view = AnyView(view.onChange(of: paneFlashColorHex) { _, newValue in
+            guard let window = observedWindow else { return }
+            WindowTmuxWorkspacePaneOverlayController.controller(
+                for: window,
+                createIfNeeded: false
+            )?.updateWorkspaceAttentionColor(
+                WorkspaceAttentionColor(configuredHex: newValue)
+            )
         })
 
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
