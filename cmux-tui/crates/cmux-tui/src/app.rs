@@ -5992,6 +5992,8 @@ pub struct App {
     sidebar_plugin_retry_at: Option<Instant>,
     sidebar_width_override: Option<u16>,
     machine_sidebar_width_override: Option<u16>,
+    /// Host grid used to compute the cached sidebar and pane rectangles.
+    pub(crate) frame_layout_size: Option<(u16, u16)>,
     /// Pane region of the current frame (screen minus sidebar/status).
     pub content_area: Rect,
     /// Clickable regions of the current frame, rebuilt by the renderers.
@@ -7258,6 +7260,7 @@ fn run_with_machine_updates_inner(
         sidebar_plugin_retry_at: None,
         sidebar_width_override: None,
         machine_sidebar_width_override: None,
+        frame_layout_size: None,
         content_area: Rect::default(),
         hits: Vec::new(),
         tab_scroll: HashMap::new(),
@@ -10466,8 +10469,12 @@ impl App {
     /// Refresh the tree snapshot, recompute the active screen's layout
     /// (each pane's border box eats one cell on every side), and push
     /// content sizes to surfaces.
-    fn sync_layout(&mut self, size: (u16, u16)) {
+    pub(crate) fn sync_layout(&mut self, size: (u16, u16)) {
         let (width, height) = size;
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.frame_layout_size = Some(size);
         self.sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
@@ -19401,6 +19408,103 @@ mod tests {
         let layout = sidebar_layout_for(&config, true, false, false, (0, 24), None, None);
         assert!(layout.workspace.is_none());
         assert_eq!(layout.content.width, 0);
+    }
+
+    fn assert_layout_within_frame(app: &App, size: (u16, u16)) {
+        let (width, height) = size;
+        assert_eq!(app.frame_layout_size, Some(size));
+        assert!(app.content_area.x.saturating_add(app.content_area.width) <= width);
+        assert!(app.content_area.y.saturating_add(app.content_area.height) <= height);
+        for area in &app.pane_areas {
+            assert!(area.rect.x.saturating_add(area.rect.width) <= width);
+            assert!(area.rect.y.saturating_add(area.rect.height) <= height);
+            assert!(area.content.x.saturating_add(area.content.width) <= width);
+            assert!(area.content.y.saturating_add(area.content.height) <= height);
+        }
+    }
+
+    #[test]
+    fn draw_syncs_an_uninitialized_frame_layout() {
+        let mux = Mux::new("initial-frame-layout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        assert_eq!(app.frame_layout_size, None);
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_layout_within_frame(&app, (80, 24));
+    }
+
+    #[test]
+    fn draw_survives_host_height_shrinking_after_layout_sync() {
+        let mux = Mux::new("host-height-shrink-draw-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((80, 25));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_layout_within_frame(&app, (80, 24));
+    }
+
+    #[test]
+    fn draw_survives_host_width_shrinking_after_layout_sync() {
+        let mux = Mux::new("host-width-shrink-draw-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((81, 24));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_layout_within_frame(&app, (80, 24));
+    }
+
+    #[test]
+    fn draw_skips_layout_sync_for_zero_height_frames() {
+        let mux = Mux::new("zero-height-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((80, 24));
+        let expected_content = app.content_area;
+        let expected_visible = app.visible_size_surfaces.clone();
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 0)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.frame_layout_size, Some((80, 24)));
+        assert_eq!(app.content_area, expected_content);
+        assert_eq!(app.visible_size_surfaces, expected_visible);
+    }
+
+    #[test]
+    fn draw_skips_layout_sync_for_zero_width_frames() {
+        let mux = Mux::new("zero-width-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((80, 24));
+        let expected_content = app.content_area;
+        let expected_visible = app.visible_size_surfaces.clone();
+
+        let mut terminal = Terminal::new(TestBackend::new(0, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.frame_layout_size, Some((80, 24)));
+        assert_eq!(app.content_area, expected_content);
+        assert_eq!(app.visible_size_surfaces, expected_visible);
+    }
+
+    #[test]
+    fn sync_layout_ignores_zero_sized_host_grids() {
+        let mux = Mux::new("zero-sized-layout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((80, 24));
+        let expected_content = app.content_area;
+        let expected_visible = app.visible_size_surfaces.clone();
+
+        for size in [(0, 24), (80, 0), (0, 0)] {
+            app.sync_layout(size);
+            assert_eq!(app.frame_layout_size, Some((80, 24)));
+            assert_eq!(app.content_area, expected_content);
+            assert_eq!(app.visible_size_surfaces, expected_visible);
+        }
     }
 
     #[test]
@@ -34970,6 +35074,7 @@ mod tests {
             sidebar_plugin_retry_at: None,
             sidebar_width_override: None,
             machine_sidebar_width_override: None,
+            frame_layout_size: None,
             content_area: Rect::default(),
             hits: Vec::new(),
             tab_scroll: HashMap::new(),
