@@ -77,6 +77,20 @@ ghostty_string_s ghostty_surface_render_grid_json_v2(
     uintptr_t scrollback_lines,
     bool include_theme,
     bool anchor_active);
+ghostty_string_s ghostty_surface_font_resolve_json(
+    void *surface,
+    const char *cluster,
+    uintptr_t cluster_len,
+    bool bold,
+    bool italic,
+    uint8_t constraint_width);
+ghostty_string_s ghostty_surface_font_rasterize_json(
+    void *surface,
+    const char *cluster,
+    uintptr_t cluster_len,
+    bool bold,
+    bool italic,
+    uint8_t constraint_width);
 void ghostty_surface_set_content_scale(void);
 void ghostty_surface_set_display_id(void);
 void ghostty_surface_set_focus(void);

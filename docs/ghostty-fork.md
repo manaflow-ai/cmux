@@ -31,6 +31,37 @@ contract. PR 172 then recorded the original font branch as ancestry without
 changing the integrated tree, so the final pin descends from both former
 gitlinks (`cd1f8e012` and `80d7fb35a`).
 
+### Font resolution and rasterization query API
+
+- Commit: `c6ebe030a` (font: expose surface font resolution and
+  rasterization query API), on branch `feat-font-resolution-api`
+  (https://github.com/manaflow-ai/ghostty/pull/186), based on `11aa609d7`
+  plus a merge of fork main `1d111a072`
+- Files: `include/ghostty.h`, `src/apprt/embedded.zig`
+- Summary:
+  - Adds `ghostty_surface_font_resolve_json` and
+    `ghostty_surface_font_rasterize_json`: given a UTF-8 grapheme cluster,
+    bold/italic style, and constraint width, they replay the cluster into a
+    scratch terminal (real grapheme clustering and SGR styling), resolve it
+    against the surface's live shared font grid (the same
+    CodepointResolver/Collection the renderer uses, including this session's
+    dynamically discovered fallback faces), shape it with a private CoreText
+    shaper carrying the surface's font features, and return JSON
+    (`cmux.font-query.v1`): PostScript name, family, source classification
+    (primary / embedded / discovered / asset / sprite), glyph indices and
+    offsets. The rasterize variant additionally renders each glyph through
+    the app's own Face/sprite render path into a private atlas (never the
+    shared one, so the renderer's glyph cache cannot be poisoned) and emits
+    pixels: 16-bit LE coverage for monochrome, premultiplied Display-P3
+    BGRA for color glyphs.
+  - Powers the cmux debug socket verbs `debug.font.resolve` /
+    `debug.font.rasterize`, the D3 app-side resolution service of the
+    ghostty-web pixel-parity project (replaces the harness's empirical
+    asset-font exclusion and CJK face-override pins and the warmup-replay
+    hack).
+- Conflict note: additive exports at the end of the render-grid CAPI
+  section; no upstream code paths modified.
+
 ### VT stream-boundary visibility
 
 - Commit: `11aa609d7` (Expose safe VT stream snapshot boundary)

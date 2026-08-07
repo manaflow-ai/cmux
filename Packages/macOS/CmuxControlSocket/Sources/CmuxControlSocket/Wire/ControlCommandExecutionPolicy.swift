@@ -159,6 +159,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // connection-owned shutdown path, which awaits asynchronous writers.
         // Keep that wait off the main actor.
         "debug.mobile.transport.disconnect",
+        // Font resolution/rasterization batches parse and validate up to 512
+        // items on the socket worker before one bounded v2MainSync hop runs
+        // the fork C API against the shared font grid; classifying them
+        // .mainActor would put the JSON parsing and base64 handling on the
+        // main actor too.
+        "debug.font.resolve",
+        "debug.font.rasterize",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a

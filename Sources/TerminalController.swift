@@ -1485,6 +1485,10 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.font.resolve":
+            return v2Result(id: request.id, v2DebugFontQuery(params: request.params, rasterize: false))
+        case "debug.font.rasterize":
+            return v2Result(id: request.id, v2DebugFontQuery(params: request.params, rasterize: true))
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
             let response = captureScreenshot(label)
@@ -1548,7 +1552,9 @@ class TerminalController {
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
-                || request.method == "debug.mobile.transport.disconnect" {
+                || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "debug.font.resolve"
+                || request.method == "debug.font.rasterize" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -13192,7 +13198,9 @@ class TerminalController {
         return nil
     }
 
-    private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
+    // Internal (not private) so debug verb extensions in sibling files can
+    // resolve surface arguments (see TerminalController+FontQuery.swift).
+    func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg),
            tab.panels[uuid] != nil || tab.remoteTmuxControlPane(surfaceID: uuid) != nil {
             return uuid
