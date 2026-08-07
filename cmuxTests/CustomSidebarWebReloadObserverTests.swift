@@ -240,11 +240,13 @@ struct CustomSidebarWebReloadObserverTests {
 
         let observed = ResolverObservation()
         let observer = CustomSidebarWebReloadObserver(sidebarName: "board") { _ in
-            await observed.record(ranOnMainThread: Thread.isMainThread)
-            return CmuxExtensionSidebarSelection.customSidebarFileURL(
+            let ranOnMainThread = Thread.isMainThread
+            let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(
                 forName: "board",
                 sidebarsDirectory: dir
             )
+            await observed.record(ranOnMainThread: ranOnMainThread)
+            return fileURL
         }
 
         await observer.resolutionSettled()
@@ -257,14 +259,14 @@ struct CustomSidebarWebReloadObserverTests {
 
     /// What thread the resolver used, read back once it has finished.
     private actor ResolverObservation {
-        private var resolverRanOnMainThread = false
+        private var anyInvocationRanOnMainThread = false
 
         func record(ranOnMainThread: Bool) {
-            resolverRanOnMainThread = ranOnMainThread
+            anyInvocationRanOnMainThread = anyInvocationRanOnMainThread || ranOnMainThread
         }
 
         func ranOnMainThread() -> Bool {
-            resolverRanOnMainThread
+            anyInvocationRanOnMainThread
         }
     }
 
