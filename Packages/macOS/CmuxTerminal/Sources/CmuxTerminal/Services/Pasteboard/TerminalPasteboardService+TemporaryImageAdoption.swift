@@ -48,8 +48,10 @@ extension TerminalPasteboardService {
             forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
         )
         guard sourceValues.isRegularFile == true,
-              sourceValues.isSymbolicLink != true,
-              let fileSize = sourceValues.fileSize,
+              sourceValues.isSymbolicLink != true else {
+            throw CocoaError(.fileReadInvalidFileName)
+        }
+        guard let fileSize = sourceValues.fileSize,
               fileSize > 0,
               fileSize <= Self.maxClipboardImageSize else {
             throw CocoaError(.fileReadTooLarge)
