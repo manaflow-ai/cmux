@@ -215,6 +215,22 @@ final class TerminalBytesDemoTests: XCTestCase {
         XCTAssertEqual(terminal.string, "one\ntwo\n")
     }
 
+    @MainActor
+    func testEmptyInitialFrameStillAcceptsTheFirstDirtyRow() {
+        let terminal = TerminalTextView()
+        terminal.configureForTerminal()
+        terminal.applyTerminalFrame("")
+
+        terminal.applyTerminalFrame(
+            nil,
+            dirtyRows: [0],
+            dirtyRowText: [0: "output\n"],
+            rowCount: 1
+        )
+
+        XCTAssertEqual(terminal.string, "output\n")
+    }
+
     func testLauncherUsesAnInvocationOwnedSwiftBuildDirectory() throws {
         let demoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

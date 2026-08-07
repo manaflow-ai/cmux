@@ -214,7 +214,11 @@ final class TerminalTextView: NSTextView {
         let edit: TerminalTextEdit
         if let next {
             let current = terminalFrameText
-            guard current != next else { return nil }
+            if current == next {
+                terminalRows = next.isEmpty ? [""] : terminalRows(from: next)
+                rebuildTerminalRowOffsets()
+                return nil
+            }
             guard let fullEdit = terminalTextEdit(from: current, to: next) else { return nil }
             edit = fullEdit
             terminalRows = terminalRows(from: next)
