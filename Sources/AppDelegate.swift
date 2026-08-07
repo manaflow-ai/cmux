@@ -5074,11 +5074,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
                 guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
+                      sourceWorkspace.splitPaneMovingTab(
                         resolvedTargetPane,
                         orientation: splitTarget.orientation,
                         movingTab: sourceTabId,
-                        insertFirst: splitTarget.insertFirst
+                        insertFirst: splitTarget.insertFirst,
+                        focusIntent: focus ? .activateMovedTab : .preserveCurrent
                       ) != nil else {
 #if DEBUG
                     cmuxDebugLog(
@@ -5167,11 +5168,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
             guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
+                  destinationWorkspace.splitPaneMovingTab(
                     resolvedTargetPane,
                     orientation: splitTarget.orientation,
                     movingTab: movedTabId,
-                    insertFirst: splitTarget.insertFirst
+                    insertFirst: splitTarget.insertFirst,
+                    focusIntent: focus ? .activateMovedTab : .preserveCurrent
                   ) != nil else {
                 if let detachedFromDestination = destinationWorkspace.detachSurface(panelId: panelId) {
                     rollbackDetachedSurface(
