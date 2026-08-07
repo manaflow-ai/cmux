@@ -3575,23 +3575,29 @@ mod unix {
 
     pub(crate) fn acquire_terminal_host_reset_lock(
         root: &Path,
-    ) -> anyhow::Result<TerminalHostResetLock> {
+    ) -> anyhow::Result<Option<TerminalHostResetLock>> {
         let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
+        let file = match OpenOptions::new()
             .read(true)
             .write(true)
-            .create(true)
-            .truncate(false)
             .mode(0o600)
             .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
             .open(&path)
-            .with_context(|| format!("open terminal-host publication lock {}", path.display()))?;
+        {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!("open terminal-host publication lock {}", path.display())
+                });
+            }
+        };
         validate_terminal_host_publication_lock(root, &path, &file)?;
         lock_terminal_host_publication_file(&file, libc::LOCK_EX | libc::LOCK_NB).with_context(
             || format!("terminal host state has live or unverified hosts: {}", root.display()),
         )?;
         validate_terminal_host_publication_lock(root, &path, &file)?;
-        Ok(TerminalHostResetLock { file })
+        Ok(Some(TerminalHostResetLock { file }))
     }
 
     pub(crate) fn acquire_terminal_host_publication_lock(
@@ -6894,7 +6900,7 @@ pub(crate) struct TerminalHostResetLock;
 #[cfg(not(unix))]
 pub(crate) fn acquire_terminal_host_reset_lock(
     _root: &Path,
-) -> anyhow::Result<TerminalHostResetLock> {
+) -> anyhow::Result<Option<TerminalHostResetLock>> {
     anyhow::bail!("terminal host liveness cannot be verified on this platform")
 }
 

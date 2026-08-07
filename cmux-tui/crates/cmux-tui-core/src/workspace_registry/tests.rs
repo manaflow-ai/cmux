@@ -276,6 +276,52 @@ fn reset_rejects_unpublished_terminal_host_publication() {
 
 #[cfg(unix)]
 #[test]
+fn reset_terminal_host_only_state_reports_only_terminal_hosts() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = temp_root("reset-terminal-host-only");
+    let session = "reset-terminal-host-only";
+    fs::create_dir_all(&root).unwrap();
+    let host_root = crate::terminal_host_runtime::terminal_host_root(&root, session);
+    fs::create_dir_all(&host_root).unwrap();
+    fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
+    fs::write(host_root.join("stale-sidecar"), b"stale").unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+
+    let preview = resetter.preview(session).unwrap();
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
+
+    assert!(!reset.removed_session_state);
+    assert!(reset.removed_terminal_hosts);
+    assert!(!host_root.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn reset_private_rename_rejects_replaced_directory_identity() {
+    let root = temp_root("reset-rename-rejects-replacement");
+    let session = "reset-rename-rejects-replacement";
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    fs::create_dir_all(&session_dir).unwrap();
+    fs::write(session_dir.join(WORKSPACE_REGISTRY_FILE), b"old").unwrap();
+    let expected_identity = reset_path_metadata_fingerprint(&session_dir).unwrap();
+
+    fs::remove_dir_all(&session_dir).unwrap();
+    fs::create_dir_all(&session_dir).unwrap();
+    let replacement = session_dir.join("replacement");
+    fs::write(&replacement, b"new").unwrap();
+
+    let error =
+        rename_session_dir_for_reset(&root, session, &session_dir, &expected_identity).unwrap_err();
+
+    assert!(error.to_string().contains("reset path changed during reset"));
+    assert!(replacement.exists(), "reset deleted the replacement directory");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn session_guard_rejects_symlinked_lock_directory() {
     use std::os::unix::fs::symlink;
 

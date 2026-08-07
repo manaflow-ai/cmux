@@ -415,10 +415,14 @@ impl PersistentSessionStateResetter {
         if !root_metadata.file_type().is_dir() {
             anyhow::bail!("workspace state root is not a directory: {}", root.display());
         }
-        let pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
-        let session_dir_exists = validate_session_reset_dir(&session_dir)?;
-        let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
-        if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
+        let initial_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
+        let initial_session_dir_exists = validate_session_reset_dir(&session_dir)?;
+        let initial_terminal_host_root_exists =
+            validate_terminal_host_reset_dir(&terminal_host_root)?;
+        if !initial_session_dir_exists
+            && !initial_terminal_host_root_exists
+            && initial_pending_reset_dirs.is_empty()
+        {
             return Ok(reset);
         }
         require_reset_confirmation(
@@ -426,35 +430,40 @@ impl PersistentSessionStateResetter {
             session_name,
             &session_dir,
             &terminal_host_root,
-            &pending_reset_dirs,
+            &initial_pending_reset_dirs,
             confirm_reset,
         )?;
         let session_guard = acquire_existing_session_guard(root, session_name)?;
-        let pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
-        let session_dir_exists = validate_session_reset_dir(&session_dir)?;
-        let terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
-        if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
+        let lock_pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
+        let lock_session_dir_exists = validate_session_reset_dir(&session_dir)?;
+        let lock_terminal_host_root_exists = validate_terminal_host_reset_dir(&terminal_host_root)?;
+        if !lock_session_dir_exists
+            && !lock_terminal_host_root_exists
+            && lock_pending_reset_dirs.is_empty()
+        {
             return Ok(reset);
         }
-        require_reset_confirmation(
-            root,
-            session_name,
-            &session_dir,
-            &terminal_host_root,
-            &pending_reset_dirs,
-            confirm_reset,
-        )?;
-        if session_dir_exists {
+        if lock_session_dir_exists {
             let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
             if !db_path.is_file() {
                 anyhow::bail!("workspace session state path has no registry");
             }
         }
-        let lease = if session_dir_exists {
+        let lease = if lock_session_dir_exists {
             platform::restrict_directory(&session_dir)?;
             Some(SessionLease::acquire(&session_dir.join("writer.lock"))?)
         } else {
             None
+        };
+        let _terminal_host_reset_lock = if lock_terminal_host_root_exists {
+            crate::terminal_host_runtime::acquire_terminal_host_reset_lock(&terminal_host_root)?
+        } else {
+            None
+        };
+        let _terminal_host_reset_leases = if lock_terminal_host_root_exists {
+            prepare_terminal_host_root_for_reset(&terminal_host_root)?
+        } else {
+            Vec::new()
         };
         let mut pending_reset_dirs = pending_session_reset_dirs(root, session_name)?;
         let session_dir_exists = validate_session_reset_dir(&session_dir)?;
@@ -462,6 +471,9 @@ impl PersistentSessionStateResetter {
         if !session_dir_exists && !terminal_host_root_exists && pending_reset_dirs.is_empty() {
             return Ok(reset);
         }
+        if session_dir_exists && lease.is_none() {
+            anyhow::bail!("reset path changed during reset: {}", session_dir.display());
+        }
         require_reset_confirmation(
             root,
             session_name,
@@ -470,37 +482,45 @@ impl PersistentSessionStateResetter {
             &pending_reset_dirs,
             confirm_reset,
         )?;
-        let _terminal_host_reset_lock = if terminal_host_root_exists {
-            Some(crate::terminal_host_runtime::acquire_terminal_host_reset_lock(
-                &terminal_host_root,
-            )?)
+        let session_dir_identity = if session_dir_exists {
+            Some(reset_path_metadata_fingerprint(&session_dir)?)
         } else {
             None
         };
-        let _terminal_host_reset_leases = if terminal_host_root_exists {
-            prepare_terminal_host_root_for_reset(&terminal_host_root)?
+        let terminal_host_root_identity = if terminal_host_root_exists {
+            Some(reset_path_metadata_fingerprint(&terminal_host_root)?)
         } else {
-            Vec::new()
+            None
         };
-        if terminal_host_root_exists {
-            fs::remove_dir_all(&terminal_host_root).with_context(|| {
-                format!("remove terminal host state {}", terminal_host_root.display())
-            })?;
-            reset.removed_terminal_hosts = true;
-        }
         if session_dir_exists {
             pending_reset_dirs.push(rename_session_dir_for_reset(
                 root,
                 session_name,
                 &session_dir,
+                session_dir_identity.as_deref().unwrap(),
             )?);
         }
+        let terminal_host_reset_dir = if terminal_host_root_exists {
+            Some(rename_terminal_host_dir_for_reset(
+                root,
+                session_name,
+                &terminal_host_root,
+                terminal_host_root_identity.as_deref().unwrap(),
+            )?)
+        } else {
+            None
+        };
         drop(lease);
         for reset_dir in pending_reset_dirs {
             fs::remove_dir_all(&reset_dir).with_context(|| {
                 format!("remove workspace session state {}", reset_dir.display())
             })?;
             reset.removed_session_state = true;
+        }
+        if let Some(reset_dir) = terminal_host_reset_dir {
+            fs::remove_dir_all(&reset_dir)
+                .with_context(|| format!("remove terminal host state {}", reset_dir.display()))?;
+            reset.removed_terminal_hosts = true;
         }
         cleanup_session_guard_after_reset(root, session_name, &session_guard);
         platform::sync_directory(root)
@@ -623,29 +643,76 @@ fn rename_session_dir_for_reset(
     root: &Path,
     session_name: &str,
     session_dir: &Path,
+    expected_identity: &str,
+) -> anyhow::Result<PathBuf> {
+    rename_reset_dir_for_deletion(
+        root,
+        session_name,
+        "session",
+        "workspace session state",
+        session_dir,
+        expected_identity,
+    )
+}
+
+fn rename_terminal_host_dir_for_reset(
+    root: &Path,
+    session_name: &str,
+    terminal_host_root: &Path,
+    expected_identity: &str,
+) -> anyhow::Result<PathBuf> {
+    rename_reset_dir_for_deletion(
+        root,
+        session_name,
+        "terminal-hosts",
+        "terminal host state",
+        terminal_host_root,
+        expected_identity,
+    )
+}
+
+fn rename_reset_dir_for_deletion(
+    root: &Path,
+    session_name: &str,
+    kind: &str,
+    label: &str,
+    source: &Path,
+    expected_identity: &str,
 ) -> anyhow::Result<PathBuf> {
     let storage_component = session_storage_component(session_name);
     for _ in 0..16 {
         let candidate =
-            root.join(format!(".reset-{storage_component}-{}.deleting", try_new_uuid_v4()?));
-        match fs::rename(session_dir, &candidate) {
-            Ok(()) => return Ok(candidate),
+            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?));
+        ensure_reset_dir_identity(source, expected_identity)?;
+        match fs::rename(source, &candidate) {
+            Ok(()) => match ensure_reset_dir_identity(&candidate, expected_identity) {
+                Ok(()) => return Ok(candidate),
+                Err(error) => {
+                    let _ = fs::rename(&candidate, source);
+                    return Err(error);
+                }
+            },
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(error) => {
                 return Err(error).with_context(|| {
                     format!(
-                        "move workspace session state {} to private reset path {}",
-                        session_dir.display(),
+                        "move {label} {} to private reset path {}",
+                        source.display(),
                         candidate.display()
                     )
                 });
             }
         }
     }
-    anyhow::bail!(
-        "could not allocate private reset path for workspace session state {}",
-        session_dir.display()
-    )
+    anyhow::bail!("could not allocate private reset path for {label} {}", source.display())
+}
+
+fn ensure_reset_dir_identity(path: &Path, expected_identity: &str) -> anyhow::Result<()> {
+    let current = reset_path_metadata_fingerprint(path)?;
+    if current == expected_identity {
+        return Ok(());
+    }
+    anyhow::bail!("reset path changed during reset: {}", path.display());
 }
 
 fn require_reset_confirmation(
@@ -705,16 +772,12 @@ fn canonical_reset_path(path: &Path) -> String {
 }
 
 fn session_reset_target_fingerprint(session_dir: &Path) -> anyhow::Result<String> {
-    let mut fingerprint = reset_dir_fingerprint("session", session_dir)?;
-    let database_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
-    fingerprint.push_str(";registry_file=");
-    fingerprint.push_str(&reset_path_metadata_fingerprint(&database_path)?);
-    Ok(fingerprint)
+    reset_dir_fingerprint("session", session_dir)
 }
 
 fn reset_dir_fingerprint(label: &str, path: &Path) -> anyhow::Result<String> {
     let mut entries = Vec::new();
-    collect_reset_path_fingerprints(path, Path::new("."), &mut entries)?;
+    collect_reset_path_fingerprints(path, Path::new("."), label == "terminal-hosts", &mut entries)?;
     entries.sort();
     Ok(format!("{label}:{}", entries.join(",")))
 }
@@ -722,6 +785,7 @@ fn reset_dir_fingerprint(label: &str, path: &Path) -> anyhow::Result<String> {
 fn collect_reset_path_fingerprints(
     path: &Path,
     relative_path: &Path,
+    ignore_terminal_host_publication_lock: bool,
     entries: &mut Vec<String>,
 ) -> anyhow::Result<()> {
     let metadata = match fs::symlink_metadata(path) {
@@ -753,9 +817,16 @@ fn collect_reset_path_fingerprints(
         let child_name = child_path.file_name().ok_or_else(|| {
             anyhow::anyhow!("reset path has no file name: {}", child_path.display())
         })?;
+        if ignore_terminal_host_publication_lock
+            && relative_path == Path::new(".")
+            && child_name == TERMINAL_HOST_PUBLICATION_LOCK_FILE
+        {
+            continue;
+        }
         collect_reset_path_fingerprints(
             &child_path,
             &relative_path.join(Path::new(child_name)),
+            ignore_terminal_host_publication_lock,
             entries,
         )?;
     }
@@ -3275,6 +3346,7 @@ const SESSION_GUARD_COORDINATOR_FILE: &str = ".coordinator.lock";
 const SESSION_GUARD_COORDINATOR_TIMEOUT: std::time::Duration =
     std::time::Duration::from_millis(250);
 const SESSION_GUARD_COORDINATOR_RETRY: std::time::Duration = std::time::Duration::from_millis(5);
+const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 
 fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
     fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
