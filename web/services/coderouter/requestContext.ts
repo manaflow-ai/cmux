@@ -13,6 +13,7 @@ import {
   type AuthedUser,
 } from "../vms/auth";
 import { resolveTeam } from "../subrouter/routeHelpers";
+import { authenticateRouteToken } from "./repository";
 
 export type CodeRouterRequestContext = {
   readonly user: AuthedUser;
@@ -23,6 +24,30 @@ export type CodeRouterRequestContext = {
     readonly manageAccounts: boolean;
   };
 };
+
+export async function resolveCoderouterUsageTeam(
+  request: Request,
+): Promise<
+  | { readonly ok: true; readonly teamId: string; readonly stackUserId: string }
+  | { readonly ok: false; readonly response: Response }
+> {
+  const authorization = request.headers.get("authorization");
+  const token = authorization?.match(/^Bearer\s+(\S+)$/i)?.[1];
+  if (token?.startsWith("crt_")) {
+    const routed = await authenticateRouteToken(token);
+    if (routed) {
+      return { ok: true, teamId: routed.teamId, stackUserId: routed.stackUserId };
+    }
+  }
+  const resolved = await resolveCodeRouterRequestContext(request, "use-or-manage");
+  return resolved.ok
+    ? {
+      ok: true,
+      teamId: resolved.value.team.teamId,
+      stackUserId: resolved.value.user.id,
+    }
+    : resolved;
+}
 
 export async function resolveCodeRouterRequestContext(
   request: Request,

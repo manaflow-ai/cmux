@@ -227,7 +227,7 @@ extension MobileShellComposite {
         }
         var params = workspaceMutationParams(id: id)
         if let groupID {
-            params["group_id"] = groupID.rawValue
+            params["group_id"] = remoteWorkspaceGroupID(for: groupID).rawValue
         }
         if let beforeWorkspaceID {
             params["before_workspace_id"] = remoteWorkspaceID(for: beforeWorkspaceID).rawValue
@@ -429,7 +429,10 @@ extension MobileShellComposite {
             MobileDebugLog.anchormux("workspace.mutation blocked action=\(actionName) id=\(id.rawValue) reason=scope")
             return .failure(.authorizationFailed(hostDisplayName: hostDisplayName))
         }
-        var params: [String: Any] = ["group_id": id.rawValue, "action": action]
+        var params: [String: Any] = [
+            "group_id": remoteWorkspaceGroupID(for: id).rawValue,
+            "action": action,
+        ]
         if let title {
             params["title"] = title
         }
@@ -626,9 +629,11 @@ extension MobileShellComposite {
     ///   - id: The group to collapse or expand.
     ///   - collapsed: `true` to collapse (hide members), `false` to expand.
     public func setWorkspaceGroupCollapsed(id: MobileWorkspaceGroupPreview.ID, _ collapsed: Bool) async {
-        groupCollapseStore.set(id.rawValue, collapsed: collapsed)
-        if let index = workspaceGroups.firstIndex(where: { $0.id == id }) {
-            workspaceGroups[index].isCollapsed = collapsed
-        }
+        guard let index = workspaceGroups.firstIndex(where: { $0.id == id }) else { return }
+        groupCollapseStore.set(
+            workspaceGroups[index].collapseStateID,
+            collapsed: collapsed
+        )
+        workspaceGroups[index].isCollapsed = collapsed
     }
 }

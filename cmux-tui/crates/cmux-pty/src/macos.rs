@@ -10,7 +10,16 @@ use std::process::{Command, Stdio};
 
 use anyhow::{Context, bail};
 
-use super::{Child, MasterPty, PtyCommand, PtySize};
+use super::{Child, MasterPty, PtyCommand, PtyOpenError, PtySize};
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn ptsname_r(
+        descriptor: libc::c_int,
+        buffer: *mut libc::c_char,
+        length: libc::size_t,
+    ) -> libc::c_int;
+}
 
 pub(crate) struct Slave(File);
 
@@ -28,33 +37,132 @@ impl DescriptorCleanup {
 }
 
 pub(crate) fn open(size: PtySize) -> anyhow::Result<(Box<dyn MasterPty + Send>, Slave)> {
-    let mut master_fd = -1;
-    let mut slave_fd = -1;
-    let mut window_size = libc::winsize {
+    let master = open_pty_master()?;
+    retry_pty_control(master.as_raw_fd(), libc::grantpt).context("failed to grant PTY slave")?;
+    retry_pty_control(master.as_raw_fd(), libc::unlockpt).context("failed to unlock PTY slave")?;
+    let slave_name = pty_slave_name(master.as_raw_fd())?;
+    let slave = open_pty_slave(&slave_name)?;
+    set_window_size(&slave, size)?;
+
+    Ok((Box::new(MacOsMasterPty { file: master, took_writer: Cell::new(false) }), Slave(slave)))
+}
+
+fn open_pty_master() -> anyhow::Result<File> {
+    let flags = libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC;
+    loop {
+        let descriptor = unsafe { libc::posix_openpt(flags) };
+        if descriptor >= 0 {
+            let master = unsafe { File::from_raw_fd(descriptor) };
+            require_cloexec(&master, "PTY master")?;
+            return Ok(master);
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(PtyOpenError::from_io(error).into());
+        }
+    }
+}
+
+fn retry_pty_control(
+    descriptor: RawFd,
+    operation: unsafe extern "C" fn(RawFd) -> libc::c_int,
+) -> io::Result<()> {
+    loop {
+        if unsafe { operation(descriptor) } == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error);
+        }
+    }
+}
+
+fn pty_slave_name(descriptor: RawFd) -> anyhow::Result<CString> {
+    let mut buffer = [0 as libc::c_char; 128];
+    loop {
+        let status = platform_ptsname_r(descriptor, buffer.as_mut_ptr(), buffer.len());
+        if status == 0 {
+            let name = unsafe { CStr::from_ptr(buffer.as_ptr()) };
+            anyhow::ensure!(!name.to_bytes().is_empty(), "PTY slave name is empty");
+            return Ok(name.to_owned());
+        }
+        let error = ptsname_error(status);
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error).context("failed to resolve PTY slave name");
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn platform_ptsname_r(descriptor: RawFd, buffer: *mut libc::c_char, length: usize) -> libc::c_int {
+    unsafe { ptsname_r(descriptor, buffer, length) }
+}
+
+#[cfg(target_os = "linux")]
+fn platform_ptsname_r(descriptor: RawFd, buffer: *mut libc::c_char, length: usize) -> libc::c_int {
+    unsafe { libc::ptsname_r(descriptor, buffer, length) }
+}
+
+#[cfg(target_os = "macos")]
+fn ptsname_error(_status: libc::c_int) -> io::Error {
+    io::Error::last_os_error()
+}
+
+#[cfg(target_os = "linux")]
+fn ptsname_error(status: libc::c_int) -> io::Error {
+    io::Error::from_raw_os_error(status)
+}
+
+fn open_pty_slave(name: &CStr) -> anyhow::Result<File> {
+    let flags = libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC;
+    loop {
+        let descriptor = unsafe { libc::open(name.as_ptr(), flags) };
+        if descriptor >= 0 {
+            let slave = unsafe { File::from_raw_fd(descriptor) };
+            require_cloexec(&slave, "PTY slave")?;
+            return Ok(slave);
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(PtyOpenError::from_io(error).into());
+        }
+    }
+}
+
+fn require_cloexec(file: &File, role: &str) -> anyhow::Result<()> {
+    let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFD) };
+    if flags == -1 {
+        return Err(io::Error::last_os_error())
+            .with_context(|| format!("failed to inspect {role}"));
+    }
+    anyhow::ensure!(flags & libc::FD_CLOEXEC != 0, "{role} was not opened close-on-exec");
+    Ok(())
+}
+
+fn set_window_size(slave: &File, size: PtySize) -> anyhow::Result<()> {
+    let window_size = libc::winsize {
         ws_row: size.rows,
         ws_col: size.cols,
         ws_xpixel: size.pixel_width,
         ws_ypixel: size.pixel_height,
     };
-    let result = unsafe {
-        libc::openpty(
-            &mut master_fd,
-            &mut slave_fd,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            &mut window_size,
-        )
-    };
-    if result != 0 {
-        bail!("failed to open PTY: {}", io::Error::last_os_error());
+    loop {
+        if unsafe {
+            libc::ioctl(
+                slave.as_raw_fd(),
+                libc::TIOCSWINSZ as _,
+                &window_size as *const libc::winsize,
+            )
+        } == 0
+        {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EINTR) {
+            return Err(error).context("failed to configure PTY window size");
+        }
     }
-
-    let master = unsafe { File::from_raw_fd(master_fd) };
-    let slave = unsafe { File::from_raw_fd(slave_fd) };
-    set_cloexec(&master).context("failed to configure PTY master")?;
-    set_cloexec(&slave).context("failed to configure PTY slave")?;
-
-    Ok((Box::new(MacOsMasterPty { file: master, took_writer: Cell::new(false) }), Slave(slave)))
 }
 
 pub(crate) fn spawn(
@@ -411,18 +519,6 @@ impl Drop for MacOsMasterWriter {
             }
         }
     }
-}
-
-fn set_cloexec(file: &File) -> io::Result<()> {
-    let descriptor = file.as_raw_fd();
-    let flags = unsafe { libc::fcntl(descriptor, libc::F_GETFD) };
-    if flags == -1 {
-        return Err(io::Error::last_os_error());
-    }
-    if unsafe { libc::fcntl(descriptor, libc::F_SETFD, flags | libc::FD_CLOEXEC) } == -1 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(())
 }
 
 fn resolved_shell(command: &PtyCommand) -> OsString {

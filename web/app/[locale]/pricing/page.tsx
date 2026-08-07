@@ -100,7 +100,7 @@ export default async function PricingPage({
   const query = searchParams ? await searchParams : {};
   const t = await getTranslations({ locale, namespace: "pricing" });
   const snapshot = await currentPlanSnapshot();
-  const interval = proBillingInterval(firstParam(query.interval));
+  const interval = proBillingInterval(firstParam(query.interval) ?? "year");
   const proCheckoutHrefs = {
     month: withCheckoutInterval(PRO_CHECKOUT_URL, "month"),
     year: withCheckoutInterval(PRO_CHECKOUT_URL, "year"),
@@ -204,7 +204,7 @@ export default async function PricingPage({
                   </SecondaryLink>
                 </div>
               ) : (
-                <ProCtaLink checkoutHrefs={proCheckoutHrefs}>
+                <ProCtaLink checkoutHrefs={proCheckoutHrefs} size="compact">
                   {t("pro.cta")}
                 </ProCtaLink>
               )}
@@ -232,6 +232,7 @@ export default async function PricingPage({
                 hrefs={teamCheckoutHrefs}
                 location="pricing_page"
                 plan="team"
+                size="compact"
               >
                 {t("team.cta")}
               </PricingCheckoutButton>

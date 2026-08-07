@@ -2389,6 +2389,9 @@ class TerminalController {
             return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
         case "agent.resolve_delivery_target": return v2Result(id: id, self.v2AgentResolveDeliveryTarget(params: params))
 
+        // Diff review comments
+        case "comments.list": return v2Result(id: id, self.v2CommentsList(params: params))
+
         // App focus (app.focus_override.set/app.simulate_active) handled by ControlCommandCoordinator.
 
         // Browser
@@ -2501,6 +2504,7 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "comments.list",
             "mobile.host.status",
             "mobile.attach_ticket.create",
             "mobile.terminal.set_font",
@@ -2512,6 +2516,7 @@ class TerminalController {
             "mobile.terminal.paste",
             "mobile.terminal.replay",
             "mobile.browser.list",
+            "mobile.browser.create",
             "mobile.browser.stream.start",
             "mobile.browser.stream.stop",
             "mobile.browser.viewport",
@@ -14184,6 +14189,15 @@ class TerminalController {
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         case "mobile.sync.fetch":
             result = v2MobileSyncFetch(params: request.params)
+        case "phone_push.settings.update":
+            result = v2MobilePhonePushSettingsUpdate(params: request.params)
+        case "phone_push.status.get":
+            // The payload is intentionally content-free. This authenticated
+            // request supplies the same-account token that the client's paired
+            // host-status exchange reuses for the private readiness block.
+            result = .ok(["ok": true])
+        case "phone_push.test":
+            result = v2MobilePhonePushTest()
         default:
             result = .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": request.method

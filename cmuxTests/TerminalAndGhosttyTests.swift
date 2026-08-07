@@ -1756,6 +1756,48 @@ final class TerminalOffscreenStartupTests: XCTestCase {
             "Mobile background terminal creation should not schedule sidebar metadata probes on the macOS main path."
         )
     }
+
+    func testMobileBrowserCreateReturnsStreamableDescriptorAndKeepsMacSelection() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = RecordingMobileTabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let mobileWorkspace = manager.addWorkspace(
+            title: "Mobile Browser Workspace",
+            select: false,
+            eagerLoadTerminal: false,
+            autoRefreshMetadata: false
+        )
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "browser-create",
+                method: "mobile.browser.create",
+                params: ["workspace_id": mobileWorkspace.id.uuidString],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let panelID = payload["panel_id"] as? String,
+              let panelUUID = UUID(uuidString: panelID) else {
+            XCTFail("Expected mobile browser.create to return the created panel descriptor")
+            return
+        }
+
+        XCTAssertEqual(payload["workspace_id"] as? String, mobileWorkspace.id.uuidString)
+        XCTAssertNotNil(mobileWorkspace.browserPanel(for: panelUUID))
+        XCTAssertEqual(
+            manager.selectedWorkspace?.id,
+            selectedWorkspace.id,
+            "Mobile background browser creation should not steal the Mac's workspace selection."
+        )
+    }
 #endif
 
     private func waitForMobileHostRoutesForTesting() async -> Bool {

@@ -76,7 +76,7 @@ extension MobileShellComposite {
         do {
             var params: [String: Any] = [:]
             if let groupID {
-                params["group_id"] = groupID.rawValue
+                params["group_id"] = remoteWorkspaceGroupID(for: groupID).rawValue
             }
             if let title = spec?.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
                 params["title"] = title

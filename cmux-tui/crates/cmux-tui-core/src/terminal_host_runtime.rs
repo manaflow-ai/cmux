@@ -28,10 +28,11 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, KITTY_IMAGE_ALIAS_COUNT_LEN,
-    KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
-    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, encode_terminal_exit, read_frame,
-    wait_for_native_child_status, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, MAX_FRAME_PAYLOAD,
+    MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED,
+    TerminalExit, decode_host_launch_failure, decode_terminal_exit, encode_host_launch_failure,
+    encode_terminal_exit, read_frame, wait_for_native_child_status, write_frame,
 };
 
 const HOST_RECORD_VERSION: u32 = 2;
@@ -45,6 +46,8 @@ const MAX_ENV: usize = 1024;
 const MAX_RENDERER_CAPABILITY_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 pub(crate) const CONTROL_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const HOST_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const HOST_CONNECT_RETRY_WINDOW: std::time::Duration = std::time::Duration::from_secs(1);
+const HOST_CONNECT_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
 // Keep live PTY backpressure independent from the extra headroom needed by
 // one maximum Resized + Colors + targeted acknowledgement transition.
 const MAX_HOST_CLIENT_OUTPUT_QUEUED_BYTES: usize = 8 * 1024 * 1024;
@@ -402,15 +405,14 @@ mod unix {
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
     use std::sync::mpsc::{
-        Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, channel as mpsc_channel,
-        sync_channel,
+        Receiver, RecvTimeoutError, Sender, SyncSender, channel as mpsc_channel, sync_channel,
     };
     use std::sync::{Arc, Condvar, Mutex, Weak};
     use std::thread;
     use std::time::{Duration, Instant};
 
     use anyhow::Context;
-    use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtySize};
+    use cmux_pty::{ChildKiller, MasterPty, PtyCommand, PtyOpenError, PtySize};
     use ghostty_vt::{Callbacks, CursorShape, Terminal};
 
     use super::*;
@@ -422,7 +424,8 @@ mod unix {
     const HOST_FORCED_DRAIN_WINDOW: Duration = Duration::from_millis(100);
     const HOST_LAUNCH_ROLLBACK_WAIT: Duration = Duration::from_secs(4);
     const HOST_LAUNCH_OWNER_TIMEOUT: Duration = Duration::from_secs(5);
-    const HOST_EXIT_STREAM_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_CLIENT_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+    const HOST_HANDSHAKE_TRANSIENT_RETRIES: usize = 1;
     const HOST_EXIT_PERSIST_RETRY_MIN: Duration = Duration::from_millis(100);
     const HOST_EXIT_PERSIST_RETRY_MAX: Duration = Duration::from_secs(5);
     const HOST_EXIT_PERSIST_REPORT_INTERVAL: Duration = Duration::from_secs(60);
@@ -1254,6 +1257,72 @@ mod unix {
             self.send(MessageKind::Terminate, &[])
         }
 
+        pub fn terminate_and_wait_for_exit(&mut self) -> anyhow::Result<TerminalHostExitRecord> {
+            let deadline = Instant::now()
+                .checked_add(HOST_LAUNCH_ROLLBACK_WAIT)
+                .ok_or_else(|| anyhow::anyhow!("terminal-host termination timeout overflow"))?;
+            self.terminate().context("send terminal-host termination")?;
+            let identity = self.identity();
+            let record_path = self.record_path.clone();
+            let protocol_version = self.protocol_version;
+            let reader = self
+                .reader
+                .as_mut()
+                .ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))?;
+            let previous_timeout =
+                reader.read_timeout().context("read terminal-host timeout before termination")?;
+            let result = (|| -> anyhow::Result<TerminalHostExitRecord> {
+                loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    anyhow::ensure!(
+                        !remaining.is_zero(),
+                        "terminal host did not exit before the termination deadline"
+                    );
+                    reader
+                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
+                        .context("set terminal-host termination timeout")?;
+                    let frame = match read_frame(reader, MAX_FRAME_PAYLOAD) {
+                        Ok(Some(frame)) => frame,
+                        Ok(None) | Err(_) => {
+                            if let Some((_, record)) = terminal_host_exit_record(&record_path)?
+                                && record.terminal_id == identity.terminal_id
+                                && record.incarnation == identity.incarnation
+                            {
+                                return Ok(record);
+                            }
+                            anyhow::bail!("terminal host disconnected before its exit receipt");
+                        }
+                    };
+                    anyhow::ensure!(
+                        frame.version == protocol_version,
+                        "terminal host changed protocol while terminating"
+                    );
+                    if frame.kind != MessageKind::Exit {
+                        continue;
+                    }
+                    anyhow::ensure!(
+                        frame.flags == 0 && frame.request_id == 0,
+                        "terminal host returned a malformed exit frame"
+                    );
+                    let exit = decode_terminal_exit(&frame.payload)?;
+                    return Ok(TerminalHostExitRecord::new(&identity, exit));
+                }
+            })();
+            let restored = reader
+                .set_read_timeout(previous_timeout)
+                .context("restore terminal-host timeout after termination");
+            match result {
+                Ok(record) => {
+                    restored?;
+                    Ok(record)
+                }
+                Err(error) => {
+                    let _ = restored;
+                    Err(error)
+                }
+            }
+        }
+
         pub fn disconnect(&self) {
             let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
@@ -1412,10 +1481,21 @@ mod unix {
             // a wedged host that exceeds that bound is SIGKILLed by the
             // SpawnedHostProcess fallback below.
             let _ = self.terminate();
-            if process.wait_timeout(HOST_LAUNCH_ROLLBACK_WAIT) {
-                return;
+            if !process.wait_timeout(HOST_LAUNCH_ROLLBACK_WAIT) {
+                drop(process);
             }
-            drop(process);
+
+            // This attachment still owns an uncommitted launch, so no
+            // registry transition can consume its crash-recovery evidence.
+            // Process exit is ordered after durable sidecar publication.
+            // Remove only the receipt for this exact launch incarnation.
+            let identity = self.identity();
+            if let Ok(Some((exit_path, exit))) = terminal_host_exit_record(&self.record_path)
+                && exit.terminal_id == identity.terminal_id
+                && exit.incarnation == identity.incarnation
+            {
+                let _ = acknowledge_terminal_host_exit_record(&exit_path, &exit);
+            }
         }
     }
 
@@ -1584,7 +1664,14 @@ mod unix {
         launch_frame.request_id = 2;
         write_frame(&mut stdin, &launch_frame)?;
         let launched_frame = read_required_frame(&mut stdout, "launch ready")?;
-        if launched_frame.kind != MessageKind::Ready || launched_frame.request_id != 2 {
+        if launched_frame.request_id != 2 {
+            anyhow::bail!("terminal host did not acknowledge launch");
+        }
+        if launched_frame.kind == MessageKind::LaunchFailed {
+            let failure = decode_host_launch_failure(&launched_frame.payload)?;
+            anyhow::bail!(failure.message);
+        }
+        if launched_frame.kind != MessageKind::Ready {
             anyhow::bail!("terminal host did not acknowledge launch");
         }
         let launched = HostReady::decode(&launched_frame.payload)?;
@@ -1984,21 +2071,70 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
+        let endpoint = PathBuf::from(&record.endpoint);
+        let mut stream = Some(
+            connect_with_retry(&endpoint)
+                .with_context(|| format!("connect terminal host at {}", endpoint.display()))?,
+        );
         let mut failures = Vec::new();
-        for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
-            match connect_record_at_version(
-                record.clone(),
-                record_path.clone(),
-                handshake_timeout,
-                protocol_version,
-            ) {
-                Ok(attachment) => return Ok(attachment),
-                Err(error) => {
-                    failures.push(format!("protocol {protocol_version}: {error:#}"));
+        'protocols: for protocol_version in (LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).rev() {
+            let mut transient_retries = 0;
+            loop {
+                let error = match connect_record_at_version(
+                    record.clone(),
+                    record_path.clone(),
+                    handshake_timeout,
+                    protocol_version,
+                    stream.take().expect("protocol attempt has a connected stream"),
+                ) {
+                    Ok(attachment) => return Ok(attachment),
+                    Err(error) => error,
+                };
+                if transient_retries < HOST_HANDSHAKE_TRANSIENT_RETRIES
+                    && is_transient_handshake_transport(&error)
+                {
+                    transient_retries += 1;
+                    failures.push(format!(
+                        "protocol {protocol_version} transient attempt {transient_retries}: {error:#}"
+                    ));
+                    match connect_with_retry(&endpoint) {
+                        Ok(next_stream) => {
+                            stream = Some(next_stream);
+                            continue;
+                        }
+                        Err(reconnect_error) => {
+                            failures.push(format!("protocol retry reconnect: {reconnect_error:#}"));
+                            break 'protocols;
+                        }
+                    }
+                }
+                failures.push(format!("protocol {protocol_version}: {error:#}"));
+                break;
+            }
+            if protocol_version > LEGACY_PROTOCOL_VERSION {
+                match connect_with_retry(&endpoint) {
+                    Ok(next_stream) => stream = Some(next_stream),
+                    Err(error) => {
+                        failures.push(format!("protocol fallback reconnect: {error:#}"));
+                        break;
+                    }
                 }
             }
         }
         anyhow::bail!("terminal-host adoption failed: {}", failures.join("; "))
+    }
+
+    fn is_transient_handshake_transport(error: &anyhow::Error) -> bool {
+        error.chain().any(|cause| {
+            cause.downcast_ref::<std_io::Error>().is_some_and(|error| {
+                matches!(
+                    error.kind(),
+                    std_io::ErrorKind::Interrupted
+                        | std_io::ErrorKind::TimedOut
+                        | std_io::ErrorKind::WouldBlock
+                )
+            })
+        })
     }
 
     fn connect_record_at_version(
@@ -2006,6 +2142,7 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
         protocol_version: u16,
+        mut stream: UnixStream,
     ) -> anyhow::Result<HostAttachment> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
@@ -2013,7 +2150,6 @@ mod unix {
         let terminal_id = TerminalId::from_bytes(decode_hex_array(&record.terminal_id)?);
         let incarnation = HostIncarnation::from_bytes(decode_hex_array(&record.incarnation)?);
         let owner_token = CapabilityToken::from_bytes(decode_hex_array(&record.owner_token)?);
-        let mut stream = connect_with_retry(Path::new(&record.endpoint))?;
         stream.set_read_timeout(Some(handshake_timeout))?;
         stream.set_write_timeout(Some(handshake_timeout))?;
         let hello = ClientHello {
@@ -2092,19 +2228,19 @@ mod unix {
     }
 
     fn connect_with_retry(path: &Path) -> anyhow::Result<UnixStream> {
-        let mut last_error = None;
-        for _ in 0..100 {
+        let deadline = Instant::now() + HOST_CONNECT_RETRY_WINDOW;
+        loop {
             match UnixStream::connect(path) {
                 Ok(stream) => return Ok(stream),
                 Err(error) => {
-                    last_error = Some(error);
-                    thread::sleep(Duration::from_millis(10));
+                    let now = Instant::now();
+                    if now >= deadline {
+                        return Err(error.into());
+                    }
+                    thread::sleep(HOST_CONNECT_RETRY_INTERVAL.min(deadline - now));
                 }
             }
         }
-        Err(last_error
-            .unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "host missing"))
-            .into())
     }
 
     fn read_required_frame(reader: &mut impl Read, context: &str) -> anyhow::Result<Frame> {
@@ -2281,7 +2417,7 @@ mod unix {
 
     #[derive(Clone)]
     struct HostTap {
-        sender: SyncSender<Frame>,
+        sender: Sender<Frame>,
         queued_bytes: Arc<AtomicUsize>,
         queued_output_bytes: Arc<AtomicUsize>,
         shutdown: Arc<UnixStream>,
@@ -2289,11 +2425,7 @@ mod unix {
     }
 
     impl HostTap {
-        fn new(
-            sender: SyncSender<Frame>,
-            shutdown: Arc<UnixStream>,
-            max_queued_bytes: usize,
-        ) -> Self {
+        fn new(sender: Sender<Frame>, shutdown: Arc<UnixStream>, max_queued_bytes: usize) -> Self {
             Self {
                 sender,
                 queued_bytes: Arc::new(AtomicUsize::new(0)),
@@ -2343,9 +2475,13 @@ mod unix {
                 self.close();
                 return false;
             }
-            match self.sender.try_send(frame) {
+            // The byte reservations above are the queue's single admission
+            // limit. The channel itself must not add a scheduler-sensitive
+            // frame-count limit that disconnects a client while most of its
+            // declared byte budget is still free.
+            match self.sender.send(frame) {
                 Ok(()) => true,
-                Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                Err(_) => {
                     self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
                     if is_output {
                         self.queued_output_bytes.fetch_sub(retained, Ordering::AcqRel);
@@ -2367,6 +2503,20 @@ mod unix {
 
         fn close(&self) {
             let _ = self.shutdown.shutdown(std::net::Shutdown::Both);
+        }
+
+        fn close_and_wake_writer(&self) {
+            self.close();
+            // The receiver cannot observe channel disconnection while the
+            // writer's local HostTap still owns a sender. Enqueue one private
+            // sentinel so an input-side EOF always releases an otherwise-idle
+            // writer. Socket shutdown releases a writer blocked in write_frame.
+            let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+            let retained = crate::terminal_host_protocol::HEADER_LEN;
+            self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
+            if self.sender.send(wake).is_err() {
+                self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+            }
         }
     }
 
@@ -2457,7 +2607,7 @@ mod unix {
         dead: AtomicBool,
         launch_owner_claimed: AtomicBool,
         launch_owner_stream_ready: AtomicBool,
-        launch_owner_completed: AtomicBool,
+        active_client_streams: AtomicUsize,
         child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
         pty_drained: AtomicBool,
@@ -2506,8 +2656,49 @@ mod unix {
             // failure, while the independently hosted process can still
             // publish or clean up its terminal exit.
             self.host.launch_owner_stream_ready.store(true, Ordering::Release);
-            self.host.launch_owner_completed.store(true, Ordering::Release);
             self.host.publish_exit_if_drained();
+        }
+    }
+
+    struct ActiveClientStream {
+        host: Arc<HostShared>,
+    }
+
+    impl ActiveClientStream {
+        fn register(host: Arc<HostShared>) -> Self {
+            host.active_client_streams.fetch_add(1, Ordering::AcqRel);
+            Self { host }
+        }
+    }
+
+    impl Drop for ActiveClientStream {
+        fn drop(&mut self) {
+            let previous = self.host.active_client_streams.fetch_sub(1, Ordering::AcqRel);
+            debug_assert!(previous > 0, "active terminal-host stream underflow");
+        }
+    }
+
+    struct ClientSetupRollback {
+        host: Arc<HostShared>,
+        client: u64,
+        armed: bool,
+    }
+
+    impl ClientSetupRollback {
+        fn new(host: Arc<HostShared>, client: u64) -> Self {
+            Self { host, client, armed: true }
+        }
+
+        fn disarm(&mut self) {
+            self.armed = false;
+        }
+    }
+
+    impl Drop for ClientSetupRollback {
+        fn drop(&mut self) {
+            if self.armed {
+                self.host.remove_client(self.client);
+            }
         }
     }
 
@@ -3342,6 +3533,18 @@ mod unix {
         }
     }
 
+    impl Drop for HostLivenessLease {
+        fn drop(&mut self) {
+            // Closing the owner's descriptor does not release flock while a
+            // concurrently forked child still holds an inherited duplicate.
+            // The lease lifetime belongs to this owner, so end it explicitly
+            // before closing the descriptor.
+            // SAFETY: flock only changes the advisory lock associated with
+            // this valid, owned file descriptor.
+            let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+
     struct HostServiceGuard {
         shared: Arc<HostShared>,
         endpoint: PathBuf,
@@ -3427,7 +3630,17 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
-        let shared = spawn_host_runtime(&launch, &bootstrapped)?;
+        let shared = match spawn_host_runtime(&launch, &bootstrapped) {
+            Ok(shared) => shared,
+            Err(error) => {
+                let failure = host_launch_failure(&error);
+                let mut response =
+                    Frame::new(MessageKind::LaunchFailed, encode_host_launch_failure(&failure)?);
+                response.request_id = launch_frame.request_id;
+                write_frame(writer, &response)?;
+                return Ok(());
+            }
+        };
 
         let endpoint = PathBuf::from(&launch.endpoint);
         let mut unpublished = UnpublishedHostGuard {
@@ -3499,7 +3712,6 @@ mod unix {
         let _ = write_frame(writer, &response);
 
         let launch_owner_deadline = Instant::now() + HOST_LAUNCH_OWNER_TIMEOUT;
-        let mut exit_drain_deadline = None;
         loop {
             let now = Instant::now();
             if !shared.launch_owner_claimed.load(Ordering::Acquire)
@@ -3513,18 +3725,12 @@ mod unix {
                 // retain an already-exited host forever. A live PTY remains
                 // adoptable; only its eventual exit is now unblocked.
                 shared.launch_owner_stream_ready.store(true, Ordering::Release);
-                shared.launch_owner_completed.store(true, Ordering::Release);
                 shared.publish_exit_if_drained();
             }
-            if shared.dead.load(Ordering::Acquire) {
-                let deadline =
-                    *exit_drain_deadline.get_or_insert(now + HOST_EXIT_STREAM_DRAIN_TIMEOUT);
-                let clients_drained = shared.taps.lock().unwrap().is_empty();
-                if (shared.launch_owner_completed.load(Ordering::Acquire) && clients_drained)
-                    || now >= deadline
-                {
-                    break;
-                }
+            if shared.dead.load(Ordering::Acquire)
+                && shared.active_client_streams.load(Ordering::Acquire) == 0
+            {
+                break;
             }
             match listener.accept() {
                 Ok((stream, _)) => {
@@ -3549,6 +3755,17 @@ mod unix {
         thread::sleep(Duration::from_millis(20));
         drop(guard);
         Ok(())
+    }
+
+    fn host_launch_failure(error: &anyhow::Error) -> HostLaunchFailure {
+        let kind = if error.chain().any(|cause| {
+            cause.downcast_ref::<PtyOpenError>().is_some_and(PtyOpenError::is_capacity_exhausted)
+        }) {
+            HostLaunchFailureKind::PtyCapacityExhausted
+        } else {
+            HostLaunchFailureKind::LaunchFailed
+        };
+        HostLaunchFailure::bounded(kind, format!("terminal launch failed: {error:#}"))
     }
 
     fn spawn_host_runtime(
@@ -3627,7 +3844,7 @@ mod unix {
             dead: AtomicBool::new(false),
             launch_owner_claimed: AtomicBool::new(false),
             launch_owner_stream_ready: AtomicBool::new(false),
-            launch_owner_completed: AtomicBool::new(false),
+            active_client_streams: AtomicUsize::new(0),
             child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
             pty_drained: AtomicBool::new(false),
@@ -3771,6 +3988,10 @@ mod unix {
     }
 
     fn serve_client(host: Arc<HostShared>, mut stream: UnixStream) -> anyhow::Result<()> {
+        // A client that stops reading must not retain an exited host forever.
+        // Bound the actual stalled resource instead of imposing a wall-clock
+        // deadline on healthy clients that are still draining sequenced bytes.
+        stream.set_write_timeout(Some(HOST_CLIENT_WRITE_TIMEOUT))?;
         let hello_frame = read_required_frame(&mut stream, "client hello")?;
         if hello_frame.kind != MessageKind::ClientHello
             || hello_frame.sequence != 0
@@ -3798,10 +4019,13 @@ mod unix {
         write_frame(&mut stream, &hello_response)?;
 
         let client = host.next_client.fetch_add(1, Ordering::Relaxed);
-        let (sender, receiver) = sync_channel(256);
+        // Queue admission is bounded by HostTap's byte counters. An
+        // additional fixed-capacity channel would make harmless PTY read
+        // fragmentation observable as a client disconnect.
+        let (sender, receiver) = mpsc_channel();
         let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
         let command_sender = tap.clone();
-        let (snapshot, colors, snapshot_sequence) = {
+        let (snapshot, colors, snapshot_sequence, _active_client_stream) = {
             // Match resize's viewer -> size -> cell metrics -> parser ->
             // broadcast lock order so a snapshot contains one atomic
             // logical and pixel geometry.
@@ -3818,6 +4042,7 @@ mod unix {
             if host.dead.load(Ordering::Acquire) {
                 anyhow::bail!("terminal host exited before snapshot");
             }
+            let active_client_stream = ActiveClientStream::register(host.clone());
             // A renderer needs an initial reservation until it reports its
             // measured grid. Admin and read-only mirror connections are
             // management/observation channels and must never pin the PTY to
@@ -3844,25 +4069,21 @@ mod unix {
                 },
                 colors,
                 host.sequence.load(Ordering::Acquire),
+                active_client_stream,
             )
         };
+        let mut client_setup = ClientSetupRollback::new(host.clone(), client);
         // The tap and snapshot boundary are now atomic members of the live
         // stream. Releasing a deferred fast-exit event here places Exit after
         // that boundary even if the PTY finished before this connection.
         launch_owner.stream_ready();
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = snapshot_sequence;
-        if let Err(error) = write_frame(&mut stream, &snapshot_frame) {
-            host.remove_client(client);
-            return Err(error.into());
-        }
+        write_frame(&mut stream, &snapshot_frame)?;
         let mut colors_frame =
             Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors));
         colors_frame.sequence = snapshot_sequence;
-        if let Err(error) = write_frame(&mut stream, &colors_frame) {
-            host.remove_client(client);
-            return Err(error.into());
-        }
+        write_frame(&mut stream, &colors_frame)?;
 
         let mut command_stream = stream.try_clone()?;
         let command_host = host.clone();
@@ -4038,12 +4259,16 @@ mod unix {
             // Wake a writer that is waiting on an otherwise-empty live-frame
             // channel. The socket is shut down first, so this private wakeup
             // frame can never be mistaken for a sequenced host transition.
-            command_sender.close();
-            let _ = command_sender.try_send(Frame::new(MessageKind::ResyncRequired, Vec::new()));
+            command_sender.close_and_wake_writer();
             command_host.remove_client(client);
         })?;
+        client_setup.disarm();
 
         while let Ok(frame) = receiver.recv() {
+            if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+                tap.release(&frame);
+                break;
+            }
             let write_result = write_frame(&mut stream, &frame);
             tap.release(&frame);
             if write_result.is_err() {
@@ -4665,7 +4890,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(true),
                 launch_owner_stream_ready: AtomicBool::new(true),
-                launch_owner_completed: AtomicBool::new(false),
+                active_client_streams: AtomicUsize::new(0),
                 child_exit: (
                     Mutex::new(Some(TerminalExit {
                         outcome: crate::terminal_host_protocol::TerminalExitOutcome::Exit {
@@ -4722,7 +4947,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(false),
                 launch_owner_stream_ready: AtomicBool::new(false),
-                launch_owner_completed: AtomicBool::new(false),
+                active_client_streams: AtomicUsize::new(0),
                 child_exit: (Mutex::new(None), Condvar::new()),
                 child_waitable: AtomicBool::new(false),
                 pty_drained: AtomicBool::new(false),
@@ -4864,6 +5089,80 @@ mod unix {
                 None,
                 "an absent Ghostty blink setting must survive the host boundary"
             );
+        }
+
+        #[test]
+        fn launch_failure_is_reported_before_bootstrap_pipe_closes() {
+            let sequence = RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let terminal_id = TerminalId::random().unwrap();
+            let bootstrap = HostBootstrap {
+                min_version: PROTOCOL_VERSION,
+                max_version: PROTOCOL_VERSION,
+                terminal_id,
+                owner_token: CapabilityToken::random().unwrap(),
+            };
+            let launch = HostLaunch {
+                endpoint: format!(
+                    "/tmp/cmux-host-launch-failure-{}-{sequence}.sock",
+                    std::process::id()
+                ),
+                record_path: format!(
+                    "/tmp/cmux-host-launch-failure-{}-{sequence}.json",
+                    std::process::id()
+                ),
+                term: "xterm-256color".into(),
+                cols: 80,
+                rows: 24,
+                cell_pixels: DEFAULT_CELL_PIXELS,
+                scrollback: 1_000,
+                cwd: Some("/tmp".into()),
+                command: vec!["/definitely/missing/cmux-terminal-host-child".into()],
+                extra_env: Vec::new(),
+                default_colors: DefaultColors::default(),
+                kitty_graphics_limits: KittyGraphicsLimits::default(),
+            };
+            let mut input = Vec::new();
+            write_frame(&mut input, &bootstrap.into_frame(1)).unwrap();
+            let mut launch_frame = Frame::new(MessageKind::Launch, launch.encode().unwrap());
+            launch_frame.request_id = 2;
+            write_frame(&mut input, &launch_frame).unwrap();
+
+            let mut output = Vec::new();
+            let result = serve_terminal_host_stdio(
+                &["--bootstrap-stdio".to_string()],
+                &mut std::io::Cursor::new(input),
+                &mut output,
+            );
+            assert!(result.is_ok(), "host closed without reporting launch failure: {result:?}");
+
+            let mut output = std::io::Cursor::new(output);
+            let ready = read_frame(&mut output, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(ready.kind, MessageKind::Ready);
+            let failure_frame = read_frame(&mut output, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+            assert_eq!(failure_frame.kind, MessageKind::LaunchFailed);
+            assert_eq!(failure_frame.request_id, 2);
+            let failure = decode_host_launch_failure(&failure_frame.payload).unwrap();
+            assert!(
+                failure
+                    .message
+                    .as_bytes()
+                    .windows("terminal launch failed".len())
+                    .any(|window| window == b"terminal launch failed"),
+                "launch failure payload omitted the child error: {failure:?}",
+            );
+        }
+
+        #[test]
+        fn pty_capacity_survives_context_as_a_typed_launch_failure() {
+            let error = anyhow::Error::new(PtyOpenError::from_io(
+                std_io::Error::from_raw_os_error(libc::ENXIO),
+            ))
+            .context("allocate terminal host");
+            let failure = host_launch_failure(&error);
+
+            assert_eq!(failure.kind, HostLaunchFailureKind::PtyCapacityExhausted);
+            assert!(failure.message.contains("terminal launch failed"));
+            assert!(failure.message.contains("PTY capacity exhausted"));
         }
 
         #[test]
@@ -5255,6 +5554,23 @@ mod unix {
         }
 
         #[test]
+        fn dropping_liveness_lease_releases_inherited_descriptor_lock() {
+            let (record_path, record, lease) = record_fixture("inherited-liveness-fd");
+            let inherited = lease.file.try_clone().unwrap();
+
+            drop(lease);
+            assert_eq!(
+                terminal_host_record_liveness(&record_path, &record).unwrap(),
+                TerminalHostLiveness::Dead,
+                "the lease owner must explicitly unlock before an inherited descriptor closes"
+            );
+
+            drop(inherited);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
         fn record_loader_rejects_noncanonical_filenames_and_identity_spellings() {
             let (record_path, record, lease) = record_fixture("canonical");
             let root = record_path.parent().unwrap();
@@ -5462,6 +5778,87 @@ mod unix {
         }
 
         #[test]
+        fn transient_current_protocol_handshake_timeout_retries_without_downgrade() {
+            let (record_path, record, lease) = record_fixture("handshake-timeout-retry");
+            let endpoint = PathBuf::from(&record.endpoint);
+            prepare_private_dir(endpoint.parent().unwrap()).unwrap();
+            let _ = fs::remove_file(&endpoint);
+            let listener = UnixListener::bind(&endpoint).unwrap();
+            let terminal_id =
+                TerminalId::from_bytes(decode_hex_array(&record.terminal_id).unwrap());
+            let incarnation =
+                HostIncarnation::from_bytes(decode_hex_array(&record.incarnation).unwrap());
+            let fake_host = thread::spawn(move || {
+                let (mut delayed, _) = listener.accept().unwrap();
+                let hello = read_required_frame(&mut delayed, "delayed current hello").unwrap();
+                assert_eq!(hello.version, PROTOCOL_VERSION);
+                thread::sleep(Duration::from_millis(250));
+                drop(delayed);
+
+                let (mut retried, _) = listener.accept().unwrap();
+                retried.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
+                let hello = read_required_frame(&mut retried, "retried current hello").unwrap();
+                assert_eq!(hello.version, PROTOCOL_VERSION);
+                let response = HostHello {
+                    selected_version: PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::ADMIN,
+                    terminal_id,
+                    incarnation,
+                };
+                let mut frame = Frame::new(MessageKind::HostHello, response.encode());
+                frame.version = PROTOCOL_VERSION;
+                frame.request_id = hello.request_id;
+                write_frame(&mut retried, &frame).unwrap();
+
+                let colors = TerminalColorOverrides {
+                    cursor_visual: Some((CursorShape::Block, true)),
+                    ..TerminalColorOverrides::default()
+                };
+                let snapshot = HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: colors.clone(),
+                    pid: Some(42),
+                    command: vec!["/bin/cat".into()],
+                    cwd: Some("/tmp".into()),
+                };
+                let mut frame =
+                    Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot).unwrap());
+                frame.version = PROTOCOL_VERSION;
+                write_frame(&mut retried, &frame).unwrap();
+
+                let mut frame =
+                    Frame::new(MessageKind::Colors, encode_terminal_color_overrides(&colors));
+                frame.version = PROTOCOL_VERSION;
+                write_frame(&mut retried, &frame).unwrap();
+
+                let release = read_required_frame(&mut retried, "viewer release").unwrap();
+                assert_eq!(release.kind, MessageKind::ReleaseViewer);
+                assert_eq!(release.version, PROTOCOL_VERSION);
+            });
+
+            let attachment = connect_record_with_timeout(
+                record.clone(),
+                record_path.clone(),
+                Duration::from_millis(200),
+            )
+            .unwrap();
+            assert_eq!(attachment.protocol_version(), PROTOCOL_VERSION);
+            drop(attachment);
+            fake_host.join().unwrap();
+
+            let _ = fs::remove_file(endpoint);
+            drop(lease);
+            assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
+            let _ = fs::remove_dir_all(record_path.parent().unwrap());
+        }
+
+        #[test]
         fn timed_out_cell_pixel_ack_reconciles_when_the_response_arrives_late() {
             let (record_path, record, lease) = record_fixture("late-cell-pixel-ack");
             let (client, mut host) = UnixStream::pair().unwrap();
@@ -5496,13 +5893,14 @@ mod unix {
                 viewer_size: Mutex::new(None),
                 launch_process: None,
             };
+            let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
             let resolver = {
                 let control_responses = control_responses.clone();
                 thread::spawn(move || {
                     let request =
                         read_required_frame(&mut host, "cell pixel size request").unwrap();
                     assert_eq!(request.kind, MessageKind::SetCellPixelSize);
-                    thread::sleep(Duration::from_millis(50));
+                    release_ack_rx.recv().unwrap();
                     let mut ack =
                         Frame::new(MessageKind::CellPixelSizeAck, request.payload.clone());
                     ack.request_id = request.request_id;
@@ -5518,6 +5916,7 @@ mod unix {
                 error.to_string().contains("late response will reconcile the mirror"),
                 "{error:#}"
             );
+            release_ack_tx.send(()).unwrap();
             let (request_id, expected, resolution) =
                 reconciled_rx.recv_timeout(Duration::from_secs(1)).unwrap();
             assert_eq!(request_id, 2);
@@ -5560,13 +5959,13 @@ mod unix {
         fn cell_pixel_commit_is_broadcast_to_live_renderer_taps_before_ack() {
             let host = test_host_shared();
             let (renderer_socket, _renderer_peer) = UnixStream::pair().unwrap();
-            let (renderer_tx, renderer_rx) = sync_channel(4);
+            let (renderer_tx, renderer_rx) = mpsc_channel();
             host.taps
                 .lock()
                 .unwrap()
                 .insert(1, HostTap::new(renderer_tx, Arc::new(renderer_socket), usize::MAX));
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
-            let (target_tx, target_rx) = sync_channel(1);
+            let (target_tx, target_rx) = mpsc_channel();
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
 
             assert!(host.set_cell_pixel_size(9, 18, 42, &target).unwrap());
@@ -5591,7 +5990,7 @@ mod unix {
                 .unwrap()
                 .vt_write(b"\x1b_Ga=T,t=d,f=24,i=41,p=7,s=1,v=1,c=1,r=1,q=2;AAAA\x1b\\");
             let (target_socket, _target_peer) = UnixStream::pair().unwrap();
-            let (target_tx, target_rx) = sync_channel(3);
+            let (target_tx, target_rx) = mpsc_channel();
             let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
             host.taps.lock().unwrap().insert(1, target.clone());
             let limits = KittyGraphicsLimits::disabled();
@@ -5818,7 +6217,7 @@ mod unix {
         fn host_tap_byte_overflow_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-            let (sender, _receiver) = sync_channel(8);
+            let (sender, _receiver) = mpsc_channel();
             let one_frame = crate::terminal_host_protocol::HEADER_LEN + 4;
             let tap = HostTap::new(sender, Arc::new(host_socket), one_frame);
 
@@ -5832,7 +6231,7 @@ mod unix {
         fn host_tap_snapshot_headroom_does_not_expand_live_output_budget() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-            let (sender, _receiver) = sync_channel(8);
+            let (sender, _receiver) = mpsc_channel();
             let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
             let half_output_budget = 4 * 1024 * 1024;
 
@@ -5843,16 +6242,31 @@ mod unix {
         }
 
         #[test]
-        fn host_tap_channel_overflow_closes_the_client_socket() {
+        fn host_tap_disconnected_channel_closes_the_client_socket() {
             let (host_socket, mut client_socket) = UnixStream::pair().unwrap();
             client_socket.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
-            let (sender, _receiver) = sync_channel(1);
+            let (sender, receiver) = mpsc_channel();
+            drop(receiver);
             let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
 
-            assert!(tap.try_send(Frame::new(MessageKind::Output, vec![1])));
-            assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![2])));
+            assert!(!tap.try_send(Frame::new(MessageKind::Output, vec![1])));
             let mut byte = [0u8; 1];
             assert_eq!(client_socket.read(&mut byte).unwrap(), 0);
+        }
+
+        #[test]
+        fn host_tap_frame_count_cannot_exhaust_client_below_byte_budget() {
+            let (host_socket, _client_socket) = UnixStream::pair().unwrap();
+            let (sender, receiver) = mpsc_channel();
+            let tap = HostTap::new(sender, Arc::new(host_socket), MAX_HOST_CLIENT_QUEUED_BYTES);
+
+            for index in 0..257 {
+                assert!(
+                    tap.try_send(Frame::new(MessageKind::Output, vec![index as u8])),
+                    "frame {index} exhausted the client below its byte budget"
+                );
+            }
+            assert_eq!(receiver.try_iter().count(), 257);
         }
 
         #[test]
@@ -5926,7 +6340,7 @@ mod unix {
         fn exit_waits_for_final_pty_output_in_either_completion_order() {
             for child_first in [false, true] {
                 let (host_socket, _client_socket) = UnixStream::pair().unwrap();
-                let (sender, receiver) = sync_channel(8);
+                let (sender, receiver) = mpsc_channel();
                 let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
                 let broadcast_lock = Mutex::new(());
                 let sequence = AtomicU64::new(0);
@@ -6007,11 +6421,7 @@ mod unix {
                 assert_eq!(frames[0].sequence, 1);
                 assert_eq!(frames[1].kind, MessageKind::Exit);
                 assert_eq!(frames[1].sequence, 2);
-                assert_eq!(
-                    crate::terminal_host_protocol::decode_terminal_exit(&frames[1].payload)
-                        .unwrap(),
-                    exit
-                );
+                assert_eq!(decode_terminal_exit(&frames[1].payload).unwrap(), exit);
             }
         }
 
@@ -6130,10 +6540,8 @@ mod unix {
             let (written_tx, written_rx) = std::sync::mpsc::channel();
             let (release_tx, release_rx) = std::sync::mpsc::channel();
             let worker = thread::spawn(move || {
-                thread::sleep(Duration::from_millis(20));
                 worker_force.store(true, Ordering::Release);
                 drain_waker.write_all(&[1]).unwrap();
-                thread::sleep(Duration::from_millis(20));
                 retained_writer.write_all(b"late").unwrap();
                 written_tx.send(()).unwrap();
                 // Deliberately retain the write side beyond the forced drain
@@ -6173,7 +6581,7 @@ mod unix {
         #[test]
         fn coupled_color_frames_stay_adjacent_under_concurrent_exit_and_resize() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
-            let (sender, receiver) = sync_channel(8);
+            let (sender, receiver) = mpsc_channel();
             let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);
@@ -6270,7 +6678,7 @@ mod unix {
         #[test]
         fn pwd_change_stays_contiguous_with_its_output_boundary() {
             let (host_socket, _client_socket) = UnixStream::pair().unwrap();
-            let (sender, receiver) = sync_channel(8);
+            let (sender, receiver) = mpsc_channel();
             let tap = HostTap::new(sender, Arc::new(host_socket), usize::MAX);
             let broadcast_lock = Mutex::new(());
             let sequence = AtomicU64::new(0);
