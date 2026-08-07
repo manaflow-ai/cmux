@@ -946,7 +946,8 @@ struct SidebarAppKitRowCellTests {
         )
         CATransaction.commit()
 
-        #expect(!(pill.layer?.animationKeys() ?? []).isEmpty)
+        let visibilityAnimation = pill.layer?.animation(forKey: "shortcutHintVisibility")
+        #expect(visibilityAnimation != nil)
     }
 
     @Test
