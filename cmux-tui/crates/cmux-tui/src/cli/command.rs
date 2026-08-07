@@ -2223,7 +2223,8 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
                 );
             }
         };
-    let preview = cmux_tui_core::preview_persistent_session_state_reset(&state_root, &plan.session);
+    let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state_root);
+    let preview = resetter.preview(&plan.session);
     if !plan.force {
         return super::wire::print_local_success(
             &json!({
@@ -2237,11 +2238,7 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
             output,
         );
     }
-    match cmux_tui_core::reset_persistent_session_state(
-        &state_root,
-        &plan.session,
-        plan.confirm_reset.as_deref(),
-    ) {
+    match resetter.reset(&plan.session, plan.confirm_reset.as_deref()) {
         Ok(reset) => super::wire::print_local_success(
             &json!({
                 "session": plan.session,

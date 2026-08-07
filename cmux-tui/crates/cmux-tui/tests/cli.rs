@@ -1011,7 +1011,8 @@ fn session_reset_state_bad_token_does_not_mutate_state_root() {
     fs::create_dir_all(&state).unwrap();
     fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).unwrap();
     let session = "schema-reset-bad-token";
-    let session_dir = cmux_tui_core::persistent_session_state_dir(&state, session);
+    let resetter = cmux_tui_core::PersistentSessionStateResetter::new(state.clone());
+    let session_dir = resetter.session_dir(session);
     fs::create_dir_all(&session_dir).unwrap();
 
     let reset = Command::new(bin())

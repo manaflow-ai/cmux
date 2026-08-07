@@ -118,9 +118,12 @@ fn reset_removes_selected_session_guard_file() {
     let guard_path = session_guard_lock_path(&root.join(SESSION_GUARD_DIR), session);
     assert!(guard_path.exists(), "open did not create a session guard");
 
-    let preview = preview_persistent_session_state_reset(&root, session);
-    let reset =
-        reset_persistent_session_state(&root, session, Some(&preview.confirm_reset)).unwrap();
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let preview = resetter.preview(session);
+    assert_eq!(preview.state_root, root);
+    assert_eq!(preview.session_dir, resetter.session_dir(session));
+    assert_eq!(resetter.state_root(), root.as_path());
+    let reset = resetter.reset(session, Some(&preview.confirm_reset)).unwrap();
 
     assert!(reset.removed_session_state);
     assert!(!guard_path.exists(), "reset left the selected session guard behind");

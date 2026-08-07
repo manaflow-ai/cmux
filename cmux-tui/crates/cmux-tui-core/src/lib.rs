@@ -67,10 +67,9 @@ pub use surface::{
 };
 pub use workspace_registry::{
     FrontendProjection, PersistentSessionStateReset, PersistentSessionStateResetPreview,
-    ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot, RegistryWorkspace,
-    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
-    persistent_session_state_dir, preview_persistent_session_state_reset,
-    reset_persistent_session_state,
+    PersistentSessionStateResetter, ProjectionCommit, RegistryCommit, RegistryEvent,
+    RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;
