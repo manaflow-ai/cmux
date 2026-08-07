@@ -630,16 +630,29 @@ def _network_call_uses_identifier(
     path_suffix: str,
 ) -> bool:
     """Whether a network call directly consumes the identifier."""
+    identifier_pattern = re.compile(
+        rf"(?<![\w.$]){re.escape(identifier)}(?![\w$:=])"
+    )
+    if verb_match.group(0).lower() == "curl":
+        shell_arguments = line[verb_match.end():segment_end]
+        if path_suffix == ".sh":
+            shell_reference = re.compile(
+                rf"\$(?:\{{{re.escape(identifier)}\}}|"
+                rf"{re.escape(identifier)}(?![A-Za-z0-9_]))"
+            )
+            return shell_reference.search(shell_arguments) is not None
+        return any(
+            _identifier_match_is_executable(line, match, path_suffix)
+            for match in identifier_pattern.finditer(
+                line,
+                verb_match.end(),
+                segment_end,
+            )
+        )
+
     open_parenthesis = line.find("(", verb_match.start(), segment_end)
     if open_parenthesis == -1:
-        if path_suffix != ".sh" or verb_match.group(0).lower() != "curl":
-            return False
-        shell_arguments = line[verb_match.end():segment_end]
-        shell_reference = re.compile(
-            rf"\$(?:\{{{re.escape(identifier)}\}}|"
-            rf"{re.escape(identifier)}(?![A-Za-z0-9_]))"
-        )
-        return shell_reference.search(shell_arguments) is not None
+        return False
 
     quote: Optional[str] = None
     escaped = False
@@ -664,13 +677,13 @@ def _network_call_uses_identifier(
                 close_parenthesis = index
                 break
 
-    arguments = line[open_parenthesis + 1:close_parenthesis]
-    identifier_pattern = re.compile(
-        rf"(?<![\w.$]){re.escape(identifier)}(?![\w$:=])"
-    )
     return any(
-        _identifier_match_is_executable(arguments, match, path_suffix)
-        for match in identifier_pattern.finditer(arguments)
+        _identifier_match_is_executable(line, match, path_suffix)
+        for match in identifier_pattern.finditer(
+            line,
+            open_parenthesis + 1,
+            close_parenthesis,
+        )
     )
 
 
