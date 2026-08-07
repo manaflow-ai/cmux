@@ -459,7 +459,9 @@ jobs:
               # Keyboard shortcut once. The remaining 12-cycle stress path is
               # driven entirely by the app's field and input-accessory button.
               (
-                for _ in {1..900}; do
+                # Allow for a cold iOS test build before XCTest emits the focus
+                # marker; the watcher exits immediately after the first match.
+                for _ in {1..9000}; do
                   if grep -q "keyboard-dock-software-keyboard-request" "$LOG_PATH" 2>/dev/null; then
                     if /usr/bin/osascript \
                       -e 'tell application "Simulator" to activate' \
