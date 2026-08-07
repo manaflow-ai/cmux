@@ -6733,6 +6733,36 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// The workspace's outer surface host must underlap the home-indicator region,
+    /// not merely the representable nested inside it. If the outer ZStack stops at
+    /// the safe-area edge, UIKit docks the transparent input accessory over the
+    /// system's white fallback instead of the terminal material, leaving a visible
+    /// 34-point stripe below the composer while the keyboard is down.
+    @MainActor
+    func testTerminalDockMaterialExtendsThroughBottomSafeArea() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let dock = waitForDock(in: app, describe: "keyboard-down accessory is seated") {
+            $0["keyboardUp"] == "0"
+                && $0["toolbarVisible"] == "1"
+                && (Double($0["bottomSafeArea"] ?? "0") ?? 0) > 0
+        }
+        let window = app.windows.firstMatch
+        XCTAssertTrue(window.exists)
+        XCTAssertEqual(
+            surface.frame.maxY,
+            window.frame.maxY,
+            accuracy: 1,
+            "Terminal host must extend under the home indicator so the transparent dock material has no system-background stripe. surface=\(surface.frame) window=\(window.frame) dock=\(dock)"
+        )
+    }
+
     /// Repeatedly open and close the composer via the toolbar compose button and assert
     /// the dock stays coherent each cycle. This is the primary "composer jank" repro:
     /// the round-9 reducer reads `fieldFocused` synchronously, but the field's focus is
