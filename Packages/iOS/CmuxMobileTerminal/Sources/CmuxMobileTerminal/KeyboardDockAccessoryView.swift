@@ -38,6 +38,8 @@ final class KeyboardDockAccessoryView: UIInputView {
         super.init(frame: .zero, inputViewStyle: .keyboard)
         allowsSelfSizing = true
         translatesAutoresizingMaskIntoConstraints = false
+        backgroundColor = .clear
+        isOpaque = false
         // The dock's Liquid-Glass controls lift past the band edge on drag.
         clipsToBounds = false
 
@@ -68,6 +70,18 @@ final class KeyboardDockAccessoryView: UIInputView {
         toolbarHeight.constant + composerHeight.constant
     }
 
+    override var intrinsicContentSize: CGSize {
+        CGSize(
+            width: UIView.noIntrinsicMetric,
+            height: contentHeight + safeAreaInsets.bottom
+        )
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        invalidateIntrinsicContentSize()
+    }
+
     /// Resizes the composer band (0 collapses it while the composer is closed).
     ///
     /// - Parameter height: The band height in points.
@@ -77,6 +91,9 @@ final class KeyboardDockAccessoryView: UIInputView {
         let clamped = max(0, height)
         guard abs(composerHeight.constant - clamped) > 0.25 else { return false }
         composerHeight.constant = clamped
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+        superview?.setNeedsLayout()
         return true
     }
 }

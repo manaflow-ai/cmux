@@ -153,6 +153,7 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         ])
         harness.view.setComposerActive(true)
         harness.view.mountComposerView(host)
+        harness.view.setComposerBandHeight(60, animated: false)
         #expect(field.becomeFirstResponder())
         harness.view.composerInputFocusChanged(true)
         return field
@@ -196,6 +197,21 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         #expect(accessory.backgroundColor == .clear)
         #expect(toolbar.backgroundColor == .clear)
         #expect(toolbarBacking.backgroundColor == .clear)
+    }
+
+    @Test("composer growth changes the accessory intrinsic height by the same amount")
+    func composerGrowthInvalidatesAccessoryIntrinsicHeight() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        let accessory = try #require(
+            harness.view.inputAccessoryView as? KeyboardDockAccessoryView
+        )
+        let before = accessory.intrinsicContentSize.height
+
+        harness.view.setComposerBandHeight(96, animated: false)
+
+        #expect(abs(accessory.intrinsicContentSize.height - before - 96) <= 0.5)
     }
 
     @Test("hidden chrome withholds the accessory from the keyboard system")

@@ -534,6 +534,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// keyboard system places the accessory — so it feeds only the grid
     /// reservation.
     private var keyboardOverlapFloorInWindow: CGFloat = 0
+    /// Keyboard key-plane height derived when the tracked frame itself changes.
+    /// It deliberately does not re-subtract a later composer height from an old
+    /// accessory-inclusive frame; composer growth then adds to, rather than
+    /// cannibalizes, the terminal's bottom reservation.
+    private var keyboardKeyPlaneHeightInWindow: CGFloat = 0
     #if DEBUG
     private var keyboardHeightOverrideForTesting: CGFloat?
     #endif
@@ -709,16 +714,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // terminal tap focuses the proxy without closing the band), and the proxy
             // is a sibling of `composerContainer`, so `endEditing` on the container
             // alone would resign nothing and the keyboard would stay up.
-            // Decide from ACTUAL responder truth, not `keyboardVisible`: that
-            // bit is reconciled from keyboard notifications and lags a frame
-            // or two during rapid toggling, which made quick successive taps
-            // of the toggle re-focus when they should resign (and vice versa)
-            // until the keyboard wedged out of sync with the button.
-            if self.inputProxy.isFirstResponder || self.composerFieldIsFirstResponder {
-                self.resignCurrentInput()
-            } else {
-                self.focusInput()
-            }
+            self.toggleSoftwareKeyboard()
         }
         inputProxy.onHideChrome = { [weak self] in
             self?.setChromeHidden(true)
@@ -867,6 +863,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc private func handleAppDidBecomeActive() {
         resumeRendering()
         inputSession.send(.sceneDidBecomeActive)
+        seatDockAtBottomIfPossible()
         // The guide reflects the current keyboard even if this surface missed a
         // notification while inactive; force a layout read before the next render.
         setNeedsLayout()
@@ -921,6 +918,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private var keyboardHeight: CGFloat = 0
     private var keyboardVisible = false
+    /// Latest toolbar visibility intent that UIKit has not acknowledged yet.
+    /// Keeps the glyph and successive taps coherent through interrupted
+    /// transitions while `keyboardVisible` remains notification-authoritative.
+    private var pendingKeyboardVisibilityIntent: Bool?
     /// Height the persistent toolbar row reserves in the terminal grid. The
     /// row lives inside the OS-positioned dock accessory, so the grid must
     /// shrink by this much to keep the bottom TUI rows visible above it. Zero
@@ -1029,8 +1030,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             )
         }
         #endif
-        keyboardVisible = willBeVisible
-        inputProxy.setKeyboardShown(willBeVisible)
+        acceptKeyboardVisibilityFromSystem(willBeVisible, acknowledgesIntent: true)
         // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
         // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
         // the keyboard collapsing no longer dismisses the composer. The composer's
@@ -1100,10 +1100,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let clamped = max(0, overlap)
         guard abs(clamped - keyboardOverlapFloorInWindow) > 0.25 else { return false }
         keyboardOverlapFloorInWindow = clamped
+        keyboardKeyPlaneHeightInWindow = trackedOverlapIsRaisedKeyboard(clamped)
+            ? max(0, clamped - (keyboardDockAccessory?.contentHeight ?? 0))
+            : 0
         #if DEBUG
         // Paired with kb.willChange: a kb.floor long after its kb.willChange is
         // the late-snap signature (overlap applied by layout catch-up).
-        MobileDebugLog.anchormux("kb.floor \(Int(clamped))")
+        MobileDebugLog.anchormux(
+            "kb.floor \(Int(clamped)) keyPlaneW=\(Int(keyboardKeyPlaneHeightInWindow))"
+                + " accessoryH=\(Int(keyboardDockAccessory?.contentHeight ?? 0))"
+        )
         #endif
         setNeedsGeometrySync()
         return true
@@ -1128,21 +1134,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         overlapInWindow > accessoryDockedFootprintInWindow + 8
     }
 
-    /// The KEYBOARD-ONLY portion of the tracked overlap converted into this
+    /// The cached KEYBOARD-ONLY portion of the tracked overlap converted into this
     /// view's coordinates against its CURRENT frame, for the viewport model.
     /// Re-derived per layout pass so it converges with the surface's settled
     /// frame even when that frame animated during the transition. The
-    /// accessory's own height is subtracted (the grid reserves the dock
-    /// separately via `reservedToolbarHeight` + `composerBandHeight`).
+    /// accessory's own height is subtracted only when a NEW tracked frame is
+    /// applied (the grid reserves the dock separately via
+    /// `reservedToolbarHeight` + `composerBandHeight`).
     private var keyboardOverlapFloorInBounds: CGFloat {
-        guard keyboardOverlapFloorInWindow > 0, let window else { return 0 }
-        guard trackedOverlapIsRaisedKeyboard(keyboardOverlapFloorInWindow) else { return 0 }
-        let keyboardOnly = max(
-            0, keyboardOverlapFloorInWindow - (keyboardDockAccessory?.contentHeight ?? 0)
-        )
+        guard keyboardKeyPlaneHeightInWindow > 0, let window else { return 0 }
         let viewMaxYInWindow = convert(bounds, to: window).maxY
         let belowView = max(0, window.bounds.maxY - viewMaxYInWindow)
-        return max(0, keyboardOnly - belowView)
+        return max(0, keyboardKeyPlaneHeightInWindow - belowView)
     }
 
     /// Catches the keyboard overlap model up from the process-wide tracker.
@@ -1156,8 +1159,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @discardableResult
     private func synchronizeKeyboardFloorFromTracker() -> Bool {
         guard window != nil else { return false }
-        synchronizeKeyboardVisibilityFromTracker()
-        return applyKeyboardOverlapFloor(keyboardFrameTracker.overlapInWindow(of: self))
+        let changed = applyKeyboardOverlapFloor(
+            keyboardFrameTracker.overlapInWindow(of: self)
+        )
+        synchronizeKeyboardVisibilityFromTracker(acknowledgesIntent: changed)
+        return changed
     }
 
     /// Reconciles the responder-facing visibility bit — and with it the
@@ -1169,15 +1175,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// (and the toggle would resign a keyboard that is not there) until the
     /// next real transition. Change-guarded so the glyph cross-dissolve only
     /// runs on actual flips, not every layout pass.
-    private func synchronizeKeyboardVisibilityFromTracker() {
-        // Raised means more than the docked accessory: the accessory alone
-        // (keyboard down, surface first responder) also posts keyboard frames.
-        let visible = trackedOverlapIsRaisedKeyboard(
-            keyboardFrameTracker.overlapInWindow(of: self)
+    private func synchronizeKeyboardVisibilityFromTracker(acknowledgesIntent: Bool) {
+        acceptKeyboardVisibilityFromSystem(
+            keyboardKeyPlaneHeightInWindow > 8,
+            acknowledgesIntent: acknowledgesIntent
         )
-        guard visible != keyboardVisible else { return }
+    }
+
+    /// Applies an authoritative keyboard-frame fact while preserving a newer
+    /// opposite toolbar intent during an interrupted transition.
+    private func acceptKeyboardVisibilityFromSystem(
+        _ visible: Bool,
+        acknowledgesIntent: Bool
+    ) {
         keyboardVisible = visible
-        inputProxy.setKeyboardShown(visible)
+        if acknowledgesIntent, pendingKeyboardVisibilityIntent == visible {
+            pendingKeyboardVisibilityIntent = nil
+        }
+        updateKeyboardTogglePresentation()
+    }
+
+    private func updateKeyboardTogglePresentation() {
+        inputProxy.setKeyboardShown(pendingKeyboardVisibilityIntent ?? keyboardVisible)
     }
 
     /// Updates the renderer's overlap model from the notification-tracked,
@@ -1261,10 +1280,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let clamped = max(0, height)
         keyboardHeightOverrideForTesting = clamped
         keyboardHeight = clamped
+        pendingKeyboardVisibilityIntent = nil
         bottomDockTransitionObserved = false
         // A live tracked overlap would fight the override on the next
         // geometry pass; zero it while the override is authoritative.
         keyboardOverlapFloorInWindow = 0
+        keyboardKeyPlaneHeightInWindow = 0
     }
     #endif
 
@@ -1506,14 +1527,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard chromeHidden != hidden else { return }
         chromeHidden = hidden
         if hidden {
-            if keyboardVisible {
-                // Drop the keyboard first. Resign whichever responder actually
-                // owns it — the band can be presented while the terminal's
-                // hidden input proxy holds first responder, so gating on
-                // `composerActive` alone would leave the keyboard up while the
-                // chrome hides.
-                resignCurrentInput()
-            }
+            // Drop whichever responder owns typing even when the frame tracker
+            // is between transitions. Visibility notifications can lag a rapid
+            // toggle; responder ownership cannot be gated on that stale bit.
+            resignCurrentInput()
             // Give up the keyboard-down seat too, so no responder offers the
             // dock accessory while the chrome is hidden.
             resignFirstResponder()
@@ -1529,7 +1546,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // let any ``handleTap``-driven `focusInput()` → keyboard-show
             // animation carry further motion.
             layoutBottomDock()
-            becomeFirstResponder()
+            seatDockAtBottomIfPossible()
         }
         setNeedsGeometrySync()
     }
@@ -1548,14 +1565,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   keyboard is still up, so iOS hands the keyboard over in place. Resigning
     ///   first tore the keyboard down and the composer re-summoned it (a flicker).
     /// - Closing (`active == false`): two distinct intents share this path, told
-    ///   apart by ``keyboardVisible``:
-    ///   - Chevron-close while typing: `keyboardVisible == true`. The user wants to keep the
+    ///   apart by the latest toolbar intent falling back to ``keyboardVisible``:
+    ///   - Close while typing: the keyboard is requested up. The user wants to keep the
     ///     keyboard (a genuine return to the terminal). The composer's field resigns
     ///     first responder as it is torn out, with nothing to take it back, so re-take it
     ///     on the terminal input proxy in the same update — some responder is always
     ///     first responder at runloop end and the keyboard hands back in place instead of
     ///     dropping.
-    ///   - Chevron-close while the keyboard is already down: `keyboardVisible == false` (a
+    ///   - Close while the keyboard is already down: the keyboard is requested down (a
     ///     legal Round 8 state — the composer survives a keyboard-down). Do NOT re-focus
     ///     the proxy; that would re-summon the keyboard the user already dismissed. The
     ///     toolbar stays visible regardless, so closing the composer just collapses its
@@ -1575,14 +1592,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // the host mounts and measures the field.
         } else {
             // Closing: re-take first responder on the terminal input proxy ONLY when the
-            // keyboard is still up (`keyboardVisible == true`, a chevron-close while typing) so
+            // keyboard is still requested up (a close while typing) so
             // the keyboard hands back in place instead of dropping. When the keyboard is
             // already down (a legal Round 8 state — the composer survived a keyboard-down)
             // re-focusing would re-summon the keyboard the user dismissed, so skip it. The
             // host animates the band height back to 0 (with the field still mounted, item
             // 3), so the band shrink reads as one motion; do NOT snap it to 0 here or that
             // pre-empts the animation.
-            if keyboardVisible, window != nil, !isDismantled {
+            let keyboardShouldStayUp = pendingKeyboardVisibilityIntent ?? keyboardVisible
+            if keyboardShouldStayUp, window != nil, !isDismantled {
                 requestTerminalInputFocus()
             } else {
                 inputSession.send(.releaseFocus)
@@ -2711,16 +2729,54 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         requestTerminalInputFocus()
     }
 
+    /// Inverts the toolbar's latest keyboard request synchronously. Keyboard
+    /// notifications remain the geometry authority, but are intentionally not
+    /// consulted for the decision: interrupted animations can deliver their
+    /// settled frames after the next tap has already reversed direction.
+    private func toggleSoftwareKeyboard() {
+        synchronizeActualInputOwner()
+        let resumeOwner = inputSession.state.keyboardResumeOwner
+        let showOwner: TerminalInputOwner = resumeOwner == .composer && composerActive
+            ? .composer
+            : .terminal
+        inputSession.send(.toggleKeyboard(showOwner: showOwner))
+
+        let wantsKeyboard = inputSession.state.requestedOwner != nil
+            || inputSession.state.actualOwner != nil
+        setPendingKeyboardVisibilityIntent(wantsKeyboard)
+        if !wantsKeyboard {
+            seatDockAtBottomIfPossible()
+        }
+    }
+
+    private func setPendingKeyboardVisibilityIntent(_ visible: Bool) {
+        pendingKeyboardVisibilityIntent = visible
+        updateKeyboardTogglePresentation()
+    }
+
+    private func seatDockAtBottomIfPossible() {
+        guard window != nil,
+              !chromeHidden,
+              inputSession.state.requestedOwner == nil,
+              inputSession.state.modalPhase == .none else { return }
+        // Becoming the surface responder also displaces any UIKit text input
+        // that a modal or interrupted resign left focused after the reducer's
+        // request was cleared.
+        becomeFirstResponder()
+    }
+
     private func requestTerminalInputFocus() {
         onFocusInputRequestedForTesting?()
         synchronizeActualInputOwner()
         inputSession.send(.requestFocus(.terminal))
+        setPendingKeyboardVisibilityIntent(true)
     }
 
     /// Requests the hosted composer through the same responder owner as terminal taps.
     public func requestComposerInputFocus() {
         synchronizeActualInputOwner()
         inputSession.send(.requestFocus(.composer))
+        setPendingKeyboardVisibilityIntent(true)
     }
 
     /// Mirrors the SwiftUI field's user-driven responder changes into the owner.
@@ -2728,12 +2784,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         inputSession.send(
             .responderChanged(owner: .composer, isFirstResponder: isFirstResponder)
         )
+        if isFirstResponder {
+            setPendingKeyboardVisibilityIntent(true)
+        }
     }
 
     /// Clears current intent and resigns before the Photos picker starts presenting.
     public func photoPickerWillPresent() {
         synchronizeActualInputOwner()
         inputSession.send(.modalWillPresent)
+        setPendingKeyboardVisibilityIntent(false)
     }
 
     /// Records the PhotosPicker binding's presented edge.
@@ -2744,6 +2804,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Reconciles any focus request retained while the picker was on screen.
     public func photoPickerDidDismiss() {
         inputSession.send(.modalDidDismiss)
+        seatDockAtBottomIfPossible()
     }
 
     private func performInputFocus(_ owner: TerminalInputOwner) -> Bool {
@@ -2831,13 +2892,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public func resignCurrentInput() {
         synchronizeActualInputOwner()
         inputSession.send(.releaseFocus)
+        setPendingKeyboardVisibilityIntent(false)
         // Keyboard-down docking: with the typing responder released, the
         // SURFACE takes first responder (while attached and the chrome is
         // visible) so the dock accessory stays seated at the screen bottom
         // instead of leaving with the keyboard.
-        if window != nil, !chromeHidden {
-            becomeFirstResponder()
-        }
+        seatDockAtBottomIfPossible()
     }
 
     /// Resigns this surface's hidden text input.
@@ -2887,6 +2947,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlightSince = nil
         needsAnotherRender = false
         inputSession.send(.surfaceDetached)
+        pendingKeyboardVisibilityIntent = nil
         // Drop the keyboard-down docking seat; UIKit reclaims the accessory's
         // input view on resign, so the dock needs no manual removal.
         resignFirstResponder()

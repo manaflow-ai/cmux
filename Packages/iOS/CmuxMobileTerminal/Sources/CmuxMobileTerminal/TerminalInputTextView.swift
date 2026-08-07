@@ -336,8 +336,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The fill behind the input accessory bar, kept so a live theme change can
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
+    private var keyboardShown = false
     func refreshThemeColors() {
-        accessoryBarBackgroundView?.backgroundColor = themeBarColor
+        // Keep the toolbar and composer on one continuous input-accessory
+        // material instead of painting an opaque terminal-colored strip behind
+        // only the toolbar row.
+        accessoryBarBackgroundView?.backgroundColor = .clear
         dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
         refreshAccessoryButtonStyles()
@@ -352,7 +356,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = themeBarColor
+        backgroundView.backgroundColor = .clear
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         self.accessoryBarBackgroundView = backgroundView
 
@@ -875,6 +879,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// chevron-down) and show-keyboard (`shown == false`, plain keyboard)
     /// glyphs, cross-dissolved, so it reads as a single keyboard toggle.
     func setKeyboardShown(_ shown: Bool) {
+        guard shown != keyboardShown else { return }
+        keyboardShown = shown
         guard let dismissButton else { return }
         let symbol = shown ? "keyboard.chevron.compact.down" : "keyboard"
         let image = UIImage(systemName: symbol, withConfiguration: Self.accessoryButtonSymbolConfig)
