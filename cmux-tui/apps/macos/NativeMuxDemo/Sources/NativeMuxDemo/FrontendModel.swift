@@ -33,6 +33,7 @@ final class FrontendModel {
     @ObservationIgnored private var service: FrontendService?
     @ObservationIgnored private var updatesTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var refreshRequested = false
     @ObservationIgnored private var terminalControllers: [String: NativeTerminalModel] = [:]
     @ObservationIgnored private lazy var ghosttyRuntime = NativeGhosttyRuntime()
@@ -82,7 +83,8 @@ final class FrontendModel {
         }
         isConnecting = true
         errorMessage = ""
-        Task {
+        connectTask = Task { [weak self] in
+            guard let self else { return }
             do {
                 let service = try await FrontendService.connect(invitation: invitation)
                 guard !isShuttingDown else {
@@ -128,6 +130,7 @@ final class FrontendModel {
             } catch {
                 await disconnectAfterFailure(error)
             }
+            connectTask = nil
         }
     }
 
@@ -465,6 +468,7 @@ final class FrontendModel {
     func shutdown() {
         guard !isShuttingDown else { return }
         isShuttingDown = true
+        connectTask?.cancel()
         updatesTask?.cancel()
         refreshTask?.cancel()
         refreshRequested = false

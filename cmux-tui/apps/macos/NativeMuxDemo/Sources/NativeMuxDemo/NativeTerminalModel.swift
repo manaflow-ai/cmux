@@ -32,6 +32,8 @@ final class NativeTerminalModel {
   @ObservationIgnored private var handle: TerminalHandle?
   @ObservationIgnored private var updateTask: Task<Void, Never>?
   @ObservationIgnored private var inputTask: Task<Void, Never>?
+  @ObservationIgnored private var attachTask: Task<Void, Never>?
+  @ObservationIgnored private var resizeTask: Task<Void, Never>?
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
   @ObservationIgnored private var latestGeometry: TerminalGeometry?
@@ -59,7 +61,8 @@ final class NativeTerminalModel {
   func attach() {
     guard !didStart, !isShuttingDown else { return }
     didStart = true
-    Task {
+    attachTask = Task { [weak self] in
+      guard let self else { return }
       do {
         let handle = try await service.attachTerminal(id: terminalID)
         guard !isShuttingDown else {
@@ -77,6 +80,7 @@ final class NativeTerminalModel {
       } catch {
         errorMessage = error.localizedDescription
       }
+      attachTask = nil
     }
   }
 
@@ -137,7 +141,9 @@ final class NativeTerminalModel {
     guard geometry != latestGeometry else { return }
     latestGeometry = geometry
     guard let handle, isAttached else { return }
-    Task {
+    resizeTask?.cancel()
+    resizeTask = Task { [weak self] in
+      guard let self else { return }
       let accepted = await handle.resize(cols: geometry.cols, rows: geometry.rows)
       if !accepted, !isShuttingDown {
         errorMessage = L10n.text(
@@ -145,6 +151,7 @@ final class NativeTerminalModel {
           "Terminal resize was rejected."
         )
       }
+      resizeTask = nil
     }
   }
 
@@ -155,6 +162,8 @@ final class NativeTerminalModel {
   func shutdownAndWait() async {
     guard !isShuttingDown else { return }
     isShuttingDown = true
+    attachTask?.cancel()
+    resizeTask?.cancel()
     updateTask?.cancel()
     inputTask?.cancel()
     inputContinuation.finish()

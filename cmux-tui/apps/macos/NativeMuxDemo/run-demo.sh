@@ -371,7 +371,7 @@ wait_for_invitation_claim() {
       echo "$owner_name exited before claiming its invitation." >&2
       return 1
     fi
-    pending="$("$CMUX_TUI" enroll pending --admin-socket "$ADMIN_SOCKET" --json)"
+    pending="$("$CMUX_TUI" enroll pending --admin-socket "$ADMIN_SOCKET" --json || true)"
     if printf '%s' "$pending" \
       | jq -e --arg id "$invitation_id" 'any(.[]; .invitation_id == $id)' >/dev/null; then
       return 0

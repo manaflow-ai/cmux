@@ -183,7 +183,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
       setGrid(event.geometry)
     case .ready:
       ready = true
-      ghostty_surface_refresh(surface)
+      if let surface { ghostty_surface_refresh(surface) }
     case .exit:
       ready = false
     }
@@ -242,7 +242,7 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
     updateSurfaceSize(reportGeometry: true)
-    if window?.firstResponder === self {
+    if window?.firstResponder === self, let surface {
       ghostty_surface_set_focus(surface, true)
     }
   }
@@ -509,12 +509,12 @@ final class GhosttyRemoteSurfaceView: NSView, @preconcurrency NSTextInputClient 
     case 0: GHOSTTY_MOUSE_LEFT
     case 1: GHOSTTY_MOUSE_RIGHT
     case 2: GHOSTTY_MOUSE_MIDDLE
-    case 3: GHOSTTY_MOUSE_EIGHT
-    case 4: GHOSTTY_MOUSE_NINE
+    case 3: GHOSTTY_MOUSE_FOUR
+    case 4: GHOSTTY_MOUSE_FIVE
     case 5: GHOSTTY_MOUSE_SIX
     case 6: GHOSTTY_MOUSE_SEVEN
-    case 7: GHOSTTY_MOUSE_FOUR
-    case 8: GHOSTTY_MOUSE_FIVE
+    case 7: GHOSTTY_MOUSE_EIGHT
+    case 8: GHOSTTY_MOUSE_NINE
     case 9: GHOSTTY_MOUSE_TEN
     case 10: GHOSTTY_MOUSE_ELEVEN
     default: GHOSTTY_MOUSE_UNKNOWN

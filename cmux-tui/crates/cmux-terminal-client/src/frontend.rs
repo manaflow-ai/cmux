@@ -265,8 +265,6 @@ impl CmuxFrontendClient {
         line.push(b'\n');
         let packets = encode_line(message, &line).map_err(|error| error.to_string())?;
         let lane = classify_resource_request(operation, mutation);
-        let (sender, response) = oneshot::channel();
-        self.control_state.pending.lock().unwrap().insert(id.clone(), sender);
         let stream = self
             .control
             .lock()
@@ -274,6 +272,8 @@ impl CmuxFrontendClient {
             .as_ref()
             .map(|control| control.stream.clone())
             .ok_or_else(|| "mux-control is unavailable".to_string())?;
+        let (sender, response) = oneshot::channel();
+        self.control_state.pending.lock().unwrap().insert(id.clone(), sender);
         let send_result = self.runtime.block_on(async {
             for packet in packets {
                 stream.send_on(lane, packet).await.map_err(|error| error.to_string())?;
@@ -354,7 +354,13 @@ unsafe fn frontend_connect(
                 return std::ptr::null_mut();
             }
         };
-    let (stream, buffered) = match runtime.block_on(open_control_stream(&multiplexer)) {
+    let control_result = match timeout {
+        Some(timeout) => {
+            runtime.block_on(connect_with_timeout(open_control_stream(&multiplexer), timeout))
+        }
+        None => runtime.block_on(open_control_stream(&multiplexer)),
+    };
+    let (stream, buffered) = match control_result {
         Ok(control) => control,
         Err(error) => {
             copy_utf8(&error, error_buffer, error_capacity);
@@ -370,6 +376,11 @@ unsafe fn frontend_connect(
         Ok(nonce) => nonce,
         Err(error) => {
             copy_utf8(&error, error_buffer, error_capacity);
+            runtime.block_on(async {
+                multiplexer.shutdown().await;
+                let _ = connection.close().await;
+                provider.close().await;
+            });
             return std::ptr::null_mut();
         }
     };
@@ -687,7 +698,8 @@ pub unsafe extern "C" fn cmux_frontend_terminal_send_key(
             return false;
         }
     };
-    let encoded = match terminal.state.lock().unwrap().encode_key(chord, repeat) {
+    let encoded_result = terminal.state.lock().unwrap().encode_key(chord, repeat);
+    let encoded = match encoded_result {
         Ok(encoded) => encoded,
         Err(error) => {
             terminal.state.lock().unwrap().status = format!("key: {error}");
@@ -781,7 +793,7 @@ pub unsafe extern "C" fn cmux_frontend_terminal_has_exited(
     terminal: *const CmuxFrontendTerminal,
 ) -> bool {
     let Some(terminal) = (unsafe { terminal.as_ref() }) else { return false };
-    terminal.state.lock().unwrap().status == "exited"
+    terminal.state.lock().unwrap().exited
 }
 
 /// Closes and consumes one terminal attachment without closing the frontend.
@@ -842,17 +854,21 @@ pub unsafe extern "C" fn cmux_frontend_client_disconnect(client: *mut CmuxFronte
     client.updates.set_callback(None, std::ptr::null_mut());
     client.control_state.closed.store(true, Ordering::Release);
     client.control_state.fail_pending("frontend disconnected".into());
-    let _ = std::thread::Builder::new().name("cmux-frontend-disconnect".into()).spawn(move || {
-        let control = client.control.lock().unwrap().take();
-        client.runtime.block_on(async {
-            if let Some(control) = control {
-                control.close().await;
-            }
-            client.multiplexer.shutdown().await;
-            let _ = client.connection.close().await;
-            client.provider.close().await;
+    let join =
+        std::thread::Builder::new().name("cmux-frontend-disconnect".into()).spawn(move || {
+            let control = client.control.lock().unwrap().take();
+            client.runtime.block_on(async {
+                if let Some(control) = control {
+                    control.close().await;
+                }
+                client.multiplexer.shutdown().await;
+                let _ = client.connection.close().await;
+                client.provider.close().await;
+            });
         });
-    });
+    if let Ok(join) = join {
+        let _ = join.join();
+    }
 }
 
 #[cfg(test)]

@@ -269,7 +269,7 @@ cleanup() {
   if [[ "$LOCAL_ROOT" == "$TEMP_PARENT"/cmux-native-remote-client.* ]]; then
     rm -rf -- "$LOCAL_ROOT"
   fi
-  return "$exit_status"
+  exit "$exit_status"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -429,7 +429,7 @@ for _ in $(seq 1 120); do
     exit 1
   fi
   PENDING="$(remote_command "$REMOTE_BIN" enroll pending \
-    --admin-socket "$REMOTE_ADMIN_SOCKET" --json)"
+    --admin-socket "$REMOTE_ADMIN_SOCKET" --json || true)"
   if printf '%s' "$PENDING" \
     | jq -e --arg id "$INVITATION_ID" 'any(.[]; .invitation_id == $id)' >/dev/null; then
     claimed=1
@@ -448,8 +448,8 @@ connected=0
 for _ in $(seq 1 120); do
   CONNECTED="$(remote_command "$REMOTE_BIN" enroll status \
     --admin-socket "$REMOTE_ADMIN_SOCKET" --json \
-    | jq -er '.connected_clients')"
-  if (( CONNECTED >= 1 )); then
+    | jq -er '.connected_clients' || true)"
+  if [[ "$CONNECTED" =~ ^[0-9]+$ ]] && (( CONNECTED >= 1 )); then
     connected=1
     break
   fi

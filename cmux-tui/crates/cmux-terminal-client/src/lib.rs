@@ -315,15 +315,9 @@ impl ClientState {
         if kind == NativeRenderEventKind::Bytes && payload.is_empty() {
             return true;
         }
-        if events.len() >= MAX_NATIVE_RENDER_EVENTS
-            || self.native_render_event_bytes.saturating_add(payload.len())
-                > MAX_NATIVE_RENDER_EVENT_BYTES
-        {
-            events.clear();
-            self.native_render_event_bytes = 0;
-            return false;
-        }
         if kind == NativeRenderEventKind::Bytes
+            && self.native_render_event_bytes.saturating_add(payload.len())
+                <= MAX_NATIVE_RENDER_EVENT_BYTES
             && let Some(previous) = events.back_mut()
             && previous.kind == NativeRenderEventKind::Bytes
             && previous.payload.len().saturating_add(payload.len()) <= 1024 * 1024
@@ -332,6 +326,14 @@ impl ClientState {
                 self.native_render_event_bytes.saturating_add(payload.len());
             previous.payload.extend_from_slice(&payload);
             return true;
+        }
+        if events.len() >= MAX_NATIVE_RENDER_EVENTS
+            || self.native_render_event_bytes.saturating_add(payload.len())
+                > MAX_NATIVE_RENDER_EVENT_BYTES
+        {
+            events.clear();
+            self.native_render_event_bytes = 0;
+            return false;
         }
         self.native_render_event_bytes =
             self.native_render_event_bytes.saturating_add(payload.len());

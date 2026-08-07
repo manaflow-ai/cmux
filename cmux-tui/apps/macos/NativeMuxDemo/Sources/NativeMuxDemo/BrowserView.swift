@@ -30,7 +30,7 @@ struct BrowserSurfaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
-                Image(systemName: "lock.fill")
+                Image(systemName: browser.url.hasPrefix("https://") ? "lock.fill" : "globe")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                 Text(browser.url)
@@ -45,7 +45,9 @@ struct BrowserSurfaceView: View {
             .frame(height: 28)
             .background(.bar)
             Divider()
-            if let url = URL(string: browser.url) {
+            if let url = URL(string: browser.url),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+            {
                 NativeWebView(url: url)
             } else {
                 ContentUnavailableView(
