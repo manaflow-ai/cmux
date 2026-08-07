@@ -32771,7 +32771,27 @@ export default CMUXSessionRestore;
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
+        // Shared side-effect path with `runFeedHook`: the wrapper-injected
+        // hooks route tool telemetry here (`hooks codex post-tool-use`), so
+        // the native-approval-prompt clear must ride this lane too — or
+        // wrapper-launched seats would post the permission notification via
+        // `hooks codex notification` and never clear it on tool completion.
+        // The clear precedes the (larger, nonessential) feed frame so a
+        // failed telemetry write cannot swallow it.
+        var lines: [String] = []
+        if FeedEventClassifier.classify(
+            source: source,
+            event: hookEventName,
+            toolName: toolName ?? ""
+        ).clearsNativeApprovalPrompt,
+           let clearLine = nativeApprovalPromptClearCommand(
+                eventDict: event,
+                env: ProcessInfo.processInfo.environment
+           ) {
+            lines.append(clearLine)
+        }
+        lines.append(line)
+        sendBestEffortFeedTelemetry(socketPath: client.socketPath, lines: lines, socketPassword: socketPassword)
     }
 
     private func feedContextForEvent(
@@ -34655,17 +34675,18 @@ export default CMUXSessionRestore;
     // MARK: - Feed (workstream) hook bridge
 
     /// Resolves the caller pane's (workspace, surface) UUID pair for the
-    /// best-effort native-approval-prompt notification commands. Returns
+    /// best-effort native-approval-prompt notification commands: the feed
+    /// event's own identities first, then the pane environment. Returns
     /// `nil` when either identity is missing or not a UUID: the commands
     /// are advisory and must never fail or delay the hook.
     private func nativeApprovalPromptTarget(
         eventDict: [String: Any],
         env: [String: String]
     ) -> (workspaceId: UUID, surfaceId: UUID)? {
-        guard let workspaceRaw = (eventDict["workspace_id"] as? String)?
+        guard let workspaceRaw = ((eventDict["workspace_id"] as? String) ?? env["CMUX_WORKSPACE_ID"])?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               let workspaceId = UUID(uuidString: workspaceRaw),
-              let surfaceRaw = env["CMUX_SURFACE_ID"]?
+              let surfaceRaw = ((eventDict["surface_id"] as? String) ?? env["CMUX_SURFACE_ID"])?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceId = UUID(uuidString: surfaceRaw)
         else { return nil }
@@ -34963,15 +34984,19 @@ export default CMUXSessionRestore;
             } else {
                 promptLine = nil
             }
+            // The attention signal goes FIRST: the feed frame can be large
+            // and its best-effort write can fail under backpressure, and a
+            // failed write must never swallow the permission notification —
+            // that would recreate the silent-blocked-agent bug (#9592).
             if let client {
-                _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
                 if let promptLine {
                     _ = try? client.sendOneWay(command: promptLine, writeTimeout: 0.05)
                 }
+                _ = try? client.sendOneWay(command: line, writeTimeout: 0.05)
             } else if let socketPath {
                 sendBestEffortFeedTelemetry(
                     socketPath: socketPath,
-                    lines: [line] + (promptLine.map { [$0] } ?? []),
+                    lines: (promptLine.map { [$0] } ?? []) + [line],
                     socketPassword: socketPassword
                 )
             }
