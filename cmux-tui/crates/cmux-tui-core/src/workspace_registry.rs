@@ -9,7 +9,7 @@
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -727,7 +727,11 @@ fn collect_reset_path_fingerprints(
             return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
         }
     };
-    entries.push(format!("{}={}", relative_path.display(), reset_metadata_fingerprint(&metadata)));
+    entries.push(format!(
+        "{}={}",
+        relative_path.display(),
+        reset_path_fingerprint(path, &metadata)?
+    ));
     if !metadata.file_type().is_dir() {
         return Ok(());
     }
@@ -759,7 +763,16 @@ fn reset_path_metadata_fingerprint(path: &Path) -> anyhow::Result<String> {
             return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
         }
     };
-    Ok(reset_metadata_fingerprint(&metadata))
+    reset_path_fingerprint(path, &metadata)
+}
+
+fn reset_path_fingerprint(path: &Path, metadata: &fs::Metadata) -> anyhow::Result<String> {
+    let mut fingerprint = reset_metadata_fingerprint(metadata);
+    if metadata.file_type().is_file() {
+        fingerprint.push_str(";sha256=");
+        fingerprint.push_str(&reset_file_content_sha256(path, metadata)?);
+    }
+    Ok(fingerprint)
 }
 
 fn reset_metadata_fingerprint(metadata: &fs::Metadata) -> String {
@@ -772,7 +785,46 @@ fn reset_metadata_fingerprint(metadata: &fs::Metadata) -> String {
     } else {
         "other"
     };
-    format!("{kind}:{}", metadata_identity(&metadata))
+    format!("{kind}:{}", metadata_identity(metadata))
+}
+
+fn reset_file_content_sha256(path: &Path, expected: &fs::Metadata) -> anyhow::Result<String> {
+    let mut file = open_reset_fingerprint_file(path)
+        .with_context(|| format!("open reset file {}", path.display()))?;
+    let opened =
+        file.metadata().with_context(|| format!("inspect reset file {}", path.display()))?;
+    if reset_metadata_fingerprint(&opened) != reset_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", path.display());
+    }
+    let mut hash = Sha256::new();
+    let mut buffer = [0_u8; 8192];
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("read reset file for fingerprint {}", path.display()))?;
+        if read == 0 {
+            break;
+        }
+        hash.update(&buffer[..read]);
+    }
+    let current = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect reset file {}", path.display()))?;
+    if reset_metadata_fingerprint(&current) != reset_metadata_fingerprint(expected) {
+        anyhow::bail!("reset path changed during fingerprint: {}", path.display());
+    }
+    Ok(hex_sha256(hash.finalize().into()))
+}
+
+#[cfg(unix)]
+fn open_reset_fingerprint_file(path: &Path) -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+
+    OpenOptions::new().read(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW).open(path)
+}
+
+#[cfg(not(unix))]
+fn open_reset_fingerprint_file(path: &Path) -> std::io::Result<File> {
+    File::open(path)
 }
 
 #[cfg(unix)]

@@ -152,6 +152,35 @@ fn reset_retries_previous_private_deletion_dir() {
 
 #[cfg(unix)]
 #[test]
+fn reset_rejects_same_file_rewrite_with_restored_mtime() {
+    let root = temp_root("reset-restored-mtime");
+    let session = "reset-restored-mtime";
+    drop(WorkspaceRegistry::open(&root, session).unwrap());
+    let resetter = PersistentSessionStateResetter::new(root.clone());
+    let session_dir = resetter.session_dir(session);
+    let target = session_dir.join("sidecar");
+    fs::write(&target, b"expected").unwrap();
+    let before = fs::metadata(&target).unwrap();
+    let before_modified = before.modified().unwrap();
+    let preview = resetter.preview(session).unwrap();
+
+    let mut file = OpenOptions::new().write(true).truncate(true).open(&target).unwrap();
+    file.write_all(b"mutated!").unwrap();
+    file.sync_all().unwrap();
+    file.set_times(fs::FileTimes::new().set_modified(before_modified)).unwrap();
+    let after = file.metadata().unwrap();
+    assert_eq!(metadata_identity(&after), metadata_identity(&before));
+    drop(file);
+
+    let error = resetter.reset(session, Some(&preview.confirm_reset)).unwrap_err();
+
+    assert!(error.to_string().contains("reset confirmation is required"));
+    assert_eq!(fs::read(&target).unwrap(), b"mutated!");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn reset_errors_when_state_root_cannot_be_inspected() {
     use std::os::unix::fs::PermissionsExt;
 
