@@ -627,6 +627,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/curl.sh",
+            "curl -fsSL https://cmux.com/install.sh | sh\n",
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -749,6 +754,10 @@ def _self_test() -> int:
         (
             "web/tests/n17.ts",
             'expect(text).toContain("Docs: https://cmux.com/docs/api")\n',
+        ),
+        (
+            "web/tests/n17b.ts",
+            'expect(text).toContain("curl -fsSL https://cmux.com/install.sh | sh")\n',
         ),
         (
             "web/tests/n18.ts",
