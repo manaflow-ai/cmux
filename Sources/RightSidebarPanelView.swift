@@ -434,3 +434,39 @@ struct RightSidebarPanelView: View {
         )
     }
 }
+
+extension RightSidebarPanelView {
+    /// Creates a sidebar for callers that do not supply an artifact workspace.
+    init(
+        tabManager: TabManager,
+        fileExplorerStore: FileExplorerStore,
+        fileExplorerState: FileExplorerState,
+        sessionIndexStore: SessionIndexStore,
+        titlebarHeight: CGFloat,
+        windowAppearance: WindowAppearanceSnapshot,
+        workspaceId: UUID?,
+        onResumeSession: ((SessionEntry) -> Void)?,
+        onOpenFilePreview: @escaping (String) -> Void,
+        onOpenAsPane: @escaping (RightSidebarMode) -> Void,
+        onClose: @escaping () -> Void
+    ) {
+        let artifactRepository = LocalArtifactRepository()
+        self.init(
+            tabManager: tabManager,
+            fileExplorerStore: fileExplorerStore,
+            fileExplorerState: fileExplorerState,
+            sessionIndexStore: sessionIndexStore,
+            titlebarHeight: titlebarHeight,
+            windowAppearance: windowAppearance,
+            workspaceId: workspaceId,
+            artifactWorkspace: nil,
+            artifactStore: artifactRepository,
+            artifactCaptureService: ArtifactCaptureService(store: artifactRepository),
+            onResumeSession: onResumeSession,
+            onOpenFilePreview: onOpenFilePreview,
+            onOpenArtifact: { _ in },
+            onOpenAsPane: onOpenAsPane,
+            onClose: onClose
+        )
+    }
+}

@@ -11,7 +11,7 @@ final class ArtifactStoreMutationLease {
 
     /// Uses the already-managed artifact directory because actor isolation cannot
     /// coordinate independent processes and acquisition must not create a new path.
-    static func acquire(directory: URL) throws -> ArtifactStoreMutationLease {
+    convenience init(directory: URL) throws {
         let descriptor = Darwin.open(
             directory.path,
             O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
@@ -38,7 +38,7 @@ final class ArtifactStoreMutationLease {
             throw ArtifactStoreError.pathOutsideStore(directory.path)
         }
         keepsDescriptor = true
-        return ArtifactStoreMutationLease(descriptor: descriptor)
+        self.init(descriptor: descriptor)
     }
 
     func finish() {

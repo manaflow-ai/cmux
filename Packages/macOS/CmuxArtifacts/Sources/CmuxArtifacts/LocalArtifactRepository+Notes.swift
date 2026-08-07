@@ -51,7 +51,7 @@ extension LocalArtifactRepository: NoteStoring {
         )
         try await validateNoteWritePrivacy(plan: preflightPlan, paths: paths)
 
-        let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
+        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
         defer { lease.finish() }
         let plan = try makeNoteWritePlan(name: name, context: context, paths: paths)
         guard plan.privacyDestinations.map(\.standardizedFileURL.path)
@@ -91,10 +91,10 @@ extension LocalArtifactRepository: NoteStoring {
         }
         try CmuxNoteAtomicWriter().write(finalData, to: plan.destination)
 
-        guard let relativePath = ArtifactPathResolver().relativePath(
+        guard let relativePath = ArtifactPathResolver(fileManager: fileManager).relativePath(
             plan.destination,
             root: paths.filesystemRoot
-        ), let node = try ArtifactExactPathResolver().fileNode(
+        ), let node = try ArtifactExactPathResolver(fileManager: fileManager).fileNode(
             relativePath: relativePath,
             paths: paths
         ) else {
@@ -115,7 +115,10 @@ extension LocalArtifactRepository: NoteStoring {
             nodes: try resolver.noteNodes(snapshot: snapshot),
             isTruncated: false
         )
-        return try ArtifactSearchEngine(configuration: configuration(projectRoot: projectRoot))
+        return try ArtifactSearchEngine(
+            configuration: configuration(projectRoot: projectRoot),
+            fileManager: fileManager
+        )
             .results(snapshot: noteSnapshot, query: query)
             .map { result in
                 CmuxNoteSearchResult(
@@ -133,7 +136,7 @@ extension LocalArtifactRepository: NoteStoring {
     public func deleteNote(projectRoot: URL, name: String) throws -> CmuxProjectNote {
         let paths = ArtifactStorePaths(projectRoot: projectRoot)
         try prepareForMutation(paths: paths)
-        let lease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
+        let lease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
         defer { lease.finish() }
         let resolver = noteResolver
         let note = try resolver.resolveExact(
@@ -154,7 +157,7 @@ extension LocalArtifactRepository: NoteStoring {
         let resolver = noteResolver
         let snapshot = try completeSnapshot(paths: paths)
         let allNotes = try resolver.notes(snapshot: snapshot)
-        let pathResolver = ArtifactPathResolver()
+        let pathResolver = ArtifactPathResolver(fileManager: fileManager)
         let resolution = try ArtifactCaptureDirectoryFinder(
             fileManager: fileManager,
             decoder: decoder,
@@ -168,7 +171,7 @@ extension LocalArtifactRepository: NoteStoring {
         let rawName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let creationRelativePath = rawName.hasPrefix(".cmux/")
             ? nil
-            : try resolver.creationRelativePath(rawName: name)
+            : try resolver.creationRelativePath(rawName: name, paths: paths)
         let contentRelativePath = pathResolver.relativePath(
             resolution.directory,
             root: paths.filesystemRoot
@@ -253,7 +256,7 @@ extension LocalArtifactRepository: NoteStoring {
             throw CmuxNoteStoreError.noteTooLarge(actual: size, limit: Self.maximumNoteBytes)
         }
         let url = URL(fileURLWithPath: note.absolutePath, isDirectory: false)
-        guard let data = try ArtifactBoundedFileReader().data(
+        guard let data = try ArtifactBoundedFileReader(fileManager: fileManager).data(
             url: url,
             allowedRoot: paths.filesystemRoot,
             maximumBytes: Self.maximumNoteBytes

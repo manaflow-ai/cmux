@@ -71,7 +71,7 @@ struct ArtifactCaptureDirectoryFinder {
     ) throws {
         let markerURL = fallback.deletingLastPathComponent()
             .appendingPathComponent(ArtifactPathResolver.sessionMarkerName)
-        let reader = ArtifactBoundedFileReader()
+        let reader = ArtifactBoundedFileReader(fileManager: fileManager)
         guard try reader.pathEntryExists(url: markerURL) else { return }
         guard let data = try reader.data(
             url: markerURL,

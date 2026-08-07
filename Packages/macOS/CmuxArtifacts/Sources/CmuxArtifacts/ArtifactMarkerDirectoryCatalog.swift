@@ -54,7 +54,7 @@ struct ArtifactMarkerDirectoryCatalog {
                 continue
             }
             guard url.lastPathComponent == markerName,
-                  let data = try? ArtifactBoundedFileReader().data(
+                  let data = try? ArtifactBoundedFileReader(fileManager: fileManager).data(
                       url: url,
                       allowedRoot: paths.filesystemRoot,
                       maximumBytes: 256 * 1024

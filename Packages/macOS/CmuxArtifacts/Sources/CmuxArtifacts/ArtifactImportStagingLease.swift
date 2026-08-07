@@ -17,7 +17,7 @@ final class ArtifactImportStagingLease {
         self.descriptor = descriptor
     }
 
-    static func acquire(root: URL, fileManager: FileManager) throws -> ArtifactImportStagingLease {
+    convenience init(root: URL, fileManager: FileManager) throws {
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         let identity = UUID().uuidString
         let claim = root.appendingPathComponent(".\(identity)\(claimSuffix)", isDirectory: true)
@@ -47,7 +47,7 @@ final class ArtifactImportStagingLease {
         }
         try fileManager.moveItem(at: claim, to: directory)
         keepsLease = true
-        return ArtifactImportStagingLease(
+        self.init(
             directory: directory,
             fileManager: fileManager,
             descriptor: descriptor

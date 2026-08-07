@@ -231,9 +231,3 @@ struct ArtifactSidebarPanelView: View {
         }
     }
 }
-
-private struct ArtifactSidebarBinding: Equatable {
-    let workspaceID: String?
-    let workingDirectory: URL?
-    let isVisible: Bool
-}

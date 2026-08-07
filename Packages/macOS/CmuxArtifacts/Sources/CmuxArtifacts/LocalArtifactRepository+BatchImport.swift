@@ -22,7 +22,7 @@ extension LocalArtifactRepository {
         var preparedByIndex: [Int: PreparedArtifactImport] = [:]
         let stagingLease: ArtifactImportStagingLease
         do {
-            stagingLease = try ArtifactImportStagingLease.acquire(
+            stagingLease = try ArtifactImportStagingLease(
                 root: paths.importStagingRoot,
                 fileManager: fileManager
             )
@@ -80,7 +80,7 @@ extension LocalArtifactRepository {
                 preparedByIndex[index] = PreparedArtifactImport(
                     candidate: ArtifactCandidate(sourceURL: source, provenance: candidate.provenance),
                     snapshot: snapshot,
-                    digest: try ArtifactDigestCalculator().digest(
+                    digest: try ArtifactDigestCalculator(fileManager: fileManager).digest(
                         url: snapshot.url,
                         expectedSize: snapshot.size,
                         allowedRoot: paths.importStagingRoot
@@ -151,7 +151,7 @@ extension LocalArtifactRepository {
 
         let mutationLease: ArtifactStoreMutationLease
         do {
-            mutationLease = try ArtifactStoreMutationLease.acquire(directory: paths.filesystemRoot)
+            mutationLease = try ArtifactStoreMutationLease(directory: paths.filesystemRoot)
         } catch let error as ArtifactStoreError {
             for (index, _) in orderedPrepared { attempts[index] = .rejected(error) }
             return finalizedAttempts(attempts, candidates: candidates)
@@ -238,7 +238,8 @@ extension LocalArtifactRepository {
                 maximumDepth: maximumScanDepth,
                 nodeLimit: configuration.deduplicationScanNodeLimit,
                 hashByteLimit: configuration.deduplicationHashByteLimit
-            )
+            ),
+            fileManager: fileManager
         ).build(prepared: prepared, paths: paths)
     }
 

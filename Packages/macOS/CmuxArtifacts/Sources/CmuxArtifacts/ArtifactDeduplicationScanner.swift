@@ -39,7 +39,7 @@ struct ArtifactDeduplicationScanner {
             includingPropertiesForKeys: Array(keys),
             options: []
         ) else { return }
-        let pathResolver = ArtifactPathResolver()
+        let pathResolver = ArtifactPathResolver(fileManager: fileManager)
 
         while let url = enumerator.nextObject() as? URL {
             try Task.checkCancellation()

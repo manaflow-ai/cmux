@@ -11,8 +11,8 @@ public struct ArtifactStorePaths: Equatable, Sendable {
         ]
     )
 
-    static func isManagedPathComponent(_ name: String) -> Bool {
-        managedPathComponentNames.contains {
+    func isManagedPathComponent(_ name: String) -> Bool {
+        Self.managedPathComponentNames.contains {
             $0.caseInsensitiveCompare(name) == .orderedSame
         }
     }

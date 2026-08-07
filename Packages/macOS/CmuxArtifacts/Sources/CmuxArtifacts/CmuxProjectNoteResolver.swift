@@ -17,7 +17,7 @@ struct CmuxProjectNoteResolver {
 
     func noteNodes(snapshot: ArtifactSnapshot) throws -> [ArtifactNode] {
         let paths = ArtifactStorePaths(projectRoot: snapshot.projectRoot)
-        let pathResolver = ArtifactPathResolver()
+        let pathResolver = ArtifactPathResolver(fileManager: fileManager)
         let noteRootPaths = Set(
             try ArtifactMarkerDirectoryCatalog(
                 fileManager: fileManager,
@@ -102,7 +102,7 @@ struct CmuxProjectNoteResolver {
         return match
     }
 
-    func creationRelativePath(rawName: String) throws -> String {
+    func creationRelativePath(rawName: String, paths: ArtifactStorePaths) throws -> String {
         let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               trimmed.utf8.count <= 1_024,
@@ -120,7 +120,7 @@ struct CmuxProjectNoteResolver {
             !$0.isEmpty
                 && $0 != "."
                 && $0 != ".."
-                && !ArtifactStorePaths.isManagedPathComponent($0)
+                && !paths.isManagedPathComponent($0)
         }) else {
             throw CmuxNoteStoreError.invalidName(rawName)
         }

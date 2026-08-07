@@ -4,10 +4,11 @@ import Foundation
 struct ArtifactGitPrivacyValidator: Sendable {
     let worktreeRoot: URL?
     let commandRunner: any ArtifactGitCommandRunning
+    let fileManager: FileManager
 
     func storeIsUntracked(filesystemRoot: URL) async -> Bool {
         guard let worktreeRoot else { return true }
-        guard let relativeCmuxPath = ArtifactPathResolver().relativePath(
+        guard let relativeCmuxPath = ArtifactPathResolver(fileManager: fileManager).relativePath(
             filesystemRoot,
             root: worktreeRoot
         ) else {
@@ -31,7 +32,7 @@ struct ArtifactGitPrivacyValidator: Sendable {
     func permits(destinations: [URL]) async -> Bool {
         guard !destinations.isEmpty else { return false }
         guard let worktreeRoot else { return true }
-        let resolver = ArtifactPathResolver()
+        let resolver = ArtifactPathResolver(fileManager: fileManager)
         var encodedPaths: [Data] = []
         var seen: Set<Data> = []
         for destination in destinations {

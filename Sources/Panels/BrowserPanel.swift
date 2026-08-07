@@ -4160,9 +4160,9 @@ final class BrowserPanel: Panel, ObservableObject {
         let webView: CmuxWebView
         var adoptedPrewarmedWebView = false
         if contentMode.artifactDocumentURL != nil {
-            webView = ArtifactHTMLPreviewWebViewPolicy.makeWebView(
+            webView = ArtifactHTMLPreviewWebViewFactory(
                 websiteDataStore: websiteDataStore
-            )
+            ).makeWebView()
         } else if let prewarmed = Self.claimedPrewarmedWebView(
             isRemoteWorkspace: isRemoteWorkspace,
             initialRequest: initialRequest,

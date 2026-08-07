@@ -21,7 +21,10 @@ struct ArtifactSearchEngineTests {
         configuration.contentSearchMaximumBytes = 2
         configuration.contentSearchTotalMaximumBytes = 2
 
-        let results = try ArtifactSearchEngine(configuration: configuration).results(
+        let results = try ArtifactSearchEngine(
+            configuration: configuration,
+            fileManager: .default
+        ).results(
             snapshot: snapshot,
             query: "needle"
         )
@@ -56,7 +59,10 @@ struct ArtifactSearchEngineTests {
             isTruncated: false
         )
 
-        let results = try ArtifactSearchEngine(configuration: .defaultValue).results(
+        let results = try ArtifactSearchEngine(
+            configuration: .defaultValue,
+            fileManager: .default
+        ).results(
             snapshot: snapshot,
             query: "needle"
         )
@@ -80,14 +86,20 @@ struct ArtifactSearchEngineTests {
         var configuration = ArtifactCaptureConfiguration.defaultValue
         configuration.contentSearchTotalMaximumBytes = Int64("haystack".utf8.count)
 
-        let capped = try ArtifactSearchEngine(configuration: configuration).results(
+        let capped = try ArtifactSearchEngine(
+            configuration: configuration,
+            fileManager: .default
+        ).results(
             snapshot: snapshot,
             query: "needle"
         )
 
         #expect(capped.isEmpty)
         configuration.contentSearchTotalMaximumBytes += Int64("needle".utf8.count)
-        let uncapped = try ArtifactSearchEngine(configuration: configuration).results(
+        let uncapped = try ArtifactSearchEngine(
+            configuration: configuration,
+            fileManager: .default
+        ).results(
             snapshot: snapshot,
             query: "needle"
         )
@@ -117,7 +129,7 @@ struct ArtifactSearchEngineTests {
             nodes: [node],
             isTruncated: false
         )
-        let engine = ArtifactSearchEngine(configuration: .defaultValue)
+        let engine = ArtifactSearchEngine(configuration: .defaultValue, fileManager: .default)
 
         let oversizedScore = try #require(engine.results(snapshot: snapshot, query: query).first?.score)
         let boundedScore = try #require(

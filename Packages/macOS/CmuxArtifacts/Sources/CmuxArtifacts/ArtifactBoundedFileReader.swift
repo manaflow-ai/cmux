@@ -3,6 +3,8 @@ import Foundation
 
 /// Reads one regular artifact through a no-follow descriptor with a hard byte cap.
 struct ArtifactBoundedFileReader {
+    let fileManager: FileManager
+
     func pathEntryExists(url: URL) throws -> Bool {
         var status = stat()
         if lstat(url.path, &status) == 0 { return true }
@@ -42,7 +44,8 @@ struct ArtifactBoundedFileReader {
             return String(cString: baseAddress.assumingMemoryBound(to: CChar.self))
         }
         let descriptorURL = URL(fileURLWithPath: descriptorPath, isDirectory: false)
-        guard ArtifactPathResolver().relativePath(descriptorURL, root: allowedRoot) != nil else {
+        guard ArtifactPathResolver(fileManager: fileManager)
+            .relativePath(descriptorURL, root: allowedRoot) != nil else {
             return nil
         }
 

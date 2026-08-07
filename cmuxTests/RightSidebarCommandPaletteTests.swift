@@ -12,7 +12,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
-            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
@@ -39,7 +38,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             }
 
             XCTAssertEqual(contributions.count, 3)
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.artifacts)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
         }
@@ -48,7 +46,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
-            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
 
@@ -76,11 +73,9 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
     private func withSavedBetaFeatureDefaults(_ body: () throws -> Void) rethrows {
         let defaults = UserDefaults.standard
-        let previousArtifacts = defaults.object(forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         defer {
-            restore(previousArtifacts, forKey: RightSidebarBetaFeatureSettings.artifactsEnabledKey)
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         }

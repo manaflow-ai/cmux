@@ -4,18 +4,13 @@ import Foundation
 
 /// Bridges transcript artifact snapshots into the project-local artifact store.
 actor AgentArtifactCaptureCoordinator {
-    private struct CompletedCaptureState: Sendable {
-        let revision: UInt64?
-        let checkpoint: AgentArtifactCaptureCheckpoint?
-    }
-
     private static let retainedSessionLimit = 64
     private static let maximumContentionRetryCount = 3
     private let captureService: ArtifactCaptureService
     private let fileManager: FileManager
     private let contentionRetryDelay: @Sendable (Int) async throws -> Void
     private var inFlightRevisionBySession: [String: UInt64] = [:]
-    private var completedStateBySession = ChatArtifactLRUCache<String, CompletedCaptureState>(
+    private var completedStateBySession = ChatArtifactLRUCache<String, AgentArtifactCompletedCaptureState>(
         capacity: retainedSessionLimit
     )
 
@@ -95,7 +90,7 @@ actor AgentArtifactCaptureCoordinator {
         )
         guard !pending.isEmpty else {
             completedStateBySession.insert(
-                CompletedCaptureState(
+                AgentArtifactCompletedCaptureState(
                     revision: snapshot.revision,
                     checkpoint: AgentArtifactCaptureCheckpoint(
                         transcriptLineage: snapshot.transcriptLineage,
@@ -149,7 +144,7 @@ actor AgentArtifactCaptureCoordinator {
         }
         if processedCount > 0 {
             completedStateBySession.insert(
-                CompletedCaptureState(
+                AgentArtifactCompletedCaptureState(
                     revision: processedCount == pending.count
                         ? snapshot.revision
                         : completedState?.revision,

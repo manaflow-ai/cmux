@@ -24,6 +24,7 @@
 		A85870000000000000000063 /* AgentArtifactCaptureCoordinatorTestStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */; };
 		A8587000000000000000006F /* AgentArtifactCaptureProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000006E /* AgentArtifactCaptureProgress.swift */; };
 		A85870000000000000000045 /* AgentArtifactCaptureSaveError.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000044 /* AgentArtifactCaptureSaveError.swift */; };
+		A8610D000000000000000001 /* AgentArtifactCompletedCaptureState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000002 /* AgentArtifactCompletedCaptureState.swift */; };
 		C7A858700000000000000002 /* AgentArtifactProjectAuthorityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A858700000000000000001 /* AgentArtifactProjectAuthorityTests.swift */; };
 		A8587000000000000000002B /* AgentArtifactReferenceCursor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */; };
 		C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */; };
@@ -52,6 +53,7 @@
 		C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE71A00000000000000002 /* AgentChatThemeSync.swift */; };
 		A8610B000000000000000002 /* AgentChatTranscriptIncrementalLineBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610B000000000000000001 /* AgentChatTranscriptIncrementalLineBuffer.swift */; };
 		C7A858700000000000000006 /* AgentChatTranscriptInitialTailReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A858700000000000000005 /* AgentChatTranscriptInitialTailReader.swift */; };
+		A8610D000000000000000003 /* AgentChatTranscriptInitialTailSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000004 /* AgentChatTranscriptInitialTailSnapshot.swift */; };
 		A8587F000000000000000011 /* AgentChatTranscriptReader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8587F000000000000000010 /* AgentChatTranscriptReader.swift */; };
 		C7A85870000000000000000B /* AgentChatTranscriptResolutionReviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A85870000000000000000C /* AgentChatTranscriptResolutionReviewTests.swift */; };
 		ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */; };
@@ -268,10 +270,15 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */; };
 		A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */; };
 		A85870000000000000000047 /* ArtifactCLIArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000046 /* ArtifactCLIArguments.swift */; };
+		A8610D00000000000000000D /* ArtifactCLIIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D00000000000000000E /* ArtifactCLIIntegrationTests.swift */; };
 		A85870000000000000000051 /* ArtifactCLITerminalSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */; };
-		A85870000000000000000067 /* ArtifactHTMLPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000066 /* ArtifactHTMLPreview.swift */; };
+		A85870000000000000000067 /* ArtifactHTMLPreviewDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000066 /* ArtifactHTMLPreviewDocument.swift */; };
+		A8610D000000000000000005 /* ArtifactHTMLPreviewNavigationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000006 /* ArtifactHTMLPreviewNavigationPolicy.swift */; };
 		A85870000000000000000065 /* ArtifactHTMLPreviewSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000064 /* ArtifactHTMLPreviewSecurityTests.swift */; };
+		A8610D000000000000000007 /* ArtifactHTMLPreviewWebViewFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000008 /* ArtifactHTMLPreviewWebViewFactory.swift */; };
+		A8610D00000000000000000F /* ArtifactRightSidebarModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */; };
 		A85870000000000000000069 /* ArtifactRuntimeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */; };
+		A8610D00000000000000000B /* ArtifactSidebarBinding.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D00000000000000000C /* ArtifactSidebarBinding.swift */; };
 		A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000030 /* ArtifactSidebarPanelView.swift */; };
 		A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000032 /* ArtifactSidebarRowActions.swift */; };
 		A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85870000000000000000034 /* ArtifactSidebarRowView.swift */; };
@@ -430,6 +437,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */; };
 		B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */ = {isa = PBXBuildFile; fileRef = B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */; };
 		A5001402 /* BrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001412 /* BrowserPanel.swift */; };
+		A8610D000000000000000009 /* BrowserPanelContentMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8610D00000000000000000A /* BrowserPanelContentMode.swift */; };
 		B1F0C0090000000000000001 /* BrowserPanelDeveloperToolsLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */; };
 		C62530010000000000000001 /* BrowserPanelReloadMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = C62530010000000000000002 /* BrowserPanelReloadMode.swift */; };
 		B65060010000000000000002 /* BrowserPanelSessionRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */; };
@@ -2783,6 +2791,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		A85870000000000000000062 /* AgentArtifactCaptureCoordinatorTestStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactCaptureCoordinatorTestStore.swift; sourceTree = "<group>"; };
 		A8587000000000000000006E /* AgentArtifactCaptureProgress.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureProgress.swift"; sourceTree = "<group>"; };
 		A85870000000000000000044 /* AgentArtifactCaptureSaveError.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCaptureSaveError.swift"; sourceTree = "<group>"; };
+		A8610D000000000000000002 /* AgentArtifactCompletedCaptureState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactCompletedCaptureState.swift"; sourceTree = "<group>"; };
 		C7A858700000000000000001 /* AgentArtifactProjectAuthorityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentArtifactProjectAuthorityTests.swift; sourceTree = "<group>"; };
 		A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentArtifactReferenceCursor.swift"; sourceTree = "<group>"; };
 		C7AF10000000000000000006 /* AgentChatArtifactGalleryBuilder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatArtifactGalleryBuilder.swift"; sourceTree = "<group>"; };
@@ -2811,6 +2820,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C0DE71A00000000000000002 /* AgentChatThemeSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatThemeSync.swift; sourceTree = "<group>"; };
 		A8610B000000000000000001 /* AgentChatTranscriptIncrementalLineBuffer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptIncrementalLineBuffer.swift"; sourceTree = "<group>"; };
 		C7A858700000000000000005 /* AgentChatTranscriptInitialTailReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptInitialTailReader.swift"; sourceTree = "<group>"; };
+		A8610D000000000000000004 /* AgentChatTranscriptInitialTailSnapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptInitialTailSnapshot.swift"; sourceTree = "<group>"; };
 		A8587F000000000000000010 /* AgentChatTranscriptReader.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptReader.swift"; sourceTree = "<group>"; };
 		C7A85870000000000000000C /* AgentChatTranscriptResolutionReviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentChatTranscriptResolutionReviewTests.swift; sourceTree = "<group>"; };
 		ACA7C4A70000000000000006 /* AgentChatTranscriptResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "AgentChatTranscriptResolver.swift"; sourceTree = "<group>"; };
@@ -3024,10 +3034,15 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		A5001A03A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowBackdropControllerDependencies.swift; sourceTree = "<group>"; };
 		A5001A01A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Windowing/AppWindowChromeComposition.swift; sourceTree = "<group>"; };
 		A85870000000000000000046 /* ArtifactCLIArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLIArguments.swift; sourceTree = "<group>"; };
+		A8610D00000000000000000E /* ArtifactCLIIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLIIntegrationTests.swift; sourceTree = "<group>"; };
 		A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactCLITerminalSafetyTests.swift; sourceTree = "<group>"; };
-		A85870000000000000000066 /* ArtifactHTMLPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreview.swift; sourceTree = "<group>"; };
+		A85870000000000000000066 /* ArtifactHTMLPreviewDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewDocument.swift; sourceTree = "<group>"; };
+		A8610D000000000000000006 /* ArtifactHTMLPreviewNavigationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewNavigationPolicy.swift; sourceTree = "<group>"; };
 		A85870000000000000000064 /* ArtifactHTMLPreviewSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewSecurityTests.swift; sourceTree = "<group>"; };
+		A8610D000000000000000008 /* ArtifactHTMLPreviewWebViewFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactHTMLPreviewWebViewFactory.swift; sourceTree = "<group>"; };
+		A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactRightSidebarModeTests.swift; sourceTree = "<group>"; };
 		A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactRuntimeLifecycleTests.swift; sourceTree = "<group>"; };
+		A8610D00000000000000000C /* ArtifactSidebarBinding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarBinding.swift; sourceTree = "<group>"; };
 		A85870000000000000000030 /* ArtifactSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarPanelView.swift; sourceTree = "<group>"; };
 		A85870000000000000000032 /* ArtifactSidebarRowActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowActions.swift; sourceTree = "<group>"; };
 		A85870000000000000000034 /* ArtifactSidebarRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArtifactSidebarRowView.swift; sourceTree = "<group>"; };
@@ -3185,6 +3200,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		C67540060000000000000002 /* BrowserPanel+PDFDocumentActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PDFDocumentActions.swift"; sourceTree = "<group>"; };
 		B424PWAD000000000000PW02 /* BrowserPanel+PrewarmedWebViewAdoption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+PrewarmedWebViewAdoption.swift"; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
+		A8610D00000000000000000A /* BrowserPanelContentMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelContentMode.swift; sourceTree = "<group>"; };
 		B1F0C0090000000000000002 /* BrowserPanelDeveloperToolsLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelDeveloperToolsLifecycle.swift; sourceTree = "<group>"; };
 		C62530010000000000000002 /* BrowserPanelReloadMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelReloadMode.swift; sourceTree = "<group>"; };
 		B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelSessionRestoreTests.swift; sourceTree = "<group>"; };
@@ -5597,6 +5613,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				A8587000000000000000004A /* AgentArtifactCaptureCheckpoint.swift */,
+				A8610D000000000000000002 /* AgentArtifactCompletedCaptureState.swift */,
 				A85870000000000000000020 /* AgentArtifactCaptureCoordinator.swift */,
 				A8587000000000000000006E /* AgentArtifactCaptureProgress.swift */,
 				A8587000000000000000002A /* AgentArtifactReferenceCursor.swift */,
@@ -5623,6 +5640,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 					ACA7C4A7000000000000000A /* AgentChatTranscriptTailer.swift */,
 					A8610B000000000000000001 /* AgentChatTranscriptIncrementalLineBuffer.swift */,
 					C7A858700000000000000005 /* AgentChatTranscriptInitialTailReader.swift */,
+					A8610D000000000000000004 /* AgentChatTranscriptInitialTailSnapshot.swift */,
 					C7A858700000000000000007 /* AgentChatWorkingDirectoryAuthority.swift */,
 					C7A858700000000000000009 /* AgentChatObservedWorkingDirectoryResolver.swift */,
 				ACA7C4A7000000000000000C /* AgentChatTranscriptService.swift */,
@@ -7142,9 +7160,13 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A85870000000000000000030 /* ArtifactSidebarPanelView.swift */,
+				A8610D00000000000000000C /* ArtifactSidebarBinding.swift */,
 				A8587000000000000000006A /* ArtifactSidebarSearchField.swift */,
 				A8587000000000000000006C /* ArtifactSidebarSearchFieldView.swift */,
-				A85870000000000000000066 /* ArtifactHTMLPreview.swift */,
+				A85870000000000000000066 /* ArtifactHTMLPreviewDocument.swift */,
+				A8610D000000000000000006 /* ArtifactHTMLPreviewNavigationPolicy.swift */,
+				A8610D000000000000000008 /* ArtifactHTMLPreviewWebViewFactory.swift */,
+				A8610D00000000000000000A /* BrowserPanelContentMode.swift */,
 				A8587000000000000000003C /* AppDelegate+Artifacts.swift */,
 				A8587000000000000000003E /* ContentView+Artifacts.swift */,
 				A85870000000000000000032 /* ArtifactSidebarRowActions.swift */,
@@ -7478,7 +7500,9 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				A11CE0020000000000000001 /* AboutLicensesResourceTests.swift */,
+				A8610D00000000000000000E /* ArtifactCLIIntegrationTests.swift */,
 				A85870000000000000000050 /* ArtifactCLITerminalSafetyTests.swift */,
+				A8610D000000000000000010 /* ArtifactRightSidebarModeTests.swift */,
 				A85870000000000000000068 /* ArtifactRuntimeLifecycleTests.swift */,
 				A85870000000000000000060 /* NoteCLIIntegrationTests.swift */,
 				A85870000000000000000048 /* AgentArtifactCaptureCoordinatorTests.swift */,
@@ -8662,6 +8686,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A85870000000000000000021 /* AgentArtifactCaptureCoordinator.swift in Sources */,
 				A8587000000000000000006F /* AgentArtifactCaptureProgress.swift in Sources */,
 				A85870000000000000000045 /* AgentArtifactCaptureSaveError.swift in Sources */,
+				A8610D000000000000000001 /* AgentArtifactCompletedCaptureState.swift in Sources */,
 				A8587000000000000000002B /* AgentArtifactReferenceCursor.swift in Sources */,
 				C7AF10000000000000000005 /* AgentChatArtifactGalleryBuilder.swift in Sources */,
 				C7AF10000000000000000001 /* AgentChatArtifactIndex.swift in Sources */,
@@ -8681,6 +8706,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C0DE71A00000000000000001 /* AgentChatThemeSync.swift in Sources */,
 				A8610B000000000000000002 /* AgentChatTranscriptIncrementalLineBuffer.swift in Sources */,
 				C7A858700000000000000006 /* AgentChatTranscriptInitialTailReader.swift in Sources */,
+				A8610D000000000000000003 /* AgentChatTranscriptInitialTailSnapshot.swift in Sources */,
 				A8587F000000000000000011 /* AgentChatTranscriptReader.swift in Sources */,
 				ACA7C4A70000000000000005 /* AgentChatTranscriptResolver.swift in Sources */,
 				A85870000000000000000023 /* AgentChatTranscriptService+ArtifactCapture.swift in Sources */,
@@ -8835,7 +8861,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A5001621 /* AppleScriptSupport.swift in Sources */,
 				A5001A02A1B2C3D4E5F60718 /* AppWindowBackdropControllerDependencies.swift in Sources */,
 				A5001A00A1B2C3D4E5F60718 /* AppWindowChromeComposition.swift in Sources */,
-				A85870000000000000000067 /* ArtifactHTMLPreview.swift in Sources */,
+				A85870000000000000000067 /* ArtifactHTMLPreviewDocument.swift in Sources */,
+				A8610D000000000000000005 /* ArtifactHTMLPreviewNavigationPolicy.swift in Sources */,
+				A8610D000000000000000007 /* ArtifactHTMLPreviewWebViewFactory.swift in Sources */,
+				A8610D00000000000000000B /* ArtifactSidebarBinding.swift in Sources */,
 				A85870000000000000000031 /* ArtifactSidebarPanelView.swift in Sources */,
 				A85870000000000000000033 /* ArtifactSidebarRowActions.swift in Sources */,
 				A85870000000000000000035 /* ArtifactSidebarRowView.swift in Sources */,
@@ -8950,6 +8979,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C67540060000000000000001 /* BrowserPanel+PDFDocumentActions.swift in Sources */,
 				B424PWAD000000000000PW01 /* BrowserPanel+PrewarmedWebViewAdoption.swift in Sources */,
 				A5001402 /* BrowserPanel.swift in Sources */,
+				A8610D000000000000000009 /* BrowserPanelContentMode.swift in Sources */,
 				B1F0C0090000000000000001 /* BrowserPanelDeveloperToolsLifecycle.swift in Sources */,
 				C62530010000000000000001 /* BrowserPanelReloadMode.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
@@ -10644,8 +10674,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A11EAA000000000000000000 /* AppearanceSettingsTests.swift in Sources */,
 				C8046FF15781CC7E4F8EAEA6 /* AppHostWindowReleaseGuardTests.swift in Sources */,
 				A7206E010000000000000001 /* AppIconAppearanceObserverTests.swift in Sources */,
+				A8610D00000000000000000D /* ArtifactCLIIntegrationTests.swift in Sources */,
 				A85870000000000000000051 /* ArtifactCLITerminalSafetyTests.swift in Sources */,
 				A85870000000000000000065 /* ArtifactHTMLPreviewSecurityTests.swift in Sources */,
+				A8610D00000000000000000F /* ArtifactRightSidebarModeTests.swift in Sources */,
 				A85870000000000000000069 /* ArtifactRuntimeLifecycleTests.swift in Sources */,
 				A47E00010000000000000001 /* AuthEnvironmentTests.swift in Sources */,
 				AA9457BF0000000000000001 /* AutoNamingClaudeArgumentsTests.swift in Sources */,

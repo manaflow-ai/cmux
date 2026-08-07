@@ -11,7 +11,7 @@ struct ArtifactProvenanceRecorder {
 
     func document(paths: ArtifactStorePaths, digest: String) throws -> ArtifactMetadataDocument? {
         let url = metadataURL(paths: paths, digest: digest)
-        let reader = ArtifactBoundedFileReader()
+        let reader = ArtifactBoundedFileReader(fileManager: fileManager)
         do {
             guard try reader.pathEntryExists(url: url) else { return nil }
             guard let data = try reader.data(

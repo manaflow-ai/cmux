@@ -136,9 +136,9 @@ extension BrowserPanel {
         websiteDataStore: WKWebsiteDataStore
     ) -> CmuxWebView {
         if contentMode.artifactDocumentURL != nil {
-            return ArtifactHTMLPreviewWebViewPolicy.makeWebView(
+            return ArtifactHTMLPreviewWebViewFactory(
                 websiteDataStore: websiteDataStore
-            )
+            ).makeWebView()
         }
         let replacement = Self.makeWebView(
             profileID: profileID,

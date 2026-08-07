@@ -2,12 +2,14 @@ import Foundation
 
 /// Defines which live `.cmux` entries are user-visible Notes and Artifacts.
 struct ArtifactStoreVisibilityPolicy {
+    let fileManager: FileManager
+
     func isManagedEntry(_ url: URL, filesystemRoot: URL) -> Bool {
         if url.lastPathComponent == ArtifactPathResolver.workspaceMarkerName
             || url.lastPathComponent == ArtifactPathResolver.sessionMarkerName {
             return true
         }
-        let resolver = ArtifactPathResolver()
+        let resolver = ArtifactPathResolver(fileManager: fileManager)
         if resolver.refersToSameLocation(
             url,
             filesystemRoot.appendingPathComponent(".metadata", isDirectory: true)
