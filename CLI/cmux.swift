@@ -3760,7 +3760,7 @@ struct CMUXCLI {
             return
         }
 
-        try validateSurfaceResumeCommandValueOptionsBeforeSocket(
+        try validateSurfaceResumeCommandArgumentsBeforeSocket(
             command: command,
             commandArgs: commandArgs
         )
@@ -4755,26 +4755,26 @@ struct CMUXCLI {
             )
 
         case "new-split":
-            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (panelArg, rem1) = parseOption(rem0, name: "--panel")
-            let (sfArg, rem2) = parseOption(rem1, name: "--surface")
-            let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
-            let (windowOpt, rem4) = parseOption(rem3, name: "--window")
-            let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-            let direction = try validatedSplitDirection(rem4.first, commandName: "new-split")
-            if let unknown = rem4.dropFirst().first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-split: unknown flag '\(unknown)'")
-            }
-            var params: [String: Any] = ["direction": direction]
+            let arguments = try splitCommandArguments(
+                commandName: "new-split",
+                commandArgs: commandArgs
+            )
+            let windowRaw = arguments.window ?? windowId
+            let workspaceArg = arguments.workspace
+                ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let surfaceRaw = arguments.surface
+                ?? arguments.panel
+                ?? (arguments.workspace == nil && windowRaw == nil
+                    ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
+                    : nil)
+            var params: [String: Any] = ["direction": arguments.direction]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
-            try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+            try applyFocusOption(arguments.focus, defaultValue: false, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat))
 
@@ -6917,21 +6917,19 @@ struct CMUXCLI {
         let rest = commandArgs.first == nil ? [] : Array(commandArgs.dropFirst())
         switch subcommand {
         case "set":
-            try validateSurfaceResumeValueOptions(
-                rest,
-                optionNames: Self.surfaceResumeSetValueOptions,
-                context: "surface resume set"
+            let parsed = try parseSurfaceResumeArguments(subcommand: subcommand, arguments: rest)
+            var params = try surfaceResumeTarget(
+                parsed,
+                client: client,
+                windowOverride: windowOverride
             )
-            let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
-            var params = target.params
-            let splitRemaining = splitAtArgumentTerminator(target.remaining)
-            let (name, rem1) = parseOption(splitRemaining.options, name: "--name")
-            let (kind, rem2) = parseOption(rem1, name: "--kind")
-            let (checkpoint, rem3) = parseOption(rem2, name: "--checkpoint")
-            let (checkpointID, rem4) = parseOption(rem3, name: "--checkpoint-id")
-            let (source, rem5) = parseOption(rem4, name: "--source")
-            let (cwd, rem6) = parseOption(rem5, name: "--cwd")
-            let (shellCommand, rem7) = parseOption(rem6, name: "--shell")
+            let name = parsed.value(for: "--name")
+            let kind = parsed.value(for: "--kind")
+            let checkpoint = parsed.value(for: "--checkpoint")
+            let checkpointID = parsed.value(for: "--checkpoint-id")
+            let source = parsed.value(for: "--source")
+            let cwd = parsed.value(for: "--cwd")
+            let shellCommand = parsed.value(for: "--shell")
 
             if let name { params["name"] = name }
             if let kind { params["kind"] = kind }
@@ -6941,15 +6939,9 @@ struct CMUXCLI {
 
             let commandText: String
             if let shellCommand {
-                if let unexpected = (rem7 + (splitRemaining.argv ?? [])).first {
-                    throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
-                }
                 commandText = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
-                if splitRemaining.argv != nil, let unexpected = rem7.first {
-                    throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
-                }
-                let argv = splitRemaining.argv ?? rem7
+                let argv = parsed.argumentsAfterTerminator ?? parsed.positionalsBeforeTerminator
                 guard !argv.isEmpty else {
                     throw CLIError(message: "surface resume set requires --shell <command> or -- <argv...>")
                 }
@@ -6972,12 +6964,12 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "show", "get":
-            try validateSurfaceResumeValueOptions(
-                rest,
-                optionNames: Self.surfaceResumeTargetValueOptions,
-                context: "surface resume \(subcommand)"
+            let parsed = try parseSurfaceResumeArguments(subcommand: subcommand, arguments: rest)
+            let params = try surfaceResumeTarget(
+                parsed,
+                client: client,
+                windowOverride: windowOverride
             )
-            let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.get", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -6990,19 +6982,15 @@ struct CMUXCLI {
             }
 
         case "clear":
-            try validateSurfaceResumeValueOptions(
-                rest,
-                optionNames: Self.surfaceResumeClearValueOptions,
-                context: "surface resume clear"
+            let parsed = try parseSurfaceResumeArguments(subcommand: subcommand, arguments: rest)
+            var params = try surfaceResumeTarget(
+                parsed,
+                client: client,
+                windowOverride: windowOverride
             )
-            let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
-            var params = target.params
-            let (checkpoint, rem1) = parseOption(target.remaining, name: "--checkpoint")
-            let (checkpointID, rem2) = parseOption(rem1, name: "--checkpoint-id")
-            let (source, remaining) = parseOption(rem2, name: "--source")
-            if let unexpected = remaining.first {
-                throw CLIError(message: "surface resume clear: unexpected argument '\(unexpected)'")
-            }
+            let checkpoint = parsed.value(for: "--checkpoint")
+            let checkpointID = parsed.value(for: "--checkpoint-id")
+            let source = parsed.value(for: "--source")
             if let checkpoint = checkpointID ?? checkpoint { params["checkpoint_id"] = checkpoint }
             if let source { params["source"] = source }
             let payload = try client.sendV2(method: "surface.resume.clear", params: params)
@@ -7013,126 +7001,95 @@ struct CMUXCLI {
         }
     }
 
-    private func validateSurfaceResumeCommandValueOptionsBeforeSocket(
+    private func validateSurfaceResumeCommandArgumentsBeforeSocket(
         command: String,
         commandArgs: [String]
     ) throws {
         if command == "surface" {
             guard commandArgs.first?.lowercased() == "resume" else { return }
-            try validateSurfaceResumeCommandValueOptions(Array(commandArgs.dropFirst()))
+            try validateSurfaceResumeCommandArguments(Array(commandArgs.dropFirst()))
             return
         }
         if command == "surface-resume" {
-            try validateSurfaceResumeCommandValueOptions(commandArgs)
+            try validateSurfaceResumeCommandArguments(commandArgs)
         }
     }
 
-    private func validateSurfaceResumeCommandValueOptions(_ commandArgs: [String]) throws {
+    private func validateSurfaceResumeCommandArguments(_ commandArgs: [String]) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "show"
         let rest = commandArgs.first == nil ? [] : Array(commandArgs.dropFirst())
         switch subcommand {
-        case "set":
-            try validateSurfaceResumeValueOptions(
-                rest,
-                optionNames: Self.surfaceResumeSetValueOptions,
-                context: "surface resume set"
-            )
-            try validateSurfaceResumeSetCommandTokensBeforeSocket(rest)
-        case "show", "get":
-            try validateSurfaceResumeValueOptions(
-                rest,
-                optionNames: Self.surfaceResumeTargetValueOptions,
-                context: "surface resume \(subcommand)"
-            )
-        case "clear":
-            try validateSurfaceResumeValueOptions(
-                rest,
-                optionNames: Self.surfaceResumeClearValueOptions,
-                context: "surface resume clear"
-            )
+        case "set", "show", "get", "clear":
+            _ = try parseSurfaceResumeArguments(subcommand: subcommand, arguments: rest)
         default:
             return
         }
     }
 
-    private func validateSurfaceResumeSetCommandTokensBeforeSocket(_ args: [String]) throws {
-        let splitArgs = splitAtArgumentTerminator(args)
-        let (_, rem1) = parseOption(splitArgs.options, name: "--workspace")
-        let (_, rem2) = parseOption(rem1, name: "--surface")
-        let (_, rem3) = parseOption(rem2, name: "--window")
-        let (_, rem4) = parseOption(rem3, name: "--name")
-        let (_, rem5) = parseOption(rem4, name: "--kind")
-        let (_, rem6) = parseOption(rem5, name: "--checkpoint")
-        let (_, rem7) = parseOption(rem6, name: "--checkpoint-id")
-        let (_, rem8) = parseOption(rem7, name: "--source")
-        let (_, rem9) = parseOption(rem8, name: "--cwd")
-        let (shellCommand, remaining) = parseOption(rem9, name: "--shell")
+    private static let surfaceResumeTargetOptions: [CLICommandArgumentParser.Option] = [
+        .value("--workspace", "<id|ref|index>"),
+        .value("--surface", "<id|ref|index>"),
+        .value("--window", "<id|ref|index>"),
+    ]
 
-        if shellCommand != nil, let unexpected = (remaining + (splitArgs.argv ?? [])).first {
-            throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
+    private static let surfaceResumeSetOptions = surfaceResumeTargetOptions + [
+        CLICommandArgumentParser.Option.value("--name", "<name>"),
+        .value("--kind", "<kind>"),
+        .value("--checkpoint", "<id>"),
+        .value("--checkpoint-id", "<id>"),
+        .value("--source", "<source>"),
+        .value("--cwd", "<path>"),
+        .value("--shell", "<command>"),
+    ]
+
+    private static let surfaceResumeClearOptions = surfaceResumeTargetOptions + [
+        CLICommandArgumentParser.Option.value("--checkpoint", "<id>"),
+        .value("--checkpoint-id", "<id>"),
+        .value("--source", "<source>"),
+    ]
+
+    private func parseSurfaceResumeArguments(
+        subcommand: String,
+        arguments: [String]
+    ) throws -> CLICommandArgumentParser.Result {
+        let options: [CLICommandArgumentParser.Option]
+        switch subcommand {
+        case "set":
+            options = Self.surfaceResumeSetOptions
+        case "clear":
+            options = Self.surfaceResumeClearOptions
+        default:
+            options = Self.surfaceResumeTargetOptions
         }
-        if splitArgs.argv != nil, let unexpected = remaining.first {
-            throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
+
+        let parsed = try CLICommandArgumentParser(
+            context: "surface resume \(subcommand)",
+            options: options,
+            optionParsing: subcommand == "set" ? .beforeFirstPositional : .interspersed
+        ).parse(arguments)
+
+        if subcommand == "set" {
+            if parsed.value(for: "--shell") != nil, let unexpected = parsed.positionals.first {
+                throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
+            }
+            if parsed.argumentsAfterTerminator != nil,
+               let unexpected = parsed.positionalsBeforeTerminator.first {
+                throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' before --")
+            }
+        } else {
+            try parsed.rejectUnexpectedPositionals()
         }
-    }
-
-    private static let surfaceResumeTargetValueOptions: Set<String> = ["--workspace", "--surface", "--window"]
-    private static let surfaceResumeSetValueOptions: Set<String> = surfaceResumeTargetValueOptions.union([
-        "--name", "--kind", "--checkpoint", "--checkpoint-id", "--source", "--cwd", "--shell",
-    ])
-    private static let surfaceResumeClearValueOptions: Set<String> = surfaceResumeTargetValueOptions.union([
-        "--checkpoint", "--checkpoint-id", "--source",
-    ])
-
-    private func validateSurfaceResumeValueOptions(
-        _ args: [String],
-        optionNames: Set<String>,
-        context: String
-    ) throws {
-        var pastTerminator = false
-        for (index, arg) in args.enumerated() {
-            if pastTerminator {
-                continue
-            }
-            if arg == "--" {
-                pastTerminator = true
-                continue
-            }
-            guard optionNames.contains(arg) else { continue }
-            guard index + 1 < args.count else {
-                throw CLIError(message: "\(context): \(arg) requires a value")
-            }
-            let value = args[index + 1]
-            guard value != "--",
-                  !optionNames.contains(value),
-                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw CLIError(message: "\(context): \(arg) requires a value")
-            }
-        }
-    }
-
-    private struct SurfaceResumeTarget {
-        var params: [String: Any]
-        var remaining: [String]
-    }
-
-    private func splitAtArgumentTerminator(_ args: [String]) -> (options: [String], argv: [String]?) {
-        guard let delimiterIndex = args.firstIndex(of: "--") else {
-            return (args, nil)
-        }
-        let argvStart = args.index(after: delimiterIndex)
-        return (Array(args[..<delimiterIndex]), Array(args[argvStart...]))
+        return parsed
     }
 
     private func surfaceResumeTarget(
-        _ args: [String],
+        _ arguments: CLICommandArgumentParser.Result,
         client: SocketClient,
         windowOverride: String?
-    ) throws -> SurfaceResumeTarget {
-        let splitArgs = splitAtArgumentTerminator(args)
-        let (workspaceOpt, rem1) = parseOption(splitArgs.options, name: "--workspace")
-        let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
-        let (windowOpt, remaining) = parseOption(rem2, name: "--window")
+    ) throws -> [String: Any] {
+        let workspaceOpt = arguments.value(for: "--workspace")
+        let surfaceOpt = arguments.value(for: "--surface")
+        let windowOpt = arguments.value(for: "--window")
         let windowRaw = windowOpt ?? windowOverride
         let env = ProcessInfo.processInfo.environment
         let usesImplicitSurface = surfaceOpt == nil
@@ -7155,8 +7112,7 @@ struct CMUXCLI {
             windowHandle: windowHandle
         )
         if let surfaceId { params["surface_id"] = surfaceId }
-        let remainingWithArgv = remaining + (splitArgs.argv.map { ["--"] + $0 } ?? [])
-        return SurfaceResumeTarget(params: params, remaining: remainingWithArgv)
+        return params
     }
 
     private func cliShellQuote(_ value: String) -> String {
@@ -7757,48 +7713,34 @@ struct CMUXCLI {
         windowOverride: String?,
         honorJSONOutput: Bool
     ) throws {
-        let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
-        let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
-        let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-        let (descriptionOpt, rem3) = parseOption(rem2, name: "--description")
-        let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
-        let (windowOpt, rem5) = parseOption(rem4, name: "--window")
-        let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
-        let (groupOpt, rem7) = parseOption(rem6, name: "--group")
-        let (groupPlacementOpt, rem8) = parseOption(rem7, name: "--group-placement")
-        let (groupReferenceOpt, rem9) = parseOption(rem8, name: "--group-reference")
-        let (envFiles, envPairs, remaining) = parseWorkspaceEnvOptions(rem9)
-        if remaining.last == "--env" {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.create.error.envRequiresValue",
-                    defaultValue: "%@: --env requires KEY=VALUE"
-                ),
-                locale: .current,
-                commandName
-            ))
-        }
-        if remaining.last == "--env-file" {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.create.error.envFileRequiresValue",
-                    defaultValue: "%@: --env-file requires <path>"
-                ),
-                locale: .current,
-                commandName
-            ))
-        }
-        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.create.error.unknownFlag",
-                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>, --group <id|ref>, --group-placement <afterCurrent|top|end>, --group-reference <workspace>"
-                ),
-                locale: .current,
-                commandName,
-                unknown
-            ))
-        }
+        let parsed = try CLICommandArgumentParser(
+            context: commandName,
+            options: [
+                .value("--name", "<title>"),
+                .value("--description", "<text>"),
+                .value("--command", "<text>"),
+                .value("--cwd", "<path>"),
+                .value("--env", "KEY=VALUE", repeatable: true),
+                .value("--env-file", "<path>", repeatable: true),
+                .value("--layout", "<json>"),
+                .value("--window", "<id|ref|index>"),
+                .value("--focus", "<true|false>"),
+                .value("--group", "<id|ref>"),
+                .value("--group-placement", "<afterCurrent|top|end>"),
+                .value("--group-reference", "<workspace>"),
+            ]
+        ).parse(commandArgs)
+        try parsed.rejectUnexpectedPositionals()
+        let commandOpt = parsed.value(for: "--command")
+        let cwdOpt = parsed.value(for: "--cwd")
+        let nameOpt = parsed.value(for: "--name")
+        let descriptionOpt = parsed.value(for: "--description")
+        let layoutOpt = parsed.value(for: "--layout")
+        let windowOpt = parsed.value(for: "--window")
+        let focusOpt = parsed.value(for: "--focus")
+        let groupOpt = parsed.value(for: "--group")
+        let groupPlacementOpt = parsed.value(for: "--group-placement")
+        let groupReferenceOpt = parsed.value(for: "--group-reference")
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
         if let cwdOpt {
@@ -7809,7 +7751,11 @@ struct CMUXCLI {
         if let groupOpt { params["group_id"] = groupOpt }
         if let groupPlacementOpt { params["group_placement"] = groupPlacementOpt }
         if let groupReferenceOpt { params["group_reference_workspace_id"] = groupReferenceOpt }
-        let workspaceEnv = try buildWorkspaceEnvironment(envFiles: envFiles, envPairs: envPairs, commandName: commandName)
+        let workspaceEnv = try buildWorkspaceEnvironment(
+            envFiles: parsed.values(for: "--env-file"),
+            envPairs: parsed.values(for: "--env"),
+            commandName: commandName
+        )
         if !workspaceEnv.isEmpty {
             params["workspace_env"] = workspaceEnv
         }
@@ -7836,54 +7782,6 @@ struct CMUXCLI {
             ]
             _ = try client.sendV2(method: "surface.send_text", params: sendParams)
         }
-    }
-
-    /// Parses repeatable `--env KEY=VALUE` / `--env=KEY=VALUE` and
-    /// `--env-file PATH` / `--env-file=PATH` flags out of `args`, returning the
-    /// ordered env-file paths, the ordered `KEY=VALUE` pairs, and the remaining
-    /// unparsed args. Files are applied before pairs by the builder so an explicit
-    /// `--env` overrides a value from a file.
-    func parseWorkspaceEnvOptions(
-        _ args: [String]
-    ) -> (envFiles: [String], envPairs: [String], remaining: [String]) {
-        var envFiles: [String] = []
-        var envPairs: [String] = []
-        var remaining: [String] = []
-        var skipNext = false
-        var pastTerminator = false
-        for (idx, arg) in args.enumerated() {
-            if skipNext {
-                skipNext = false
-                continue
-            }
-            if arg == "--" {
-                pastTerminator = true
-                remaining.append(arg)
-                continue
-            }
-            if !pastTerminator {
-                if arg == "--env", idx + 1 < args.count {
-                    envPairs.append(args[idx + 1])
-                    skipNext = true
-                    continue
-                }
-                if arg.hasPrefix("--env=") {
-                    envPairs.append(String(arg.dropFirst("--env=".count)))
-                    continue
-                }
-                if arg == "--env-file", idx + 1 < args.count {
-                    envFiles.append(args[idx + 1])
-                    skipNext = true
-                    continue
-                }
-                if arg.hasPrefix("--env-file=") {
-                    envFiles.append(String(arg.dropFirst("--env-file=".count)))
-                    continue
-                }
-            }
-            remaining.append(arg)
-        }
-        return (envFiles, envPairs, remaining)
     }
 
     /// Builds the workspace environment dict from `--env-file` paths (applied
@@ -8001,24 +7899,18 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        var rest = commandArgs
-        let mask = rest.contains("--mask")
-        rest.removeAll { $0 == "--mask" }
-
-        let (workspaceArg, rem0) = parseOption(rest, name: "--workspace")
-        let (_, rem1) = parseOption(rem0, name: "--window")
-        if let unknown = rem1.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: String(
-                format: String(
-                    localized: "cli.workspace.env.error.unknownFlag",
-                    defaultValue: "workspace env: unknown flag '%@'. Known flags: --workspace <id|ref|index>, --window <id|ref|index>, --mask"
-                ),
-                locale: .current,
-                unknown
-            ))
-        }
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
-        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        let arguments = try CLICommandArgumentParser(
+            context: "workspace env",
+            options: [
+                .value("--workspace", "<id|ref|index>"),
+                .value("--window", "<id|ref|index>"),
+                .flag("--mask"),
+            ]
+        ).parse(commandArgs)
+        try arguments.rejectUnexpectedPositionals(allowing: 1)
+        let workspaceArg = arguments.value(for: "--workspace")
+        let positional = arguments.positionals.first
+        let windowRaw = arguments.value(for: "--window") ?? windowOverride
         // Match reconnect/disconnect: default to the caller's workspace
         // ($CMUX_WORKSPACE_ID) before the selected one, but only when no explicit
         // --window is given (the caller's workspace may live in another window).
@@ -8037,7 +7929,7 @@ struct CMUXCLI {
         let envStrings: [String: String] = rawEnv.reduce(into: [:]) { result, pair in
             if let value = pair.value as? String { result[pair.key] = value }
         }
-        let displayedEnv: [String: String] = mask
+        let displayedEnv: [String: String] = arguments.contains("--mask")
             ? envStrings.reduce(into: [String: String]()) { result, pair in
                 result[pair.key] = Self.maskedEnvValue(pair.value)
             }
@@ -8071,20 +7963,31 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        let arguments = try CLICommandArgumentParser(
+            context: commandName,
+            options: [
+                .value("--workspace", "<id|ref|index>"),
+                .value("--window", "<id|ref|index>"),
+            ]
+        ).parse(commandArgs)
+        try arguments.rejectUnexpectedPositionals(allowing: 1)
+        let workspace = arguments.value(for: "--workspace")
         let target: String?
         if requireWorkspaceFlag {
-            guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
+            guard let workspace else {
                 throw CLIError(message: "\(commandName) requires --workspace")
             }
-            target = workspaceRaw
+            try arguments.rejectUnexpectedPositionals()
+            target = workspace
         } else {
-            let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspace ?? arguments.positionals.first
         }
 
         var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+        let winId = try normalizeWindowHandle(
+            arguments.value(for: "--window") ?? windowOverride,
+            client: client
+        )
         if let winId { params["window_id"] = winId }
         let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
         if let wsId { params["workspace_id"] = wsId }
@@ -8104,20 +8007,31 @@ struct CMUXCLI {
         windowOverride: String?,
         requireWorkspaceFlag: Bool
     ) throws {
+        let arguments = try CLICommandArgumentParser(
+            context: commandName,
+            options: [
+                .value("--workspace", "<id|ref|index>"),
+                .value("--window", "<id|ref|index>"),
+            ]
+        ).parse(commandArgs)
+        try arguments.rejectUnexpectedPositionals(allowing: 1)
+        let workspace = arguments.value(for: "--workspace")
         let target: String?
         if requireWorkspaceFlag {
-            guard let workspaceRaw = optionValue(commandArgs, name: "--workspace") else {
+            guard let workspace else {
                 throw CLIError(message: "\(commandName) requires --workspace")
             }
-            target = workspaceRaw
+            try arguments.rejectUnexpectedPositionals()
+            target = workspace
         } else {
-            let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            target = workspaceArg ?? rem1.first(where: { !$0.hasPrefix("--") })
+            target = workspace ?? arguments.positionals.first
         }
 
         var params: [String: Any] = [:]
-        let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+        let winId = try normalizeWindowHandle(
+            arguments.value(for: "--window") ?? windowOverride,
+            client: client
+        )
         if let winId { params["window_id"] = winId }
         let wsId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId)
         if !requireWorkspaceFlag {
@@ -8147,12 +8061,18 @@ struct CMUXCLI {
 
         switch mode {
         case .legacy:
-            let (wsArg, rem0) = parseOption(commandArgs, name: "--workspace")
-            let (windowOpt, rem1) = parseOption(rem0, name: "--window")
-            let windowRaw = windowOpt ?? windowOverride
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
-            let titleArgs = rem1.dropFirst(rem1.first == "--" ? 1 : 0)
-            title = titleArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            let arguments = try CLICommandArgumentParser(
+                context: commandName,
+                options: [
+                    .value("--workspace", "<id|ref|index>"),
+                    .value("--window", "<id|ref|index>"),
+                ]
+            ).parse(commandArgs)
+            let windowRaw = arguments.value(for: "--window") ?? windowOverride
+            let workspaceArg = arguments.value(for: "--workspace")
+                ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            title = arguments.positionals.joined(separator: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !title.isEmpty else {
                 throw CLIError(message: "\(commandName) requires a title")
             }
@@ -8160,16 +8080,25 @@ struct CMUXCLI {
             wsId = try resolveWorkspaceId(workspaceArg, client: client, windowHandle: winId)
 
         case .namespace:
-            let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
-            let (workspaceArg, rem1) = parseOption(rem0, name: "--workspace")
-            let (_, rem2) = parseOption(rem1, name: "--window")
-            let positional = rem2.first(where: { !$0.hasPrefix("--") })
-            let target = workspaceArg ?? positional
+            let arguments = try CLICommandArgumentParser(
+                context: commandName,
+                options: [
+                    .value("--title", "<new>"),
+                    .value("--workspace", "<id|ref|index>"),
+                    .value("--window", "<id|ref|index>"),
+                ]
+            ).parse(commandArgs)
+            try arguments.rejectUnexpectedPositionals(allowing: 1)
+            let target = arguments.value(for: "--workspace") ?? arguments.positionals.first
+            let titleOpt = arguments.value(for: "--title")
             guard let titleOpt else {
                 throw CLIError(message: "\(commandName) requires --title <new>")
             }
             title = titleOpt
-            winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+            winId = try normalizeWindowHandle(
+                arguments.value(for: "--window") ?? windowOverride,
+                client: client
+            )
             guard let normalizedWorkspaceId = try normalizeWorkspaceHandle(target, client: client, windowHandle: winId) else {
                 throw CLIError(message: "\(commandName): could not resolve workspace handle")
             }
@@ -8194,6 +8123,11 @@ struct CMUXCLI {
     /// dev build regardless of bundle id. No running app required: the value is
     /// read/written directly on disk via the store on this no-socket early path.
     private func runWindowDefaultDisplayCommand(commandArgs: [String], jsonOutput: Bool) throws {
+        let arguments = try CLICommandArgumentParser(
+            context: "window default-display",
+            options: [.flag("--clear")]
+        ).parse(commandArgs)
+        try arguments.rejectUnexpectedPositionals(allowing: 1)
         let store = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
         let key = SettingCatalog().app.devWindowDisplay
 
@@ -8219,15 +8153,15 @@ struct CMUXCLI {
             return trimmed.isEmpty ? nil : trimmed
         }
 
-        if commandArgs.contains("--clear") {
+        if arguments.contains("--clear") {
+            try arguments.rejectUnexpectedPositionals()
             try runBlocking { try await store.reset(key) }
             if jsonOutput { print(jsonString(["default_display": NSNull()])) }
             else { print("Cleared dev window display default.") }
             return
         }
 
-        let positional = commandArgs.filter { !$0.hasPrefix("-") }
-        if let raw = positional.first {
+        if let raw = arguments.positionals.first {
             let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty else {
                 throw CLIError(message: "window default-display requires a display name, or --clear")
@@ -8434,12 +8368,17 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        if commandArgs.contains("--list") || commandArgs.contains("-l") {
+        let arguments = try CLICommandArgumentParser(
+            context: "window display",
+            options: [.flag("--list"), .flag("-l")]
+        ).parse(commandArgs)
+        try arguments.rejectUnexpectedPositionals(allowing: 1)
+        if arguments.contains("--list") || arguments.contains("-l") {
+            try arguments.rejectUnexpectedPositionals()
             try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
             return
         }
-        let positional = commandArgs.filter { !$0.hasPrefix("-") }
-        guard let displayName = positional.first, !displayName.isEmpty else {
+        guard let displayName = arguments.positionals.first, !displayName.isEmpty else {
             throw CLIError(message: "window display requires a display name. Usage: cmux window display \"LG HDR 4K\"  (list names with: cmux window displays)")
         }
         var params: [String: Any] = ["display": displayName]
@@ -8592,10 +8531,17 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
-        let (_, rem1) = parseOption(rem0, name: "--window")
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
-        let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
+        let parsed = try CLICommandArgumentParser(
+            context: commandName,
+            options: [
+                .value("--workspace", "<id|ref|index>"),
+                .value("--window", "<id|ref|index>"),
+            ]
+        ).parse(commandArgs)
+        try parsed.rejectUnexpectedPositionals(allowing: 1)
+        let workspaceArg = parsed.value(for: "--workspace")
+        let positional = parsed.positionals.first
+        let windowRaw = parsed.value(for: "--window") ?? windowOverride
         // With an explicit --window and no workspace argument, target that
         // window's selected workspace on the server instead of the caller's
         // CMUX_WORKSPACE_ID, which may live in a different window.
@@ -8665,23 +8611,75 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-group requires a subcommand. Try: list, create, ungroup, delete, rename, collapse, expand, pin, unpin, add, remove, set-anchor, new-workspace, set-color, set-icon, move, focus")
         }
         let rest = Array(commandArgs.dropFirst())
+        let windowOption = CLICommandArgumentParser.Option.value("--window", "<id|ref|index>")
+        let groupOption = CLICommandArgumentParser.Option.value("--group", "<id|ref>")
+        let options: [CLICommandArgumentParser.Option]
+        switch sub {
+        case "list":
+            options = [windowOption]
+        case "create":
+            options = [
+                windowOption,
+                .value("--name", "<name>"),
+                .value("--cwd", "<path>"),
+                .value("--from", "<workspace-ids>"),
+            ]
+        case "ungroup", "collapse", "expand", "pin", "unpin", "focus":
+            options = [windowOption, groupOption]
+        case "delete":
+            options = [windowOption, groupOption, .flag("--close-workspaces")]
+        case "rename":
+            options = [windowOption, groupOption, .value("--name", "<name>")]
+        case "add", "set-anchor":
+            options = [
+                windowOption,
+                groupOption,
+                .value("--workspace", "<id|ref|index>"),
+            ]
+        case "remove":
+            options = [windowOption, .value("--workspace", "<id|ref|index>")]
+        case "new-workspace":
+            options = [windowOption, groupOption, .value("--placement", "<placement>")]
+        case "set-color":
+            options = [windowOption, groupOption, .optionalValue("--hex", "<color>")]
+        case "set-icon":
+            options = [windowOption, groupOption, .optionalValue("--symbol", "<symbol>")]
+        case "move":
+            options = [
+                windowOption,
+                groupOption,
+                .value("--to-index", "<index>"),
+                .value("--before", "<group>"),
+                .value("--after", "<group>"),
+            ]
+        default:
+            throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")
+        }
+        let arguments = try CLICommandArgumentParser(
+            context: "workspace-group \(sub)",
+            options: options
+        ).parse(rest)
         var params: [String: Any] = [:]
-        try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowFromArgsOrOverride(rest, windowOverride: windowOverride))
+        try applyWindowOrCallerContext(
+            to: &params,
+            client: client,
+            windowRaw: arguments.value(for: "--window") ?? windowOverride
+        )
 
-        func resolveGroupId(in rest: [String]) throws -> String {
-            let (gidOpt, rem0) = parseOption(rest, name: "--group")
-            if let gidOpt { return gidOpt }
-            // Strip --window before scanning for a positional so a `--window
-            // <value>` pair never gets parsed as the group id.
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            for arg in rem1 where !arg.hasPrefix("--") {
-                return arg
+        func groupID(allowingTrailingPositionals count: Int = 0) throws -> String {
+            let option = arguments.value(for: "--group")
+            try arguments.rejectUnexpectedPositionals(
+                allowing: count + (option == nil ? 1 : 0)
+            )
+            guard let group = option ?? arguments.positionals.first else {
+                throw CLIError(message: "workspace-group \(sub) requires a group id or --group <id>")
             }
-            throw CLIError(message: "workspace-group \(sub) requires a group id or --group <id>")
+            return group
         }
 
         switch sub {
         case "list":
+            try arguments.rejectUnexpectedPositionals()
             let payload = try client.sendV2(method: "workspace.group.list", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -8690,28 +8688,25 @@ struct CMUXCLI {
                 if groups.isEmpty {
                     print("No groups")
                 } else {
-                    for g in groups {
-                        let handle = textHandle(g, idFormat: idFormat)
-                        let name = (g["name"] as? String) ?? ""
-                        let count = (g["member_count"] as? Int) ?? 0
-                        let pin = (g["is_pinned"] as? Bool) == true ? " [pinned]" : ""
-                        let coll = (g["is_collapsed"] as? Bool) == true ? " [collapsed]" : ""
-                        print("\(handle)  \(name)  (\(count) members)\(pin)\(coll)")
+                    for group in groups {
+                        let handle = textHandle(group, idFormat: idFormat)
+                        let name = (group["name"] as? String) ?? ""
+                        let count = (group["member_count"] as? Int) ?? 0
+                        let pin = (group["is_pinned"] as? Bool) == true ? " [pinned]" : ""
+                        let collapsed = (group["is_collapsed"] as? Bool) == true ? " [collapsed]" : ""
+                        print("\(handle)  \(name)  (\(count) members)\(pin)\(collapsed)")
                     }
                 }
             }
 
         case "create":
-            let (nameOpt, rem0) = parseOption(rest, name: "--name")
-            let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
-            let (fromOpt, rem2) = parseOption(rem1, name: "--from")
-            let (_, rem3) = parseOption(rem2, name: "--window")
-            // Use the remainder AFTER every named option is stripped so the
-            // positional name lookup can't pick up --from/--window values.
-            let resolvedName = nameOpt ?? rem3.first(where: { !$0.hasPrefix("--") }) ?? ""
+            let nameOption = arguments.value(for: "--name")
+            let allowedPositionals = nameOption == nil ? 1 : 0
+            try arguments.rejectUnexpectedPositionals(allowing: allowedPositionals)
+            let resolvedName = nameOption ?? arguments.positionals.first ?? ""
             params["name"] = resolvedName
-            if let cwdOpt { params["cwd"] = resolvePath(cwdOpt) }
-            let ids = fromOpt?.split(separator: ",").map {
+            if let cwd = arguments.value(for: "--cwd") { params["cwd"] = resolvePath(cwd) }
+            let ids = arguments.value(for: "--from")?.split(separator: ",").map {
                 String($0).trimmingCharacters(in: .whitespaces)
             } ?? []
             params["child_workspace_ids"] = ids
@@ -8725,135 +8720,101 @@ struct CMUXCLI {
             }
 
         case "ungroup":
-            params["group_id"] = try resolveGroupId(in: rest)
-            let resp = try client.sendV2(method: "workspace.group.ungroup", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            params["group_id"] = try groupID()
+            let response = try client.sendV2(method: "workspace.group.ungroup", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "delete":
-            let optionTerminator = rest.firstIndex(of: "--") ?? rest.endIndex
-            let closesWorkspaces = rest[..<optionTerminator].contains("--close-workspaces")
-            let routedArgs = rest.enumerated().compactMap { index, argument in
-                index < optionTerminator && argument == "--close-workspaces" ? nil : argument
-            }
-            params["group_id"] = try resolveGroupId(in: routedArgs)
+            params["group_id"] = try groupID()
+            let closesWorkspaces = arguments.contains("--close-workspaces")
             let method = closesWorkspaces ? "workspace.group.delete" : "workspace.group.ungroup"
             if closesWorkspaces { params["close_workspaces"] = true }
-            let resp = try client.sendV2(method: method, params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            let response = try client.sendV2(method: method, params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "rename":
-            let (nameOpt, rem0) = parseOption(rest, name: "--name")
-            let gid = try resolveGroupId(in: rem0)
-            params["group_id"] = gid
-            let positional = rem0.filter { !$0.hasPrefix("--") && $0 != gid }
-            guard let newName = nameOpt ?? positional.first else {
+            let hasGroupOption = arguments.value(for: "--group") != nil
+            let nameOption = arguments.value(for: "--name")
+            let group = try groupID(allowingTrailingPositionals: nameOption == nil ? 1 : 0)
+            params["group_id"] = group
+            let positionalName = hasGroupOption
+                ? arguments.positionals.first
+                : arguments.positionals.dropFirst().first
+            guard let newName = nameOption ?? positionalName else {
                 throw CLIError(message: "rename requires --name <name>")
             }
             params["name"] = newName
-            let resp = try client.sendV2(method: "workspace.group.rename", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            let response = try client.sendV2(method: "workspace.group.rename", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
-        case "collapse", "expand":
-            params["group_id"] = try resolveGroupId(in: rest)
-            let resp = try client.sendV2(method: "workspace.group.\(sub)", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "collapse", "expand", "pin", "unpin", "focus":
+            params["group_id"] = try groupID()
+            let response = try client.sendV2(method: "workspace.group.\(sub)", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
-        case "pin", "unpin":
-            params["group_id"] = try resolveGroupId(in: rest)
-            let resp = try client.sendV2(method: "workspace.group.\(sub)", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
-
-        case "add":
-            let (groupOpt, rem0) = parseOption(rest, name: "--group")
-            let (wsOpt, _) = parseOption(rem0, name: "--workspace")
-            guard let gid = groupOpt, let wsId = wsOpt else {
-                throw CLIError(message: "add requires --group <id> --workspace <id>")
+        case "add", "set-anchor":
+            try arguments.rejectUnexpectedPositionals()
+            guard let group = arguments.value(for: "--group"),
+                  let workspace = arguments.value(for: "--workspace") else {
+                throw CLIError(message: "\(sub) requires --group <id> --workspace <id>")
             }
-            params["group_id"] = gid
-            params["workspace_id"] = wsId
-            let resp = try client.sendV2(method: "workspace.group.add", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            params["group_id"] = group
+            params["workspace_id"] = workspace
+            let response = try client.sendV2(method: "workspace.group.\(sub == "add" ? "add" : "set_anchor")", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "remove":
-            let (wsOpt, rem0) = parseOption(rest, name: "--workspace")
-            // Strip --window before scanning for a positional so a `--window
-            // <value>` pair never gets parsed as the workspace id.
-            let (_, rem1) = parseOption(rem0, name: "--window")
-            guard let wsId = wsOpt ?? rem1.first(where: { !$0.hasPrefix("--") }) else {
+            try arguments.rejectUnexpectedPositionals(allowing: 1)
+            guard let workspace = arguments.value(for: "--workspace")
+                    ?? arguments.positionals.first else {
                 throw CLIError(message: "remove requires --workspace <id>")
             }
-            params["workspace_id"] = wsId
-            let resp = try client.sendV2(method: "workspace.group.remove", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
-
-        case "set-anchor":
-            let (groupOpt, rem0) = parseOption(rest, name: "--group")
-            let (wsOpt, _) = parseOption(rem0, name: "--workspace")
-            guard let gid = groupOpt, let wsId = wsOpt else {
-                throw CLIError(message: "set-anchor requires --group <id> --workspace <id>")
-            }
-            params["group_id"] = gid
-            params["workspace_id"] = wsId
-            let resp = try client.sendV2(method: "workspace.group.set_anchor", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            params["workspace_id"] = workspace
+            let response = try client.sendV2(method: "workspace.group.remove", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "new-workspace":
-            let (placementOpt, rem0) = parseOption(rest, name: "--placement")
-            params["group_id"] = try resolveGroupId(in: rem0)
-            if let placementOpt {
-                params["placement"] = placementOpt
+            params["group_id"] = try groupID()
+            if let placement = arguments.value(for: "--placement") {
+                params["placement"] = placement
             }
             let response = try client.sendV2(method: "workspace.group.new_workspace", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(response, mode: idFormat)))
-            } else if let wsId = response["workspace_ref"] as? String {
-                print("OK \(wsId)")
+            } else if let workspace = response["workspace_ref"] as? String {
+                print("OK \(workspace)")
             } else {
                 print("OK")
             }
 
         case "set-color":
-            let (hexOpt, rem0) = parseOption(rest, name: "--hex")
-            params["group_id"] = try resolveGroupId(in: rem0)
-            // Treat --hex with no value (or `--hex ""`) as a clear.
-            params["hex"] = hexOpt ?? ""
-            let resp = try client.sendV2(method: "workspace.group.set_color", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            params["group_id"] = try groupID()
+            params["hex"] = arguments.value(for: "--hex") ?? ""
+            let response = try client.sendV2(method: "workspace.group.set_color", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "set-icon":
-            let (symbolOpt, rem0) = parseOption(rest, name: "--symbol")
-            params["group_id"] = try resolveGroupId(in: rem0)
-            params["symbol"] = symbolOpt ?? ""
-            let resp = try client.sendV2(method: "workspace.group.set_icon", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            params["group_id"] = try groupID()
+            params["symbol"] = arguments.value(for: "--symbol") ?? ""
+            let response = try client.sendV2(method: "workspace.group.set_icon", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
         case "move":
-            let (toIndexOpt, rem0) = parseOption(rest, name: "--to-index")
-            let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
-            let (afterOpt, rem2) = parseOption(rem1, name: "--after")
-            // Resolve the source group from rem2, which has every
-            // move-position flag stripped — otherwise the positional scan
-            // could pick up the value of --to-index/--before/--after.
-            params["group_id"] = try resolveGroupId(in: rem2)
-            if let toIndexOpt {
-                guard let n = Int(toIndexOpt) else {
+            params["group_id"] = try groupID()
+            if let index = arguments.value(for: "--to-index") {
+                guard let number = Int(index) else {
                     throw CLIError(message: "move --to-index must be an integer")
                 }
-                params["to_index"] = n
-            } else if let beforeOpt {
-                params["before_group_id"] = beforeOpt
-            } else if let afterOpt {
-                params["after_group_id"] = afterOpt
+                params["to_index"] = number
+            } else if let before = arguments.value(for: "--before") {
+                params["before_group_id"] = before
+            } else if let after = arguments.value(for: "--after") {
+                params["after_group_id"] = after
             } else {
                 throw CLIError(message: "move requires --to-index <n>, --before <group>, or --after <group>")
             }
-            let resp = try client.sendV2(method: "workspace.group.move", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
-
-        case "focus":
-            params["group_id"] = try resolveGroupId(in: rest)
-            let resp = try client.sendV2(method: "workspace.group.focus", params: params)
-            printWorkspaceGroupResponse(resp, jsonOutput: jsonOutput, idFormat: idFormat)
+            let response = try client.sendV2(method: "workspace.group.move", params: params)
+            printWorkspaceGroupResponse(response, jsonOutput: jsonOutput, idFormat: idFormat)
 
         default:
             throw CLIError(message: "Unknown workspace-group subcommand: \(sub)")
@@ -8867,21 +8828,21 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
-        let (tabOpt, rem1) = parseOption(rem0, name: "--tab")
-        let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
-        let (titleOpt, rem3) = parseOption(rem2, name: "--title")
-        let (windowOpt, rem4) = parseOption(rem3, name: "--window")
-
-        if rem4.contains("--action") {
-            throw CLIError(message: "rename-tab does not accept --action (it always performs rename)")
+        let arguments = try CLICommandArgumentParser(
+            context: "rename-tab",
+            options: [
+                .value("--workspace", "<id|ref|index>"),
+                .value("--tab", "<id|ref|index>"),
+                .value("--surface", "<id|ref|index>"),
+                .value("--title", "<title>"),
+                .value("--window", "<id|ref|index>"),
+            ]
+        ).parse(commandArgs)
+        let titleOpt = arguments.value(for: "--title")
+        if titleOpt != nil {
+            try arguments.rejectUnexpectedPositionals()
         }
-        if let unknown = rem4.first(where: { $0.hasPrefix("--") && $0 != "--" }) {
-            throw CLIError(message: "rename-tab: unknown flag '\(unknown)'")
-        }
-
-        let inferredTitle = rem4
-            .dropFirst(rem4.first == "--" ? 1 : 0)
+        let inferredTitle = arguments.positionals
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (titleOpt ?? (inferredTitle.isEmpty ? nil : inferredTitle))?
@@ -8892,15 +8853,15 @@ struct CMUXCLI {
         }
 
         var forwarded: [String] = ["--action", "rename", "--title", title]
-        if let workspaceOpt {
+        if let workspaceOpt = arguments.value(for: "--workspace") {
             forwarded += ["--workspace", workspaceOpt]
         }
-        if let tabOpt {
+        if let tabOpt = arguments.value(for: "--tab") {
             forwarded += ["--tab", tabOpt]
-        } else if let surfaceOpt {
+        } else if let surfaceOpt = arguments.value(for: "--surface") {
             forwarded += ["--surface", surfaceOpt]
         }
-        if let windowOpt {
+        if let windowOpt = arguments.value(for: "--window") {
             forwarded += ["--window", windowOpt]
         }
 

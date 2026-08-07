@@ -525,6 +525,11 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		918100000000000000000002 /* CLICodexResumeNotificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 918100000000000000000001 /* CLICodexResumeNotificationTests.swift */; };
 		C6711A010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */; };
 		C0D3F1F20000000000000103 /* CLICodexYoloResumePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */; };
+		8700A0078700A0078700A007 /* CLICommandArgumentParser+Option.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700A0088700A0088700A008 /* CLICommandArgumentParser+Option.swift */; };
+		8700A0058700A0058700A005 /* CLICommandArgumentParser+OptionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700A0068700A0068700A006 /* CLICommandArgumentParser+OptionKind.swift */; };
+		8700A0038700A0038700A003 /* CLICommandArgumentParser+OptionParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700A0048700A0048700A004 /* CLICommandArgumentParser+OptionParsing.swift */; };
+		8700A0098700A0098700A009 /* CLICommandArgumentParser+Result.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700A00A8700A00A8700A00A /* CLICommandArgumentParser+Result.swift */; };
+		8700A0018700A0018700A001 /* CLICommandArgumentParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700A0028700A0028700A002 /* CLICommandArgumentParser.swift */; };
 		E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */; };
 		C46790000000000000000001 /* CLIForwardingLaunchArgumentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */; };
 		C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C46790000000000000000004 /* CLIForwardingLaunchRouter.swift */; };
@@ -2041,6 +2046,7 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */; };
 		A6AC72060000000000000001 /* SpinnerGalleryRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */; };
 		A6AC72070000000000000001 /* SpinnerSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72070000000000000002 /* SpinnerSpec.swift */; };
+		8700A00B8700A00B8700A00B /* SplitCommandArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8700A00C8700A00C8700A00C /* SplitCommandArguments.swift */; };
 		F6724600A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */; };
 		797800040000000000000001 /* SSHDeepSleepReattachTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 797800040000000000000002 /* SSHDeepSleepReattachTests.swift */; };
 		8410A0020000000000000002 /* SSHForegroundAuthenticationMarkerCleanupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */; };
@@ -3184,6 +3190,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		918100000000000000000001 /* CLICodexResumeNotificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexResumeNotificationTests.swift; sourceTree = "<group>"; };
 		C6711B010000000000000001 /* CLICodexWeakEnvironmentRestoreBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexWeakEnvironmentRestoreBindingTests.swift; sourceTree = "<group>"; };
 		C0D3F1F20000000000000104 /* CLICodexYoloResumePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexYoloResumePersistenceTests.swift; sourceTree = "<group>"; };
+		8700A0088700A0088700A008 /* CLICommandArgumentParser+Option.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLICommandArgumentParser+Option.swift"; sourceTree = "<group>"; };
+		8700A0068700A0068700A006 /* CLICommandArgumentParser+OptionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLICommandArgumentParser+OptionKind.swift"; sourceTree = "<group>"; };
+		8700A0048700A0048700A004 /* CLICommandArgumentParser+OptionParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLICommandArgumentParser+OptionParsing.swift"; sourceTree = "<group>"; };
+		8700A00A8700A00A8700A00A /* CLICommandArgumentParser+Result.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLICommandArgumentParser+Result.swift"; sourceTree = "<group>"; };
+		8700A0028700A0028700A002 /* CLICommandArgumentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICommandArgumentParser.swift; sourceTree = "<group>"; };
 		1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExplicitSurfaceRoutingTests.swift; sourceTree = "<group>"; };
 		C46790000000000000000002 /* CLIForwardingLaunchArgumentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIForwardingLaunchArgumentTests.swift; sourceTree = "<group>"; };
 		C46790000000000000000004 /* CLIForwardingLaunchRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CLIForwardingLaunchRouter.swift; sourceTree = "<group>"; };
@@ -4616,6 +4627,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
 		A6AC72060000000000000002 /* SpinnerGalleryRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryRootView.swift; sourceTree = "<group>"; };
 		A6AC72070000000000000002 /* SpinnerSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerSpec.swift; sourceTree = "<group>"; };
+		8700A00C8700A00C8700A00C /* SplitCommandArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitCommandArguments.swift; sourceTree = "<group>"; };
 		F6724601A1B2C3D4E5F67246 /* SSHConfiguredRemoteCommandHostTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHConfiguredRemoteCommandHostTests.swift; sourceTree = "<group>"; };
 		797800040000000000000002 /* SSHDeepSleepReattachTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHDeepSleepReattachTests.swift; sourceTree = "<group>"; };
 		8410A0010000000000000001 /* SSHForegroundAuthenticationMarkerCleanupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHForegroundAuthenticationMarkerCleanupTests.swift; sourceTree = "<group>"; };
@@ -7101,6 +7113,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			isa = PBXGroup;
 			children = (
 				805500000000000000000003 /* BrowserValueTextFormatter.swift */,
+				8700A0088700A0088700A008 /* CLICommandArgumentParser+Option.swift */,
+				8700A0068700A0068700A006 /* CLICommandArgumentParser+OptionKind.swift */,
+				8700A0048700A0048700A004 /* CLICommandArgumentParser+OptionParsing.swift */,
+				8700A00A8700A00A8700A00A /* CLICommandArgumentParser+Result.swift */,
+				8700A0028700A0028700A002 /* CLICommandArgumentParser.swift */,
 				B9000001A1B2C3D4E5F60719 /* cmux.swift */,
 				REE0CA0000000000000000C1 /* CMUXCLI+Remotes.swift */,
 				1E4DB33FA55F1B13C60EFFC8 /* SSHPTYAttachReconnectInputFilter.swift */,
@@ -7116,6 +7133,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				6379A0036379A0036379A003 /* SSHPTYResizeMonitor.swift */,
 				9A6800000000000000000001 /* SSHPTYTerminalReadinessReport.swift */,
+				8700A00C8700A00C8700A00C /* SplitCommandArguments.swift */,
 				C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */,
 				C0DE79210000000000000002 /* CMUXCLI+DiffViewerShortcuts.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
@@ -10038,6 +10056,11 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
+				8700A0078700A0078700A007 /* CLICommandArgumentParser+Option.swift in Sources */,
+				8700A0058700A0058700A005 /* CLICommandArgumentParser+OptionKind.swift in Sources */,
+				8700A0038700A0038700A003 /* CLICommandArgumentParser+OptionParsing.swift in Sources */,
+				8700A0098700A0098700A009 /* CLICommandArgumentParser+Result.swift in Sources */,
+				8700A0018700A0018700A001 /* CLICommandArgumentParser.swift in Sources */,
 				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
 				C12985000000000000000002 /* CLISocketSentryTelemetry.swift in Sources */,
 				B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
@@ -10148,6 +10171,7 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				B9000028A1B2C3D4E5F60719 /* RemoteInteractiveShellBootstrapBuilder.swift in Sources */,
 				B9000027A1B2C3D4E5F60719 /* RemoteRelayZshBootstrap.swift in Sources */,
 				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
+				8700A00B8700A00B8700A00B /* SplitCommandArguments.swift in Sources */,
 				B816E948EC5E42AF967648AC /* SSHPTYAttachReconnectInputFilter.swift in Sources */,
 				E60610200000000000000002 /* SSHPTYAttachReconnectInputFilterControl.swift in Sources */,
 				E60610400000000000000002 /* SSHPTYAttachReconnectInputFilterPumpIO.swift in Sources */,

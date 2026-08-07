@@ -34653,6 +34653,91 @@
         }
       }
     },
+    "cli.arguments.error.missingValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@ requires a value. Known flags: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@ には値が必要です。利用可能なフラグ: %@"
+          }
+        }
+      }
+    },
+    "cli.arguments.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: unexpected argument '%@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 予期しない引数 '%@'。"
+          }
+        }
+      }
+    },
+    "cli.arguments.error.unexpectedValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@ does not take a value. Known flags: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %@ は値を受け取りません。利用可能なフラグ: %@"
+          }
+        }
+      }
+    },
+    "cli.arguments.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: unknown flag '%@'. Known flags: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 不明なフラグ '%@'。利用可能なフラグ: %@"
+          }
+        }
+      }
+    },
+    "cli.arguments.knownFlags.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(none)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(なし)"
+          }
+        }
+      }
+    },
     "cli.browser.designMode.disabled": {
       "extractionState": "manual",
       "localizations": {
@@ -52843,6 +52928,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@: не вдалося прочитати --env-file '%@': %@"
+          }
+        }
+      }
+    },
+    "cli.workspace.status.error.cycleUsage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux workspace status cycle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux workspace status cycle"
           }
         }
       }

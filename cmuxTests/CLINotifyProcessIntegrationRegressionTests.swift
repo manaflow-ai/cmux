@@ -8648,10 +8648,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSurfaceResumeCLIRejectsUnknownFlagsBeforeSocketRequest() throws {
         let cliPath = try bundledCLIPath()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-unknown-flags-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = missingSocketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
 
         let cases: [(arguments: [String], context: String, unknown: String, known: [String])] = [
             (
@@ -8781,12 +8787,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testSurfaceResumeSetCLIAllowsDashPrefixedCommandAfterTerminator() throws {
         let cliPath = try bundledCLIPath()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-dash-command-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let socketPath = makeSocketPath("resume-set-dash-command")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
         }
 
         let workspaceId = "11111111-1111-1111-1111-111111111111"
@@ -8804,6 +8814,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
 
         let result = runProcess(
             executablePath: cliPath,
@@ -8837,6 +8849,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
     func testWorkspaceRemoteConnectionCLIRejectsUnknownFlags() throws {
         let cliPath = try bundledCLIPath()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-remote-unknown-flags-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
         let workspaceId = "11111111-1111-1111-1111-111111111111"
 
         for subcommand in ["reconnect", "disconnect"] {
@@ -8847,7 +8863,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 Darwin.close(listenerFD)
                 unlink(socketPath)
             }
-            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line),
                       let id = payload["id"] as? String else {
                     return self.malformedRequestResponse(raw: line)
@@ -8858,6 +8874,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             var environment = ProcessInfo.processInfo.environment
             environment["CMUX_SOCKET_PATH"] = socketPath
             environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            environment["HOME"] = home.path
+            environment["CFFIXED_USER_HOME"] = home.path
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: [
@@ -8869,7 +8887,6 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 timeout: 5
             )
 
-            wait(for: [serverHandled], timeout: 5)
             XCTAssertFalse(result.timedOut, result.stderr)
             XCTAssertEqual(result.status, 1, result.stderr)
             XCTAssertTrue(
@@ -8880,7 +8897,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             )
             XCTAssertTrue(result.stderr.contains("--workspace <id|ref|index>"), result.stderr)
             XCTAssertTrue(result.stderr.contains("--window <id|ref|index>"), result.stderr)
-            XCTAssertTrue(state.commands.isEmpty, state.commands.joined(separator: "\n"))
+            let requests = state.snapshot()
+            XCTAssertTrue(requests.isEmpty, requests.joined(separator: "\n"))
         }
     }
 
