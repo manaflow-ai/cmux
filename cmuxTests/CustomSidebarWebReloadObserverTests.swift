@@ -240,7 +240,7 @@ struct CustomSidebarWebReloadObserverTests {
 
         let observed = ResolverObservation()
         let observer = CustomSidebarWebReloadObserver(sidebarName: "board") { _ in
-            observed.resolverRanOnMainThread = Thread.isMainThread
+            await observed.record(ranOnMainThread: Thread.isMainThread)
             return CmuxExtensionSidebarSelection.customSidebarFileURL(
                 forName: "board",
                 sidebarsDirectory: dir
@@ -248,15 +248,24 @@ struct CustomSidebarWebReloadObserverTests {
         }
 
         await observer.resolutionSettled()
+        let resolverRanOnMainThread = await observed.ranOnMainThread()
 
-        #expect(!observed.resolverRanOnMainThread, "the resolver ran on the main thread")
+        #expect(!resolverRanOnMainThread, "the resolver ran on the main thread")
         // The resolution really happened, so the ordering above is not about a no-op.
         #expect(observer.webSource == .remote(URL(string: "http://127.0.0.1:8787/")!))
     }
 
     /// What thread the resolver used, read back once it has finished.
-    private final class ResolverObservation: @unchecked Sendable {
-        var resolverRanOnMainThread = false
+    private actor ResolverObservation {
+        private var resolverRanOnMainThread = false
+
+        func record(ranOnMainThread: Bool) {
+            resolverRanOnMainThread = ranOnMainThread
+        }
+
+        func ranOnMainThread() -> Bool {
+            resolverRanOnMainThread
+        }
     }
 
     // MARK: - Mount decision

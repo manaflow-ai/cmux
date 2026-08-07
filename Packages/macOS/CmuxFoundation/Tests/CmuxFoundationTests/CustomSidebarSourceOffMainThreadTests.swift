@@ -19,86 +19,55 @@ struct CustomSidebarSourceOffMainThreadTests {
         return url
     }
 
-    /// Creates a `.url` sidebar whose read parks until the test decides to complete it.
-    ///
-    /// A FIFO is a file whose `open` for reading blocks until a writer arrives, so it puts the read
-    /// under the test's control exactly: the read is *in progress*, and stays that way, until the
-    /// test says otherwise. That is what makes the claim below an ordering fact rather than a
-    /// measurement — no fixture has to be large enough to be slow, and nothing depends on how loaded
-    /// the machine is.
-    private func makeParkedURLFile(in directory: URL) throws -> URL {
-        let fileURL = directory.appendingPathComponent("board.url", isDirectory: false)
-        let created = mkfifo(fileURL.path, 0o600)
-        try #require(created == 0, "mkfifo failed with errno \(errno)")
-        return fileURL
-    }
-
-    /// The behaviour that matters: while a `.url` file is being read, the main actor keeps servicing
-    /// work.
-    ///
-    /// Asserted as causality. The read parks in the FIFO; the main actor then completes a round trip
-    /// and only afterwards releases the writer that lets the read finish. An inline read would hold
-    /// the main thread inside `open`, so the round trip could not complete, and the writer's release
-    /// would never be signalled — which is exactly the expectation that fails. The writer proceeds
-    /// on its own after a bounded wait regardless, so the failing case reports rather than hangs.
-    @MainActor
-    @Test("classifying a .url sidebar leaves the main actor free while the read is in flight")
-    func urlFileIsReadOffTheMainThread() async throws {
+    private func withFIFOURL(_ body: (URL) -> Void) throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
-        let fileURL = try makeParkedURLFile(in: directory)
-
-        let mainActorRanFirst = Signal()
-        let writerFinished = Signal()
-        let observed = Observation()
+        let fileURL = directory.appendingPathComponent("board.url", isDirectory: false)
+        try #require(mkfifo(fileURL.path, 0o600) == 0, "mkfifo failed with errno \(errno)")
+        let writerFinished = DispatchSemaphore(value: 0)
         Thread.detachNewThread {
-            // Recorded, not asserted here: what the test claims is that the main actor ran *before*
-            // the read was allowed to finish.
-            observed.mainActorRanBeforeWrite = mainActorRanFirst.waitBounded()
-            if let handle = FileHandle(forWritingAtPath: fileURL.path) {
-                try? handle.write(contentsOf: Data("http://127.0.0.1:8787/\n".utf8))
-                try? handle.close()
+            let descriptor = open(fileURL.path, O_WRONLY | O_CLOEXEC)
+            if descriptor >= 0 {
+                _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
+                let data = Data("http://127.0.0.1:8787/\n".utf8)
+                data.withUnsafeBytes { bytes in
+                    _ = Darwin.write(descriptor, bytes.baseAddress, bytes.count)
+                }
+                close(descriptor)
             }
             writerFinished.signal()
         }
 
-        // Inherits the main actor, so an inline read would block the main thread here.
-        let classification = Task { @MainActor in
-            await CustomSidebarSource.classifying(fileURL: fileURL)
-        }
-
-        // A main-actor round trip. It can only complete if the main thread is not sitting inside the
-        // parked read.
-        await MainActor.run {}
-        await Task.yield()
-        mainActorRanFirst.signal()
-
-        let source = await classification.value
-        _ = writerFinished.waitBounded()
-
-        #expect(observed.mainActorRanBeforeWrite, "the main actor was blocked by the .url read")
-        #expect(source == .web(.remote(URL(string: "http://127.0.0.1:8787/")!)))
+        body(fileURL)
+        try #require(writerFinished.wait(timeout: .now() + 5) == .success, "FIFO writer did not finish")
     }
 
-    /// A one-shot cross-thread signal.
-    ///
-    /// The bounded wait is a safety valve so a blocked main actor reports as a failed expectation
-    /// instead of hanging the suite; nothing is asserted about how long it took.
-    private final class Signal: @unchecked Sendable {
-        private let semaphore = DispatchSemaphore(value: 0)
-
-        func signal() { semaphore.signal() }
-
-        /// Waits for the signal, giving up after long enough that only a real block reaches it.
-        /// Returns whether the signal arrived.
-        func waitBounded() -> Bool {
-            semaphore.wait(timeout: .now() + 30) == .success
+    /// A FIFO can contain valid URL text but is still not a sidebar file. The paired writer lets the
+    /// old blocking reader complete and expose its false acceptance, while a nonblocking reader rejects
+    /// the file from its descriptor metadata before parsing any bytes.
+    @Test("a FIFO .url source is rejected as unreadable instead of accepted as URL text")
+    func fifoURLIsRejected() throws {
+        try withFIFOURL { fileURL in
+            #expect(CustomSidebarSource.classify(fileURL: fileURL) == nil)
+        }
+        try withFIFOURL { fileURL in
+            #expect(CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) == .unreadable)
         }
     }
 
-    /// What the writer thread saw, read back on the main actor once it has finished.
-    private final class Observation: @unchecked Sendable {
-        var mainActorRanBeforeWrite = false
+    @Test("a symlink to a regular .url file remains loadable")
+    func symlinkToRegularURLIsAccepted() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("target")
+        try "http://127.0.0.1:8787/\n".write(to: target, atomically: true, encoding: .utf8)
+        let link = directory.appendingPathComponent("board.url")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        #expect(
+            CustomSidebarWebSource.remoteURL(fromURLFile: link)
+                == URL(string: "http://127.0.0.1:8787/")
+        )
     }
 
     /// The non-blocking half: for every extension whose kind follows from its name, the answer must

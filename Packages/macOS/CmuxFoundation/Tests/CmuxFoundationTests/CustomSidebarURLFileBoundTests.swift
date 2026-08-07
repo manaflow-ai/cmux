@@ -53,7 +53,7 @@ struct CustomSidebarURLFileBoundTests {
     @Test("an oversized file is diagnosed rather than silently mounting nothing")
     func oversizedFileIsDiagnosed() {
         withURLFile(contents(byteCount: Self.limit + 1)) { fileURL in
-            #expect(CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) != nil)
+            #expect(CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) == .tooLarge)
         }
     }
 
