@@ -84,6 +84,15 @@ extension TerminalSurface {
         claudeCommandShimDeadlineTask?.cancel()
         claudeCommandShimDeadlineTask = nil
         claudeCommandShimPendingCreationSource = nil
+        // A deadline-released spawn marks the install completed without a
+        // shim so that one spawn is not starved. Once the in-flight install
+        // is cancelled, that state must not become permanent: reopen the
+        // gate so the next runtime creation (e.g. after an agent-hibernation
+        // resume) attempts a fresh install instead of running shim-less
+        // forever.
+        if claudeCommandShim == nil {
+            claudeCommandShimInstallCompleted = false
+        }
     }
 
     @MainActor

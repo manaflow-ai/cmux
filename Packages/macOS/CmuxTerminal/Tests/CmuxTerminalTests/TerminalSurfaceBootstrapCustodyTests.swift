@@ -134,7 +134,15 @@ import CmuxTerminalCore
         // still proceed without it instead of waiting forever (#9769).
         await waitForCreateAttemptCount(surface, 1)
 
-        // Resume the parked install continuation so teardown stays clean.
+        // A deadline-released spawn must not lock the surface into shim-less
+        // mode: after the lifecycle cancels the hung install (teardown,
+        // agent-hibernation suspend), the next runtime creation attempts a
+        // fresh install instead of permanently reporting ready-without-shim.
+        surface.cancelClaudeCommandShimInstallLifecycle()
+        let regatedState = surface.claudeCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+        #expect(!regatedState.isReady)
+
+        // Resume the parked install continuations so teardown stays clean.
         await shimInstaller.complete()
     }
 

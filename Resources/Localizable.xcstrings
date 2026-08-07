@@ -37696,7 +37696,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "queued (terminal starting; input delivers when its PTY spawns)"
+            "value": "queued (terminal starting; input will be sent when its PTY is ready)"
           }
         },
         "ja": {

@@ -83,6 +83,10 @@ struct CLISendQueuedOutputTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
         environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        // Pin the child CLI to English so the queued-marker assertion is
+        // locale-independent.
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "en_US.UTF-8"
 
         let result = Self.runProcess(
             executablePath: try BundledCLITestSupport.bundledCLIPath(for: CLISendQueuedOutputBundleToken.self),
@@ -90,7 +94,13 @@ struct CLISendQueuedOutputTests {
             environment: environment,
             timeout: 5
         )
-        _ = handled.wait(timeout: .now() + 5)
+        guard handled.wait(timeout: .now() + 5) == .success else {
+            throw NSError(
+                domain: "cmux.tests",
+                code: Int(ETIMEDOUT),
+                userInfo: [NSLocalizedDescriptionKey: "Mock CLI socket server did not complete"]
+            )
+        }
         return ProcessRunResult(
             status: result.status,
             stdout: result.stdout,

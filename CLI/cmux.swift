@@ -18313,7 +18313,7 @@ struct CMUXCLI {
         guard (payload["queued"] as? Bool) == true else { return summary }
         let suffix = String(
             localized: "cli.send.queuedSuffix",
-            defaultValue: "queued (terminal starting; input delivers when its PTY spawns)"
+            defaultValue: "queued (terminal starting; input will be sent when its PTY is ready)"
         )
         return "\(summary) \(suffix)"
     }
