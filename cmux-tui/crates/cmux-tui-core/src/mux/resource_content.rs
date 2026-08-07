@@ -970,7 +970,10 @@ impl Mux {
         let mut tombstoned_browsers = HashSet::new();
         for tab in &before.tabs {
             if !live_tabs.contains(&tab.public_id) {
-                changes.push(ResourceChange::TombstoneTab { tab_id: tab.public_id.clone() });
+                changes.push(ResourceChange::TombstoneTab {
+                    tab_id: tab.public_id.clone(),
+                    close_content: true,
+                });
             }
             match &tab.content_id {
                 ContentPublicId::Terminal(id)
