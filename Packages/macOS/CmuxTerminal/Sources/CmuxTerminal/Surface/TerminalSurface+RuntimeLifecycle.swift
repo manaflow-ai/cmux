@@ -697,6 +697,7 @@ extension TerminalSurface {
             requiresRestoreSpawnPacing = false
         }
         registry.registerRuntimeSurface(createdSurface, ownerId: id)
+        cacheControllingTTYIdentity(for: createdSurface)
         recordRuntimeSurfaceCreation()
         // Install the shared PTY tee so output consumers receive every byte
         // the read thread produces, in order, before the VT parser runs.

@@ -19,7 +19,15 @@ extension DockSplitStore {
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard let terminal = panels[panelId] as? TerminalPanel else { return }
+        let previousState = terminal.shellActivity.state
         terminal.updateShellActivityState(state)
+        if previousState != state,
+           let pendingTitle = advanceTransferredRestoredPanelTitleBoundary(
+               panelId: panelId,
+               state: state
+           ) {
+            terminal.updateTitle(pendingTitle)
+        }
         let restoredAgent = restoredAgentLifecycle.snapshotsByPanelId[panelId]
 
         switch (state, restoredAgentLifecycle.resumeStatesByPanelId[panelId]) {
@@ -28,7 +36,7 @@ extension DockSplitStore {
         case (.commandRunning, .some(.manualResumeAvailable)):
             restoredAgentLifecycle.snapshotsByPanelId.removeValue(forKey: panelId)
             restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
-            clearAgentHookResumeBinding(panelId: panelId)
+            retireAgentHookResumeBinding(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
             if restoredAgent != nil {
@@ -37,10 +45,26 @@ extension DockSplitStore {
                 restoredAgentLifecycle.resumeStatesByPanelId.removeValue(forKey: panelId)
             }
             restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            clearAgentHookResumeBinding(panelId: panelId)
+            retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
         default:
             break
         }
+    }
+
+    /// Keeps a Workspace-owned restore boundary coherent while its live panel
+    /// temporarily belongs to a Dock.
+    private func advanceTransferredRestoredPanelTitleBoundary(
+        panelId: UUID,
+        state: PanelShellActivityState
+    ) -> String? {
+        guard var transfer = detachedSurfaceTransfersByPanelId[panelId],
+              var boundary = transfer.restoredPanelTitleBoundary else {
+            return nil
+        }
+        let pendingTitle = boundary.observe(shellState: state)
+        transfer.restoredPanelTitleBoundary = boundary.isReleased ? nil : boundary
+        setDetachedSurfaceTransfer(transfer, forPanelID: panelId)
+        return pendingTitle
     }
 
     func adoptSessionRestoreState(from detached: Workspace.DetachedSurfaceTransfer) {
@@ -98,12 +122,32 @@ extension DockSplitStore {
         return true
     }
 
-    private func clearAgentHookResumeBinding(panelId: UUID) {
-        if let binding = managedAgentResumeBinding(panelId: panelId) {
-            _ = clearSurfaceResumeBinding(
-                panelId: panelId,
-                binding: binding
-            )
+    private func retireAgentHookResumeBinding(
+        panelId: UUID,
+        matching restoredAgent: SessionRestorableAgentSnapshot? = nil
+    ) {
+        guard var binding = managedAgentResumeBinding(panelId: panelId)
+            ?? surfaceResumeBindingsByPanelId[panelId],
+            binding.isAgentHookBinding else {
+            return
+        }
+        if let restoredAgent {
+            let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
+                return
+            }
+        }
+        let originalBinding = binding
+        binding.autoResume = false
+        if binding.hasCompleteManagedSessionIdentity {
+            managedAgentResumeBindingsByPanelId[panelId] = binding
+        }
+        if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId] {
+            if effectiveBinding == originalBinding || effectiveBinding.isSameManagedSession(as: binding) {
+                surfaceResumeBindingsByPanelId[panelId] = binding
+            }
+        } else {
+            surfaceResumeBindingsByPanelId[panelId] = binding
         }
     }
 

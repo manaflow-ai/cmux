@@ -100,6 +100,7 @@ pub fn draw_all(app: &mut App, frame: &mut Frame) -> DrawCursors {
     let areas = app.pane_areas.clone();
     let visible_surfaces: HashSet<_> = areas.iter().map(|area| area.surface).collect();
     app.rendered_terminal_bounds.retain(|surface, _| visible_surfaces.contains(surface));
+    app.rendered_kitty_graphics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_terminal_pointer_semantics.retain(|surface, _| visible_surfaces.contains(surface));
     app.rendered_pane_content_generations.retain(|surface, _| visible_surfaces.contains(surface));
     let mut input_cursor = None;
@@ -407,6 +408,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
 fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) -> DrawCursors {
     let rect = area.content;
     app.rendered_terminal_bounds.remove(&area.surface);
+    app.rendered_kitty_graphics.remove(&area.surface);
     app.rendered_terminal_pointer_semantics.remove(&area.surface);
     if matches!(
         app.rendered_pane_content_generations.get(&area.surface),
@@ -442,6 +444,7 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     let live =
         super::terminal_grid::rendered_viewport_rect_cropped(rect, frame.area(), &render, source_x);
     app.rendered_terminal_bounds.insert(area.surface, live);
+    app.rendered_kitty_graphics.insert(area.surface, render.frame.kitty_graphics.clone());
     app.rendered_terminal_sizes.insert(area.surface, render.frame.size);
     app.rendered_terminal_pointer_semantics.insert(area.surface, render.pointer_semantics);
     app.rendered_pane_content_generations
@@ -549,7 +552,7 @@ fn draw_scrollbar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bo
     if surface.kind() == SurfaceKind::Browser {
         return;
     }
-    let Some(sb) = surface.with_terminal(|t| t.scrollbar()).flatten() else { return };
+    let Some(sb) = surface.scrollbar() else { return };
     if sb.total <= sb.len {
         return; // nothing to scroll: no scrollbar
     }

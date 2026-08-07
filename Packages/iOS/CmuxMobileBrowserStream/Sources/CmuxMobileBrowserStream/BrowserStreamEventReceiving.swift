@@ -12,6 +12,9 @@ public protocol BrowserStreamEventReceiving: AnyObject {
     /// Marks a stream active after the Mac accepts `stream.start`.
     /// - Parameter descriptor: The descriptor returned by the start request.
     func browserStreamDidStart(_ descriptor: MobileBrowserPanelDescriptor)
+    /// Registers a panel the Mac just created on the phone's behalf.
+    /// - Parameter descriptor: The descriptor returned by the create request.
+    func browserPanelCreated(_ descriptor: MobileBrowserPanelDescriptor)
     /// Resets subscription-local sequencing immediately before `stream.start`.
     /// - Parameter panelID: The Mac browser panel identifier.
     func browserStreamWillStart(panelID: String) async

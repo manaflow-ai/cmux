@@ -62,6 +62,7 @@ public final class ErgonomicsTest {
                 writeObject(
                     connection,
                     success(probe.get("id"), Map.of(
+                        "epoch", 1L,
                         "rows", List.of(),
                         "start", 0L,
                         "total", 10L
@@ -76,6 +77,7 @@ public final class ErgonomicsTest {
                 writeObject(
                     connection,
                     success(page.get("id"), Map.of(
+                        "epoch", 1L,
                         "rows", List.of(
                             renderRow(0, "eight"),
                             renderRow(1, "nine"),
