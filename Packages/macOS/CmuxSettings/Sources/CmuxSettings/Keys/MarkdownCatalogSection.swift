@@ -38,6 +38,28 @@ public struct MarkdownCatalogSection: SettingCatalogSection {
         userDefaultsKey: "markdown.maxWidth"
     )
 
+    /// Whether the viewer parses wiki-style links (`[[Note]]`,
+    /// `[[Note|Label]]`).
+    ///
+    /// Off by default so ordinary markdown that contains `[[...]]` renders it as
+    /// literal text. When on, wiki links resolve to sibling markdown files the
+    /// same way `[Note](Note.md)` does, which lets the viewer sit cleanly inside
+    /// an Obsidian-style vault.
+    public let wikiLinks = DefaultsKey<Bool>(
+        id: "markdown.wikiLinks",
+        defaultValue: false,
+        userDefaultsKey: "markdown.wikiLinks"
+    )
+
+    /// Which marker folder anchors the top of the note collection when
+    /// resolving `[[Wiki]]` links — an Obsidian vault (`.obsidian`) or a Git
+    /// repository (`.git`).
+    public let wikiLinkAnchor = DefaultsKey<MarkdownWikiLinkAnchor>(
+        id: "markdown.wikiLinkAnchor",
+        defaultValue: .obsidian,
+        userDefaultsKey: "markdown.wikiLinkAnchor"
+    )
+
     /// Creates the markdown settings section with its default keys.
     public init() {}
 }

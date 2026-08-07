@@ -1502,6 +1502,19 @@
           "default": 980,
           "description": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers.",
           "descriptionKey": "schemaDescriptions.markdown.maxWidth"
+        },
+        "wikiLinks": {
+          "type": "boolean",
+          "default": false,
+          "description": "Parse wiki-style links ([[Note]], [[Note|Label]]) in the markdown viewer. They resolve to the matching note anywhere under the anchor folder (see wikiLinkAnchor); a plain click opens it in the current pane and Cmd-click opens a new tab. Off by default so ordinary markdown containing [[...]] renders it as literal text.",
+          "descriptionKey": "schemaDescriptions.markdown.wikiLinks"
+        },
+        "wikiLinkAnchor": {
+          "type": "string",
+          "enum": ["obsidian", "git"],
+          "default": "obsidian",
+          "description": "Which marker folder anchors the top of the note collection when resolving wiki links: \"obsidian\" (nearest ancestor directory containing .obsidian) or \"git\" (nearest ancestor containing .git). Without a match, links resolve only to files in the same folder. Applies when wikiLinks is enabled.",
+          "descriptionKey": "schemaDescriptions.markdown.wikiLinkAnchor"
         }
       }
     },

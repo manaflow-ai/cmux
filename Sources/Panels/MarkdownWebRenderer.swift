@@ -19,6 +19,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let fontFamily: String
     /// Maximum content column width, in CSS pixels.
     let maxContentWidth: Double
+    /// Whether `[[Wiki]]` style links are parsed into markdown-file links.
+    let wikiLinksEnabled: Bool
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
 
@@ -45,6 +47,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             context.coordinator.setFontSize(fontSize)
             context.coordinator.setFontFamily(fontFamily)
             context.coordinator.setMaxContentWidth(maxContentWidth)
+            context.coordinator.setWikiLinksEnabled(wikiLinksEnabled)
             return webView
         }
 
@@ -89,6 +92,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setWikiLinksEnabled(wikiLinksEnabled)
         context.coordinator.loadShell(theme: theme, initialMarkdown: markdown)
         return webView
     }
@@ -103,6 +107,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         context.coordinator.setFontSize(fontSize)
         context.coordinator.setFontFamily(fontFamily)
         context.coordinator.setMaxContentWidth(maxContentWidth)
+        context.coordinator.setWikiLinksEnabled(wikiLinksEnabled)
         context.coordinator.update(markdown: markdown, theme: theme)
     }
 
@@ -149,6 +154,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastFontFamily: String = ""
         private var lastFontSize: Double = MarkdownFontSizeSettings.defaultPointSize
         private var lastMaxContentWidth: Double = MarkdownMaxWidthSettings.defaultCSSPixels
+        private var lastWikiLinksEnabled: Bool = MarkdownWikiLinksSettings.defaultEnabled
         private var isLoaded = false
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
@@ -250,6 +256,23 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             })(\(width));
             """
             webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        /// Records whether `[[Wiki]]` links are parsed and syncs the shell. The
+        /// shell re-renders the current document in place when this flips, and
+        /// picks up the flag on the next markdown push after a shell (re)load.
+        func setWikiLinksEnabled(_ enabled: Bool) {
+            lastWikiLinksEnabled = enabled
+            applyWikiLinks()
+        }
+
+        private func applyWikiLinks() {
+            guard let webView else { return }
+            let enabled = lastWikiLinksEnabled ? "true" : "false"
+            webView.evaluateJavaScript(
+                "window.__cmuxSetWikiLinks && window.__cmuxSetWikiLinks(\(enabled));",
+                completionHandler: nil
+            )
         }
 
         func close() {
@@ -450,11 +473,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 case "resolveMarkdownFile":
                     guard let requestId = body["requestId"] as? String,
                           let rawPath = body["path"] as? String else { return }
-                    resolveMarkdownFile(rawPath, requestId: requestId)
+                    let wikiLink = (body["wikiLink"] as? Bool) ?? false
+                    resolveMarkdownFile(rawPath, requestId: requestId, wikiLink: wikiLink)
                 case "openMarkdownFile":
                     guard let rawPath = body["path"] as? String else { return }
-                    if let resolved = resolvedMarkdownFilePath(rawPath) {
-                        openMarkdownFile(resolved)
+                    let wikiLink = (body["wikiLink"] as? Bool) ?? false
+                    let inNewTab = (body["newTab"] as? Bool) ?? false
+                    if let resolved = resolvedMarkdownFilePath(rawPath, wikiLink: wikiLink) {
+                        openMarkdownFile(resolved, inNewTab: inNewTab)
                     }
                 default:
                     break
@@ -602,9 +628,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
         }
 
-        private func resolveMarkdownFile(_ rawPath: String, requestId: String) {
+        private func resolveMarkdownFile(_ rawPath: String, requestId: String, wikiLink: Bool) {
             guard let webView else { return }
-            let resolved = resolvedMarkdownFilePath(rawPath)
+            let resolved = resolvedMarkdownFilePath(rawPath, wikiLink: wikiLink)
 #if DEBUG
             NSLog("MarkdownPanel.resolve raw=\(rawPath) resolved=\(resolved ?? "nil")")
 #endif
@@ -618,27 +644,39 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             webView.evaluateJavaScript("window.__cmuxMarkdownFileResolved && window.__cmuxMarkdownFileResolved(\(json));", completionHandler: nil)
         }
 
-        private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
+        private func resolvedMarkdownFilePath(_ rawPath: String, wikiLink: Bool = false) -> String? {
             let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
             guard MarkdownPanelFileLinkResolver.isMarkdownPathLike(trimmed) else { return nil }
-            return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
+            if let direct = MarkdownPanelFileLinkResolver.resolve(
+                rawPath: trimmed,
+                relativeToMarkdownFile: filePath
+            ) {
+                return direct
+            }
+            // A wiki link that isn't a plain sibling resolves against the
+            // enclosing anchor folder (Obsidian vault or Git repo) by note name.
+            guard wikiLink else { return nil }
+            return MarkdownPanelFileLinkResolver.resolveVaultWikiLink(
+                rawPath: trimmed,
+                relativeToMarkdownFile: filePath,
+                anchorMarkerName: MarkdownWikiLinkAnchorSettings.markerFolderName()
+            )
         }
 
-        private func openMarkdownFile(_ path: String) {
+        private func openMarkdownFile(_ path: String, inNewTab: Bool) {
 #if DEBUG
-            NSLog("MarkdownPanel.openMarkdownFile path=\(path)")
+            NSLog("MarkdownPanel.openMarkdownFile path=\(path) newTab=\(inNewTab)")
 #endif
             guard let app = AppDelegate.shared,
                   let location = app.workspaceContainingPanel(
                       panelId: panelId,
                       preferredWorkspaceId: workspaceId
-                  ),
-                  let paneId = location.workspace.paneId(forPanelId: panelId) else { return }
-            _ = location.workspace.newMarkdownSurface(
-                inPane: paneId,
-                filePath: path,
-                focus: true
+                  ) else { return }
+            _ = location.workspace.openMarkdownSurfaceFromLink(
+                path,
+                sourcePanelId: panelId,
+                inNewTab: inNewTab
             )
         }
 
@@ -705,6 +743,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // so it MUST be re-applied after every shell (re)load.
             applyFontFamily()
             applyMaxContentWidth()
+            // Sync the wiki-link flag before pushing markdown so the initial
+            // render already reflects it (the shell resets to off on reload).
+            applyWikiLinks()
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
             // Keep the recovery budget scoped to the current markdown payload:
@@ -842,7 +883,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             // open as markdown tabs in cmux, not in the browser.
             let fileCandidate = url.scheme == "file" ? url.path : url.absoluteString
             if let markdownPath = resolvedMarkdownFilePath(fileCandidate) {
-                openMarkdownFile(markdownPath)
+                openMarkdownFile(markdownPath, inNewTab: false)
                 return
             }
 
