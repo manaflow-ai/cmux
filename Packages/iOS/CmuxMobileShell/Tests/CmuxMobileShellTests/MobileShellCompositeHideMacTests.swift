@@ -158,10 +158,12 @@ import Testing
 
         #expect(task.isCancelled)
         #expect(store.computerVisibilityMutationIDs.isEmpty)
-        #expect(store.computerVisibilityMutationTasksByID.isEmpty)
-        #expect(store.computerVisibilityMutationOperationIDsByID.isEmpty)
+        #expect(store.computerVisibilityMutationTasksByID[computer.id] != nil)
+        #expect(store.computerVisibilityMutationOperationIDsByID[computer.id] != nil)
         await hiddenStore.releaseDelayedHideSave()
         await task.value
+        #expect(store.computerVisibilityMutationTasksByID.isEmpty)
+        #expect(store.computerVisibilityMutationOperationIDsByID.isEmpty)
         #expect(store.hiddenComputers.isEmpty)
         #expect(await hiddenStore.load(scope: scopeKey).isEmpty)
     }
@@ -208,10 +210,12 @@ import Testing
 
         #expect(task.isCancelled)
         #expect(store.computerVisibilityMutationIDs.isEmpty)
-        #expect(store.computerVisibilityMutationTasksByID.isEmpty)
-        #expect(store.computerVisibilityMutationOperationIDsByID.isEmpty)
+        #expect(store.computerVisibilityMutationTasksByID[computer.id] != nil)
+        #expect(store.computerVisibilityMutationOperationIDsByID[computer.id] != nil)
         await hiddenStore.releaseDelayedHideSave()
         await task.value
+        #expect(store.computerVisibilityMutationTasksByID.isEmpty)
+        #expect(store.computerVisibilityMutationOperationIDsByID.isEmpty)
         #expect(store.hiddenComputers.isEmpty)
         #expect(await hiddenStore.load(scope: scopeKey).isEmpty)
     }
