@@ -349,16 +349,9 @@ struct WorkspaceDetailView: View {
     private func workspaceDetailToolbar(
         mode: WorkspaceDetailToolbarMode
     ) -> some ToolbarContent {
-        // In push hosting the pane-map bar stays mounted (covered) while the
-        // terminal's full-screen cover shows its own bar with the same shared
-        // items. Without this gate both back buttons and title menus exist in
-        // the accessibility tree at once, breaking assistive tech and any
-        // identifier-based automation with "multiple matching elements".
-        let coveredByTerminal = mode == .paneMap && terminalCoverIsPresented
         if backButtonConfiguration != nil {
             ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
                 workspaceBackToolbarButton
-                    .accessibilityHidden(coveredByTerminal)
             }
             if #available(iOS 26.0, *) {
                 ToolbarSpacer(.fixed, placement: .topBarLeading)
@@ -366,7 +359,6 @@ struct WorkspaceDetailView: View {
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             workspaceTitleToolbarMenu(mode: mode)
-                .accessibilityHidden(coveredByTerminal)
         }
         if workspaceChangesAreAvailable {
             ToolbarItem(id: "workspace-changes", placement: .topBarTrailing) {
@@ -378,7 +370,6 @@ struct WorkspaceDetailView: View {
                 // The chrome sits on the terminal theme's background, not the
                 // system scheme; resolve the counts' green/red for that.
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
-                .accessibilityHidden(coveredByTerminal)
             }
         }
         switch mode {
@@ -392,11 +383,9 @@ struct WorkspaceDetailView: View {
                     isRefreshing: isPaneMapRefreshing,
                     refresh: refreshPaneMapFromToolbar
                 )
-                .accessibilityHidden(coveredByTerminal)
             }
             ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
                 PaneMapDoneToolbarButton(done: returnToTerminalFromPaneMap)
-                    .accessibilityHidden(coveredByTerminal)
             }
         }
     }

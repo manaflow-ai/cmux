@@ -104,8 +104,20 @@ struct PaneZoomHost<Root: View, Terminal: View>: View {
     /// Push hosting: the pane map renders directly in the ancestor stack's
     /// destination (using its navigation bar), and the terminal is a zoom
     /// full-screen cover with its own root-only stack for the shared toolbar.
+    ///
+    /// While the cover is up, the pane map's bar stays mounted underneath and
+    /// iOS keeps its items (the shared back button, title menu, changes chip)
+    /// in the accessibility tree, so every shared identifier would exist
+    /// twice, confusing assistive tech and failing identifier-based
+    /// automation with "multiple matching elements". Hiding the covered bar
+    /// removes those items entirely; it returns automatically the moment the
+    /// terminal starts unzooming back into its tile.
     private var presentationHost: some View {
         root()
+            .toolbar(
+                presentation.isTerminalPresented ? .hidden : .automatic,
+                for: .navigationBar
+            )
             .fullScreenCover(isPresented: isTerminalPresentedBinding) {
                 terminalHost
             }

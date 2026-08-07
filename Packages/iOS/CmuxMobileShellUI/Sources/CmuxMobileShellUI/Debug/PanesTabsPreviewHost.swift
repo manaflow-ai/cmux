@@ -456,23 +456,14 @@ struct PanesTabsPreviewHost: View {
 
     @ToolbarContentBuilder
     private func previewToolbar(mode: PreviewToolbarMode) -> some ToolbarContent {
-        // Mirrors WorkspaceDetailView: in push hosting the pane-map bar stays
-        // mounted (covered) under the terminal cover's own bar, so its items
-        // must leave the accessibility tree while covered or shared
-        // identifiers match twice.
-        let coveredByTerminal = mode == .paneMap
-            && paneZoomHosting == .navigationPush
-            && paneZoomPresentation.isTerminalPresented
         ToolbarItem(id: "workspace-back", placement: .topBarLeading) {
             WorkspaceBackButton(unreadCount: 2, action: {})
-                .accessibilityHidden(coveredByTerminal)
         }
         if #available(iOS 26.0, *) {
             ToolbarSpacer(.fixed, placement: .topBarLeading)
         }
         ToolbarItem(id: "workspace-title", placement: .topBarLeading) {
             previewWorkspaceTitleMenu(mode: mode)
-                .accessibilityHidden(coveredByTerminal)
         }
         switch mode {
         case .paneMap:
@@ -481,11 +472,9 @@ struct PanesTabsPreviewHost: View {
                     isRefreshing: isPaneMapRefreshing,
                     refresh: { paneMapRefreshTrigger &+= 1 }
                 )
-                .accessibilityHidden(coveredByTerminal)
             }
             ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
                 PaneMapDoneToolbarButton(done: returnToTerminalFromPaneMap)
-                    .accessibilityHidden(coveredByTerminal)
             }
         case .terminal:
             ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
