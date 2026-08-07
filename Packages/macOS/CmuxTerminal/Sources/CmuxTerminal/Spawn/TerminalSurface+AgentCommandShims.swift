@@ -11,6 +11,7 @@ extension TerminalSurface {
         wrapperDirectoryURL: URL?,
         surfaceId: UUID,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        hermesProfileAliasDirectoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) -> TerminalSurfaceAgentCommandShimSet? {
         guard let wrapperDirectoryURL = wrapperDirectoryURL?.standardizedFileURL else {

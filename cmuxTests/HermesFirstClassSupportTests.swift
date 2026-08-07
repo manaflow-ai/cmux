@@ -612,6 +612,7 @@ struct HermesFirstClassSupportTests {
         let cliPath = try BundledCLITestSupport.bundledCLIPath(for: HermesFirstClassBundleToken.self)
         let configURL = hermesHome.appendingPathComponent("config.yaml")
         let allowlistURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json")
+        let allowlistLockURL = hermesHome.appendingPathComponent("shell-hooks-allowlist.json.lock")
 
         let result = try runProcess(
             executablePath: cliPath,
@@ -627,6 +628,7 @@ struct HermesFirstClassSupportTests {
         #expect(result.status == 0, Comment(rawValue: result.output))
         #expect(FileManager.default.fileExists(atPath: configURL.path))
         #expect(FileManager.default.fileExists(atPath: allowlistURL.path))
+        #expect(FileManager.default.fileExists(atPath: allowlistLockURL.path))
         let config = try String(contentsOf: configURL, encoding: .utf8)
         #expect(config.contains("CMUX_BUNDLED_CLI_PATH"))
         #expect(config.contains("CMUX_SOCKET_PATH"))

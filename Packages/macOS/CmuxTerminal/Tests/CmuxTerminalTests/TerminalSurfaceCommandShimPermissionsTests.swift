@@ -109,4 +109,71 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #expect(process.terminationStatus == 0)
         #expect(String(data: data, encoding: .utf8) == "literal-path\n")
     }
+
+    @Test("Official Hermes profile aliases route through the Hermes wrapper")
+    func officialHermesProfileAliasesRouteThroughWrapper() throws {
+        let fileManager = FileManager.default
+        let root = URL.temporaryDirectory.appending(
+            path: "TerminalSurfaceHermesAliasTests-\(UUID().uuidString)",
+            directoryHint: .isDirectory
+        )
+        let temporaryDirectory = root.appending(path: "tmp", directoryHint: .isDirectory)
+        let wrapperDirectory = root.appending(path: "bin", directoryHint: .isDirectory)
+        let aliasDirectory = root.appending(path: ".local/bin", directoryHint: .isDirectory)
+        let hermesWrapper = wrapperDirectory.appending(
+            path: "cmux-hermes-agent-wrapper",
+            directoryHint: .notDirectory
+        )
+        let officialAlias = aliasDirectory.appending(path: "coder", directoryHint: .notDirectory)
+        let unrelatedCommand = aliasDirectory.appending(path: "other", directoryHint: .notDirectory)
+        let invocationLog = root.appending(path: "wrapper-args.log", directoryHint: .notDirectory)
+        defer { try? fileManager.removeItem(at: root) }
+
+        for directory in [wrapperDirectory, aliasDirectory] {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        try """
+        #!/usr/bin/env bash
+        printf '%s\\0' "$@" > "$CMUX_TEST_LOG"
+        """.write(to: hermesWrapper, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        exec /opt/hermes/bin/hermes -p coder "$@"
+        """.write(to: officialAlias, atomically: true, encoding: .utf8)
+        try """
+        #!/bin/sh
+        exec /opt/tools/other -p coder "$@"
+        """.write(to: unrelatedCommand, atomically: true, encoding: .utf8)
+        for executable in [hermesWrapper, officialAlias, unrelatedCommand] {
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        }
+
+        let shims = try #require(
+            TerminalSurface.installAgentCommandShimsIfPossible(
+                wrapperDirectoryURL: wrapperDirectory,
+                surfaceId: UUID(),
+                temporaryDirectory: temporaryDirectory,
+                hermesProfileAliasDirectoryURL: aliasDirectory,
+                fileManager: fileManager
+            )
+        )
+        let aliasShim = try #require(shims.shim(named: "coder"))
+        #expect(shims.shim(named: "other") == nil)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: aliasShim.executablePath)
+        process.arguments = ["--continue", "doctor"]
+        process.environment = [
+            "PATH": "\(shims.directoryPath):/usr/bin:/bin",
+            "CMUX_TEST_LOG": invocationLog.path,
+        ]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus == 0)
+        let arguments = try Data(contentsOf: invocationLog)
+            .split(separator: 0)
+            .compactMap { String(data: $0, encoding: .utf8) }
+        #expect(arguments == ["-p", "coder", "--continue", "doctor"])
+    }
 }

@@ -32,6 +32,8 @@ class WrapperResult:
     socket_path: str
     installer_started: bool
     launch_observed: bool
+    hermes_home: str
+    profile_homes: dict[str, str]
 
 
 def make_executable(path: Path, content: str) -> None:
@@ -69,6 +71,8 @@ def run_wrapper(
     installer_blocks: bool = False,
     installer_timeout_seconds: float = 1,
     cli_available: bool = True,
+    active_profile: str | None = None,
+    profile_names: tuple[str, ...] = (),
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
         tmp = Path(td)
@@ -76,9 +80,22 @@ def run_wrapper(
         shim_dir = tmp / "cmux-cli-shims" / "surface-test"
         real_dir = tmp / "real-bin"
         bundled_dir = tmp / "bundled cli"
+        user_home = tmp / "user home"
         hermes_home = tmp / "hermes home"
-        for directory in (wrapper_dir, shim_dir, real_dir, bundled_dir, hermes_home):
+        for directory in (wrapper_dir, shim_dir, real_dir, bundled_dir, user_home, hermes_home):
             directory.mkdir(parents=True)
+
+        profile_homes = {
+            name: hermes_home / "profiles" / name
+            for name in profile_names
+        }
+        for profile_home in profile_homes.values():
+            profile_home.mkdir(parents=True)
+        if active_profile is not None:
+            (hermes_home / "active_profile").write_text(
+                f"{active_profile}\n",
+                encoding="utf-8",
+            )
 
         wrapper = wrapper_dir / "cmux-hermes-agent-wrapper"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
@@ -148,6 +165,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         socket_path = str(tmp / "cmux.sock")
         env = os.environ.copy()
         env["PATH"] = f"{shim_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        env["HOME"] = str(user_home)
         env["HERMES_HOME"] = str(hermes_home)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
         env["CMUX_HERMES_AGENT_WRAPPER_SHIM"] = str(shim)
@@ -218,6 +236,8 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             socket_path=socket_path,
             installer_started=installer_started_log.exists(),
             launch_observed=launch_observed,
+            hermes_home=str(hermes_home),
+            profile_homes={name: str(path) for name, path in profile_homes.items()},
         )
 
 
@@ -276,10 +296,44 @@ def test_session_entrypoints(failures: list[str]) -> None:
         ("resume", ["--resume", SESSION_ID, "--no-restore-cwd", "--pass-session-id"]),
         ("continue-latest", ["--continue"]),
         ("continue-name", ["--continue", "my project"]),
+        ("continue-admin-name-long", ["--continue", "doctor"]),
+        ("continue-admin-name-short", ["-c", "status"]),
         ("global-options", ["--provider", "openrouter", "--tui"]),
     )
     for label, argv in entrypoints:
         assert_instrumented(argv, label, failures)
+
+
+def test_profile_scoped_hook_install(failures: list[str]) -> None:
+    for label, argv in (
+        ("explicit-profile-long", ["--profile", "coder"]),
+        ("explicit-profile-short", ["-p", "coder"]),
+        ("explicit-profile-equals", ["--profile=coder"]),
+        ("explicit-profile-after-continue-name", ["--continue", "doctor", "-p", "coder"]),
+    ):
+        result = run_wrapper(argv, profile_names=("coder",))
+        expect(
+            result.cmux_environment.get("HERMES_HOME") == result.profile_homes["coder"],
+            f"{label}: installer targeted the wrong profile: {result.cmux_environment}",
+            failures,
+        )
+        expect(
+            result.real_environment.get("HERMES_HOME") == result.hermes_home,
+            f"{label}: wrapper leaked its installer-only profile override: {result.real_environment}",
+            failures,
+        )
+
+    sticky = run_wrapper([], active_profile="coder", profile_names=("coder",))
+    expect(
+        sticky.cmux_environment.get("HERMES_HOME") == sticky.profile_homes["coder"],
+        f"sticky profile: installer targeted the wrong profile: {sticky.cmux_environment}",
+        failures,
+    )
+    expect(
+        sticky.real_environment.get("HERMES_HOME") == sticky.hermes_home,
+        f"sticky profile: wrapper leaked its installer-only profile override: {sticky.real_environment}",
+        failures,
+    )
 
 
 def test_administrative_entrypoints_bypass_install(failures: list[str]) -> None:
@@ -386,6 +440,7 @@ def main() -> int:
         failures.append(f"missing Hermes launch wrapper: {SOURCE_WRAPPER}")
     else:
         test_session_entrypoints(failures)
+        test_profile_scoped_hook_install(failures)
         test_administrative_entrypoints_bypass_install(failures)
         test_noninteractive_entrypoints_bypass_install(failures)
         test_opt_out_and_non_cmux_launches_bypass_install(failures)
