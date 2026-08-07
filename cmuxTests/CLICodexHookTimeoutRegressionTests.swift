@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 
@@ -34,7 +35,6 @@ struct CLICodexHookTimeoutRegressionTests {
         let sessionStartHooks = hooks.filter { $0.eventName == "SessionStart" }
         let promptHooks = hooks.filter { $0.eventName == "UserPromptSubmit" }
         let stopHooks = hooks.filter { $0.eventName == "Stop" }
-        let feedHooks = hooks.filter { $0.body.contains("hooks feed --source codex") }
         #expect(!hooks.map(\.body).contains(previousCommand), "Installer should remove stale synchronous hook")
         #expect(sessionStartHooks.count == 1, "Installer should install one session-start hook")
         #expect(sessionStartHooks.allSatisfy { $0.body.contains("hooks codex session-start") })
@@ -48,21 +48,138 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(stopHooks.allSatisfy { $0.body.contains("hooks codex stop") })
         #expect(stopHooks.allSatisfy { $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"") })
         #expect(stopHooks.allSatisfy { $0.body.contains("agent_pid=") && $0.body.contains("CMUX_CODEX_PID=") })
-        let expectedFeedEvents: Set<String> = [
-            "PreToolUse",
-            "PermissionRequest",
-            "PostToolUse",
+        let wrapperEquivalentEvents = [
+            "PreToolUse": "pre-tool-use",
+            "PermissionRequest": "notification",
+            "PostToolUse": "post-tool-use",
+        ]
+        for (eventName, subcommand) in wrapperEquivalentEvents {
+            let eventHooks = hooks.filter { $0.eventName == eventName }
+            #expect(eventHooks.count == 1, "Installer should install one \(eventName) hook")
+            #expect(eventHooks.allSatisfy { $0.body.contains("hooks codex \(subcommand)") })
+            #expect(eventHooks.allSatisfy {
+                $0.body.contains("nohup sh -c") && $0.body.contains("cat >\"$payload\"")
+            })
+        }
+
+        let persistentOnlyFeedEvents: Set<String> = [
             "PreCompact",
             "PostCompact",
             "SubagentStart",
             "SubagentStop",
         ]
-        let installedFeedEvents = Set(feedHooks.compactMap { hook in
-            expectedFeedEvents.first { hook.body.contains("--event \($0)") }
+        let persistentOnlyFeedHooks = hooks.filter { hook in
+            hook.body.contains("hooks feed --source codex")
+                && persistentOnlyFeedEvents.contains(hook.eventName)
+        }
+        let installedFeedEvents = Set(persistentOnlyFeedHooks.compactMap { hook in
+            persistentOnlyFeedEvents.first { hook.body.contains("--event \($0)") }
         })
-        #expect(feedHooks.count == expectedFeedEvents.count, "Installer should install every Codex feed hook")
-        #expect(installedFeedEvents == expectedFeedEvents)
-        #expect(feedHooks.allSatisfy { !$0.body.contains("nohup sh -c") && !$0.body.contains(">/dev/null 2>&1 &") })
+        #expect(persistentOnlyFeedHooks.count == persistentOnlyFeedEvents.count)
+        #expect(installedFeedEvents == persistentOnlyFeedEvents)
+        #expect(persistentOnlyFeedHooks.allSatisfy {
+            !$0.body.contains("nohup sh -c") && !$0.body.contains(">/dev/null 2>&1 &")
+        })
+    }
+
+    @Test func codexWrapperReconcilesPersistentHooksToOneProducerPerEvent() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-one-producer-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let hooksURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        var json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hooksURL)) as? [String: Any]
+        )
+        var hookGroups = try #require(json["hooks"] as? [String: Any])
+        var preToolGroups = try #require(hookGroups["PreToolUse"] as? [[String: Any]])
+        preToolGroups.insert(try #require(preToolGroups.first), at: 0)
+
+        let legacyStopScript = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-stop.sh", isDirectory: false)
+        let staleHashedScript = hooksDirectory
+            .appendingPathComponent(
+                "cmux-codex-hook-0123456789abcdef-old-generation.sh",
+                isDirectory: false
+            )
+        let userScript = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-unrecognized.sh", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: legacyStopScript, lines: ["#!/bin/sh", "echo '{}'"])
+        try makeCodexHookExecutableShellFile(at: staleHashedScript, lines: ["#!/bin/sh", "echo '{}'"])
+        try makeCodexHookExecutableShellFile(at: userScript, lines: ["#!/bin/sh", "echo user-hook"])
+
+        var stopGroups = try #require(hookGroups["Stop"] as? [[String: Any]])
+        stopGroups.append([
+            "hooks": [[
+                "command": legacyStopScript.path,
+                "timeout": 10_000,
+                "type": "command",
+            ]],
+        ])
+        stopGroups.append([
+            "hooks": [[
+                "command": userScript.path,
+                "timeout": 10_000,
+                "type": "command",
+            ]],
+        ])
+        hookGroups["PreToolUse"] = preToolGroups
+        hookGroups["Stop"] = stopGroups
+        json["hooks"] = hookGroups
+        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hooksURL, options: .atomic)
+
+        let emit = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "inject-args"],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!emit.timedOut, Comment(rawValue: emit.stderr))
+        #expect(emit.status == 0, Comment(rawValue: emit.stderr))
+
+        let emittedEvents = injectedCodexHookEventNames(emit.stdout)
+        let installedHooks = try codexHookEntries(in: codexHome)
+        let wrapperEvents = [
+            "SessionStart",
+            "UserPromptSubmit",
+            "Stop",
+            "PreToolUse",
+            "PostToolUse",
+            "PermissionRequest",
+        ]
+        for eventName in wrapperEvents {
+            let installedProducerCount = installedHooks.filter {
+                $0.eventName == eventName
+                    && ($0.body.contains("hooks codex ")
+                        || $0.body.contains("hooks feed --source codex"))
+            }.count
+            let emittedProducerCount = emittedEvents.filter { $0 == eventName }.count
+            #expect(
+                installedProducerCount + emittedProducerCount == 1,
+                "Expected one cmux producer for \(eventName), installed=\(installedProducerCount) emitted=\(emittedProducerCount)"
+            )
+        }
+        #expect(installedHooks.contains { $0.command == userScript.path })
+        #expect(!FileManager.default.fileExists(atPath: legacyStopScript.path))
+        #expect(!FileManager.default.fileExists(atPath: staleHashedScript.path))
+        #expect(FileManager.default.fileExists(atPath: userScript.path))
     }
 
     @Test func codexInstalledHookReturnsBeforeSlowCmuxCommandFinishes() throws {
@@ -191,6 +308,78 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(waitForFile(capturedArgs, containing: "--socket /tmp/cmux-test.sock hooks codex stop", timeout: 1))
         #expect(waitForFile(capturedPID, containing: "4242", timeout: 1))
         #expect(waitForFile(doneFile, containing: "done", timeout: 3))
+    }
+
+    @Test func codexFireAndForgetWatchdogReapsItsTimerProcess() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-watchdog-reap-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let binDirectory = root.appendingPathComponent("bin", isDirectory: true)
+        let fakeCLI = binDirectory.appendingPathComponent("cmux", isDirectory: false)
+        let fakeSleep = binDirectory.appendingPathComponent("sleep", isDirectory: false)
+        let sleepPIDFile = root.appendingPathComponent("watchdog-sleep-pid.txt", isDirectory: false)
+        let childDoneFile = root.appendingPathComponent("hook-child-done.txt", isDirectory: false)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try makeCodexHookExecutableShellFile(at: fakeCLI, lines: [
+            "#!/bin/sh",
+            "cat >/dev/null",
+            "printf done > \"$CMUX_TEST_CHILD_DONE\"",
+        ])
+        try makeCodexHookExecutableShellFile(at: fakeSleep, lines: [
+            "#!/bin/sh",
+            "printf '%s\\n' \"$$\" > \"$CMUX_TEST_SLEEP_PID\"",
+            "exec /usr/bin/tail -f /dev/null",
+        ])
+
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: codexHookTestEnvironment(root: root, codexHome: codexHome),
+            timeout: 5
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
+        let command = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
+        )
+        let run = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", command],
+            environment: [
+                "HOME": root.path,
+                "PATH": "\(binDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR": root.path,
+                "CMUX_SURFACE_ID": "surface-123",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_CODEX_PID": "4242",
+                "CMUX_TEST_SLEEP_PID": sleepPIDFile.path,
+                "CMUX_TEST_CHILD_DONE": childDoneFile.path,
+            ],
+            standardInput: #"{"session_id":"codex-session","prompt":"run"}"#,
+            timeout: 2
+        )
+
+        #expect(!run.timedOut, Comment(rawValue: run.stderr))
+        #expect(run.status == 0, Comment(rawValue: run.stderr))
+        #expect(run.stdout == "{}\n")
+        #expect(waitForFile(sleepPIDFile, containing: "\n", timeout: 1))
+        #expect(waitForFile(childDoneFile, containing: "done", timeout: 1))
+
+        let sleepPIDText = try String(contentsOf: sleepPIDFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let sleepPID = try #require(Int32(sleepPIDText))
+        defer { _ = Darwin.kill(sleepPID, SIGKILL) }
+        #expect(
+            waitForConditionBlocking(timeout: 1) {
+                Darwin.kill(sleepPID, 0) == -1 && errno == ESRCH
+            },
+            "The watchdog timer process \(sleepPID) outlived its completed hook invocation"
+        )
     }
 
     @Test func codexDisabledInstalledStopConsumesPayloadBeforeReturning() throws {
@@ -863,5 +1052,15 @@ struct CLICodexHookTimeoutRegressionTests {
 
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+    }
+
+    private func injectedCodexHookEventNames(_ output: String) -> [String] {
+        output.split(separator: "\0").compactMap { argument in
+            guard argument.hasPrefix("hooks."),
+                  let equals = argument.firstIndex(of: "=") else {
+                return nil
+            }
+            return String(argument[argument.index(argument.startIndex, offsetBy: "hooks.".count)..<equals])
+        }
     }
 }
