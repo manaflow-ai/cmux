@@ -1669,6 +1669,15 @@ final class TerminalNotificationStore: ObservableObject {
         removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
     }
 
+    func clearNotifications(correlationKey: String) {
+        inFlightPolicyRequests.discard(correlationKey: correlationKey)
+        let ids = notifications.compactMap {
+            $0.correlationKey == correlationKey ? $0.id : nil
+        }
+        ids.forEach(remove)
+        removePendingNotificationRequests(withIdentifiers: ids.map(\.uuidString))
+    }
+
     func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
         TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
 

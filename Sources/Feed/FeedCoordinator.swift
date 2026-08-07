@@ -65,6 +65,11 @@ final class FeedCoordinator: @unchecked Sendable {
     /// methods.
     @MainActor private var pendingAttentionStates: [AttentionTarget: AttentionOverlayState] = [:]
 
+    /// Request identity for transient (non-Feed-card) blockers lives in a
+    /// focused companion type; the shared attention refcount above remains the
+    /// sole owner of visible lifecycle/status mutations.
+    @MainActor let transientAttentionStore = FeedTransientAttentionStore()
+
     private init() {}
 
     /// Must be called once at app launch to install the store.

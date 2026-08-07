@@ -63,65 +63,44 @@ extension CMUXCLI {
             return
         }
 
+        guard let sessionId = parsedInput.sessionId else {
+            telemetry.breadcrumb("claude-hook.input-resolved.missing-session")
+            printClaudeHookAck()
+            return
+        }
+        let toolUseId = extractClaudeHookToolUseId(from: parsedInput.rawObject)
         let resolution: ClaudeHookSessionStore.BlockingToolResolution
-        if let sessionId = parsedInput.sessionId {
-            do {
-                resolution = try sessionStore.resolveBlockingToolInput(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: parsedInput.cwd,
-                    transcriptPath: parsedInput.transcriptPath,
-                    toolUseId: extractClaudeHookToolUseId(from: parsedInput.rawObject)
-                )
-            } catch {
-                telemetry.breadcrumb(
-                    "claude-hook.input-resolved.store-error",
-                    data: ["error": String(describing: error)]
-                )
-                // Preserve the pre-correlation fail-open behavior: a store I/O
-                // failure must not strand a pane in Needs input forever.
-                resolution = .restoreRunning
-            }
-        } else {
-            resolution = .restoreRunning
+        do {
+            resolution = try sessionStore.resolveBlockingToolInput(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: parsedInput.cwd,
+                transcriptPath: parsedInput.transcriptPath,
+                toolUseId: toolUseId
+            )
+        } catch {
+            telemetry.breadcrumb(
+                "claude-hook.input-resolved.store-error",
+                data: ["error": String(describing: error)]
+            )
+            // Fail open: releasing an absent transient request is a no-op, but
+            // withholding release can strand bypass-mode attention forever.
+            resolution = .resolved
         }
 
         switch resolution {
-        case .keepNeedsInput:
-            telemetry.breadcrumb("claude-hook.input-resolved.pending")
-            printClaudeHookAck()
-            return
         case .ignoreUnmatched:
             telemetry.breadcrumb("claude-hook.input-resolved.unmatched")
             printClaudeHookAck()
             return
-        case .restoreRunning:
-            break
+        case .resolved:
+            endClaudeBlockingAttention(
+                client: client,
+                sessionId: sessionId,
+                toolUseId: toolUseId
+            )
         }
-        _ = try? sendV1Command(
-            "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-            client: client
-        )
-        setAgentLifecycle(
-            client: client,
-            key: "claude_code",
-            lifecycle: .running,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId
-        )
-        try setClaudeStatus(
-            client: client,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            value: String(
-                localized: "agent.generic.status.running",
-                defaultValue: "Running"
-            ),
-            icon: "bolt.fill",
-            color: "#4C8DFF",
-            pid: claudePid
-        )
         printClaudeHookAck()
     }
 }

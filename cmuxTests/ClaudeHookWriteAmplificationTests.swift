@@ -118,22 +118,15 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(result.stdout == "{}\n")
         let commands = context.state.snapshot()
         #expect(!commands.contains { $0.contains(#""method":"feed.push""#) })
-        #expect(commands.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)"))
-        #expect(
-            commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code running ")
-                    && $0.contains("--tab=\(workspaceId)")
-                    && $0.contains("--panel=\(surfaceId)")
-            }
-        )
-        #expect(
-            commands.contains {
-                $0.hasPrefix("set_status claude_code ")
-                    && $0.contains("--icon=bolt.fill")
-                    && $0.contains("--tab=\(workspaceId)")
-                    && $0.contains("--panel=\(surfaceId)")
-            }
-        )
+        #expect(commands.contains { command in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return false }
+            return object["method"] as? String == "feed.attention.end"
+        })
+        #expect(!commands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(!commands.contains { $0.hasPrefix("set_agent_lifecycle ") })
+        #expect(!commands.contains { $0.hasPrefix("set_status ") })
         let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
         #expect(record?["agentLifecycle"] as? String == "running")
     }
@@ -239,26 +232,25 @@ struct ClaudeHookWriteAmplificationTests {
         let finalCompletionCommands = Array(
             context.state.snapshot().dropFirst(beforeFinalCompletion)
         )
-        #expect(
-            finalCompletionCommands.contains(
-                "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)"
-            )
-        )
-        #expect(
-            finalCompletionCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code running ")
-                    && $0.contains("--tab=\(workspaceId)")
-                    && $0.contains("--panel=\(surfaceId)")
+        #expect(finalCompletionCommands.contains { command in
+            guard let data = command.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  object["method"] as? String == "feed.attention.end",
+                  let params = object["params"] as? [String: Any] else {
+                return false
             }
-        )
-        #expect(finalCompletionCommands.contains { $0.hasPrefix("set_status claude_code ") })
+            return params["request_id"] as? String == "tool-b"
+        })
+        #expect(!finalCompletionCommands.contains { $0.hasPrefix("clear_notifications ") })
+        #expect(!finalCompletionCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
+        #expect(!finalCompletionCommands.contains { $0.hasPrefix("set_status ") })
 
         let resolvedRecord = try Harness.sessionRecord(
             in: context.storeURL,
             sessionId: sessionId
         )
         #expect(resolvedRecord?["agentLifecycle"] as? String == "running")
-        #expect(resolvedRecord?["pendingBlockingToolUseIds"] == nil)
+        #expect(resolvedRecord?["pendingBlockingToolUseIds"] as? [String] == [])
     }
 
     @Test func deniedPlanDoesNotPoisonTheNextBlockingTool() throws {
@@ -423,5 +415,53 @@ struct ClaudeHookWriteAmplificationTests {
         #expect(!completionCommands.contains { $0.hasPrefix("clear_notifications ") })
         #expect(!completionCommands.contains { $0.hasPrefix("set_agent_lifecycle ") })
         #expect(!completionCommands.contains { $0.hasPrefix("set_status ") })
+    }
+
+    @Test func timedOutPermissionRequestRetiresItsCorrelatedBlocker() throws {
+        let context = try Harness.makeContext(name: "timed-out-plan-blocker")
+        defer { context.cleanup() }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "timed-out-plan-blocker-session"
+        let toolUseId = "timed-out-plan"
+        try Harness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path
+        )
+
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [workspaceId: [surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [surfaceId: workspaceId],
+            feedTerminalStatusesByRequestId: [toolUseId: "timed_out"]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+
+        for (subcommand, eventName) in [
+            ("pre-tool-use", "PreToolUse"),
+            ("permission-request", "PermissionRequest"),
+        ] {
+            let result = Harness.runHookProcess(
+                context: context,
+                arguments: ["hooks", "claude", subcommand],
+                environment: environment,
+                standardInput: #"{"session_id":"\#(sessionId)","hook_event_name":"\#(eventName)","tool_name":"ExitPlanMode","tool_use_id":"\#(toolUseId)","permission_mode":"plan","cwd":"\#(context.root.path)"}"#
+            )
+            #expect(serverHandled.wait(timeout: .now() + 5) == .success)
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status == 0, Comment(rawValue: result.stderr))
+            #expect(result.stdout == "{}\n")
+        }
+
+        let record = try Harness.sessionRecord(in: context.storeURL, sessionId: sessionId)
+        #expect(record?["agentLifecycle"] as? String == "running")
+        #expect(record?["pendingBlockingToolUseIds"] as? [String] == [])
     }
 }

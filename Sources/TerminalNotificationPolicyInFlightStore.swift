@@ -139,6 +139,14 @@ final class TerminalNotificationPolicyInFlightStore {
         identities.forEach(drainCompletedRequests)
     }
 
+    func discard(correlationKey: String) {
+        let idsToDiscard = requests.compactMap { id, entry in
+            entry.request.correlationKey == correlationKey ? id : nil
+        }
+        let identities = Set(idsToDiscard.compactMap(discardRequest))
+        identities.forEach(drainCompletedRequests)
+    }
+
     /// A synchronous delivery is newer than every policy request already
     /// parked for the same visible destination. Cancel those older requests
     /// before applying the synchronous value so their later completions cannot

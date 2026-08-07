@@ -51,7 +51,7 @@ The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops 
 
 ### Claude Code hook writes
 
-The Claude wrapper does not install a catch-all `PreToolUse` hook. Ordinary tool calls stay inside Claude Code and do not launch a cmux hook process or append Feed telemetry. Targeted hooks remain for lifecycle changes, permission requests, `AskUserQuestion`, `ExitPlanMode`, `CronCreate`, and `PushNotification`. Blocking-tool success and failure hooks clear their targeted Needs input state. Session mapping files are rewritten only when their stored state changes.
+The Claude wrapper does not install a catch-all `PreToolUse` hook. Ordinary tool calls stay inside Claude Code and do not launch a cmux hook process or append Feed telemetry. Targeted hooks remain for lifecycle changes, permission requests, `AskUserQuestion`, `ExitPlanMode`, `CronCreate`, and `PushNotification`. Blocking questions and plan approvals are correlated by Claude's `tool_use_id`: PermissionRequest decisions retire denied calls even though Claude emits no completion hook, while bypass-permissions prompts use an ephemeral request-scoped attention signal that writes no Feed card or event record. Resolving one request never clears another request's pane attention. Session mapping files are rewritten only when their stored state changes.
 
 Feed events append to `~/.cmuxterm/workstream.jsonl` and cmux's bounded event log. The global-search SQLite database is maintained by search indexing, not by the Claude Feed bridge. If endpoint-security policy requires no wrapper-injected Claude hooks, turn off **Settings > Automation > Claude Code Integration** or set:
 
