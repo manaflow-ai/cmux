@@ -29617,7 +29617,10 @@ export default CMUXSessionRestore;
         return false
     }
 
-    private func installAgentHooks(_ def: AgentHookDef) throws {
+    private func installAgentHooks(
+        _ def: AgentHookDef,
+        automaticReconciliation: Bool = false
+    ) throws {
         if def.name == "opencode" { try installOpenCodePluginHooks(def); return }
         if def.name == "pi" { try installPiExtensionHooks(def); return }
         if def.name == "omp" { try installOmpExtensionHooks(def); return }
@@ -29646,7 +29649,8 @@ export default CMUXSessionRestore;
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
         let filePath = "\(configDir)/\(def.configFile)"
-        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+        let skipConfirm = automaticReconciliation
+            || ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
         let configDirectoryFileError = String.localizedStringWithFormat(
@@ -29662,7 +29666,9 @@ export default CMUXSessionRestore;
             if def.createConfigDirIfMissing {
                 throw CLIError(message: configDirectoryFileError)
             }
-            print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+            if !automaticReconciliation {
+                print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+            }
             return
         }
         if !configPathExists {
@@ -29673,7 +29679,9 @@ export default CMUXSessionRestore;
                     throw CLIError(message: configDirectoryFileError)
                 }
             } else {
-                print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+                if !automaticReconciliation {
+                    print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+                }
                 return
             }
         }
@@ -29684,6 +29692,12 @@ export default CMUXSessionRestore;
                 throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
             }
             existing = json
+        }
+
+        let existingHooksValue: Any = existing["hooks"] ?? [String: Any]()
+        if automaticReconciliation,
+           !Self.jsonHookValueContainsCmuxOwnedCommand(existingHooksValue, for: def) {
+            return
         }
 
         var hooks = existing["hooks"] as? [String: Any] ?? [:]
@@ -29829,7 +29843,9 @@ export default CMUXSessionRestore;
 
         if oldString == newString {
             // No-op install; skip the write and the prompt entirely.
-            print("\(def.displayName) hooks already up to date at \(filePath)")
+            if !automaticReconciliation {
+                print("\(def.displayName) hooks already up to date at \(filePath)")
+            }
         } else {
             if !skipConfirm {
                 Self.printInstallPreview(
@@ -29845,10 +29861,12 @@ export default CMUXSessionRestore;
                 }
             }
             try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-            print("\(def.displayName) hooks installed at \(filePath)")
+            if !automaticReconciliation {
+                print("\(def.displayName) hooks installed at \(filePath)")
+            }
         }
 
-        if let note = def.postInstallNote {
+        if !automaticReconciliation, let note = def.postInstallNote {
             print(note)
         }
 
@@ -29894,13 +29912,39 @@ export default CMUXSessionRestore;
                         }
                     }
                     try newContent.write(toFile: configPath, atomically: true, encoding: .utf8)
-                    if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
-                        print("Enabled hooks and approved cmux hooks in \(configPath)")
-                    } else {
-                        print("Enabled hooks in \(configPath)")
+                    if !automaticReconciliation {
+                        if def.name == "codex", !codexHookTrustEntries.isEmpty, trustInstall.installedTrust {
+                            print("Enabled hooks and approved cmux hooks in \(configPath)")
+                        } else {
+                            print("Enabled hooks in \(configPath)")
+                        }
                     }
                 }
             }
+        }
+
+        if def.name == "codex", !automaticReconciliation {
+            Self.garbageCollectCodexHookScripts(
+                retaining: Self.currentCodexWrapperHookScriptFilenames(for: def)
+                    .union(Self.installedCodexHookScriptFilenames(for: def))
+            )
+        }
+    }
+
+    /// Repairs an opted-in persistent Codex channel before wrapper launch.
+    func reconcileCodexPersistentHooksForWrapper() -> Bool {
+        guard let def = Self.agentDef(named: "codex") else { return false }
+        try? installAgentHooks(def, automaticReconciliation: true)
+
+        let fileURL = URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent(def.configFile, isDirectory: false)
+        guard let data = try? Data(contentsOf: fileURL),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hooks = root["hooks"] as? [String: Any] else {
+            return false
+        }
+        return hooks.values.contains {
+            Self.jsonHookValueContainsCmuxOwnedCommand($0, for: def)
         }
     }
 
@@ -32648,7 +32692,28 @@ export default CMUXSessionRestore;
         surfaceId: String? = nil,
         socketPassword: String? = nil
     ) {
-        let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
+        let fallbackHookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
+        let reportedHookEventName = parsedInput.object.flatMap {
+            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+        } ?? parsedInput.rawObject.flatMap {
+            firstString(in: $0, keys: ["hook_event_name", "hookEventName", "event", "event_name"])
+        }
+        let hookEventName: String
+        if source == "codex",
+           let reportedHookEventName,
+           reportedHookEventName.replacingOccurrences(of: "_", with: "").lowercased()
+               == "permissionrequest" {
+            // A single notification handler now owns Codex PermissionRequest.
+            // Preserve the existing non-blocking Feed classification while that
+            // same handler drives the needs-input lifecycle and alert.
+            hookEventName = FeedEventClassifier.classify(
+                source: source,
+                event: reportedHookEventName,
+                toolName: ""
+            ).0
+        } else {
+            hookEventName = fallbackHookEventName
+        }
         guard !hookEventName.isEmpty else { return }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
