@@ -316,6 +316,14 @@ pub struct TerminalBatchClose {
     pub closed: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersistentSessionStateReset {
+    pub session_dir: PathBuf,
+    pub terminal_host_root: PathBuf,
+    pub removed_session_state: bool,
+    pub removed_terminal_hosts: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TerminalRegistryEvent {
     pub revision: u64,
@@ -357,6 +365,64 @@ pub struct WorkspaceRegistry {
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
     _lease: Option<SessionLease>,
+}
+
+pub fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
+    root.join(session_storage_component(session_name))
+}
+
+pub fn reset_persistent_session_state(
+    root: &Path,
+    session_name: &str,
+) -> anyhow::Result<PersistentSessionStateReset> {
+    let session_dir = persistent_session_state_dir(root, session_name);
+    let terminal_host_root = crate::terminal_host_runtime::terminal_host_root(root, session_name);
+    let mut reset = PersistentSessionStateReset {
+        session_dir: session_dir.clone(),
+        terminal_host_root: terminal_host_root.clone(),
+        removed_session_state: false,
+        removed_terminal_hosts: false,
+    };
+    if !root.exists() {
+        return Ok(reset);
+    }
+    if !root.is_dir() {
+        anyhow::bail!("workspace state root is not a directory: {}", root.display());
+    }
+    platform::restrict_directory(root)?;
+    let _lease = if session_dir.exists() {
+        if !session_dir.is_dir() {
+            anyhow::bail!(
+                "workspace session state path is not a directory: {}",
+                session_dir.display()
+            );
+        }
+        platform::restrict_directory(&session_dir)?;
+        Some(SessionLease::acquire(&session_dir.join("writer.lock"))?)
+    } else {
+        None
+    };
+    if session_dir.exists() {
+        fs::remove_dir_all(&session_dir)
+            .with_context(|| format!("remove workspace session state {}", session_dir.display()))?;
+        reset.removed_session_state = true;
+    }
+    if terminal_host_root.exists() {
+        if !terminal_host_root.is_dir() {
+            anyhow::bail!(
+                "terminal host state path is not a directory: {}",
+                terminal_host_root.display()
+            );
+        }
+        fs::remove_dir_all(&terminal_host_root).with_context(|| {
+            format!("remove terminal host state {}", terminal_host_root.display())
+        })?;
+        reset.removed_terminal_hosts = true;
+    }
+    File::open(root)
+        .and_then(|directory| directory.sync_all())
+        .with_context(|| format!("sync workspace state root {}", root.display()))?;
+    Ok(reset)
 }
 
 impl std::fmt::Debug for WorkspaceRegistry {

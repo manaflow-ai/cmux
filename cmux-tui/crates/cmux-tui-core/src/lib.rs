@@ -66,8 +66,10 @@ pub use surface::{
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{
-    FrontendProjection, ProjectionCommit, RegistryCommit, RegistryEvent, RegistrySnapshot,
-    RegistryWorkspace, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    FrontendProjection, PersistentSessionStateReset, ProjectionCommit, RegistryCommit,
+    RegistryEvent, RegistrySnapshot, RegistryWorkspace, UnsupportedWorkspaceRegistrySchema,
+    WorkspaceMutation, WorkspaceRegistry, persistent_session_state_dir,
+    reset_persistent_session_state,
 };
 
 pub use cmux_remote_protocol::REMOTE_SESSION_MESSAGE_MAX_BYTES;

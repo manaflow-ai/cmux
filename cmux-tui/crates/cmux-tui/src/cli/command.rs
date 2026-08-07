@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::io::{self, Read};
+use std::path::PathBuf;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -17,6 +18,7 @@ pub(super) enum ParsedCommand {
 
 pub(super) enum CommandPlan {
     Protocol(RequestPlan),
+    SessionResetState(SessionResetStatePlan),
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
@@ -62,6 +64,12 @@ pub(super) struct PluginPlan {
     pub name: Option<String>,
     pub force: bool,
     pub builtin: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct SessionResetStatePlan {
+    pub session: String,
+    pub state: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -316,6 +324,15 @@ fn parse_session(
             }
             request(ResourceOperation::SessionShutdown, selectors, flags, params)
         }
+        [selector, "reset-state"] => {
+            if !flags.boolean("force") {
+                return Err(UsageError::new("session reset-state requires --force"));
+            }
+            Ok(CommandPlan::SessionResetState(SessionResetStatePlan {
+                session: exact_session_name_for_reset(selector)?,
+                state: flags.take("state"),
+            }))
+        }
         [selector, "config", "reload"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionReloadConfig, selectors, flags, Map::new())
@@ -357,6 +374,18 @@ fn parse_session(
             request(ResourceOperation::SessionTerminalDefaultsUpdate, selectors, flags, params)
         }
         _ => usage("session action"),
+    }
+}
+
+fn exact_session_name_for_reset(selector: &str) -> Result<String, UsageError> {
+    match Selector::parse(selector)
+        .map_err(|_| UsageError::new("session reset-state requires an exact session name"))?
+    {
+        Selector::Name(name) if !name.is_empty() => Ok(name),
+        Selector::Name(_) => Err(UsageError::new("session reset-state requires a non-empty name")),
+        Selector::Current | Selector::Id(_) => Err(UsageError::new(
+            "session reset-state requires an exact session name, not current or an id",
+        )),
     }
 }
 
@@ -2176,6 +2205,55 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
             output,
             1,
         )
+    }
+}
+
+pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStatePlan) -> i32 {
+    let output = global.output;
+    let state_root =
+        match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
+            Some(path) => path,
+            None => {
+                return super::wire::print_local_error(
+                    &json!({
+                        "code": "session.reset_state.no_state_root",
+                        "message": "cannot determine durable state directory; pass --state <path>",
+                        "details": {},
+                        "retryable": false,
+                    }),
+                    output,
+                    1,
+                );
+            }
+        };
+    match cmux_tui_core::reset_persistent_session_state(&state_root, &plan.session) {
+        Ok(reset) => super::wire::print_local_success(
+            &json!({
+                "session": plan.session,
+                "state_root": state_root,
+                "session_dir": reset.session_dir,
+                "terminal_host_root": reset.terminal_host_root,
+                "removed_session_state": reset.removed_session_state,
+                "removed_terminal_hosts": reset.removed_terminal_hosts,
+            }),
+            output,
+        ),
+        Err(error) => super::wire::print_local_error(
+            &json!({
+                "code": "session.reset_state.failed",
+                "message": format!(
+                    "failed to reset saved state for session {:?}: {error}",
+                    plan.session
+                ),
+                "details": {
+                    "session": plan.session,
+                    "state_root": state_root,
+                },
+                "retryable": false,
+            }),
+            output,
+            1,
+        ),
     }
 }
 

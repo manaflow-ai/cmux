@@ -801,6 +801,7 @@ fn workspace_schema_startup_error(
     error: anyhow::Error,
     session: &str,
     socket_path: &Path,
+    state_root: Option<&Path>,
 ) -> anyhow::Error {
     let Some(schema) = error.downcast_ref::<cmux_tui_core::UnsupportedWorkspaceRegistrySchema>()
     else {
@@ -826,7 +827,13 @@ fn workspace_schema_startup_error(
             );
             format!("{}\n  {stop_command}", messages.stop_newer_server)
         }
-        SchemaSocketOwner::Absent => messages.no_server_listening.to_string(),
+        SchemaSocketOwner::Absent => {
+            let reset_command = session_reset_state_command(session, state_root);
+            format!(
+                "{}\n{}\n  {}",
+                messages.no_server_listening, messages.reset_saved_state, reset_command
+            )
+        }
         SchemaSocketOwner::ForcedHandoffUnsupported => {
             messages.forced_handoff_unsupported.to_string()
         }
@@ -846,6 +853,25 @@ fn workspace_schema_startup_error(
         messages.start_separate_session,
         separate_command,
     ))
+}
+
+fn session_reset_state_command(session: &str, state_root: Option<&Path>) -> String {
+    let selector = session_selector_for_command(session);
+    let mut command =
+        format!("{}cmux session {} reset-state", shell_prompt(), shell_quote(&selector));
+    if let Some(state_root) = state_root {
+        command.push_str(" --state ");
+        command.push_str(&shell_quote(&state_root.display().to_string()));
+    }
+    command.push_str(" --force");
+    command
+}
+
+fn session_selector_for_command(session: &str) -> String {
+    match cmux_tui_core::resource::Selector::parse(session) {
+        Ok(cmux_tui_core::resource::Selector::Name(name)) if name == session => session.to_string(),
+        _ => format!("name:{session}"),
+    }
 }
 
 impl Args {
@@ -1432,7 +1458,14 @@ fn run_server(
                 unreachable!("conflicting provider authority inputs rejected above")
             }
         }
-        .map_err(|error| workspace_schema_startup_error(error, &args.session, &socket_path))?;
+        .map_err(|error| {
+            workspace_schema_startup_error(
+                error,
+                &args.session,
+                &socket_path,
+                state_root.as_deref(),
+            )
+        })?;
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);

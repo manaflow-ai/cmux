@@ -95,6 +95,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         }
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Protocol(request) => wire::run(global, request),
+            CommandPlan::SessionResetState(plan) => command::run_session_reset_state(global, plan),
             CommandPlan::Plugin(plugin) => command::run_plugin(global, plugin),
             CommandPlan::ProviderAuthority(authority) => {
                 command::run_provider_authority(global, authority)
@@ -291,6 +292,7 @@ const SESSION_HELP: &str = "\
 USAGE
   cmux session list
   cmux session <selector> open|show|snapshot|ping|shutdown
+  cmux session <name> reset-state --force [--state <path>]
   cmux session <selector> creation <correlation-key> resolve
   cmux session <selector> events [--generation <value> --revision <decimal>]
   cmux session <selector> config reload
