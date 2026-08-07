@@ -82,6 +82,7 @@ struct KeyboardShortcutSettingsFileStoreNoOpPersistenceTests {
                 additionalFallbackPaths: [],
                 notificationCenter: NotificationCenter(),
                 userDefaults: defaults,
+                languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: defaultsSuiteName),
                 startWatching: false
             )
         }
@@ -118,6 +119,7 @@ struct KeyboardShortcutSettingsFileStoreNoOpPersistenceTests {
             additionalFallbackPaths: [],
             notificationCenter: NotificationCenter(),
             userDefaults: defaults,
+            languageSettingsStore: LanguageSettingsStore(defaults: defaults, domainName: defaultsSuiteName),
             startWatching: false
         )
         store.applyDeferredManagedDefaultSideEffects()
