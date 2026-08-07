@@ -69,8 +69,8 @@ final class FeedCoordinator: @unchecked Sendable {
     /// Native approvals observed after an agent's own policy evaluation. These
     /// are status-only: unlike blocking Feed requests, they expose no cmux
     /// approve/deny controls that cannot resolve the agent's native prompt.
-    @MainActor private var observedAttentionStates:
-        [FeedObservedAttentionKey: FeedObservedAttentionState] = [:]
+    @MainActor private var observedAttentionRegistry =
+        AgentObservedAttentionRegistry<FeedAttentionTarget>()
     @MainActor private var observedAttentionConclusions =
         AgentObservedAttentionConclusionLedger()
     @MainActor private let attentionExitMonitor =
@@ -687,7 +687,7 @@ extension FeedCoordinator {
         else {
             return false
         }
-        let key = FeedObservedAttentionKey(
+        let key = AgentObservedAttentionKey(
             source: source,
             sessionId: sessionId,
             observationId: observationId,
@@ -702,7 +702,7 @@ extension FeedCoordinator {
         ) else {
             return false
         }
-        if observedAttentionStates[key] != nil {
+        if observedAttentionRegistry.record(for: key) != nil {
             return true
         }
         guard let surfaced = surfaceAgentAttention(
@@ -712,10 +712,21 @@ extension FeedCoordinator {
         ) else {
             return false
         }
-        observedAttentionStates[key] = FeedObservedAttentionState(
+        let record = AgentObservedAttentionRecord(
+            key: key,
             scopeId: scopeId,
-            processGeneration: processGeneration,
             target: surfaced.target
+        )
+        guard let evicted = observedAttentionRegistry.insert(record) else {
+            // Main-actor serialization makes this unreachable after the lookup
+            // above, but never leak the newly surfaced token if that invariant
+            // changes.
+            concludeBlockingDecisionAttention(surfaced.target)
+            return true
+        }
+        retireObservedAgentAttentionRecords(
+            evicted,
+            recordConclusions: true
         )
 
         if !surfaced.usesRemoteProcessNamespace {
@@ -787,50 +798,135 @@ extension FeedCoordinator {
                 processGeneration: processGeneration
             )
         }
-        let matchingKeys = observedAttentionStates.compactMap {
-            key,
-            state -> FeedObservedAttentionKey? in
-            guard key.source == source,
-                  state.processGeneration == processGeneration,
-                  processDidExit || key.sessionId == sessionId,
-                  observationId == nil
-                    || key.observationId == observationId,
-                  scopeId == nil || state.scopeId == scopeId else {
-                return nil
-            }
-            return key
+        let matchingRecords = observedAttentionRegistry.remove { record in
+            let key = record.key
+            return key.source == source
+                && key.processGeneration == processGeneration
+                && (processDidExit || key.sessionId == sessionId)
+                && (observationId == nil
+                    || key.observationId == observationId)
+                && (scopeId == nil || record.scopeId == scopeId)
         }
-        for key in matchingKeys {
-            guard let state = observedAttentionStates.removeValue(
-                forKey: key
-            ) else {
-                continue
+        retireObservedAgentAttentionRecords(
+            matchingRecords,
+            recordConclusions: false,
+            processExitGeneration:
+                processDidExit ? processGeneration : nil
+        )
+        return matchingRecords.count
+    }
+
+    /// Reconciles an accepted idle hook with native approval observations.
+    ///
+    /// An idle hook for the exact process generation is authoritative evidence
+    /// that its panel is no longer waiting on a native prompt. This gives
+    /// remote sessions a second deterministic conclusion path without a local
+    /// PID monitor or a timing-based expiry.
+    @MainActor
+    func reconcileObservedAgentAttention(
+        workspaceId: UUID,
+        panelId: UUID,
+        statusKey: String,
+        lifecycle: AgentHibernationLifecycleState,
+        processGeneration: AgentPIDProcessIdentity?
+    ) {
+        guard lifecycle == .idle, let processGeneration else { return }
+        let matchingRecords = observedAttentionRegistry.remove { record in
+            record.target.workspaceId == workspaceId
+                && record.target.panelId == panelId
+                && record.target.statusKey == statusKey
+                && record.key.processGeneration == processGeneration
+        }
+        retireObservedAgentAttentionRecords(
+            matchingRecords,
+            recordConclusions: true
+        )
+    }
+
+    /// Retires every attention contribution owned by a definitively closed
+    /// panel. Transfers skip this path so their reconciliation tokens follow
+    /// the panel to its new owner.
+    @MainActor
+    func retireAgentAttention(workspaceId: UUID, panelId: UUID) {
+        let observed = observedAttentionRegistry.remove { record in
+            record.target.workspaceId == workspaceId
+                && record.target.panelId == panelId
+        }
+        retireObservedAgentAttentionRecords(
+            observed,
+            recordConclusions: true
+        )
+
+        let remainingTargets = pendingAttentionStates.keys.filter {
+            $0.workspaceId == workspaceId && $0.panelId == panelId
+        }
+        for target in remainingTargets {
+            concludeBlockingDecisionAttention(target)
+        }
+    }
+
+    /// Retires native attention after the owning reconciliation model has
+    /// already accepted an exact process-exit observation. This covers remote
+    /// PID namespaces where the host intentionally installs no local monitor.
+    @MainActor
+    func retireObservedAgentAttentionForProcessExit(
+        workspaceId: UUID,
+        panelId: UUID,
+        statusKey: String,
+        processGeneration: AgentPIDProcessIdentity
+    ) {
+        let matchingRecords = observedAttentionRegistry.remove { record in
+            record.target.workspaceId == workspaceId
+                && record.target.panelId == panelId
+                && record.target.statusKey == statusKey
+                && record.key.processGeneration == processGeneration
+        }
+        retireObservedAgentAttentionRecords(
+            matchingRecords,
+            recordConclusions: true
+        )
+    }
+
+    @MainActor
+    private func retireObservedAgentAttentionRecords(
+        _ records: [AgentObservedAttentionRecord<FeedAttentionTarget>],
+        recordConclusions: Bool,
+        processExitGeneration: AgentPIDProcessIdentity? = nil
+    ) {
+        for record in records {
+            if recordConclusions {
+                observedAttentionConclusions.record(
+                    source: record.key.source,
+                    sessionId: record.key.sessionId,
+                    observationId: record.key.observationId,
+                    scopeId: record.scopeId,
+                    processGeneration: record.key.processGeneration
+                )
             }
-            if processDidExit {
+            if let processExitGeneration {
                 concludeBlockingDecisionAttention(
-                    state.target,
-                    processExitGeneration: processGeneration
+                    record.target,
+                    processExitGeneration: processExitGeneration
                 )
             } else {
-                concludeBlockingDecisionAttention(state.target)
+                concludeBlockingDecisionAttention(record.target)
             }
         }
 
-        let generationStillObserved = observedAttentionStates.contains {
-            key,
-            state in
-            key.source == source
-                && state.processGeneration == processGeneration
-        }
-        if !generationStillObserved {
+        for record in records where !observedAttentionRegistry.contains(
+            where: {
+                $0.key.source == record.key.source
+                    && $0.key.processGeneration
+                        == record.key.processGeneration
+            }
+        ) {
             attentionExitMonitor.cancel(
                 key: Self.observedAttentionProcessMonitorKey(
-                    source: source,
-                    generation: processGeneration
+                    source: record.key.source,
+                    generation: record.key.processGeneration
                 )
             )
         }
-        return matchingKeys.count
     }
 
     @MainActor

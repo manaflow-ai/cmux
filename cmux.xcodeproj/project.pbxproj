@@ -1055,8 +1055,6 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		8672E0028672E0028672E002 /* FeedIngressDeliveryLane.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0018672E0018672E001 /* FeedIngressDeliveryLane.swift */; };
 		8672E00E8672E00E8672E00E /* FeedIngressDeliveryMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */; };
 		8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */; };
-		A9523F00000000000000002E /* FeedObservedAttentionKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F00000000000000000D /* FeedObservedAttentionKey.swift */; };
-		A9523F00000000000000002F /* FeedObservedAttentionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F00000000000000000E /* FeedObservedAttentionState.swift */; };
 		FEED0000000000000000F005 /* FeedPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F004 /* FeedPanelView.swift */; };
 		FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F010 /* FeedPanelViewModel.swift */; };
 		A9523F000000000000000030 /* FeedPendingAttentionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9523F00000000000000000F /* FeedPendingAttentionState.swift */; };
@@ -3701,8 +3699,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		8672E0018672E0018672E001 /* FeedIngressDeliveryLane.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressDeliveryLane.swift; sourceTree = "<group>"; };
 		8672E00D8672E00D8672E00D /* FeedIngressDeliveryMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressDeliveryMetadata.swift; sourceTree = "<group>"; };
 		8672E0058672E0058672E005 /* FeedIngressSynchronousResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedIngressSynchronousResult.swift; sourceTree = "<group>"; };
-		A9523F00000000000000000D /* FeedObservedAttentionKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedObservedAttentionKey.swift; sourceTree = "<group>"; };
-		A9523F00000000000000000E /* FeedObservedAttentionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedObservedAttentionState.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F004 /* FeedPanelView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelView.swift; sourceTree = "<group>"; };
 		FEED0000000000000000F010 /* FeedPanelViewModel.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedPanelViewModel.swift; sourceTree = "<group>"; };
 		A9523F00000000000000000F /* FeedPendingAttentionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FeedPendingAttentionState.swift; sourceTree = "<group>"; };
@@ -8072,8 +8068,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				A9523F00000000000000000B /* AgentObservedAttentionConclusionLedger.swift */,
 				FEED0000000000000000F001 /* FeedCoordinator.swift */,
 				A9523F00000000000000000C /* FeedAttentionTarget.swift */,
-				A9523F00000000000000000D /* FeedObservedAttentionKey.swift */,
-				A9523F00000000000000000E /* FeedObservedAttentionState.swift */,
 				A9523F00000000000000000F /* FeedPendingAttentionState.swift */,
 				A9523F000000000000000010 /* FeedSurfacedAttention.swift */,
 				8672D0028672D0028672D002 /* FeedCoordinator+DeliveryTarget.swift */,
@@ -9135,8 +9129,6 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 				8672E0028672E0028672E002 /* FeedIngressDeliveryLane.swift in Sources */,
 				8672E00E8672E00E8672E00E /* FeedIngressDeliveryMetadata.swift in Sources */,
 				8672E0068672E0068672E006 /* FeedIngressSynchronousResult.swift in Sources */,
-				A9523F00000000000000002E /* FeedObservedAttentionKey.swift in Sources */,
-				A9523F00000000000000002F /* FeedObservedAttentionState.swift in Sources */,
 				FEED0000000000000000F005 /* FeedPanelView.swift in Sources */,
 				FEED0000000000000000F011 /* FeedPanelViewModel.swift in Sources */,
 				A9523F000000000000000030 /* FeedPendingAttentionState.swift in Sources */,

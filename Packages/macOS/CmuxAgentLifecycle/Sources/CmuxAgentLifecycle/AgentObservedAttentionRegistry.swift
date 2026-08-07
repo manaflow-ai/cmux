@@ -53,7 +53,15 @@ public nonisolated struct AgentObservedAttentionRegistry<Target: Sendable>:
             record: record
         )
 
-        return []
+        var evicted: [AgentObservedAttentionRecord<Target>] = []
+        while recordsByKey.count > maximumCount,
+              let oldest = recordsByKey.min(by: {
+                  $0.value.insertionSequence < $1.value.insertionSequence
+              }) {
+            recordsByKey.removeValue(forKey: oldest.key)
+            evicted.append(oldest.value.record)
+        }
+        return evicted
     }
 
     /// Removes and returns every record matching an owner-defined condition.

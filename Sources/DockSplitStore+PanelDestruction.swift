@@ -17,6 +17,10 @@ extension DockSplitStore {
     func discardPanelStateAndClose(panelId: UUID) -> (any Panel)? {
         cancelDockReactGrabTask(targetingPanelId: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
+        FeedCoordinator.shared.retireAgentAttention(
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
         panelCancellables[panelId]?.cancel()
         panelCancellables.removeValue(forKey: panelId)
         AppDelegate.shared?.notificationStore?.clearNotifications(

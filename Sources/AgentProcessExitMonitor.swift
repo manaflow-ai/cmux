@@ -8,11 +8,15 @@ import Foundation
 final class AgentProcessExitMonitor {
     private var observationsByKey: [String: AgentProcessExitObservation] = [:]
 
-    isolated deinit {
-        // Workspace and dock teardown cancel eagerly; this closes the final
-        // ownership edge if an owner is released before its normal teardown.
-        for observation in observationsByKey.values {
-            observation.source.cancel()
+    deinit {
+        // This app-owned monitor is created and released on the main actor.
+        // `isolated deinit` cannot be compiled by Xcode 16.4, which cmux uses
+        // for Intel macOS 14 verification, so assert that owner invariant while
+        // keeping teardown synchronous on every supported toolchain.
+        MainActor.assumeIsolated {
+            for observation in observationsByKey.values {
+                observation.source.cancel()
+            }
         }
     }
 

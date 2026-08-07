@@ -380,14 +380,16 @@ extension DockSplitStore {
         return didReplaceRuntime
     }
 
+    @discardableResult
     func setAgentLifecycle(
         key: String,
         panelId: UUID,
         lifecycle: AgentHibernationLifecycleState,
         processGeneration: AgentPIDProcessIdentity? = nil
-    ) {
+    ) -> Bool {
+        var accepted = false
         mutateAgentRuntime(panelId: panelId) {
-            _ = $0.agentLifecycleReconciliationState.setHookLifecycle(
+            accepted = $0.agentLifecycleReconciliationState.setHookLifecycle(
                 key: key,
                 panelId: panelId,
                 lifecycle: lifecycle,
@@ -397,6 +399,7 @@ extension DockSplitStore {
                 processGeneration: processGeneration
             )
         }
+        return accepted
     }
 
     @discardableResult
