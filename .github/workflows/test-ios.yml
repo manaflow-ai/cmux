@@ -439,6 +439,12 @@ jobs:
               defaults import com.apple.iphonesimulator "$SIMULATOR_PREFS"
               plutil -extract "DevicePreferences.${SIMULATOR_ID}.ConnectHardwareKeyboard" \
                 raw -o - "$SIMULATOR_PREFS"
+              # A headless CoreSimulator boot does not attach the Simulator host
+              # that owns the software-keyboard presentation. Open the selected
+              # device in this Xcode's Simulator before XCTest focuses the field.
+              defaults write com.apple.iphonesimulator CurrentDeviceUDID "$SIMULATOR_ID"
+              open "${DEVELOPER_DIR}/Applications/Simulator.app" \
+                --args -CurrentDeviceUDID "$SIMULATOR_ID"
             fi
             xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
             xcrun simctl bootstatus "$SIMULATOR_ID" -b
