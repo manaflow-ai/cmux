@@ -175,4 +175,87 @@ struct SudoPolicyRegressionTests {
 
         #expect(inventory[approvedScriptURL.standardizedFileURL.path]?.isEmpty == true)
     }
+
+    @Test("Spool admission bounds pending approval state")
+    func pendingAdmissionIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let createdAt = Date.now
+
+        for index in 0..<8 {
+            _ = try fixture.enqueue(id: "bounded-pending-\(index)", createdAt: createdAt)
+        }
+
+        #expect(throws: (any Error).self) {
+            _ = try fixture.enqueue(id: "bounded-pending-overflow", createdAt: createdAt)
+        }
+    }
+
+    @Test("Spool maintenance removes abandoned terminal artifacts")
+    func terminalArtifactRetentionIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let id = "abandoned-terminal-artifacts"
+        let archiveURL = fixture.paths.archive.appendingPathComponent("\(id).sh")
+        let resultURL = fixture.paths.results.appendingPathComponent("\(id).json")
+        let lockURL = fixture.paths.locks.appendingPathComponent("\(id).lock")
+        let oldDate = Date.now.addingTimeInterval(-48 * 60 * 60)
+
+        try Data("archived secret\n".utf8).write(to: archiveURL)
+        _ = try fixture.store.writeResultIfAbsent(
+            SudoResult(id: id, status: .completed, exitCode: 0)
+        )
+        try Data().write(to: lockURL)
+        for url in [archiveURL, resultURL, lockURL] {
+            try FileManager.default.setAttributes(
+                [.modificationDate: oldDate],
+                ofItemAtPath: url.path
+            )
+        }
+
+        try fixture.store.ensureDirectories()
+
+        #expect(!FileManager.default.fileExists(atPath: archiveURL.path))
+        #expect(!FileManager.default.fileExists(atPath: resultURL.path))
+        #expect(!FileManager.default.fileExists(atPath: lockURL.path))
+    }
+
+    @Test("Audit retention is bounded")
+    func auditRetentionIsBounded() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let line = String(repeating: "a", count: 512)
+
+        for _ in 0..<2_500 {
+            fixture.store.appendAudit(line)
+        }
+
+        let size = try #require(
+            FileManager.default.attributesOfItem(atPath: fixture.paths.auditLog.path)[.size]
+                as? NSNumber
+        )
+        #expect(size.intValue <= 1_024 * 1_024)
+    }
+
+    @Test("Process-tree expansion inspects each generation a bounded number of times")
+    func processTreeExpansionIsLinear() {
+        let identities = (0..<100).map { index in
+            SudoProcessIdentity(
+                processIdentifier: Int32(10_000 + index),
+                startSeconds: 1,
+                startMicroseconds: Int32(index)
+            )
+        }
+        let inspector = CountingSudoProcessInspector(chain: identities)
+        let terminator = SudoProcessTreeTerminator(
+            inspector: inspector,
+            signaler: TestSudoProcessSignaler(),
+            terminationGraceSeconds: 0,
+            killGraceSeconds: 0
+        )
+
+        _ = terminator.terminate(root: identities[0])
+
+        #expect(inspector.directChildQueryCount <= identities.count * 2)
+    }
 }
