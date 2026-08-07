@@ -76,6 +76,17 @@ It excludes generated bundles, build outputs, vendored trees, and review-tool me
 Biome formatting and import sorting are disabled for now; do not wire this into required CI until
 the remaining source lint diagnostics are paid down.
 
+## Secret Scanning
+
+Run the same gitleaks scan used by CI from the repository root:
+
+```bash
+./scripts/secret-scan.sh
+```
+
+This scans the current working tree. It is not a replacement for deeper
+history scans such as `gitleaks git` when auditing past commits.
+
 ## Rebuilding GhosttyKit
 
 If you make changes to the ghostty submodule, rebuild the xcframework:
