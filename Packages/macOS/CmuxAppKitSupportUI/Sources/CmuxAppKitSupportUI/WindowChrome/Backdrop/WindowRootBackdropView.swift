@@ -125,65 +125,25 @@ final class WindowRootBackdropView: NSView {
                 return Self.isFiniteVisibleRect(clipped) ? clipped : nil
             }
         }
-        let unionRects = Self.exactRectangleUnion(localRects)
         let path = CGMutablePath()
         if Self.isFiniteVisibleRect(bounds) {
             path.addRect(bounds)
         }
-        for rect in unionRects {
-            path.addRect(rect)
+        if !localRects.isEmpty {
+            // Normalize once so overlapping panes form one union contour before
+            // that contour becomes an even-odd hole in the outer bounds.
+            let exclusions = CGMutablePath()
+            exclusions.addRects(localRects)
+            path.addPath(exclusions.normalized(using: .winding))
         }
 
-        hasVisibleExclusions = !unionRects.isEmpty
+        hasVisibleExclusions = !localRects.isEmpty
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         exclusionMaskLayer.frame = rootLayer.bounds
         exclusionMaskLayer.path = path
         rootLayer.isOpaque = isOpaque
         CATransaction.commit()
-    }
-
-    /// Decomposes a rectangle union into non-overlapping horizontal slabs.
-    private static func exactRectangleUnion(_ rects: [NSRect]) -> [NSRect] {
-        let rects = rects.map(\.standardized).filter(isFiniteVisibleRect)
-        guard !rects.isEmpty else { return [] }
-
-        let yEdges = Array(Set(rects.flatMap { [$0.minY, $0.maxY] })).sorted()
-        var unionRects: [NSRect] = []
-        for index in 0..<(yEdges.count - 1) {
-            let minY = yEdges[index]
-            let maxY = yEdges[index + 1]
-            guard maxY > minY else { continue }
-
-            let spans = rects
-                .filter { $0.minY < maxY && $0.maxY > minY }
-                .map { (minX: $0.minX, maxX: $0.maxX) }
-                .sorted {
-                    $0.minX == $1.minX ? $0.maxX < $1.maxX : $0.minX < $1.minX
-                }
-            guard var current = spans.first else { continue }
-
-            for span in spans.dropFirst() {
-                if span.minX <= current.maxX {
-                    current.maxX = max(current.maxX, span.maxX)
-                } else {
-                    unionRects.append(NSRect(
-                        x: current.minX,
-                        y: minY,
-                        width: current.maxX - current.minX,
-                        height: maxY - minY
-                    ))
-                    current = span
-                }
-            }
-            unionRects.append(NSRect(
-                x: current.minX,
-                y: minY,
-                width: current.maxX - current.minX,
-                height: maxY - minY
-            ))
-        }
-        return unionRects
     }
 
     private static func isFiniteVisibleRect(_ rect: NSRect) -> Bool {
