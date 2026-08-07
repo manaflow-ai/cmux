@@ -194,16 +194,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(tailscaleMethod.waitForExistence(timeout: 4))
         XCTAssertTrue(tailscaleMethod.label.contains("Tailscale Only"))
         tap(tailscaleMethod, in: app)
-        // An install without a device-local Tailscale grant must collect the
-        // Mac's pairing code before it persists the strict method. Cancelling
-        // keeps the last usable automatic method instead of disconnecting.
+        // An install without a device-local Tailscale grant opens pairing, but
+        // the strict user choice remains selected if pairing is cancelled.
         let stagedScannerPreview = element("MobilePairingScannerPreview")
         XCTAssertTrue(stagedScannerPreview.waitForExistence(timeout: 4))
         app.buttons["MobileScannerCancelButton"].tap()
         assertPageVisible(connectScene, timeout: 4)
-        XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
-        XCTAssertTrue(automaticMethod.isSelected)
-        XCTAssertFalse(tailscaleMethod.isSelected)
+        XCTAssertTrue(app.staticTexts["Connect over Tailscale"].waitForExistence(timeout: 4))
+        XCTAssertFalse(automaticMethod.isSelected)
+        XCTAssertTrue(tailscaleMethod.isSelected)
         capture("onboarding-04-resumed-connect")
 
         let qrFallbackButton = app.buttons["MobileOnboardingSecondaryButton"]
