@@ -526,9 +526,16 @@ final class AgentChatTranscriptService {
 
     @discardableResult
     func ensureTailer(for record: AgentChatSessionRecord) -> AgentChatTranscriptTailer? {
-        ensureTailer(for: record) {
-            resolver.boundedTranscriptPath(for: record)
+        if let existing = tailers[record.sessionID] {
+            return existing
         }
+        guard !failedResolutions.contains(record.sessionID),
+              let boundedPath = resolver.boundedTranscriptPath(for: record) else {
+            // Eager observation must not cache a missing bounded path as a
+            // failed explicit-history lookup. A later hook can still provide it.
+            return nil
+        }
+        return ensureTailer(for: record) { boundedPath }
     }
 
     @discardableResult
@@ -604,6 +611,9 @@ final class AgentChatTranscriptService {
         updateLatestTranscriptSeq(sessionID: sessionID, messages: batch.appended + batch.updated)
         if let completedAt = Self.completedAssistantTurnTimestamp(in: batch.appended) {
             registry.noteAssistantTurnCompleted(sessionID: sessionID, at: completedAt)
+            if let completedRecord = registry.record(sessionID: sessionID) {
+                scheduleArtifactCapture(for: completedRecord)
+            }
         }
     }
 

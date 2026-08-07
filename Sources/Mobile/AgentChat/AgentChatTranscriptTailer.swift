@@ -32,6 +32,7 @@ actor AgentChatTranscriptTailer {
     private let maxInitialLines: Int
     private let maxInitialBytes: Int
     private let maxCachedMessages: Int
+    private let incrementalReadChunkBytes: Int
 
     private var cache: [ChatMessage] = []
     private var parseState = ChatTranscriptParseState()
@@ -41,8 +42,7 @@ actor AgentChatTranscriptTailer {
     /// rotation is detected even when the new file is the same size or
     /// larger (seeking to the old offset would otherwise skip its head).
     private var fileInode: UInt64?
-    private var pendingFragment = Data()
-    private var discardsUntilNextNewline = false
+    private var incrementalLineBuffer: AgentChatTranscriptIncrementalLineBuffer
     private var headTruncated = false
     private var watchTask: Task<Void, Never>?
     private var watcher: FileWatcher?
@@ -58,6 +58,9 @@ actor AgentChatTranscriptTailer {
     ///   - maxInitialLines: Backfill bound for the first read.
     ///   - maxInitialBytes: Maximum transcript suffix bytes read initially.
     ///   - maxCachedMessages: In-memory cache cap; oldest fall out.
+    ///   - maximumIncrementalLineBytes: Maximum retained bytes for one live
+    ///     JSONL record before it is discarded through the next newline.
+    ///   - incrementalReadChunkBytes: Maximum allocation for one live file read.
     ///   - onBatch: Receives live change batches after the initial load.
     init(
         sessionID: String,
@@ -66,6 +69,8 @@ actor AgentChatTranscriptTailer {
         maxInitialLines: Int = 2000,
         maxInitialBytes: Int = AgentChatTranscriptInitialTailReader.defaultMaximumBytes,
         maxCachedMessages: Int = 4000,
+        maximumIncrementalLineBytes: Int = AgentChatTranscriptInitialTailReader.defaultMaximumBytes,
+        incrementalReadChunkBytes: Int = 64 * 1024,
         onBatch: @escaping @Sendable (Batch) async -> Void
     ) {
         self.sessionID = sessionID
@@ -77,6 +82,13 @@ actor AgentChatTranscriptTailer {
             AgentChatTranscriptInitialTailReader.defaultMaximumBytes
         )
         self.maxCachedMessages = maxCachedMessages
+        self.incrementalReadChunkBytes = min(max(incrementalReadChunkBytes, 1), 256 * 1024)
+        self.incrementalLineBuffer = AgentChatTranscriptIncrementalLineBuffer(
+            maximumLineBytes: min(
+                max(maximumIncrementalLineBytes, 1),
+                AgentChatTranscriptInitialTailReader.defaultMaximumBytes
+            )
+        )
         self.onBatch = onBatch
     }
 
@@ -169,12 +181,15 @@ actor AgentChatTranscriptTailer {
             ? reverseNewlines[retainedLineLimit] + 1
             : 0
         let lastCompleteEnd = reverseNewlines.first.map { $0 + 1 } ?? 0
-        pendingFragment = lastCompleteEnd < data.count
+        let pendingFragment = lastCompleteEnd < data.count
             ? Data(data[lastCompleteEnd...])
             : Data()
-        discardsUntilNextNewline = snapshot.discardsUntilNextNewline
+        let discardedInitialFragment = incrementalLineBuffer.reset(
+            pendingFragment: pendingFragment,
+            discardsUntilNextNewline: snapshot.discardsUntilNextNewline
+        )
         byteOffset = snapshot.fileSize
-        headTruncated = snapshot.headTruncated || parseStart > 0
+        headTruncated = snapshot.headTruncated || parseStart > 0 || discardedInitialFragment
         let retainedByteOffset = snapshot.retainedStartOffset + UInt64(parseStart)
         let startingSequence = headTruncated
             ? Int(min(retainedByteOffset, UInt64(Int.max - retainedLineLimit)))
@@ -212,8 +227,7 @@ actor AgentChatTranscriptTailer {
             // heuristics can't always detect that (codex line-N ids repeat).
             byteOffset = 0
             lineCount = 0
-            pendingFragment = Data()
-            discardsUntilNextNewline = false
+            incrementalLineBuffer.reset()
             cache = []
             parseState = ChatTranscriptParseState()
             headTruncated = false
@@ -226,28 +240,29 @@ actor AgentChatTranscriptTailer {
             return
         }
         guard size > byteOffset else { return }
-        try? handle.seek(toOffset: byteOffset)
-        guard let newData = try? handle.readToEnd(), !newData.isEmpty else { return }
-        byteOffset += UInt64(newData.count)
-
-        var buffer = pendingFragment
-        buffer.append(newData)
-        var lines: [String] = []
-        var sliceStart = buffer.startIndex
-        if discardsUntilNextNewline {
-            guard let boundary = buffer.firstIndex(of: 0x0A) else {
-                pendingFragment = Data()
-                return
+        guard (try? handle.seek(toOffset: byteOffset)) != nil else { return }
+        var remainingByteCount = size - byteOffset
+        while remainingByteCount > 0, !Task.isCancelled {
+            let requestedCount = Int(min(
+                remainingByteCount,
+                UInt64(incrementalReadChunkBytes)
+            ))
+            guard let newData = try? handle.read(upToCount: requestedCount),
+                  !newData.isEmpty else {
+                break
             }
-            sliceStart = buffer.index(after: boundary)
-            discardsUntilNextNewline = false
-            lineCount += 1
+            byteOffset += UInt64(newData.count)
+            remainingByteCount -= UInt64(newData.count)
+            await consumeIncrementalData(newData)
         }
-        for index in buffer.indices where index >= sliceStart && buffer[index] == 0x0A {
-            lines.append(String(decoding: buffer[sliceStart..<index], as: UTF8.self))
-            sliceStart = buffer.index(after: index)
+    }
+
+    private func consumeIncrementalData(_ data: Data) async {
+        let framed = incrementalLineBuffer.append(data)
+        if framed.discardedOversizedLine {
+            headTruncated = true
         }
-        pendingFragment = Data(buffer[sliceStart...])
+        let lines = framed.lines
         guard !lines.isEmpty else { return }
 
         let startingSeq = lineCount
