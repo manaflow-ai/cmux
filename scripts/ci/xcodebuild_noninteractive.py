@@ -69,6 +69,19 @@ def post_test_timeout_seconds() -> float | None:
     return seconds
 
 
+def expects_swift_testing() -> bool:
+    raw = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING", "")
+    if raw in ("", "0"):
+        return False
+    if raw == "1":
+        return True
+    print(
+        "CMUX_XCODEBUILD_NONINTERACTIVE_EXPECT_SWIFT_TESTING must be 0 or 1",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+
+
 def terminate_child(pid: int) -> None:
     try:
         os.killpg(pid, signal.SIGTERM)
@@ -133,6 +146,7 @@ def main() -> int:
 
     timeout = idle_timeout_seconds()
     post_test_timeout = post_test_timeout_seconds()
+    swift_testing_expected = expects_swift_testing()
     deadline = time.monotonic() + timeout if timeout else None
     post_test_deadline: float | None = None
     selected_tests_result: str | None = None
@@ -271,6 +285,8 @@ def main() -> int:
             return 0
         if "failed" in (selected_tests_result, swift_testing_result):
             return POST_TEST_FAILED_EXIT_CODE
+        if swift_testing_expected and swift_testing_result is None:
+            return TIMEOUT_EXIT_CODE
         if "passed" in (selected_tests_result, swift_testing_result):
             return 0
         return TIMEOUT_EXIT_CODE
