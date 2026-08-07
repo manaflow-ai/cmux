@@ -407,6 +407,122 @@ struct ClaudeTaskSyncHookTests {
         }
     }
 
+    @Test("Automatic teams resolve their shared task list from the hook agent id")
+    func resolvesAutomaticTeamTaskListFromAgentID() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-auto-team")
+        defer { context.cleanup() }
+        let workspaceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let surfaceId = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+        let leaderSessionId = "automatic-team-leader"
+        let teammateSessionId = "automatic-team-teammate"
+        let teammateAgentId = "agent-teammate"
+        let teamName = "session-automatic-team"
+        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        try ClaudeHookLiveDeliveryHarness.writeSessionStore(
+            to: context.storeURL,
+            sessionId: leaderSessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: context.root.path,
+            markActive: true
+        )
+
+        let taskDirectory = context.root
+            .appendingPathComponent(".claude/tasks/\(teamName)", isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Claim shared task","activeForm":"Claiming shared task","status":"in_progress"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+        let teamDirectory = context.root
+            .appendingPathComponent(".claude/teams/\(teamName)", isDirectory: true)
+        try FileManager.default.createDirectory(at: teamDirectory, withIntermediateDirectories: true)
+        try Data(
+            #"{"name":"\#(teamName)","members":[{"agentId":"\#(teammateAgentId)"}]}"#.utf8
+        ).write(to: teamDirectory.appendingPathComponent("config.json"))
+
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_MANAGED_SUBAGENT"] = "1"
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: teammateSessionId,
+            toolName: "TaskUpdate",
+            standardInput: #"{"session_id":"\#(teammateSessionId)","hook_event_name":"PostToolUse","agent_id":"\#(teammateAgentId)","tool_name":"TaskUpdate","tool_input":{"taskId":"1","owner":"teammate","status":"in_progress"},"tool_response":{"success":true,"taskId":"1","updatedFields":["owner","status"],"statusChange":{"from":"pending","to":"in_progress"}}}"#
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        let reconciliation = try #require(reconcileRequests(in: context).last)
+        #expect(reconciliation["owner_id"] as? String == "claude:\(teamName)")
+        let items = try #require(reconciliation["items"] as? [[String: Any]])
+        #expect(items.compactMap { $0["text"] as? String } == ["Claiming shared task"])
+        let record = try #require(
+            try ClaudeHookLiveDeliveryHarness.sessionRecord(
+                in: context.storeURL,
+                sessionId: teammateSessionId
+            )
+        )
+        #expect(record["claudeTaskDirectoryName"] as? String == teamName)
+    }
+
+    @Test("An all-completed snapshot preserves Feed history and clears workspace-owned todos")
+    func clearsWorkspaceOwnerForAllCompletedSnapshot() throws {
+        let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "task-sync-completed")
+        defer { context.cleanup() }
+        let workspaceId = "dddddddd-dddd-dddd-dddd-dddddddddddd"
+        let surfaceId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        let sessionId = "completed-list-session"
+        let taskListID = "completed-list"
+        let mutationSeen = ClaudeHookLiveDeliveryHarness.startTaskSyncServer(
+            context: context,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId
+        )
+        let taskDirectory = context.root
+            .appendingPathComponent(".claude/tasks/\(taskListID)", isDirectory: true)
+        try FileManager.default.createDirectory(at: taskDirectory, withIntermediateDirectories: true)
+        try writeTask(
+            #"{"id":"1","subject":"Finished task","status":"completed"}"#,
+            named: "1.json",
+            in: taskDirectory
+        )
+
+        var environment = ClaudeHookLiveDeliveryHarness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CLAUDE_CODE_TASK_LIST_ID"] = taskListID
+        let result = runHook(
+            context: context,
+            environment: environment,
+            sessionId: sessionId,
+            toolName: "TaskUpdate"
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        #expect(mutationSeen.wait(timeout: .now() + 5) == .success)
+        let feedTodos = context.state.snapshot().compactMap(feedEvent)
+            .compactMap { $0["tool_input"] as? [String: Any] }
+            .compactMap { $0["todos"] as? [[String: Any]] }
+            .last
+        #expect(feedTodos?.compactMap { $0["status"] as? String } == ["completed"])
+        let checklistItems = try #require(
+            reconcileRequests(in: context).last?["items"] as? [[String: Any]]
+        )
+        #expect(checklistItems.isEmpty)
+    }
+
     private func runHook(
         context: ClaudeHookLiveDeliveryHarness.Context,
         environment: [String: String],
