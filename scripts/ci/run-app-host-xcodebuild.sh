@@ -110,6 +110,21 @@ kill_stale_app_host() {
     "$CMUX_RESOLVED_SYSTEM_TEMP_ROOT"
 }
 
+canonicalize_reported_config_path() {
+  local reported_path="$1"
+  case "$reported_path" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+
+  python3 -c '
+import os
+import sys
+
+sys.stdout.write(os.path.realpath(sys.argv[1]))
+' "$reported_path"
+}
+
 validate_app_host_config_paths() {
   local log_path="$1"
   local require_evidence="$2"
@@ -122,7 +137,8 @@ validate_app_host_config_paths() {
 
   local expected_config_path
   expected_config_path="${app_host_home%/}/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
-  local matches scan_status line reported_path
+  local matches scan_status line reported_path canonical_reported_path
+  local found_config_evidence=0
   if matches="$(grep -E 'cmux DEV.*\[(config|default)\].*path=.*(Library/Application Support/com\.mitchellh\.ghostty/|/\.config/ghostty/)' "$log_path")"; then
     scan_status=0
   else
@@ -140,7 +156,17 @@ validate_app_host_config_paths() {
   if [ -n "$matches" ]; then
     while IFS= read -r line; do
       reported_path="${line#*path=}"
-      case "$reported_path" in
+      # PTY output uses CRLF. Strip only its line-ending carriage return before
+      # resolving filesystem aliases and symlinks through the real path.
+      reported_path="${reported_path%$'\r'}"
+      if ! canonical_reported_path="$(
+        canonicalize_reported_config_path "$reported_path"
+      )"; then
+        echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
+        echo "$line" >&2
+        return 1
+      fi
+      case "$canonical_reported_path" in
         "$app_host_home"|"${app_host_home%/}/"*) ;;
         *)
           echo "FAIL: Ghostty accessed configuration outside the isolated app-host home" >&2
@@ -148,19 +174,21 @@ validate_app_host_config_paths() {
           return 1
           ;;
       esac
+      if [ "$canonical_reported_path" = "$expected_config_path" ]; then
+        case "$line" in
+          *"[default] reading configuration file path="* \
+            | *"[config] reading configuration file path="*)
+            found_config_evidence=1
+            ;;
+        esac
+      fi
     done <<< "$matches"
   fi
 
-  if [ "$require_evidence" = "1" ]; then
-    if ! grep -Fq \
-      "[default] reading configuration file path=$expected_config_path" \
-      "$log_path" \
-      && ! grep -Fq \
-        "[config] reading configuration file path=$expected_config_path" \
-        "$log_path"; then
-      echo "FAIL: app-host configuration evidence is missing" >&2
-      return 1
-    fi
+  if [ "$require_evidence" = "1" ] \
+    && [ "$found_config_evidence" != "1" ]; then
+    echo "FAIL: app-host configuration evidence is missing" >&2
+    return 1
   fi
 }
 
