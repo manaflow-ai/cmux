@@ -169,22 +169,51 @@ import Testing
         #expect(Set(after.values).count == 3)
     }
 
+    /// A deleted workspace's color must go back into circulation, otherwise a
+    /// long-lived install slowly runs out of colors.
     @Test
-    func prunesAssignmentsForWorkspacesThatNoLongerExist() {
+    func aDeletedWorkspaceReleasesItsColorForReuse() {
         let defaults = Self.suite()
         let ids = (0..<3).map { _ in UUID() }
-        Self.assign(count: 3, defaults: defaults, ids: ids)
+        let before = Self.assign(count: 3, defaults: defaults, ids: ids)
 
-        let survivor = [ids[0]]
+        let survivor = ids[0]
+        let newId = UUID()
+        let live = [survivor, newId]
         let after = WorkspaceAutoColorAssignmentStore.reconcile(
-            needingAssignment: survivor,
-            liveIds: Set(survivor),
+            needingAssignment: live,
+            liveIds: Set(live),
             manualColorHexes: [],
             palette: Self.palette,
             defaults: defaults
         )
 
-        #expect(after.count == 1)
+        #expect(after[survivor.uuidString] == before[survivor])
+        let freed = [before[ids[1]], before[ids[2]]].compactMap { $0 }
+        #expect(freed.contains(after[newId.uuidString] ?? ""))
+    }
+
+    /// Entries for workspaces the caller cannot see are kept, because a caller
+    /// only sees one window and a partial list would otherwise delete the rest.
+    @Test
+    func doesNotDeleteAssignmentsForWorkspacesItCannotSee() {
+        let defaults = Self.suite()
+        let ids = (0..<3).map { _ in UUID() }
+        let before = Self.assign(count: 3, defaults: defaults, ids: ids)
+
+        let visible = [ids[0]]
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: visible,
+            liveIds: Set(visible),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(after.count == 3)
+        for id in ids {
+            #expect(after[id.uuidString] == before[id])
+        }
     }
 
     @Test
@@ -257,6 +286,164 @@ import Testing
             customColorHex: nil,
             assignedColorHex: nil
         ) == nil)
+    }
+
+    // MARK: - Manual colors
+
+    /// Auto-assigning must not take the color picker away: the user can still
+    /// right-click a workspace and choose a color, and that choice wins.
+    @Test
+    func settingAManualColorDoesNotRecolorTheOtherWorkspaces() {
+        let defaults = Self.suite()
+        let ids = (0..<3).map { _ in UUID() }
+        let before = Self.assign(count: 3, defaults: defaults, ids: ids)
+
+        // Workspace 0 gets a manual color, so it drops out of `needingAssignment`.
+        let stillAuto = Array(ids.dropFirst())
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: stillAuto,
+            liveIds: Set(ids),
+            manualColorHexes: ["#ABCDEF"],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        for id in stillAuto {
+            #expect(after[id.uuidString] == before[id])
+        }
+    }
+
+    /// The manually colored workspace keeps its reservation, so clearing the
+    /// manual color hands back the color it had before.
+    @Test
+    func clearingAManualColorRestoresTheOriginalAutoColor() {
+        let defaults = Self.suite()
+        let ids = (0..<2).map { _ in UUID() }
+        let before = Self.assign(count: 2, defaults: defaults, ids: ids)
+
+        WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [ids[1]],
+            liveIds: Set(ids),
+            manualColorHexes: ["#ABCDEF"],
+            palette: Self.palette,
+            defaults: defaults
+        )
+        let restored = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: ids,
+            liveIds: Set(ids),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(restored[ids[0].uuidString] == before[ids[0]])
+    }
+
+    /// The failure this guards against: a reconcile that ran mid-restore, when
+    /// no workspaces were loaded yet, used to wipe the table and hand every
+    /// workspace a different color on the next pass.
+    @Test
+    func reconcileWithNoLiveWorkspacesKeepsEverything() {
+        let defaults = Self.suite()
+        let ids = (0..<3).map { _ in UUID() }
+        let before = Self.assign(count: 3, defaults: defaults, ids: ids)
+
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: [],
+            liveIds: [],
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        for id in ids {
+            #expect(after[id.uuidString] == before[id])
+        }
+    }
+
+    /// The table still cannot grow without bound.
+    @Test
+    func collectsStaleEntriesOnceTheTableGrowsPastTheThreshold() {
+        let defaults = Self.suite()
+        let ids = (0..<(WorkspaceAutoColorAssignmentStore.pruneThreshold + 1)).map { _ in UUID() }
+        Self.assign(count: ids.count, defaults: defaults, ids: ids)
+
+        let survivor = [ids[0]]
+        let after = WorkspaceAutoColorAssignmentStore.reconcile(
+            needingAssignment: survivor,
+            liveIds: Set(survivor),
+            manualColorHexes: [],
+            palette: Self.palette,
+            defaults: defaults
+        )
+
+        #expect(after.count == 1)
+    }
+
+    // MARK: - Perceptual spread
+
+    /// The first two workspaces are the common case, so they must not get two
+    /// shades of the same color. Straight palette order hands out Red then
+    /// Crimson (ΔE 7.7), which reads as one color on a 3pt rail.
+    @Test
+    func firstTwoWorkspacesGetObviouslyDifferentColors() throws {
+        let defaults = Self.suite()
+        let assigned = Self.assign(count: 2, defaults: defaults, palette: WorkspaceTabColorSettings.palette(defaults: defaults))
+        let hexes = Array(assigned.values)
+        let first = try #require(LabColor(hex: hexes[0]))
+        let second = try #require(LabColor(hex: hexes[1]))
+
+        #expect(first.distance(to: second) > 100)
+    }
+
+    /// A 3pt rail needs roughly ΔE 10 to read as a different color at a glance.
+    @Test
+    func everyPairOfAssignedColorsStaysDistinguishable() throws {
+        let defaults = Self.suite()
+        let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
+        let assigned = Self.assign(count: 8, defaults: defaults, palette: palette)
+        let labs = try assigned.values.map { try #require(LabColor(hex: $0)) }
+
+        for i in labs.indices {
+            for j in labs.indices where j > i {
+                #expect(labs[i].distance(to: labs[j]) > 10)
+            }
+        }
+    }
+
+    @Test
+    func allocationAvoidsColorsThatLookLikeAManualColor() throws {
+        let defaults = Self.suite()
+        let palette = WorkspaceTabColorSettings.palette(defaults: defaults)
+        // Red is manual, so Crimson (its nearest neighbour) must not be picked.
+        let assigned = Self.assign(
+            count: 1,
+            defaults: defaults,
+            palette: palette,
+            manualColorHexes: ["#C0392B"]
+        )
+        let firstHex = try #require(assigned.values.first)
+        let picked = try #require(LabColor(hex: firstHex))
+        let red = try #require(LabColor(hex: "#C0392B"))
+
+        #expect(picked.distance(to: red) > 10)
+    }
+
+    @Test
+    func labDistanceIsZeroForTheSameColorAndSymmetric() throws {
+        let red = try #require(LabColor(hex: "#C0392B"))
+        let blue = try #require(LabColor(hex: "#1565C0"))
+
+        #expect(red.distance(to: red) == 0)
+        #expect(red.distance(to: blue) == blue.distance(to: red))
+    }
+
+    @Test
+    func labColorRejectsMalformedHexes() {
+        #expect(LabColor(hex: "") == nil)
+        #expect(LabColor(hex: "#12345") == nil)
+        #expect(LabColor(hex: "#GGGGGG") == nil)
+        #expect(LabColor(hex: "#ABC") != nil)
     }
 
     // MARK: - Rendering boundary

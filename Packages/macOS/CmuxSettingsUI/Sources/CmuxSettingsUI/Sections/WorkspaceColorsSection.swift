@@ -104,19 +104,23 @@ public struct WorkspaceColorsSection: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
             }
-            SettingsCardDivider()
+            // Hidden rather than disabled under Solid Fill: solid fill paints the
+            // whole row, so there is no rail for an auto color to appear on and
+            // the setting has nothing to do.
+            if indicator.current == .leftRail {
+                SettingsCardDivider()
 
-            SettingsCardRow(
-                configurationReview: .json("workspaceColors.autoAssignColors"),
-                String(localized: "settings.workspaceColors.autoAssign", defaultValue: "Assign Colors Automatically"),
-                subtitle: autoAssignSubtitle
-            ) {
-                Toggle("", isOn: Binding(get: { autoAssign.current }, set: { autoAssign.set($0) }))
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier("SettingsWorkspaceColorsAutoAssignToggle")
+                SettingsCardRow(
+                    configurationReview: .json("workspaceColors.autoAssignColors"),
+                    String(localized: "settings.workspaceColors.autoAssign", defaultValue: "Assign Colors Automatically"),
+                    subtitle: autoAssignSubtitle
+                ) {
+                    Toggle("", isOn: Binding(get: { autoAssign.current }, set: { autoAssign.set($0) }))
+                        .labelsHidden()
+                        .controlSize(.small)
+                        .accessibilityIdentifier("SettingsWorkspaceColorsAutoAssignToggle")
+                }
             }
-            .disabled(indicator.current != .leftRail)
             SettingsCardDivider()
 
             colorRow(
@@ -304,21 +308,13 @@ public struct WorkspaceColorsSection: View {
         }
     }
 
-    /// Explains the current auto-assign state, including why the row is
-    /// unavailable under Solid Fill: that indicator paints the whole row, so an
-    /// auto color on every workspace would compete with the selected-row
-    /// highlight instead of merely identifying the workspace.
+    /// Explains the current auto-assign state. The Solid Fill case is not
+    /// handled here because the row is hidden entirely under that indicator.
     private var autoAssignSubtitle: String {
-        guard indicator.current == .leftRail else {
-            return String(
-                localized: "settings.workspaceColors.autoAssign.subtitleUnavailable",
-                defaultValue: "Requires the Left Rail indicator. Solid Fill colors the whole row, which would hide the selected workspace."
-            )
-        }
         if autoAssign.current {
             return String(
                 localized: "settings.workspaceColors.autoAssign.subtitleOn",
-                defaultValue: "Workspaces without a color get a palette color from their identity, shown on the left rail. The same workspace keeps its color across restarts."
+                defaultValue: "Workspaces without a color get their own palette color on the left rail, and keep it across restarts. You can still set a color yourself, which always wins."
             )
         }
         return String(

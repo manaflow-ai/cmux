@@ -4,9 +4,12 @@ import Foundation
 /// Allocates palette colors to workspaces that have no explicit color.
 ///
 /// Every palette color is handed out once before any color repeats, so a user
-/// with a normal number of workspaces sees a fully distinct set of rails. Once
-/// the palette is exhausted the next workspace recycles the least-used color,
-/// which keeps repeats spread evenly instead of clumping.
+/// with a normal number of workspaces sees a fully distinct set of rails. Among
+/// equally-used colors the one that looks furthest from the colors already on
+/// screen wins, so the first few workspaces get obviously different rails
+/// instead of four shades of red. Once the palette is exhausted the next
+/// workspace recycles the least-used color, which keeps repeats spread evenly
+/// instead of clumping.
 ///
 /// Allocation is deliberately *not* a hash of workspace identity. Independent
 /// hashing double-books some colors while leaving others unused — with the
@@ -49,18 +52,32 @@ enum WorkspaceAutoTabColorAssignment {
             counts[key, default: 0] += 1
         }
 
-        // Palette order breaks ties, so allocation is deterministic and the
-        // first workspaces get the palette's leading colors.
+        let minimumCount = palette.map { counts[normalized($0.hex)] ?? 0 }.min() ?? 0
+        let candidates = palette.filter { (counts[normalized($0.hex)] ?? 0) == minimumCount }
+
+        // Among the least-used colors, take the one furthest from the colors
+        // already on screen. Straight palette order would hand out Red then
+        // Crimson to the first two workspaces (ΔE 7.7, indistinguishable on a
+        // 3pt rail); picking the furthest color gives ΔE 138.7 instead.
+        //
+        // Manual colors repel too, even when they are not palette entries, so
+        // an auto color does not land next to a color the user chose.
+        let inUse = usedHexes.compactMap { LabColor(hex: $0) }
+        guard !inUse.isEmpty else { return candidates.first?.hex }
+
         var best: WorkspaceTabColorEntry?
-        var bestCount = Int.max
-        for entry in palette {
-            let count = counts[normalized(entry.hex)] ?? 0
-            if count < bestCount {
+        var bestDistance = -1.0
+        for entry in candidates {
+            guard let lab = LabColor(hex: entry.hex) else { continue }
+            let distance = inUse.map { lab.distance(to: $0) }.min() ?? 0
+            // Strict `>` keeps palette order as the tie-break, so allocation
+            // stays deterministic.
+            if distance > bestDistance {
                 best = entry
-                bestCount = count
+                bestDistance = distance
             }
         }
-        return best?.hex
+        return (best ?? candidates.first)?.hex
     }
 
     /// Resolves the rail color for one workspace, applying the full enablement rule.

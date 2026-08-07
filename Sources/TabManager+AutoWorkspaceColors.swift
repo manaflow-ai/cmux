@@ -33,7 +33,11 @@ extension TabManager {
             return
         }
 
-        let workspaces = tabs
+        let workspaces = Self.autoColorReconcileWorkspaces(fallback: self)
+        // Nothing to allocate, and no point writing defaults during teardown or
+        // an in-flight restore.
+        guard !workspaces.isEmpty else { return }
+
         var needingAssignment: [UUID] = []
         var manualColorHexes: [String] = []
         var liveIds: Set<UUID> = []
@@ -55,4 +59,28 @@ extension TabManager {
         )
     }
 
+    /// Workspaces from every window, because assignments are stored globally.
+    ///
+    /// A `TabManager` only owns one window's workspaces, so pruning against a
+    /// single manager's `tabs` would delete the other windows' assignments and
+    /// reshuffle their colors on the next pass.
+    private static func autoColorReconcileWorkspaces(fallback: TabManager) -> [Workspace] {
+        guard let app = AppDelegate.shared else { return fallback.tabs }
+
+        var managers: [TabManager] = [fallback]
+        for summary in app.listMainWindowSummaries() {
+            guard let manager = app.tabManagerFor(windowId: summary.windowId),
+                  !managers.contains(where: { $0 === manager }) else {
+                continue
+            }
+            managers.append(manager)
+        }
+
+        var seen: Set<UUID> = []
+        var workspaces: [Workspace] = []
+        for workspace in managers.flatMap(\.tabs) where seen.insert(workspace.stableId).inserted {
+            workspaces.append(workspace)
+        }
+        return workspaces
+    }
 }

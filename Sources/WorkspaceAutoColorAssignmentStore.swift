@@ -17,6 +17,10 @@ enum WorkspaceAutoColorAssignmentStore {
     /// `[stableId.uuidString: paletteHex]`.
     static let defaultsKey = "workspaceTabColor.autoAssignments"
 
+    /// Stale entries are only collected once the map is far larger than any
+    /// real workspace count, so ordinary use never risks a destructive prune.
+    static let pruneThreshold = 512
+
     static func assignments(defaults: UserDefaults = .standard) -> [String: String] {
         defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
     }
@@ -31,17 +35,24 @@ enum WorkspaceAutoColorAssignmentStore {
     /// Brings stored assignments in line with the current workspaces.
     ///
     /// Gives every workspace in `needingAssignment` a color if it does not have
-    /// one yet, and drops assignments for workspaces that no longer exist so the
-    /// map cannot grow without bound. Existing assignments are never rewritten,
-    /// which is what keeps colors stable across deletion and reorder.
+    /// one yet. Existing assignments are never rewritten, which is what keeps
+    /// colors stable across creation, reorder, and deletion.
+    ///
+    /// `liveIds` decides which stored colors count as *in use* for allocation,
+    /// but does not by itself delete anything. A caller can only see the
+    /// workspaces of the windows it knows about, and a list that is partial —
+    /// mid-restore, or one window out of several — would otherwise delete the
+    /// rest and reshuffle every color on the next pass. Stale entries are
+    /// garbage-collected only once the map grows past `pruneThreshold`, which
+    /// normal use never reaches.
     ///
     /// - Parameters:
     ///   - needingAssignment: Stable ids of workspaces eligible for an auto
     ///     color, in allocation order (normally sidebar order). Workspaces with
     ///     a manual color must be excluded.
-    ///   - liveIds: Stable ids of every workspace that still exists, used to
-    ///     prune. Includes manually colored workspaces so their assignment
-    ///     survives clearing a manual color.
+    ///   - liveIds: Stable ids of every workspace the caller can see. Includes
+    ///     manually colored workspaces, so their color is held for them and
+    ///     comes back if the manual color is cleared.
     ///   - manualColorHexes: Colors the user chose explicitly, so a newly
     ///     allocated auto color avoids duplicating them.
     /// - Returns: The reconciled assignment map.
@@ -55,9 +66,7 @@ enum WorkspaceAutoColorAssignmentStore {
     ) -> [String: String] {
         var stored = assignments(defaults: defaults)
         let before = stored
-
         let liveKeys = Set(liveIds.map(\.uuidString))
-        stored = stored.filter { liveKeys.contains($0.key) }
 
         let paletteKeys = Set(palette.map { WorkspaceAutoTabColorAssignment.normalized($0.hex) })
         // Drop assignments whose color left the palette so the workspace can be
@@ -66,11 +75,17 @@ enum WorkspaceAutoColorAssignmentStore {
             paletteKeys.contains(WorkspaceAutoTabColorAssignment.normalized($0.value))
         }
 
+        if stored.count > pruneThreshold {
+            stored = stored.filter { liveKeys.contains($0.key) }
+        }
+
         for id in needingAssignment where stored[id.uuidString] == nil {
-            let used = Array(stored.values) + manualColorHexes
+            // Only colors on screen count as used. A dead workspace's color must
+            // not keep a palette slot reserved forever.
+            let used = stored.filter { liveKeys.contains($0.key) }.values + manualColorHexes
             guard let hex = WorkspaceAutoTabColorAssignment.nextColorHex(
                 palette: palette,
-                usedHexes: used
+                usedHexes: Array(used)
             ) else {
                 break
             }

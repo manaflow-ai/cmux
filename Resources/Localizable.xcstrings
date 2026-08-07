@@ -203947,30 +203947,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workspaces without a color get a palette color from their identity, shown on the left rail. The same workspace keeps its color across restarts."
+            "value": "Workspaces without a color get their own palette color on the left rail, and keep it across restarts. You can still set a color yourself, which always wins."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "色が設定されていないワークスペースには、その識別子から決まるパレットの色が左レールに表示されます。同じワークスペースは再起動後も同じ色を保ちます。"
-          }
-        }
-      }
-    },
-    "settings.workspaceColors.autoAssign.subtitleUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Requires the Left Rail indicator. Solid Fill colors the whole row, which would hide the selected workspace."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「左レール」インジケータが必要です。「塗りつぶし」は行全体を着色するため、選択中のワークスペースが分からなくなります。"
+            "value": "色が設定されていないワークスペースには、それぞれ固有のパレットの色が左レールに表示され、再起動後も同じ色を保ちます。自分で色を設定することもでき、その場合は常にそちらが優先されます。"
           }
         }
       }
