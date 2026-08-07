@@ -366,6 +366,68 @@ extension CmxIrohClientRuntimeTests {
         #expect(await runtime.snapshot().state == .inactive)
         #expect(await endpoint.observedCloseCallCount() == 1)
     }
+
+    @Test
+    func liveDiscoveryRacingCoalescedUnchangedRefreshesStillReadsBroker() async throws {
+        let fixture = try ClientRuntimeTestFixture()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let broker = TestIrohClientBroker(
+            binding: fixture.binding,
+            discovery: fixture.discovery,
+            relay: fixture.relayResponse()
+        )
+        let runtime = try CmxIrohClientRuntime(
+            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { fixture.now }
+        )
+        try await runtime.start()
+        #expect(await broker.observedDiscoveryCount() == 1)
+
+        // Hold every unchanged-fingerprint refresh at its payload read so the
+        // live discovery request is guaranteed to observe each one in flight.
+        await endpoint.armAddressGate()
+        let request = Task {
+            try await runtime.liveDiscoveryRacingCoalescedUnchangedRefreshes()
+        }
+        await endpoint.waitForBlockedAddressArrivals(1)
+        await endpoint.releaseOneBlockedAddressCall()
+
+        await endpoint.waitForBlockedAddressArrivals(2)
+        await runtime.coalesceUnchangedRegistrationRefresh()
+        await endpoint.releaseOneBlockedAddressCall()
+
+        await endpoint.waitForBlockedAddressArrivals(3)
+        await endpoint.disarmAddressGate()
+
+        // The raced refreshes were all unchanged-fingerprint no-ops. Live
+        // discovery must still perform an authoritative broker read before
+        // reporting success.
+        #expect(try await request.value)
+        #expect(await broker.observedDiscoveryCount() == 2)
+        #expect(await broker.observedRegistrations().count == 1)
+        await runtime.stop()
+    }
+}
+
+extension CmxIrohClientRuntime {
+    /// Schedules an unchanged-fingerprint refresh plus a coalesced successor,
+    /// then requests live discovery in the same actor turn so the request is
+    /// guaranteed to observe the first refresh still in flight.
+    fileprivate func liveDiscoveryRacingCoalescedUnchangedRefreshes()
+        async throws -> Bool
+    {
+        scheduleRegistrationRefresh(revision: lifecycleRevision)
+        scheduleRegistrationRefresh(revision: lifecycleRevision)
+        return try await refreshLiveDiscoveryThrowing()
+    }
+
+    /// Coalesces one more unchanged-fingerprint refresh behind the in-flight one.
+    fileprivate func coalesceUnchangedRegistrationRefresh() {
+        scheduleRegistrationRefresh(revision: lifecycleRevision)
+    }
 }
 
 private actor ClientRuntimeBlockingCloseEndpoint: CmxIrohEndpoint {
