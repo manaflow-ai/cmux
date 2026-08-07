@@ -646,6 +646,77 @@ fn commit_terminal_topology(
         .unwrap()
 }
 
+fn append_persistence_state_record(
+    registry: &mut WorkspaceRegistry,
+    event_id: &str,
+    kind: &str,
+    subjects: Vec<JournalSubject>,
+    payload: Value,
+    trusted: bool,
+) -> u64 {
+    let producer = JournalProducer {
+        kind: if trusted { "trusted_local_authority" } else { "plugin" }.into(),
+        id: if trusted { "cmux_tui" } else { "untrusted_plugin" }.into(),
+    };
+    let authority = trusted.then_some(JournalAuthority {
+        principal_id: "local".into(),
+        lease_id: "session-persistence".into(),
+        generation: "1".into(),
+        role: "session.persistence".into(),
+    });
+    let tx = registry.connection.transaction().unwrap();
+    let sequence = session_journal::append_journal_record(
+        &tx,
+        &session_journal::JournalAppend {
+            event_id,
+            schema_version: 1,
+            kind,
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: sequence_time(event_id),
+            producer: &producer,
+            authority: authority.as_ref(),
+            causation_id: None,
+            correlation_id: Some(event_id),
+            causation_depth: 0,
+            subjects: &subjects,
+            sensitivity: JournalSensitivity::Metadata,
+            payload: &payload,
+            content: None,
+            resource_revision: None,
+            previous_resource_revision: None,
+        },
+    )
+    .unwrap();
+    tx.commit().unwrap();
+    sequence
+}
+
+fn sequence_time(value: &str) -> u64 {
+    1_000 + u64::try_from(value.len()).unwrap()
+}
+
+fn persistence_state_rows(registry: &WorkspaceRegistry) -> Vec<String> {
+    registry
+        .connection
+        .prepare(
+            "SELECT 'lifecycle:' || session_id || ':' || result_json
+             FROM journal_session_lifecycle_state
+             UNION ALL
+             SELECT 'runtime:' || terminal_id || ':' || result_json
+             FROM journal_runtime_attachment_states
+             UNION ALL
+             SELECT 'policy:' || session_id || ':' || result_json
+             FROM journal_session_hibernation_policy
+             ORDER BY 1",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
 fn commit_browser_topology(
     registry: &mut WorkspaceRegistry,
     mutation_id: &str,
@@ -3513,6 +3584,149 @@ fn terminal_journal_persists_exact_output_and_geometry_in_order() {
             );
         }
     }
+}
+
+#[test]
+fn session_runtime_and_policy_state_machines_rebuild_from_journal() {
+    let root = temp_root("session-runtime-policy-state-machines");
+    let terminal_id = terminal_resource(TERMINAL_ONE);
+    {
+        let mut registry =
+            WorkspaceRegistry::open(&root, "session-runtime-policy-state-machines").unwrap();
+        commit_terminal_topology(&mut registry, "session-runtime-policy-state-machines-seed");
+        let session_id = registry.session_id().to_string();
+        let session_subjects =
+            vec![JournalSubject { kind: "session".into(), id: session_id.clone() }];
+        append_persistence_state_record(
+            &mut registry,
+            "session-lifecycle-active",
+            "session.lifecycle.updated",
+            session_subjects.clone(),
+            json!({
+                "format":"cmux.session-lifecycle.v1",
+                "state":"active",
+                "reason":"session_opened"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "runtime-attachment-attached",
+            "runtime.attachment.updated",
+            vec![
+                JournalSubject { kind: "session".into(), id: session_id.clone() },
+                JournalSubject { kind: "terminal".into(), id: terminal_id.to_string() },
+            ],
+            json!({
+                "format":"cmux.runtime-attachment.v1",
+                "terminal_id":terminal_id,
+                "runtime_id":"runtime-a",
+                "state":"attached",
+                "host_epoch":"host-epoch-1",
+                "lease_generation":"lease-1"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "hibernation-policy-enabled",
+            "session.hibernation_policy.updated",
+            session_subjects.clone(),
+            json!({
+                "format":"cmux.hibernation-policy.v1",
+                "enabled":true,
+                "updated_by":"trusted-local-test"
+            }),
+            true,
+        );
+        append_persistence_state_record(
+            &mut registry,
+            "hibernation-policy-untrusted",
+            "session.hibernation_policy.updated",
+            session_subjects,
+            json!({
+                "format":"cmux.hibernation-policy.v1",
+                "enabled":false,
+                "updated_by":"untrusted-test"
+            }),
+            false,
+        );
+    }
+
+    let reopened = WorkspaceRegistry::open(&root, "session-runtime-policy-state-machines").unwrap();
+    let rows = persistence_state_rows(&reopened);
+    assert_eq!(rows.len(), 3);
+    assert!(rows.iter().any(|row| row.contains(r#""state":"active""#)));
+    assert!(rows.iter().any(|row| {
+        row.contains(r#""state":"attached""#)
+            && row.contains(r#""host_epoch":"host-epoch-1""#)
+            && row.contains(r#""lease_generation":"lease-1""#)
+    }));
+    assert!(rows.iter().any(|row| {
+        row.starts_with("policy:")
+            && row.contains(r#""enabled":true"#)
+            && row.contains(r#""updated_by":"trusted-local-test""#)
+    }));
+    drop(reopened);
+
+    let reopened_again =
+        WorkspaceRegistry::open(&root, "session-runtime-policy-state-machines").unwrap();
+    assert_eq!(persistence_state_rows(&reopened_again), rows);
+    drop(reopened_again);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn default_off_hibernation_policy_and_terminal_close_do_not_hibernate() {
+    let root = temp_root("default-off-hibernate-close");
+    let mut registry = WorkspaceRegistry::open(&root, "default-off-hibernate-close").unwrap();
+    commit_terminal_topology(&mut registry, "default-off-hibernate-close-seed");
+    let session_id = registry.session_id().to_string();
+    let enabled: i64 = registry
+        .connection
+        .query_row(
+            "SELECT enabled FROM journal_session_hibernation_policy WHERE session_id = ?1",
+            [session_id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(enabled, 0, "hibernation policy must default to disabled");
+
+    let terminal_revision = registry.terminal_snapshot().unwrap().revision;
+    registry
+        .close_terminal(
+            &WorkspaceMutation::new("close-without-hibernate", "test").unwrap(),
+            None,
+            Some(terminal_revision),
+            TERMINAL_ONE,
+            None,
+        )
+        .unwrap();
+    let policy_after_close: i64 = registry
+        .connection
+        .query_row(
+            "SELECT enabled FROM journal_session_hibernation_policy WHERE session_id = ?1",
+            [session_id.as_str()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let hibernate_events: i64 = registry
+        .connection
+        .query_row(
+            "SELECT COUNT(*) FROM session_journal
+             WHERE kind GLOB 'session.hibernate*'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(policy_after_close, 0);
+    assert_eq!(hibernate_events, 0);
+    assert_eq!(
+        registry.terminal_record(TERMINAL_ONE).unwrap().unwrap().lifecycle,
+        TerminalLifecycle::Tombstoned
+    );
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
