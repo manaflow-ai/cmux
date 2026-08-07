@@ -450,8 +450,11 @@ extension MobileShellComposite {
             instanceTag: instanceTag,
             scope: scope
         )
-        guard await isScopeCurrent(scope) else { return }
+        guard !Task.isCancelled,
+              await isScopeCurrent(scope),
+              !Task.isCancelled else { return }
         await loadPairedMacs()
+        guard !Task.isCancelled else { return }
         await loadRegistryDevices()
     }
 
@@ -522,7 +525,7 @@ extension MobileShellComposite {
                 representativeID: representativeID,
                 aliasIDs: aliasIDs
             )
-            if refreshRegistry {
+            if refreshRegistry, !Task.isCancelled {
                 await store.loadRegistryDevices()
             }
         }
@@ -577,6 +580,16 @@ extension MobileShellComposite {
         return task
     }
 
+    func cancelComputerVisibilityMutations() {
+        let tasks = Array(computerVisibilityMutationTasksByID.values)
+        computerVisibilityMutationTasksByID = [:]
+        computerVisibilityMutationOperationIDsByID = [:]
+        computerVisibilityMutationIDs = []
+        for task in tasks {
+            task.cancel()
+        }
+    }
+
     private func finishComputerVisibilityMutation(
         computerID: String,
         operationID: UUID
@@ -625,7 +638,8 @@ extension MobileShellComposite {
                 includeUserWideScope: teamlessLegacyIDs.contains(mac.id)
             )
         }
-        guard await isScopeCurrent(scope) else {
+        guard !Task.isCancelled else { return }
+        guard await isScopeCurrent(scope), !Task.isCancelled else {
             for pairingID in targetPairingIDs {
                 await clearHiddenMacDeviceID(pairingID, scope: scope)
             }
@@ -682,7 +696,9 @@ extension MobileShellComposite {
             removeNotificationFeedSnapshot(macDeviceID: id)
         }
 
-        guard await isScopeCurrent(scope) else { return }
+        guard !Task.isCancelled,
+              await isScopeCurrent(scope),
+              !Task.isCancelled else { return }
         await loadPairedMacs()
         clearSavedMacHintWhenNoStoredMacsRemainIfNeeded()
     }
