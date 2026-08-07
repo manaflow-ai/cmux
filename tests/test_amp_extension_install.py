@@ -777,6 +777,99 @@ try {
   if (hangingThread.observerCount() !== 0) {
     throw new Error("a settled native-state observer was not released");
   }
+
+  const approvalLeaseThread = makeThread(
+    "T-amp-native-approval-lease",
+    "running"
+  );
+  const approvalLeaseCtx = { thread: approvalLeaseThread };
+  await handlers.get("agent.start")({
+    thread: approvalLeaseThread,
+    message: "wait for durable approval",
+    id: "msg-approval-lease"
+  }, approvalLeaseCtx);
+  const approvalBeginCount = attentionCalls("begin").length;
+  approvalLeaseThread.setState("awaiting-approval");
+  await waitFor(
+    () => attentionCalls("begin").length === approvalBeginCount + 1
+      && attentionCalls("begin").at(-1).closedWith === 0,
+    "Amp did not publish the lease-retention approval"
+  );
+  const approvalEndCount = attentionCalls("end").length;
+  await new Promise((resolve) => originalSetTimeout(resolve, 25));
+  if (approvalLeaseThread.observerCount() !== 1) {
+    throw new Error("a confirmed approval expired on the observation lease");
+  }
+  if (attentionCalls("end").length !== approvalEndCount) {
+    throw new Error("the observation lease cleared a confirmed approval");
+  }
+  approvalLeaseThread.setState("running");
+  await waitFor(
+    () => attentionCalls("end").length === approvalEndCount + 2
+      && attentionCalls("end").at(-1).closedWith === 0,
+    "Amp did not conclude the lease-retention approval from native state"
+  );
+  const beforeApprovalLeaseEnd = stopCalls().length;
+  await handlers.get("agent.end")({
+    thread: approvalLeaseThread,
+    message: "wait for durable approval",
+    id: "msg-approval-lease",
+    status: "done",
+    messages: []
+  }, approvalLeaseCtx);
+  approvalLeaseThread.setState("idle");
+  if (stopCalls().length !== beforeApprovalLeaseEnd + 2) {
+    throw new Error("the approval-retention turn did not settle normally");
+  }
+
+  const maximumRetainedTurnStateCount = 128;
+  const boundedThreads = [];
+  for (let index = 0; index <= maximumRetainedTurnStateCount; index += 1) {
+    const boundedThread = makeThread(
+      `T-amp-bounded-pending-${index}`,
+      "running",
+      true
+    );
+    const boundedCtx = { thread: boundedThread };
+    await handlers.get("agent.start")({
+      thread: boundedThread,
+      message: "bounded pending native state",
+      id: `msg-bounded-${index}`
+    }, boundedCtx);
+    await handlers.get("agent.end")({
+      thread: boundedThread,
+      message: "bounded pending native state",
+      id: `msg-bounded-${index}`,
+      status: "done",
+      messages: []
+    }, boundedCtx);
+    boundedThreads.push(boundedThread);
+  }
+  const retainedObserverCount = boundedThreads.reduce(
+    (count, boundedThread) => count + boundedThread.observerCount(),
+    0
+  );
+  if (retainedObserverCount !== maximumRetainedTurnStateCount) {
+    throw new Error(
+      `Amp retained ${retainedObserverCount} silent pending observers; `
+      + `expected ${maximumRetainedTurnStateCount}`
+    );
+  }
+  if (boundedThreads[0].observerCount() !== 0) {
+    throw new Error("Amp did not evict the least-recent silent pending turn");
+  }
+  if (boundedThreads.at(-1).observerCount() !== 1) {
+    throw new Error("Amp evicted the most recent silent pending turn");
+  }
+  const beforeEvictedIdle = stopCalls().length;
+  boundedThreads[0].setState("idle");
+  if (stopCalls().length !== beforeEvictedIdle) {
+    throw new Error("an evicted Amp turn retained settlement ownership");
+  }
+  boundedThreads.at(-1).setState("idle");
+  if (stopCalls().length !== beforeEvictedIdle + 1) {
+    throw new Error("the most recent bounded Amp turn lost settlement ownership");
+  }
 } finally {
   globalThis.setTimeout = originalSetTimeout;
 }

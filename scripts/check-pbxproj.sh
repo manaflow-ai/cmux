@@ -32,17 +32,17 @@ fi
 python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$PBXPROJ"
 
 # Exercise the duplicate guard with one of this project's existing 25-character
-# identifiers. A validator limited to Xcode's conventional 24-character UUIDs
-# silently accepts this damaged fixture.
+# identifiers at both zero- and three-tab indentation. A validator limited to
+# Xcode's conventional indentation silently accepts this damaged fixture.
 duplicate_fixture_dir="$(mktemp -d)"
 trap 'rm -rf "$duplicate_fixture_dir"' EXIT
 duplicate_fixture="$duplicate_fixture_dir/duplicate.pbxproj"
-printf '\t\t%s\n' \
+printf '%s\n' \
     'CA11E4D0FA017DE500000B101 /* First */ = {isa = PBXBuildFile; };' \
-    'CA11E4D0FA017DE500000B101 /* Second */ = {isa = PBXFileReference; };' \
+    $'\t\t\tCA11E4D0FA017DE500000B101 /* Second */ = {isa = PBXFileReference; };' \
     > "$duplicate_fixture"
 if python3 "$SCRIPT_DIR/normalize-pbxproj.py" --check "$duplicate_fixture" \
     >/dev/null 2>&1; then
-    echo "::error::normalize-pbxproj accepted a duplicate 25-character object identifier." >&2
+    echo "::error::normalize-pbxproj accepted a duplicate object identifier with mixed indentation." >&2
     exit 1
 fi
