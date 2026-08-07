@@ -6,6 +6,7 @@ import Foundation
 final class CursorNativeApprovalFileObserver {
     private static let maximumTailBytes = 512 * 1024
     private static let maximumFutureBytes = 512 * 1024
+    private static let maximumLogDiscoveryEntries = 4_096
     private static let readChunkSize = 16 * 1024
     private static let timeoutSeconds = 8
     private static let nanosecondsPerSecond: UInt64 = 1_000_000_000
@@ -34,8 +35,15 @@ final class CursorNativeApprovalFileObserver {
     }
 
     func waitForDecision() -> CursorNativeApprovalObservationOutcome {
+        let timeoutNanoseconds =
+            UInt64(Self.timeoutSeconds) * Self.nanosecondsPerSecond
+        let deadline = DispatchTime.now().uptimeNanoseconds
+            .addingReportingOverflow(timeoutNanoseconds)
+        guard !deadline.overflow else { return .unavailable }
         guard processIdentity.liveness == .live,
-              let logPath = discoverLogPath() else {
+              let logPath = discoverLogPath(
+                  deadlineUptimeNanoseconds: deadline.partialValue
+              ) else {
             return .unavailable
         }
         let descriptor = open(logPath, O_RDONLY | O_CLOEXEC)
@@ -78,12 +86,6 @@ final class CursorNativeApprovalFileObserver {
             return .unavailable
         }
 
-        let timeoutNanoseconds =
-            UInt64(Self.timeoutSeconds) * Self.nanosecondsPerSecond
-        let deadline = DispatchTime.now().uptimeNanoseconds
-            .addingReportingOverflow(timeoutNanoseconds)
-        guard !deadline.overflow else { return .unavailable }
-
         while true {
             guard processIdentity.liveness == .live else {
                 return .unavailable
@@ -122,20 +124,36 @@ final class CursorNativeApprovalFileObserver {
         }
     }
 
-    private func discoverLogPath() -> String? {
-        guard let urls = try? fileManager.contentsOfDirectory(
+    private func discoverLogPath(
+        deadlineUptimeNanoseconds: UInt64
+    ) -> String? {
+        guard let enumerator = fileManager.enumerator(
             at: logDirectory,
             includingPropertiesForKeys: [
                 .creationDateKey,
                 .isRegularFileKey,
             ],
-            options: [.skipsHiddenFiles]
+            options: [
+                .skipsHiddenFiles,
+                .skipsSubdirectoryDescendants,
+            ]
         ) else {
             return nil
         }
         let pidMarker = "-\(processIdentity.pid)-"
         let earliestGeneration = TimeInterval(processIdentity.startSeconds) - 2
-        let candidates = urls.compactMap { url -> String? in
+        var candidate: String?
+        var inspectedEntryCount = 0
+        while let object = enumerator.nextObject() {
+            guard DispatchTime.now().uptimeNanoseconds
+                    < deadlineUptimeNanoseconds else {
+                return nil
+            }
+            inspectedEntryCount += 1
+            guard inspectedEntryCount <= Self.maximumLogDiscoveryEntries,
+                  let url = object as? URL else {
+                return nil
+            }
             guard url.pathExtension == "log",
                   url.lastPathComponent.contains(pidMarker),
                   let values = try? url.resourceValues(
@@ -144,15 +162,19 @@ final class CursorNativeApprovalFileObserver {
                   values.isRegularFile == true,
                   let created = values.creationDate,
                   created.timeIntervalSince1970 >= earliestGeneration else {
-                return nil
+                continue
             }
-            return url.standardizedFileURL.path
+            guard candidate == nil else { return nil }
+            candidate = url.standardizedFileURL.path
         }
         // A process generation should own one native-policy log. Multiple
         // exact-PID candidates are ambiguous, so fail closed instead of using
         // filename or timestamp ordering to guess which session is current.
-        guard candidates.count == 1 else { return nil }
-        return candidates[0]
+        guard DispatchTime.now().uptimeNanoseconds
+                < deadlineUptimeNanoseconds else {
+            return nil
+        }
+        return candidate
     }
 
     private func consumeAvailableLines(

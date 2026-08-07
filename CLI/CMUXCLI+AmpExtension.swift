@@ -573,6 +573,7 @@ export default function (amp: PluginAPI) {
     nativeThreadState: AmpNativeThreadState | null;
     nativeAttentionDesiredEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionConfirmedEpisode: NativeAttentionEpisodeIdentity | null;
+    nativeAttentionUnconfirmedBeginEpisode: NativeAttentionEpisodeIdentity | null;
     nativeAttentionInFlight: boolean;
     nativeAttentionRetryCount: number;
     nativeAttentionIdentityRetryTimer: ReturnType<typeof setTimeout> | null;
@@ -615,6 +616,7 @@ export default function (amp: PluginAPI) {
       nativeThreadState: null,
       nativeAttentionDesiredEpisode: null,
       nativeAttentionConfirmedEpisode: null,
+      nativeAttentionUnconfirmedBeginEpisode: null,
       nativeAttentionInFlight: false,
       nativeAttentionRetryCount: 0,
       nativeAttentionIdentityRetryTimer: null,
@@ -633,23 +635,60 @@ export default function (amp: PluginAPI) {
     if (state.nativeAttentionInFlight) return;
     const desiredEpisode = state.nativeAttentionDesiredEpisode;
     const confirmedEpisode = state.nativeAttentionConfirmedEpisode;
-    if (desiredEpisode === confirmedEpisode) return;
+    const unconfirmedBeginEpisode =
+      state.nativeAttentionUnconfirmedBeginEpisode;
+    let transition: {
+      action: "begin" | "end";
+      episode: NativeAttentionEpisodeIdentity;
+      unconfirmedCleanup: boolean;
+    } | null = null;
+    if (confirmedEpisode && confirmedEpisode !== desiredEpisode) {
+      transition = {
+        action: "end",
+        episode: confirmedEpisode,
+        unconfirmedCleanup: false,
+      };
+    } else if (
+      unconfirmedBeginEpisode
+      && unconfirmedBeginEpisode !== desiredEpisode
+    ) {
+      transition = {
+        action: "end",
+        episode: unconfirmedBeginEpisode,
+        unconfirmedCleanup: true,
+      };
+    } else if (desiredEpisode && confirmedEpisode !== desiredEpisode) {
+      transition = {
+        action: "begin",
+        episode: desiredEpisode,
+        unconfirmedCleanup: false,
+      };
+    }
+    if (!transition) return;
+    const attemptedVisibility = transition.action === "begin";
+    const attemptedUnconfirmedCleanup = transition.unconfirmedCleanup;
+    const attemptedEpisode = transition.episode;
     const workspaceId = firstString(process.env.CMUX_WORKSPACE_ID);
     const surfaceId = firstString(process.env.CMUX_SURFACE_ID);
     if (!workspaceId || !surfaceId) return;
-    const attemptedVisibility = confirmedEpisode === null;
-    const attemptedEpisode = confirmedEpisode ?? desiredEpisode;
-    if (!attemptedEpisode) return;
+    const transitionIsStillNeeded = (): boolean => {
+      if (attemptedVisibility) {
+        return state.nativeAttentionConfirmedEpisode === null
+          && state.nativeAttentionDesiredEpisode === attemptedEpisode;
+      }
+      if (attemptedUnconfirmedCleanup) {
+        return state.nativeAttentionUnconfirmedBeginEpisode
+            === attemptedEpisode
+          && state.nativeAttentionDesiredEpisode !== attemptedEpisode;
+      }
+      return state.nativeAttentionConfirmedEpisode === attemptedEpisode;
+    };
     state.nativeAttentionInFlight = true;
     void loadNativeAttentionProcessGeneration().then((processGeneration) => {
       if (!processGeneration) {
         state.nativeAttentionInFlight = false;
-        const transitionIsStillNeeded = attemptedVisibility
-          ? state.nativeAttentionConfirmedEpisode === null
-            && state.nativeAttentionDesiredEpisode === attemptedEpisode
-          : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
         if (
-          transitionIsStillNeeded
+          transitionIsStillNeeded()
           && !state.nativeAttentionIdentityRetryTimer
           && state.nativeAttentionIdentityRetryCount
             < maximumNativeAttentionIdentityRetries
@@ -658,15 +697,13 @@ export default function (amp: PluginAPI) {
           state.nativeAttentionIdentityRetryTimer = setTimeout(() => {
             state.nativeAttentionIdentityRetryTimer = null;
             if (turnStates.get(state.sessionId) !== state) return;
-            const retryIsStillNeeded = attemptedVisibility
-              ? state.nativeAttentionConfirmedEpisode === null
-                && state.nativeAttentionDesiredEpisode === attemptedEpisode
-              : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
-            if (retryIsStillNeeded) synchronizeNativeAttention(state);
+            if (transitionIsStillNeeded()) {
+              synchronizeNativeAttention(state);
+            }
           }, nativeAttentionIdentityRetryDelayMilliseconds);
           state.nativeAttentionIdentityRetryTimer.unref?.();
         }
-        if (!transitionIsStillNeeded) {
+        if (!transitionIsStillNeeded()) {
           state.nativeAttentionIdentityRetryCount = 0;
           synchronizeNativeAttention(state);
         }
@@ -677,11 +714,7 @@ export default function (amp: PluginAPI) {
         state.nativeAttentionIdentityRetryTimer = null;
       }
       state.nativeAttentionIdentityRetryCount = 0;
-      const transitionIsStillNeeded = attemptedVisibility
-        ? state.nativeAttentionConfirmedEpisode === null
-          && state.nativeAttentionDesiredEpisode === attemptedEpisode
-        : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
-      if (!transitionIsStillNeeded) {
+      if (!transitionIsStillNeeded()) {
         state.nativeAttentionInFlight = false;
         synchronizeNativeAttention(state);
         return;
@@ -716,16 +749,34 @@ export default function (amp: PluginAPI) {
       runCmuxAcknowledged(args, (succeeded) => {
         state.nativeAttentionInFlight = false;
         if (succeeded) {
-          state.nativeAttentionConfirmedEpisode = attemptedVisibility
-            ? attemptedEpisode
-            : null;
+          if (attemptedVisibility) {
+            state.nativeAttentionConfirmedEpisode = attemptedEpisode;
+            if (
+              state.nativeAttentionUnconfirmedBeginEpisode
+                === attemptedEpisode
+            ) {
+              state.nativeAttentionUnconfirmedBeginEpisode = null;
+            }
+          } else {
+            if (state.nativeAttentionConfirmedEpisode === attemptedEpisode) {
+              state.nativeAttentionConfirmedEpisode = null;
+            }
+            if (
+              state.nativeAttentionUnconfirmedBeginEpisode
+                === attemptedEpisode
+            ) {
+              state.nativeAttentionUnconfirmedBeginEpisode = null;
+            }
+          }
           state.nativeAttentionRetryCount = 0;
         } else {
-          const transitionStillNeeded = attemptedVisibility
-            ? state.nativeAttentionConfirmedEpisode === null
-              && state.nativeAttentionDesiredEpisode === attemptedEpisode
-            : state.nativeAttentionConfirmedEpisode === attemptedEpisode;
-          if (transitionStillNeeded) {
+          if (attemptedVisibility) {
+            // A child can apply the begin before its response is lost or the
+            // deadline kills it. Preserve that uncertainty until the desired
+            // state advances, then send an idempotent end for this episode.
+            state.nativeAttentionUnconfirmedBeginEpisode = attemptedEpisode;
+          }
+          if (transitionIsStillNeeded()) {
             if (
               state.nativeAttentionRetryCount
                 < maximumImmediateNativeAttentionRetries

@@ -436,7 +436,7 @@ final class ClaudeHookSessionStore {
             if eventName == "SubagentStop",
                conservativeActiveWorkCount == 0 {
                 deferredSettlement =
-                    deferredSettlementsByTurn.removeValue(forKey: turnKey)
+                    deferredSettlementsByTurn[turnKey]
             } else {
                 deferredSettlement = nil
             }
@@ -604,7 +604,10 @@ final class ClaudeHookSessionStore {
         }
     }
 
-    func restoreDeferredTurnSettlement(
+    /// Removes a drained settlement only after its exact replay was
+    /// acknowledged. An older replay cannot clear a boundary whose durable
+    /// payload changed while the subprocess was running.
+    func acknowledgeDeferredTurnSettlementReplay(
         sessionId: String,
         settlement: AgentDeferredTurnSettlement
     ) throws {
@@ -617,15 +620,14 @@ final class ClaudeHookSessionStore {
             let turnKey = structuredBackgroundWorkTurnKey(settlement.turnId)
             var deferredSettlementsByTurn =
                 record.deferredTurnSettlementsByTurn ?? [:]
-            guard deferredSettlementsByTurn[turnKey] == nil else { return }
-            guard deferredSettlementsByTurn.count
-                < Self.maxStructuredBackgroundWorkTurns else {
-                record.hasBackgroundWorkTurnOverflow = true
-                state.sessions[normalizedSessionId] = record
+            guard deferredSettlementsByTurn[turnKey] == settlement else {
                 return
             }
-            deferredSettlementsByTurn[turnKey] = settlement
-            record.deferredTurnSettlementsByTurn = deferredSettlementsByTurn
+            deferredSettlementsByTurn.removeValue(forKey: turnKey)
+            record.deferredTurnSettlementsByTurn =
+                deferredSettlementsByTurn.isEmpty
+                    ? nil
+                    : deferredSettlementsByTurn
             record.updatedAt = Date.now.timeIntervalSince1970
             state.sessions[normalizedSessionId] = record
         }
@@ -25367,8 +25369,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Running",
                     icon: "bolt.fill",
-                    color: "#4C8DFF",
-                    pid: claudePid
+                    color: "#4C8DFF"
                 )
             }
             printClaudeHookAck()
@@ -25807,7 +25808,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     value: "Needs input",
                     icon: "bell.fill",
-                    color: "#4C8DFF", pid: claudePid
+                    color: "#4C8DFF"
                 )
             }
             _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -26096,8 +26097,7 @@ struct CMUXCLI {
                         surfaceId: existingSurfaceId,
                         value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                         icon: "bell.fill",
-                        color: "#4C8DFF",
-                        pid: claudePid
+                        color: "#4C8DFF"
                     )
                     let title = String(
                         localized: "cli.claude-hook.notification.title",
@@ -26154,8 +26154,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: statusValue,
                 icon: "bolt.fill",
-                color: "#4C8DFF",
-                pid: claudePid
+                color: "#4C8DFF"
             )
             printClaudeHookAck()
 
@@ -26213,13 +26212,9 @@ struct CMUXCLI {
         surfaceId: String? = nil,
         value: String,
         icon: String,
-        color: String,
-        pid: Int? = nil
+        color: String
     ) throws {
-        var cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
-        if let pid {
-            cmd += " --pid=\(pid)"
-        }
+        let cmd = "set_status \(Self.claudeCodeStatusKey) \(value) --icon=\(icon) --color=\(color) --tab=\(workspaceId)\(socketPanelOption(surfaceId))"
         _ = try client.send(command: cmd)
     }
 
@@ -27954,7 +27949,8 @@ struct CMUXCLI {
             workspaceId: settlement.workspaceId,
             surfaceId: settlement.surfaceId,
             lastAssistantMessage: settlement.lastAssistantMessage,
-            boundary: .settled
+            boundary: .settled,
+            deferredSettlementID: settlement.id
         ) else {
             return false
         }
@@ -32555,6 +32551,9 @@ export default CMUXSessionRestore;
             )
             let turnBoundary = rawTurnBoundary
                 .flatMap(AgentTurnBoundary.init(rawValue:)) ?? .turnEnd
+            let deferredSettlementReplayID = normalizedHookValue(
+                input.rawObject?["cmux_deferred_settlement_id"] as? String
+            ).flatMap(UUID.init(uuidString:))
             let payloadBackgroundWorkCount = Self.intValue(
                 input.rawObject?["cmux_active_background_work_count"]
                     ?? input.object?["cmux_active_background_work_count"]
@@ -32706,10 +32705,12 @@ export default CMUXSessionRestore;
                 break
             }
             if def.integration == .codex, !sessionId.isEmpty {
-                try? store.clearDeferredTurnSettlement(
-                    sessionId: sessionId,
-                    matchingTurnId: input.turnId
-                )
+                if deferredSettlementReplayID == nil {
+                    try? store.clearDeferredTurnSettlement(
+                        sessionId: sessionId,
+                        matchingTurnId: input.turnId
+                    )
+                }
                 if let stopTurnId = normalizedHookValue(input.turnId) {
                     retireCodexMonitorLeases(
                         sessionId: sessionId,
@@ -35785,22 +35786,23 @@ export default CMUXSessionRestore;
                         cwd: eventDict["cwd"] as? String
                     )
                 if source == "codex",
-                   let settlement = update.deferredSettlement,
-                   !runCodexDeferredTurnSettlementReplay(
-                       sessionId: sessionId,
-                       settlement: settlement,
-                       socketPath: client?.socketPath ?? socketPath,
-                       socketPassword: socketPassword,
-                       telemetry: telemetry
-                   ) {
-                    // Replay failure is not completion evidence. Restore the
-                    // claimed boundary so a duplicate terminal work event can
-                    // retry it; if the agent exits instead, the app-side
-                    // generation monitor authoritatively retires the pill.
-                    try sessionStore.restoreDeferredTurnSettlement(
+                   let settlement = update.deferredSettlement {
+                    let replayed = runCodexDeferredTurnSettlementReplay(
                         sessionId: sessionId,
-                        settlement: settlement
+                        settlement: settlement,
+                        socketPath: client?.socketPath ?? socketPath,
+                        socketPassword: socketPassword,
+                        telemetry: telemetry
                     )
+                    if replayed {
+                        try sessionStore
+                            .acknowledgeDeferredTurnSettlementReplay(
+                                sessionId: sessionId,
+                                settlement: settlement
+                            )
+                    }
+                    // Failure or parent termination keeps the durable boundary
+                    // available for a duplicate terminal work event to retry.
                 }
             } catch {
                 telemetry.captureError(
