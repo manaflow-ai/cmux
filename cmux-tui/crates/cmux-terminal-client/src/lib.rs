@@ -2060,6 +2060,29 @@ mod tests {
         assert!(state.native_render_events.as_ref().unwrap().is_empty());
     }
 
+    #[test]
+    fn native_render_queue_counts_leased_bytes_during_resync() {
+        let mut state =
+            ClientState::new("test".into(), "memory".into(), 1, test_terminal_id()).unwrap();
+        state.enable_native_render_events();
+        assert!(state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            vec![0; 1],
+        ));
+        state.native_render_event_lease =
+            state.native_render_events.as_mut().unwrap().pop_front();
+        state.prepare_handshake(test_terminal_id()).unwrap();
+        assert!(state.native_render_event_lease.is_some());
+        assert!(!state.push_native_render_event(
+            NativeRenderEventKind::Bytes,
+            80,
+            24,
+            vec![0; MAX_NATIVE_RENDER_EVENT_BYTES],
+        ));
+    }
+
     unsafe extern "C" fn count_update(context: *mut c_void) {
         // SAFETY: the test registers a live AtomicU64 for the callback lifetime.
         let count = unsafe { &*(context.cast::<AtomicU64>()) };
