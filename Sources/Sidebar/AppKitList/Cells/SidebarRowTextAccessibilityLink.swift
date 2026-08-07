@@ -34,7 +34,7 @@ final class SidebarRowTextAccessibilityLink: NSAccessibilityElement {
         // AppKit invokes synchronous accessibility callbacks on its UI
         // executor, but this Objective-C override imports as nonisolated.
         MainActor.assumeIsolated {
-            owner?.openLink(url) ?? false
+            owner?.openAccessibilityLink(url, characterRange: characterRange) ?? false
         }
     }
 

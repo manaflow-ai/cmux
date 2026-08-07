@@ -247,6 +247,7 @@ final class SidebarRowTextView: NSTextField {
     private var linkDescriptors: [LinkDescriptor] = []
     private var accessibilityLinks: [SidebarRowTextAccessibilityLink] = []
     private var accessibilityLinksAreMaterialized = true
+    private var accessibilityLayoutSize: NSSize?
 
     override var isFlipped: Bool { true }
     override var isHidden: Bool {
@@ -283,6 +284,18 @@ final class SidebarRowTextView: NSTextField {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        let textRectSize = (cell?.titleRect(forBounds: bounds) ?? bounds).size
+        guard textRectSize != accessibilityLayoutSize else { return }
+        cachedLinkHitLayout = nil
+        accessibilityLinksAreMaterialized = linkDescriptors.isEmpty && accessibilityLinks.isEmpty
+        guard !accessibilityLinksAreMaterialized,
+              window != nil || !accessibilityLinks.isEmpty
+        else { return }
+        materializeAccessibilityLinks()
     }
 
     override func viewDidMoveToWindow() {
@@ -330,6 +343,7 @@ final class SidebarRowTextView: NSTextField {
         self.font = font
         textColor = color
         cachedLinkHitLayout = nil
+        accessibilityLayoutSize = nil
         linkDescriptors = []
         accessibilityLinksAreMaterialized = true
         replaceAccessibilityLinks(with: [])
@@ -370,6 +384,15 @@ final class SidebarRowTextView: NSTextField {
         guard let onOpenLink else { return false }
         onOpenLink(url)
         return true
+    }
+
+    /// Activates an accessibility proxy only while its exact link range is visibly laid out.
+    func openAccessibilityLink(_ url: URL, characterRange: NSRange) -> Bool {
+        guard linkDescriptors.contains(where: {
+            $0.url == url && $0.characterRange == characterRange
+        }), !accessibilityFrame(forLinkRange: characterRange).isEmpty
+        else { return false }
+        return openLink(url)
     }
 
     func measuredHeight(width: CGFloat) -> CGFloat {
@@ -468,10 +491,68 @@ final class SidebarRowTextView: NSTextField {
             forCharacterRange: boundedCharacterRange,
             actualCharacterRange: nil
         )
-        var frame = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        let visibleGlyphRanges = visibleGlyphRanges(
+            in: glyphRange,
+            layoutManager: layoutManager,
+            textContainer: textContainer
+        )
+        let containerBounds = NSRect(origin: .zero, size: textContainer.size)
+        var resolvedFrame: NSRect?
+        for visibleGlyphRange in visibleGlyphRanges {
+            let part = layoutManager.boundingRect(
+                forGlyphRange: visibleGlyphRange,
+                in: textContainer
+            ).intersection(containerBounds)
+            guard !part.isEmpty else { continue }
+            resolvedFrame = resolvedFrame.map { $0.union(part) } ?? part
+        }
+        guard var frame = resolvedFrame else { return .zero }
         frame.origin.x += textRect.minX
         frame.origin.y += textRect.minY
         return frame
+    }
+
+    private func visibleGlyphRanges(
+        in glyphRange: NSRange,
+        layoutManager: NSLayoutManager,
+        textContainer: NSTextContainer
+    ) -> [NSRange] {
+        let containerGlyphRange = layoutManager.glyphRange(for: textContainer)
+        let candidateRange = NSIntersectionRange(glyphRange, containerGlyphRange)
+        guard candidateRange.length > 0 else { return [] }
+
+        var result: [NSRange] = []
+        layoutManager.enumerateLineFragments(forGlyphRange: candidateRange) {
+            _, _, _, lineGlyphRange, _ in
+            let lineCandidate = NSIntersectionRange(candidateRange, lineGlyphRange)
+            guard lineCandidate.length > 0 else { return }
+            let truncatedRange = layoutManager.truncatedGlyphRange(
+                inLineFragmentForGlyphAt: lineGlyphRange.location
+            )
+            guard truncatedRange.location != NSNotFound,
+                  truncatedRange.length > 0
+            else {
+                result.append(lineCandidate)
+                return
+            }
+            let hiddenRange = NSIntersectionRange(lineCandidate, truncatedRange)
+            guard hiddenRange.length > 0 else {
+                result.append(lineCandidate)
+                return
+            }
+            if lineCandidate.location < hiddenRange.location {
+                result.append(NSRange(
+                    location: lineCandidate.location,
+                    length: hiddenRange.location - lineCandidate.location
+                ))
+            }
+            let hiddenEnd = NSMaxRange(hiddenRange)
+            let lineEnd = NSMaxRange(lineCandidate)
+            if hiddenEnd < lineEnd {
+                result.append(NSRange(location: hiddenEnd, length: lineEnd - hiddenEnd))
+            }
+        }
+        return result
     }
 
     /// Releases link state before the owning row takes on a new semantic identity.
@@ -487,6 +568,7 @@ final class SidebarRowTextView: NSTextField {
         accessibilityLinksAreMaterialized = true
         attributedStringValue = NSAttributedString(string: "")
         cachedLinkHitLayout = nil
+        accessibilityLayoutSize = nil
         replaceAccessibilityLinks(with: [])
         needsLayout = true
     }
@@ -503,6 +585,12 @@ final class SidebarRowTextView: NSTextField {
         guard !accessibilityLinksAreMaterialized else { return }
         guard !linkDescriptors.isEmpty || !accessibilityLinks.isEmpty else { return }
 
+        let textRectSize = (cell?.titleRect(forBounds: bounds) ?? bounds).size
+        accessibilityLayoutSize = textRectSize
+        let visibleLinkDescriptors = linkDescriptors.filter {
+            !accessibilityFrame(forLinkRange: $0.characterRange).isEmpty
+        }
+
         var reusableAccessibilityLinks:
             [URL: [NSRange: [String: SidebarRowTextAccessibilityLink]]] = [:]
         for link in accessibilityLinks {
@@ -516,7 +604,7 @@ final class SidebarRowTextView: NSTextField {
             mutable.removeAttribute(.accessibilityLink, range: fullRange)
         }
         var nextAccessibilityLinks: [SidebarRowTextAccessibilityLink] = []
-        for descriptor in linkDescriptors {
+        for descriptor in visibleLinkDescriptors {
             let accessibilityLink: SidebarRowTextAccessibilityLink
             if let reusableLink = reusableAccessibilityLinks[descriptor.url]?[descriptor.characterRange]?[
                 descriptor.label
