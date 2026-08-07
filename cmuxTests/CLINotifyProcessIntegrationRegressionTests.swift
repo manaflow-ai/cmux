@@ -6224,6 +6224,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "list_notifications",
                 "notification.mark_read",
                 "notification.dismiss",
+                "surface.list",
                 "notification.mark_read",
                 "notification.open",
                 "notification.jump_to_unread",

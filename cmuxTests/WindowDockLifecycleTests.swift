@@ -75,6 +75,17 @@ private extension DockSplitStore {
 @Suite("Per-window Dock lifecycle", .serialized)
 struct WindowDockLifecycleTests {
     @MainActor
+    private func drainMainActorQueue() async {
+        await Task.yield()
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
+        }
+        await Task.yield()
+    }
+
+    @MainActor
     private func withIsolatedAppDelegate(_ body: (AppDelegate) throws -> Void) rethrows {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -260,6 +271,77 @@ struct WindowDockLifecycleTests {
             #expect(dock.isRetired)
             #expect(!dock.containsPanel(panel.id))
             #expect(panel.closeCount == 1)
+        }
+    }
+
+    @Test("Abandoned browser-only route retires its transferred Dock when its owner deinitializes")
+    @MainActor
+    func abandonedBrowserOnlyRouteRetiresTransferredDock() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+            let previousAppDelegate = AppDelegate.shared
+            let previousActiveManager =
+                TerminalController.shared.activeTabManagerForCallerNotification()
+            let wasBrowserDisabled = BrowserAvailabilitySettings.isDisabled()
+            let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
+            BrowserAvailabilitySettings.setDisabled(false)
+
+            var manager: TabManager? = TabManager(autoWelcomeIfNeeded: false)
+            weak var releasedManager = manager
+            let workspace = try #require(manager?.selectedWorkspace)
+            let terminal = try #require(workspace.focusedTerminalPanel)
+            let workspacePane = try #require(
+                workspace.bonsplitController.focusedPaneId
+                    ?? workspace.bonsplitController.allPaneIds.first
+            )
+            let workspaceBrowserId = try #require(
+                workspace.newBrowserSurface(
+                    inPane: workspacePane,
+                    url: URL(string: "https://example.com/route-owner"),
+                    focus: true,
+                    creationPolicy: .restoration
+                )
+            )
+            #expect(workspace.closePanel(terminal.id, force: true))
+            #expect(workspace.browserPanel(for: workspaceBrowserId) != nil)
+            #expect(!workspace.panels.values.contains { $0 is TerminalPanel })
+            // Drain the initial terminal's unregister before a recoverable route
+            // exists, so no terminal-topology callback can satisfy this test.
+            await drainMainActorQueue()
+
+            let windowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: try #require(manager)
+            )
+            let dock = appDelegate.windowDock(forWindowId: windowId)
+            let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+            let dockBrowserId = try #require(
+                dock.newSurface(
+                    kind: .browser,
+                    inPane: dockPane,
+                    url: URL(string: "https://example.com/transferred-dock"),
+                    focus: true
+                )
+            )
+            defer {
+                appDelegate.forgetRecoverableMainWindowRoute(windowId: windowId)
+                workspace.teardownAllPanels()
+                TerminalController.shared.setActiveTabManager(previousActiveManager)
+                BrowserAvailabilitySettings.setDisabled(wasBrowserDisabled)
+                AppDelegate.shared = previousAppDelegate
+            }
+
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
+            #expect(!dock.isRetired)
+            #expect(dock.containsPanel(dockBrowserId))
+
+            manager = nil
+            await drainMainActorQueue()
+
+            #expect(releasedManager == nil)
+            #expect(dock.isRetired)
+            #expect(!dock.containsPanel(dockBrowserId))
+            #expect(dock.panels.isEmpty)
         }
     }
 
