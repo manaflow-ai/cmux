@@ -1186,6 +1186,66 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func shortcutHintUsesOpaqueFallbackForIncreasedContrastAppearanceMismatch() throws {
+        let tableEnvironment = SidebarWorkspaceTableEnvironmentSnapshot(
+            environment: .sidebarTableTestValues(
+                colorScheme: .light,
+                colorSchemeContrast: .increased
+            ),
+            globalFontMagnificationPercent: 100,
+            lazyContractProbe: SidebarLazyContractProbe()
+        )
+        let headerCell = SidebarGroupHeaderTableCellView()
+        headerCell.configurePresentation(
+            model: Self.makeGroupHeaderModel(
+                groupId: UUID(),
+                anchorWorkspaceId: UUID(),
+                isAnchorActive: false,
+                shortcutHintText: "⌘1"
+            ),
+            environment: tableEnvironment
+        )
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 80))
+        root.addSubview(headerCell)
+        let window = NSWindow(
+            contentRect: root.bounds,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.appearance = try #require(NSAppearance(named: .darkAqua))
+        window.contentView = root
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+
+        let material = try #require(
+            Self.descendants(of: headerCell)
+                .compactMap { $0 as? NSVisualEffectView }
+                .first
+        )
+        let pill = try #require(material.superview as? SidebarShortcutHintPillView)
+        let opaqueBackdrop = try #require(
+            Self.descendants(of: pill).first { view in
+                guard view !== material,
+                      !view.isHidden,
+                      let backgroundColor = view.layer?.backgroundColor,
+                      let color = NSColor(cgColor: backgroundColor)?.usingColorSpace(.sRGB) else {
+                    return false
+                }
+                return color.alphaComponent == 1
+            }
+        )
+        let backgroundColor = try #require(opaqueBackdrop.layer?.backgroundColor)
+        let fallbackColor = try #require(NSColor(cgColor: backgroundColor)?.usingColorSpace(.sRGB))
+        let expectedColor = try #require(NSColor.white.usingColorSpace(.sRGB))
+
+        #expect(material.appearance == nil)
+        #expect(fallbackColor == expectedColor)
+    }
+
+    @Test
     func tablePaletteMatchesIncreasedContrastSwiftUISemantics() throws {
         let swiftUIEnvironment = EnvironmentValues.sidebarTableTestValues(
             colorScheme: .dark,
