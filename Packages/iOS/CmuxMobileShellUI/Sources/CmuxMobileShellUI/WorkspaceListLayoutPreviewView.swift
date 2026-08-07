@@ -102,8 +102,15 @@ public struct WorkspaceListLayoutPreviewView: View {
     @State private var filterState = WorkspaceListFilterState()
     /// Store-free stand-ins for the device-local sort preference, so the
     /// fixture's sort menu and computer-order editor are fully interactive.
-    @State private var fixtureSortMode: MobileWorkspaceSortMode = .automatic
-    @State private var fixtureComputerPriority: [String] = []
+    /// `CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT` (a raw mode value) and
+    /// `..._SORT_PRIORITY` (comma-separated Mac device ids) seed them so a
+    /// harness can verify each mode's rendering without driving the menu.
+    @State private var fixtureSortMode: MobileWorkspaceSortMode =
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT"]
+            .flatMap(MobileWorkspaceSortMode.init(rawValue:)) ?? .automatic
+    @State private var fixtureComputerPriority: [String] =
+        ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW_SORT_PRIORITY"]
+            .map { $0.split(separator: ",").map(String.init) } ?? []
     // Safety: DEBUG screenshot-only presenter is owned by this preview view and
     // only mutates its fired flag from the SwiftUI task that requests the banner.
     private let notificationPresenter = ScreenshotNotificationPresenter()
