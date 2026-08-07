@@ -25,6 +25,20 @@ public struct CmxIrohBrokerCredentials: Sendable, CustomStringConvertible,
     public var debugDescription: String { description }
 }
 
+private func isUnsupportedRegistrationScope(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, code) = error else { return false }
+    return statusCode == 400 && code == "unknown_field"
+}
+
+private func isMissingScopedDiscoveryRoute(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, _) = error else { return false }
+    return statusCode == 404
+}
+
 /// One authenticated account and credential pair captured atomically.
 ///
 /// Platform auth coordinators map their native session snapshot into this
@@ -359,7 +373,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                         throw CmxIrohTrustBrokerClientError.invalidResponse
                     }
                 } catch let error as CmxIrohTrustBrokerClientError
-                    where Self.isMissingScopedDiscoveryRoute(error) {
+                    where isMissingScopedDiscoveryRoute(error) {
                     // Older servers have only paginated global discovery.
                 }
             }
@@ -510,7 +524,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             }
             return response
         } catch let error as CmxIrohTrustBrokerClientError
-            where Self.isUnsupportedRegistrationScope(error) {
+            where isUnsupportedRegistrationScope(error) {
             // Registration parsing happens before challenge consumption, so
             // retrying the identical signature without the optional field is
             // safe against older strict servers.
@@ -545,7 +559,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 }
                 return response
             } catch let error as CmxIrohTrustBrokerClientError
-                where Self.isMissingScopedDiscoveryRoute(error) {
+                where isMissingScopedDiscoveryRoute(error) {
                 // Continue with connectivity v2 below.
             }
         }
@@ -558,20 +572,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
                 discoveryScope: nil
             )
         )
-    }
-
-    private static func isUnsupportedRegistrationScope(
-        _ error: CmxIrohTrustBrokerClientError
-    ) -> Bool {
-        guard case let .rejected(statusCode, code) = error else { return false }
-        return statusCode == 400 && code == "unknown_field"
-    }
-
-    private static func isMissingScopedDiscoveryRoute(
-        _ error: CmxIrohTrustBrokerClientError
-    ) -> Bool {
-        guard case let .rejected(statusCode, _) = error else { return false }
-        return statusCode == 404
     }
 
     private func send<Response: Decodable & Sendable, Body: Encodable>(
