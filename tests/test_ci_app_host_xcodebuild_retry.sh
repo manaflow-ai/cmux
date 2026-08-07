@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [ "$(basename "$0")" = "fake-lsof" ]; then
+  exit 0
+fi
+
 if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
   printf '%s\n' "$@" >> "$CMUX_CAPTURE_XCODEBUILD_ARGS"
   printf '%s\n' "${TEST_RUNNER_CMUX_TEST_PROCESS:-<unset>}" >> "$CMUX_CAPTURE_TEST_RUNNER_ENV"
@@ -80,6 +84,7 @@ cleanup() {
 trap cleanup EXIT
 
 ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcodebuild"
+ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/fake-lsof"
 BASH32_BIN_DIR="$TMP_DIR/bash32-bin"
 mkdir -p "$BASH32_BIN_DIR"
 ln -s /bin/bash "$BASH32_BIN_DIR/bash"
@@ -90,6 +95,8 @@ export GITHUB_ENV="$TMP_DIR/github-env"
 export GITHUB_RUN_ID="910000$$"
 export GITHUB_RUN_ATTEMPT="2"
 export CMUX_APP_HOST_SHARD="4"
+export CMUX_CI_APP_HOST_CLEANUP_TEST_HELPER=1
+export CMUX_APP_HOST_LSOF="$TMP_DIR/fake-lsof"
 mkdir -p "$RUNNER_TEMP_DIR"
 : > "$GITHUB_ENV"
 bash "$ROOT_DIR/scripts/ci/prepare-app-host-home.sh"
