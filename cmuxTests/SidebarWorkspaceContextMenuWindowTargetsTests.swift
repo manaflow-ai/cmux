@@ -158,7 +158,6 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
                 removeAttachment: { _, _ in },
                 openAttachments: { _, _ in }
             ),
-            onDragStart: { NSItemProvider() },
             bonsplitSourceWorkspaceId: { _ in nil },
             moveBonsplitTabToWorkspace: { _, _ in false },
             syncAfterBonsplitDrop: {},
@@ -169,7 +168,8 @@ struct SidebarWorkspaceContextMenuWindowTargetsTests {
             onContextMenuAppear: {},
             onContextMenuDisappear: {},
             onPointerFrameChange: { _ in },
-            onPointerFrameDisappear: {}
+            onPointerFrameDisappear: {},
+            onPointerDragEligibilityChange: { _ in }
         )
     }
 }

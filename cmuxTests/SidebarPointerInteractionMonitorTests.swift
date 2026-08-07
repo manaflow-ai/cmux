@@ -207,6 +207,33 @@ import Testing
         #expect(monitor.middleClickWorkspaceId(at: CGPoint(x: 100, y: 54)) == nil)
     }
 
+    @Test func workspaceDragCandidateUsesRegisteredIdentityAndEditingGate() {
+        let monitor = SidebarPointerInteractionMonitor()
+        let workspaceId = UUID()
+        let rowId = SidebarWorkspaceRenderItemID.workspace(workspaceId)
+        let frame = CGRect(x: 20, y: 40, width: 180, height: 28)
+        monitor.updateFrame(frame, for: rowId, workspaceId: workspaceId)
+
+        let enabled = monitor.workspaceDragCandidate(at: CGPoint(x: 100, y: 54))
+        #expect(enabled?.workspaceId == workspaceId)
+        #expect(enabled?.swiftUIFrame == frame)
+
+        monitor.setWorkspaceDragEnabled(false, for: rowId)
+        #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 100, y: 54)) == nil)
+
+        monitor.setWorkspaceDragEnabled(true, for: rowId)
+        #expect(monitor.workspaceDragCandidate(at: CGPoint(x: 100, y: 54))?.workspaceId == workspaceId)
+    }
+
+    @Test func convertsSwiftUIRowFrameToAppKitSourceFrame() {
+        let frame = SidebarWorkspaceDragSourceMonitor.appKitRect(
+            fromSwiftUIRect: CGRect(x: 40, y: 50, width: 180, height: 30),
+            viewportBounds: CGRect(x: 5, y: 20, width: 240, height: 200)
+        )
+
+        #expect(frame == CGRect(x: 45, y: 140, width: 180, height: 30))
+    }
+
     @Test func menuTrackingReconciliationIgnoresSubmenuEndNotifications() {
         let rootMenu = NSMenu()
         let submenu = NSMenu()

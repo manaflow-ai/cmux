@@ -929,7 +929,6 @@ struct ContentView: View {
     @State private var workspaceHandoffFallbackScheduler = MainActorDeferredActionScheduler()
     @State private var didApplyUITestSidebarSelection = false
     @State private var titlebarThemeGeneration: UInt64 = 0
-    @State private var sidebarDraggedTabId: UUID?
     @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     @State private var sidebarResizerCursorReleaseScheduler = SidebarResizerCursorReleaseScheduler()
     @State private var sidebarResizerPointerMonitor: Any?
@@ -1902,13 +1901,10 @@ struct ContentView: View {
         ))
     }
 
-    private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
+    private func terminalContentWithLayoutPriority(appearance: WindowAppearanceSnapshot) -> some View {
         terminalContent(appearance: appearance)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .layoutPriority(1)
-            .overlay {
-                SidebarExternalDropOverlay(draggedTabId: sidebarDraggedTabId)
-            }
     }
 
     private func terminalContentWithRightSidebarPanel(appearance: WindowAppearanceSnapshot) -> some View {
@@ -1916,7 +1912,7 @@ struct ContentView: View {
         // animate without SwiftUI insertion/removal. Cold hidden launches defer
         // heavy mode content until the sidebar has been shown at least once.
         return HStack(spacing: 0) {
-            terminalContentWithSidebarDropOverlay(appearance: appearance)
+            terminalContentWithLayoutPriority(appearance: appearance)
             rightSidebarPanelWithBackdrop(appearance: appearance)
         }
     }
@@ -2600,7 +2596,7 @@ struct ContentView: View {
             layout = AnyView(
                 ZStack(alignment: .leading) {
                     HStack(spacing: 0) {
-                        terminalContentWithSidebarDropOverlay(appearance: appearance)
+                        terminalContentWithLayoutPriority(appearance: appearance)
                             .modifier(SidebarWidthLeadingPaddingModifier(
                                 layout: sidebarLayout,
                                 enabled: sidebarState.isVisible
@@ -3041,17 +3037,6 @@ struct ContentView: View {
             }
             syncSidebarSelectedWorkspaceIds()
             applyUITestSidebarSelectionIfNeeded(tabs: tabs)
-        })
-
-        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.stateDidChange)) { notification in
-            let tabId = SidebarDragLifecycleNotification().tabId(from: notification)
-            sidebarDraggedTabId = tabId
-#if DEBUG
-            cmuxDebugLog(
-                "sidebar.dragState.content tab=\(debugShortWorkspaceId(tabId)) " +
-                "reason=\(SidebarDragLifecycleNotification().reason(from: notification))"
-            )
-#endif
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteToggleRequested)) { notification in
@@ -10525,7 +10510,8 @@ private final class SidebarTabItemSettingsStore: ObservableObject {
 }
 
 // `SidebarDragState`, `SidebarWorkspaceDragRegistry`, and the DEBUG-only
-// `SidebarDragStateRegistry` now live in the `CmuxSidebar`// package. This app-side convenience keeps the `SidebarDragState()` call site
+// `SidebarDragStateRegistry` now live in the `CmuxSidebar` package. This
+// app-side convenience keeps the `SidebarDragState()` call site
 // unchanged by injecting the process-wide cross-window registry the app owns
 // at its composition root (`AppDelegate`).
 extension SidebarDragState {
@@ -10586,7 +10572,6 @@ struct VerticalTabsSidebar: View, Equatable {
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State var pointerInteractionMonitor = SidebarPointerInteractionMonitor()
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
-    @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
@@ -10757,16 +10742,14 @@ struct VerticalTabsSidebar: View, Equatable {
     private var draggedTabIdBinding: Binding<UUID?> {
         Binding(
             get: { dragState.draggedTabId },
-            // Route the clear through `clearDrag()` so a locally originated drag
-            // also ends its `SidebarWorkspaceDragRegistry` entry. The extension /
-            // browser-stack sidebar drop delegates end drags by writing `nil`
-            // through this binding; without this they'd leave the process-wide
-            // registry stale and a later cross-window drop could act on it.
+            // The extension/browser-stack drop delegates signal completion by
+            // writing nil. Finish the coordinator session from either its source
+            // or a mirrored destination so no process-wide identity survives.
             set: { newValue in
                 if let newValue {
-                    dragState.draggedTabId = newValue
+                    _ = dragState.activateDragging(tabId: newValue)
                 } else {
-                    dragState.clearDrag()
+                    dragState.finishDrag()
                 }
             }
         )
@@ -10933,13 +10916,26 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func activateSidebarInteractions() {
-        guard !pointerInteractionMonitor.isActive else { return }
-        pointerInteractionMonitor.start { workspaceId in
-            guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+        if !pointerInteractionMonitor.isActive {
+            pointerInteractionMonitor.start(onMiddleClickWorkspace: { workspaceId in
+                guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
 #if DEBUG
-            cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
+                cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
-            tabManager.closeWorkspaceWithConfirmation(workspace)
+                tabManager.closeWorkspaceWithConfirmation(workspace)
+            }, onBeginWorkspaceDrag: { workspaceId, sourceView, event, draggingFrame, dragImage in
+#if DEBUG
+                cmuxDebugLog("sidebar.nativeDrag tab=\(workspaceId.uuidString.prefix(5))")
+#endif
+                return dragState.beginNativeDragging(
+                    tabId: workspaceId,
+                    pasteboardItem: SidebarTabDragPayload(tabId: workspaceId).pasteboardItem(),
+                    sourceView: sourceView,
+                    event: event,
+                    draggingFrame: draggingFrame,
+                    dragImage: dragImage
+                )
+            })
         }
         if showModifierHoldHints {
             modifierKeyMonitor.setHostWindow(observedWindow)
@@ -10947,39 +10943,29 @@ struct VerticalTabsSidebar: View, Equatable {
         } else {
             modifierKeyMonitor.stop()
         }
-        dragState.clearDrag()
+        dragState.dismissPresentation()
         isBonsplitWorkspaceDropTargetCollectionActive = false
         isWorkspaceReorderDropTargetCollectionActive = false
-        dragState.isSimulated = false
         #if DEBUG
         AppDelegate.shared?.sidebarDragStateRegistry.register(windowId: windowId, dragState: dragState)
         #endif
-        SidebarDragLifecycleNotification().postStateDidChange(
-            tabId: nil,
-            reason: "sidebar_appear"
-        )
     }
 
     private func deactivateSidebarInteractions() {
         appKitFrozenTableRowsBox.rows = nil
         appKitRowSnapshotCache.prune(keeping: [])
         if !workspaceSnapshotsById.isEmpty { workspaceSnapshotsById = [:] }
-        guard pointerInteractionMonitor.isActive else { return }
-        pointerInteractionMonitor.stop()
+        if pointerInteractionMonitor.isActive {
+            pointerInteractionMonitor.stop()
+        }
         modifierKeyMonitor.stop()
         dragAutoScrollController.stop()
-        dragFailsafeMonitor.stop()
-        dragState.clearDrag()
+        dragState.dismissPresentation()
         isBonsplitWorkspaceDropTargetCollectionActive = false
         isWorkspaceReorderDropTargetCollectionActive = false
-        dragState.isSimulated = false
         #if DEBUG
         AppDelegate.shared?.sidebarDragStateRegistry.unregister(windowId: windowId)
         #endif
-        SidebarDragLifecycleNotification().postStateDidChange(
-            tabId: nil,
-            reason: "sidebar_disappear"
-        )
     }
 
     var body: some View {
@@ -11152,37 +11138,14 @@ struct VerticalTabsSidebar: View, Equatable {
             checklistAddFieldActivationTokens[workspaceId, default: 0] += 1
         }
         .onChange(of: dragState.draggedTabId) { newDraggedTabId in
-            SidebarDragLifecycleNotification().postStateDidChange(
-                tabId: newDraggedTabId,
-                reason: "drag_state_change"
-            )
 #if DEBUG
             cmuxDebugLog("sidebar.dragState.sidebar tab=\(sidebarShortTabId(newDraggedTabId))")
 #endif
             if newDraggedTabId != nil {
-                // The failsafe monitor probes the real mouse-button state and
-                // posts `mouse_up_failsafe` if no mouse is held down. That's
-                // correct for HID-driven drags, but `debug.sidebar.simulate_drag`
-                // drives the state without any mouse, so skip the monitor when
-                // a simulated drag is in flight.
-                if !dragState.isSimulated {
-                    dragFailsafeMonitor.start {
-                        SidebarDragLifecycleNotification().postClearRequest(reason: $0)
-                    }
-                }
                 return
             }
-            dragFailsafeMonitor.stop()
             dragAutoScrollController.stop()
             dragState.clearDropIndicator()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: SidebarDragLifecycleNotification.requestClear)) { notification in
-            guard dragState.draggedTabId != nil || dragState.dropIndicator != nil else { return }
-            let reason = SidebarDragLifecycleNotification().reason(from: notification)
-#if DEBUG
-            cmuxDebugLog("sidebar.dragClear tab=\(sidebarShortTabId(dragState.draggedTabId)) reason=\(reason)")
-#endif
-            dragState.clearDrag()
         }
         .onChange(of: tabIds) { tabIds in
             guard let frozenTabId = frozenShortcutHintsTabId,
@@ -11706,7 +11669,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     anchorIds: Set(tabManager.workspaceGroups.map(\.anchorWorkspaceId))
                 ).count
             },
-            endWorkspaceDrag: {
+            clearWorkspaceDrag: {
                 dragState.clearDrag()
                 dragAutoScrollController.stop()
             },
@@ -11731,7 +11694,7 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             commitWorkspaceDropPlan: { plan in
                 defer {
-                    dragState.clearDrag()
+                    dragState.finishDrag()
                     dragAutoScrollController.stop()
                 }
                 return performWorkspaceReorderPlan(plan)
@@ -12156,6 +12119,8 @@ struct VerticalTabsSidebar: View, Equatable {
                     )
                 }
             }
+            .coordinateSpace(name: SidebarPointerInteractionMonitor.coordinateSpaceName)
+            .sidebarPointerEventHost(pointerInteractionMonitor)
             .background(
                 SidebarScrollViewResolver { scrollView in
                     configureSidebarScrollView(scrollView)
@@ -12790,13 +12755,20 @@ struct VerticalTabsSidebar: View, Equatable {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+        .sidebarPointerFrameReporting(
+            onFrameChange: { [pointerInteractionMonitor, workspaceId = row.workspaceId] frame in
+                pointerInteractionMonitor.updateFrame(
+                    frame,
+                    for: .workspace(workspaceId),
+                    workspaceId: workspaceId
+                )
+            },
+            onDisappear: { [pointerInteractionMonitor, workspaceId = row.workspaceId] in
+                pointerInteractionMonitor.removeFrame(for: .workspace(workspaceId))
+            }
+        )
         .safeHelp(row.title)
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
-        }
-        .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
             orderedRows: dropRows,
@@ -12869,12 +12841,19 @@ struct VerticalTabsSidebar: View, Equatable {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .sidebarPointerFrameReporting(
+            onFrameChange: { [pointerInteractionMonitor, workspaceId = row.workspaceId] frame in
+                pointerInteractionMonitor.updateFrame(
+                    frame,
+                    for: .workspace(workspaceId),
+                    workspaceId: workspaceId
+                )
+            },
+            onDisappear: { [pointerInteractionMonitor, workspaceId = row.workspaceId] in
+                pointerInteractionMonitor.removeFrame(for: .workspace(workspaceId))
+            }
+        )
         .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload(tabId: row.workspaceId).provider()
-        }
-        .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
             targetWorkspaceId: row.workspaceId,
             orderedRows: dropRows,
@@ -13473,35 +13452,37 @@ struct VerticalTabsSidebar: View, Equatable {
     }
 
     private func activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: UUID? = nil) -> Bool {
-        if dragState.draggedTabId != nil {
-            return true
-        }
-        // The registry entry dies with clearDrag(), so a drag whose state was
-        // torn down mid-flight (app_resign_active failsafe) is only
-        // recoverable through the session's pasteboard id.
-        guard let dragId = dragState.currentWorkspaceDragId ?? pasteboardWorkspaceId else {
+        // AppKit's retained source callback is the only authority that ends a
+        // drag. Pasteboard data may confirm that live session's identity, but
+        // residual data must never recreate a session after the callback.
+        guard let dragId = dragState.currentWorkspaceDragId else {
 #if DEBUG
             cmuxDebugLog("sidebar.drag.activate rejected reason=noDragId")
 #endif
             return false
         }
+        guard pasteboardWorkspaceId == nil || pasteboardWorkspaceId == dragId else {
+#if DEBUG
+            cmuxDebugLog("sidebar.drag.activate rejected reason=payloadMismatch")
+#endif
+            return false
+        }
+        if dragState.draggedTabId == dragId {
+            return true
+        }
         if tabManager.tabs.contains(where: { $0.id == dragId }) {
-            // Local drag whose state was cleared while the native session
-            // kept running: the still-delivering drop callbacks prove the
-            // drag is alive, so re-arm instead of rejecting every update
-            // (which left the rest of the drag indicator-less and made the
-            // final drop a silent no-op).
+            // A source view can rebuild while AppKit keeps its drag alive. The
+            // registry session preserves source ownership across that rebuild.
             let isSourceGroupAnchor = tabManager.workspaceGroups.contains {
                 $0.anchorWorkspaceId == dragId
             }
-            guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
+            guard !SidebarWorkspaceDragActivationPolicy().shouldRejectMirroring(
                 isLocalWorkspace: true,
                 isSourceGroupAnchor: isSourceGroupAnchor
             ) else {
                 return false
             }
-            dragState.beginDragging(tabId: dragId)
-            return true
+            return dragState.activateDragging(tabId: dragId)
         }
         guard let sourceManager = AppDelegate.shared?.tabManagerFor(tabId: dragId) else {
             return false
@@ -13509,14 +13490,14 @@ struct VerticalTabsSidebar: View, Equatable {
         let isSourceGroupAnchor = sourceManager.workspaceGroups.contains {
             $0.anchorWorkspaceId == dragId
         }
-        guard !SidebarWorkspaceDragActivationPolicy().shouldRejectRecovery(
+        guard !SidebarWorkspaceDragActivationPolicy().shouldRejectMirroring(
             isLocalWorkspace: false,
             isSourceGroupAnchor: isSourceGroupAnchor
         ) else {
             return false
         }
+        guard dragState.activateDragging(tabId: dragId) else { return false }
         dragState.foreignDraggedIsPinned = sourceManager.tabs.first { $0.id == dragId }?.isPinned ?? false
-        dragState.draggedTabId = dragId
         return true
     }
 
@@ -13577,7 +13558,7 @@ struct VerticalTabsSidebar: View, Equatable {
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
         defer {
-            dragState.clearDrag()
+            dragState.finishDrag()
             dragAutoScrollController.stop()
         }
         guard activateSidebarWorkspaceDragIfNeeded(pasteboardWorkspaceId: pasteboardWorkspaceId),
@@ -14364,13 +14345,6 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             },
             checklist: checklistActions,
-            onDragStart: {
-#if DEBUG
-                cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
-#endif
-                dragState.beginDragging(tabId: tabId)
-                return SidebarTabDragPayload(tabId: tabId).provider()
-            },
             bonsplitSourceWorkspaceId: { bonsplitTabId in
                 AppDelegate.shared?.locateBonsplitSurface(tabId: bonsplitTabId)?.workspaceId
             },
@@ -14428,6 +14402,9 @@ struct VerticalTabsSidebar: View, Equatable {
             },
             onPointerFrameDisappear: { [pointerInteractionMonitor] in
                 pointerInteractionMonitor.removeFrame(for: rowId)
+            },
+            onPointerDragEligibilityChange: { [pointerInteractionMonitor] isEnabled in
+                pointerInteractionMonitor.setWorkspaceDragEnabled(isEnabled, for: rowId)
             }
         )
         }
@@ -14476,189 +14453,6 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
     static func reduce(value: inout [UUID: Anchor<CGRect>], nextValue: () -> [UUID: Anchor<CGRect>]) {
         value.merge(nextValue()) { _, next in next }
     }
-}
-
-@MainActor
-private final class SidebarDragFailsafeMonitor {
-    private static let escapeKeyCode: UInt16 = 53
-    // One-shot timer bridges synchronous AppKit event monitors to a cancellable drag-teardown deadline.
-    private var pendingClearTimer: DispatchSourceTimer?
-    private var pendingClearGeneration: UInt64 = 0
-    private var appResignObserver: NSObjectProtocol?
-    private var keyDownMonitor: Any?
-    private var localMouseMonitor: Any?
-    private var globalMouseMonitor: Any?
-    private var onRequestClear: ((String) -> Void)?
-
-    func start(onRequestClear: @escaping (String) -> Void) {
-        self.onRequestClear = onRequestClear
-        if SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
-            isLeftMouseButtonDown: CGEventSource.buttonState(
-                .combinedSessionState,
-                button: .left
-            )
-        ) {
-            requestClearSoon(reason: "mouse_up_failsafe")
-        }
-        if appResignObserver == nil {
-            appResignObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.requestClearSoon(reason: "app_resign_active")
-                }
-            }
-        }
-        if keyDownMonitor == nil {
-            keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                if event.keyCode == Self.escapeKeyCode {
-                    self?.requestClearSoon(reason: "escape_cancel")
-                }
-                return event
-            }
-        }
-        if localMouseMonitor == nil {
-            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-                if SidebarDragFailsafePolicy().shouldRequestClear(forMouseEventType: event.type) {
-                    self?.requestClearSoon(reason: "mouse_up_failsafe")
-                }
-                return event
-            }
-        }
-        if globalMouseMonitor == nil {
-            globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-                guard SidebarDragFailsafePolicy().shouldRequestClear(forMouseEventType: event.type) else { return }
-                Task { @MainActor [weak self] in
-                    self?.requestClearSoon(reason: "mouse_up_failsafe")
-                }
-            }
-        }
-    }
-
-    func stop() {
-        pendingClearGeneration &+= 1
-        pendingClearTimer?.cancel()
-        pendingClearTimer = nil
-        if let appResignObserver {
-            NotificationCenter.default.removeObserver(appResignObserver)
-            self.appResignObserver = nil
-        }
-        if let keyDownMonitor {
-            NSEvent.removeMonitor(keyDownMonitor)
-            self.keyDownMonitor = nil
-        }
-        if let localMouseMonitor {
-            NSEvent.removeMonitor(localMouseMonitor)
-            self.localMouseMonitor = nil
-        }
-        if let globalMouseMonitor {
-            NSEvent.removeMonitor(globalMouseMonitor)
-            self.globalMouseMonitor = nil
-        }
-        onRequestClear = nil
-    }
-
-    private func requestClearSoon(reason: String) {
-        guard pendingClearTimer == nil else { return }
-#if DEBUG
-        cmuxDebugLog("sidebar.dragFailsafe.schedule reason=\(reason)")
-#endif
-        let timer = DispatchSource.makeTimerSource(queue: .main)
-        pendingClearGeneration &+= 1
-        let generation = pendingClearGeneration
-        timer.schedule(deadline: .now() + SidebarDragFailsafePolicy.clearDelay)
-        timer.setEventHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self, self.pendingClearGeneration == generation else { return }
-#if DEBUG
-                cmuxDebugLog("sidebar.dragFailsafe.fire reason=\(reason)")
-#endif
-                self.pendingClearTimer = nil
-                self.onRequestClear?(reason)
-            }
-        }
-        pendingClearTimer = timer
-        timer.resume()
-    }
-}
-
-private struct SidebarExternalDropOverlay: View {
-    let draggedTabId: UUID?
-
-    var body: some View {
-        let dragPasteboardTypes = NSPasteboard(name: .drag).types
-        let shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
-            draggedTabId: draggedTabId,
-            pasteboardTypes: dragPasteboardTypes
-        )
-        Group {
-            if shouldCapture {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(true)
-                    .onDrop(
-                        of: SidebarTabDragPayload.dropContentTypes,
-                        delegate: SidebarExternalDropDelegate(draggedTabId: draggedTabId)
-                    )
-            } else {
-                Color.clear
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(false)
-            }
-        }
-    }
-}
-
-private struct SidebarExternalDropDelegate: DropDelegate {
-    let draggedTabId: UUID?
-
-    func validateDrop(info: DropInfo) -> Bool {
-        let hasSidebarPayload = info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier])
-        let shouldReset = SidebarOutsideDropResetPolicy().shouldResetDrag(
-            draggedTabId: draggedTabId,
-            hasSidebarDragPayload: hasSidebarPayload
-        )
-#if DEBUG
-        cmuxDebugLog(
-            "sidebar.dropOutside.validate tab=\(sidebarShortTabId(draggedTabId)) " +
-            "hasType=\(hasSidebarPayload) allowed=\(shouldReset)"
-        )
-#endif
-        return shouldReset
-    }
-
-    func dropEntered(info: DropInfo) {
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.entered tab=\(sidebarShortTabId(draggedTabId))")
-#endif
-    }
-
-    func dropExited(info: DropInfo) {
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.exited tab=\(sidebarShortTabId(draggedTabId))")
-#endif
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard validateDrop(info: info) else { return nil }
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.updated tab=\(sidebarShortTabId(draggedTabId)) op=move")
-#endif
-        // Explicit move proposal avoids AppKit showing a copy (+) cursor.
-        return DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard validateDrop(info: info) else { return false }
-#if DEBUG
-        cmuxDebugLog("sidebar.dropOutside.perform tab=\(sidebarShortTabId(draggedTabId))")
-#endif
-        SidebarDragLifecycleNotification().postClearRequest(reason: "outside_sidebar_drop")
-        return true
-    }
-
 }
 
 private struct SidebarFooter: View {
@@ -15864,8 +15658,6 @@ struct TabItemView: View, Equatable {
             guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
             workspaceFinderDirectoryOpenRequest = nil
         }
-        .sidebarRowDragGate(isEditing: isEditing, actions.onDragStart)
-        .internalOnlyTabDrag()
         .modifier(SidebarBonsplitWorkspaceRowDropModifier(
             isEnabled: isBonsplitWorkspaceDropActive,
             targetWorkspaceId: workspaceId,
@@ -15876,6 +15668,12 @@ struct TabItemView: View, Equatable {
         ))
         .onTapGesture {
             if !isEditing { updateSelection() }
+        }
+        .onAppear {
+            actions.onPointerDragEligibilityChange(!isEditing)
+        }
+        .onChange(of: isEditing) { _, isEditing in
+            actions.onPointerDragEligibilityChange(!isEditing)
         }
         .simultaneousGesture(
             TapGesture(count: 2).onEnded {
@@ -16721,10 +16519,10 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     /// Mirror a foreign drag's identity into this window's `SidebarDragState`
-    /// so the existing drop-indicator, frame-anchor, and failsafe machinery —
+    /// so the existing drop-indicator and frame-anchor machinery —
     /// all gated on `draggedTabId != nil` — activate unchanged. The id matches
-    /// no local row, so no row dims, and the failsafe monitor clears it on
-    /// mouse-up (and `performDrop` clears it on a successful drop).
+    /// no local row, so no row dims. The coordinator clears every mirror on
+    /// AppKit source completion, and `performDrop` clears it on a successful drop.
     private func activateForeignDragIfNeeded() {
         guard dragState.draggedTabId == nil,
               let foreignId = dragState.currentWorkspaceDragId,
@@ -16735,7 +16533,7 @@ struct SidebarTabDropDelegate: DropDelegate {
         dragState.foreignDraggedIsPinned = AppDelegate.shared?
             .tabManagerFor(tabId: foreignId)?
             .tabs.first { $0.id == foreignId }?.isPinned ?? false
-        dragState.draggedTabId = foreignId
+        _ = dragState.mirrorDragging(tabId: foreignId)
     }
 
     func validateDrop(info: DropInfo) -> Bool {
@@ -16833,7 +16631,7 @@ struct SidebarTabDropDelegate: DropDelegate {
     func performDrop(pointerX: CGFloat, pointerY: CGFloat?, shouldClearDrag: Bool = true) -> Bool {
         defer {
             if shouldClearDrag {
-                dragState.clearDrag()
+                dragState.finishDrag()
             }
             dragAutoScrollController.stop()
         }

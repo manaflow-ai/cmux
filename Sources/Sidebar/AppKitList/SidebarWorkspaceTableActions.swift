@@ -30,11 +30,13 @@ struct SidebarWorkspaceTableActions {
     let createEmptyWorkspaceGroup: () -> Void
     let beginWorkspaceDrag: (UUID) -> Void
     let movingWorkspaceCount: ((UUID) -> Int)?
-    let endWorkspaceDrag: () -> Void
+    /// Clears the drag presentation owned by this table. Source teardown also
+    /// ends its coordinator session, while mirror teardown stays local.
+    let clearWorkspaceDrag: () -> Void
     let isValidWorkspaceDrag: () -> Bool
     /// The trailing UUID is the drag pasteboard's workspace id, used to
-    /// re-arm drag state that was cleared while the native session stayed
-    /// alive (app-resign failsafe mid-drag).
+    /// restore destination presentation if its view was rebuilt while the
+    /// native session stayed alive.
     let updateWorkspaceDrag: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> SidebarWorkspaceTableReorderDropUpdate?
     let performWorkspaceDrop: (CGPoint, [SidebarWorkspaceReorderDropOverlay.Target], UUID?) -> Bool
     /// Commits a previously resolved plan verbatim (what the indicator showed).

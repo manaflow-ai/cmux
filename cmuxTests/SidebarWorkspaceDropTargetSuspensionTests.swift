@@ -91,7 +91,7 @@ struct SidebarWorkspaceDropTargetSuspensionTests {
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
-            endWorkspaceDrag: {},
+            clearWorkspaceDrag: {},
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: { _, _, _ in nil },
             performWorkspaceDrop: { _, _, _ in false },

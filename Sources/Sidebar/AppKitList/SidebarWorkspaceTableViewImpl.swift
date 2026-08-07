@@ -4,6 +4,10 @@ import AppKit
 @MainActor
 final class SidebarWorkspaceTableViewImpl: NSTableView {
     weak var workspaceController: SidebarWorkspaceTableController?
+    /// AppKit retains the table while it is the native drag source. The table
+    /// in turn retains its controller until the documented terminal source
+    /// callback arrives, even if SwiftUI dismantles the representable first.
+    var activeWorkspaceDragController: SidebarWorkspaceTableController?
     private var pointerTrackingArea: NSTrackingArea?
     private(set) var lastPointerWindowLocation: NSPoint?
 

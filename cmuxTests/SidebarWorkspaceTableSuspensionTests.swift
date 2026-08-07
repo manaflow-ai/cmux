@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxSidebar
 import SwiftUI
 import Testing
 @testable import cmux_DEV
@@ -270,7 +271,7 @@ struct SidebarWorkspaceTableSuspensionTests {
     }
 
     @Test
-    func hidingRetiresNativeReorderSession() async {
+    func hidingRetiresPresentationButDefersActiveSourceClear() async {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
         let workspaceIds = (0..<6).map { _ in UUID() }
@@ -286,6 +287,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             window.close()
         }
         var indicatorClears = 0
+        var dragClearCalls = 0
         let actions = makeTableActions(
             updateWorkspaceDrag: { _, _, _ in
                 SidebarWorkspaceTableReorderDropUpdate(
@@ -296,6 +298,7 @@ struct SidebarWorkspaceTableSuspensionTests {
                     plan: nil
                 )
             },
+            clearWorkspaceDrag: { dragClearCalls += 1 },
             clearWorkspaceDropIndicator: { indicatorClears += 1 }
         )
         controller.apply(
@@ -311,11 +314,78 @@ struct SidebarWorkspaceTableSuspensionTests {
 
         #expect(controller.updateReorderDrag(windowPoint: NSPoint(x: 40, y: 120)))
         #expect(controller.isReorderDropSessionActive)
+        controller.workspaceDragSessionDidBegin()
 
         controller.setPresentationActive(false, workspaceIds: workspaceIds)
 
         #expect(!controller.isReorderDropSessionActive)
         #expect(indicatorClears == 1)
+        #expect(
+            dragClearCalls == 0,
+            "Hiding the source view is not evidence that AppKit ended its native drag."
+        )
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(dragClearCalls == 1)
+    }
+
+    @Test
+    func dismantlingDefersActiveWorkspaceDragClearUntilSourceCompletion() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        var dragClearCalls = 0
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(clearWorkspaceDrag: { dragClearCalls += 1 }),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        controller.workspaceDragSessionDidBegin()
+
+        controller.dismantleContainerView(container)
+
+        #expect(
+            dragClearCalls == 0,
+            "Dismantling must retain the source controller until AppKit's terminal callback."
+        )
+        #expect(container.tableView.activeWorkspaceDragController === controller)
+
+        controller.workspaceDragSessionDidEnd()
+        #expect(dragClearCalls == 1)
+        #expect(container.tableView.activeWorkspaceDragController == nil)
+    }
+
+    @Test
+    func dismantlingMirroredTableDoesNotCancelSourceDrag() async {
+        let registry = SidebarWorkspaceDragRegistry()
+        let source = SidebarDragState(workspaceDragRegistry: registry)
+        let destination = SidebarDragState(workspaceDragRegistry: registry)
+        let workspaceId = UUID()
+        source.beginDragging(tabId: workspaceId)
+        #expect(destination.mirrorDragging(tabId: workspaceId))
+        defer { source.clearDrag() }
+
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration(workspaceId: workspaceId)
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(clearWorkspaceDrag: { destination.clearDrag() }),
+            workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        controller.dismantleContainerView(container)
+
+        #expect(destination.draggedTabId == nil)
+        #expect(source.draggedTabId == workspaceId)
+        #expect(registry.currentWorkspaceId == workspaceId)
     }
 
     @Test
@@ -637,6 +707,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             [SidebarWorkspaceReorderDropOverlay.Target],
             UUID?
         ) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        clearWorkspaceDrag: @escaping () -> Void = {},
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -646,7 +717,7 @@ struct SidebarWorkspaceTableSuspensionTests {
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
-            endWorkspaceDrag: {},
+            clearWorkspaceDrag: clearWorkspaceDrag,
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },

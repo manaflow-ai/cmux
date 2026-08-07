@@ -188,7 +188,7 @@ struct SidebarWorkspaceRowRetirementTests {
         SidebarWorkspaceTableActions(
             attachScrollView: { _ in }, closeWorkspace: { _ in }, createWorkspaceAtEnd: {},
             createEmptyWorkspaceGroup: {}, beginWorkspaceDrag: { _ in },
-            movingWorkspaceCount: { _ in 1 }, endWorkspaceDrag: {},
+            movingWorkspaceCount: { _ in 1 }, clearWorkspaceDrag: {},
             isValidWorkspaceDrag: { true }, updateWorkspaceDrag: { _, _, _ in nil },
             performWorkspaceDrop: { _, _, _ in false }, commitWorkspaceDropPlan: { _ in false },
             clearWorkspaceDropIndicator: {}, currentDropIndicator: { nil },

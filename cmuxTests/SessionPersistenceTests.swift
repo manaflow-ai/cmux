@@ -4255,34 +4255,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
 }
 
-final class SidebarDragFailsafePolicyTests: XCTestCase {
-    func testRequestsClearWhenMonitorStartsAfterMouseRelease() {
-        XCTAssertTrue(
-            SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
-                isLeftMouseButtonDown: false
-            )
-        )
-        XCTAssertFalse(
-            SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
-                isLeftMouseButtonDown: true
-            )
-        )
-    }
-
-    func testRequestsClearForLeftMouseUpEventsOnly() {
-        XCTAssertTrue(
-            SidebarDragFailsafePolicy().shouldRequestClear(
-                forMouseEventType: .leftMouseUp
-            )
-        )
-        XCTAssertFalse(
-            SidebarDragFailsafePolicy().shouldRequestClear(
-                forMouseEventType: .leftMouseDragged
-            )
-        )
-    }
-}
-
 extension SessionPersistenceTests {
     func testSurfaceResumeBindingStartupInputUsesExactCommand() {
         let binding = SurfaceResumeBindingSnapshot(

@@ -367,7 +367,6 @@
   "SidebarBranchLayoutSettingsTests": 9,
   "SidebarBranchOrderingTests": 29,
   "SidebarDragAutoScrollPlannerTests": 4,
-  "SidebarDragFailsafePolicyTests": 2,
   "SidebarDropPlannerTests": 14,
   "SidebarFontSizeConfigTests": 1,
   "SidebarIdentifierFormattingTests": 2,

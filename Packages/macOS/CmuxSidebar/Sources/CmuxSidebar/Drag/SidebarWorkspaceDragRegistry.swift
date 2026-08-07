@@ -1,27 +1,97 @@
 public import Foundation
+import AppKit
 
-/// Process-wide registry of the workspace currently being dragged in any
+/// Immutable identity for one process-wide workspace drag.
+struct SidebarWorkspaceDragSession: Equatable, Sendable {
+    let id: UUID
+    let workspaceId: UUID
+
+    init(id: UUID = UUID(), workspaceId: UUID) {
+        self.id = id
+        self.workspaceId = workspaceId
+    }
+}
+
+/// Process-wide coordinator for the workspace currently being dragged in any
 /// window's sidebar.
 ///
-/// One instance is constructed at the app composition root and injected into
-/// every ``SidebarDragState`` (and read by the sidebar's drop delegate) so all
-/// windows agree on the single in-flight drag without a shared global.
+/// The coordinator owns the session token, retained native drag source, and
+/// weak set of source/mirror presentation states. AppKit's terminal source
+/// callback clears the token and all matching window-local state together, so
+/// no view callback is the sole owner of process-wide cleanup.
 @MainActor
-public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragRegistering {
-    private var activeWorkspaceId: UUID?
+public final class SidebarWorkspaceDragRegistry {
+    private struct WeakParticipant {
+        weak var state: SidebarDragState?
+    }
+
+    private(set) var currentSession: SidebarWorkspaceDragSession?
+    private var nativeDragSources: [UUID: SidebarWorkspaceDragSessionSource] = [:]
+    private var participants: [WeakParticipant] = []
 
     /// Creates an empty registry with no drag in flight.
     public init() {}
 
-    public var currentWorkspaceId: UUID? { activeWorkspaceId }
+    /// The workspace participating in the active process-wide drag, if any.
+    public var currentWorkspaceId: UUID? { currentSession?.workspaceId }
 
-    public func begin(workspaceId: UUID) {
-        activeWorkspaceId = workspaceId
+    @discardableResult
+    func begin(workspaceId: UUID) -> SidebarWorkspaceDragSession {
+        endCurrentSession()
+        let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
+        currentSession = session
+        return session
     }
 
-    public func end(workspaceId: UUID) {
-        if activeWorkspaceId == workspaceId {
-            activeWorkspaceId = nil
+    func beginNativeDragging(
+        sessionId: UUID,
+        pasteboardItem: NSPasteboardItem,
+        sourceView: NSView,
+        event: NSEvent,
+        draggingFrame: NSRect,
+        dragImage: NSImage
+    ) -> Bool {
+        guard currentSession?.id == sessionId else { return false }
+
+        let source = SidebarWorkspaceDragSessionSource(
+            sessionId: sessionId,
+            registry: self
+        )
+        nativeDragSources[sessionId] = source
+
+        let draggingItem = NSDraggingItem(pasteboardWriter: pasteboardItem)
+        draggingItem.setDraggingFrame(draggingFrame, contents: dragImage)
+        sourceView.beginDraggingSession(
+            with: [draggingItem],
+            event: event,
+            source: source
+        )
+        return true
+    }
+
+    func nativeDraggingSessionDidEnd(sessionId: UUID) {
+        nativeDragSources[sessionId] = nil
+        end(sessionId: sessionId)
+    }
+
+    func end(sessionId: UUID) {
+        guard currentSession?.id == sessionId else { return }
+        endCurrentSession()
+    }
+
+    func register(_ state: SidebarDragState) {
+        participants.removeAll { $0.state == nil || $0.state === state }
+        participants.append(WeakParticipant(state: state))
+    }
+
+    private func endCurrentSession() {
+        guard let session = currentSession else { return }
+        currentSession = nil
+        let participantsSnapshot = participants
+        for participant in participantsSnapshot {
+            guard let state = participant.state else { continue }
+            state.coordinatorDidEnd(sessionId: session.id)
         }
+        participants.removeAll { $0.state == nil }
     }
 }
