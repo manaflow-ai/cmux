@@ -4108,12 +4108,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             )
-            hasher.combine(route.sidebarState.isVisible)
+            hasher.combine(route.sidebar.isVisible)
             hasher.combine(
-                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebarState.persistedWidth)).rounded())
+                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebar.persistedWidth)).rounded())
             )
 
-            switch route.sidebarSelectionState.selection {
+            switch route.sidebarSelection.selection {
             case .tabs:
                 hasher.combine(0)
             case .notifications:
@@ -4645,9 +4645,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 windowId: context.windowId,
                 tabManager: context.tabManager,
                 window: context.window ?? windowForMainWindowId(context.windowId),
-                sidebarState: context.sidebarState,
-                sidebarSelectionState: context.sidebarSelectionState,
-                dockState: context.existingWindowDock().map { .live($0) }
+                sidebar: context.sidebarState,
+                sidebarSelection: context.sidebarSelectionState,
+                dock: context.existingWindowDock().map { .live($0) }
             ),
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
@@ -4680,12 +4680,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             display: displaySnapshot(for: window),
             tabManager: tabManagerSnapshot,
             sidebar: SessionSidebarSnapshot(
-                isVisible: route.sidebarState.isVisible,
-                selection: SessionSidebarSelection(selection: route.sidebarSelectionState.selection),
-                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebarState.persistedWidth))
+                isVisible: route.sidebar.isVisible,
+                selection: SessionSidebarSelection(selection: route.sidebarSelection.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebar.persistedWidth))
             ),
             configFrames: windowConfigFrames[route.windowId]?.entries,
-            dock: route.dockState?.sessionSnapshot(
+            dock: route.dock?.sessionSnapshot(
                 includeScrollback: includeScrollback,
                 restorableAgentIndex: restorableAgentIndex,
                 surfaceResumeBindingIndex: surfaceResumeBindingIndex

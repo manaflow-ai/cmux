@@ -4,49 +4,6 @@ import CmuxTerminal
 import ObjectiveC.runtime
 
 @MainActor
-final class RecoverableMainWindowRoute {
-    enum Purpose: String {
-        case liveRecovery
-        case teardownOnly
-    }
-
-    let windowId: UUID
-    weak var tabManager: TabManager?
-    weak var window: NSWindow?
-    let sidebarState: SidebarState
-    let sidebarSelectionState: SidebarSelectionState
-    private(set) var frozenWindowDockSnapshot: SessionSplitContainerSnapshot?
-    let order: UInt64
-    private(set) var purpose: Purpose
-    var closeObserver: WindowCloseObserver?
-
-    init(
-        windowId: UUID,
-        tabManager: TabManager,
-        window: NSWindow?,
-        sidebarState: SidebarState,
-        sidebarSelectionState: SidebarSelectionState,
-        frozenWindowDockSnapshot: SessionSplitContainerSnapshot?,
-        purpose: Purpose,
-        order: UInt64
-    ) {
-        self.windowId = windowId
-        self.tabManager = tabManager
-        self.window = window
-        self.sidebarState = sidebarState
-        self.sidebarSelectionState = sidebarSelectionState
-        self.frozenWindowDockSnapshot = frozenWindowDockSnapshot
-        self.purpose = purpose
-        self.order = order
-    }
-
-    func markForTeardown() {
-        purpose = .teardownOnly
-        frozenWindowDockSnapshot = nil
-    }
-}
-
-@MainActor
 private final class MainWindowRouteLedger {
     var routesByWindowId: [UUID: RecoverableMainWindowRoute] = [:]
     private var nextOrder: UInt64 = 0
@@ -65,37 +22,6 @@ private var mainWindowRouteLedgerKey: UInt8 = 0
 extension AppDelegate: MainWindowRouteRetiring {}
 
 extension AppDelegate {
-    struct MainWindowRouteSnapshot {
-        enum DockState {
-            case live(DockSplitStore)
-            case frozen(SessionSplitContainerSnapshot)
-
-            func sessionSnapshot(
-                includeScrollback: Bool,
-                restorableAgentIndex: RestorableAgentSessionIndex,
-                surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
-            ) -> SessionSplitContainerSnapshot {
-                switch self {
-                case .live(let dock):
-                    dock.sessionSnapshot(
-                        includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex,
-                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
-                    )
-                case .frozen(let snapshot):
-                    snapshot
-                }
-            }
-        }
-
-        let windowId: UUID
-        let tabManager: TabManager
-        let window: NSWindow?
-        let sidebarState: SidebarState
-        let sidebarSelectionState: SidebarSelectionState
-        let dockState: DockState?
-    }
-
     private var mainWindowRouteLedger: MainWindowRouteLedger {
         if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {
             return ledger
@@ -124,7 +50,7 @@ extension AppDelegate {
 
     private func recoverableWindowParticipatesInLiveTopology(
         _ window: NSWindow,
-        purpose: RecoverableMainWindowRoute.Purpose
+        purpose: RecoverableMainWindowRoutePurpose
     ) -> Bool {
         guard purpose == .liveRecovery else { return false }
         return window.isVisible
@@ -154,9 +80,9 @@ extension AppDelegate {
             windowId: route.windowId,
             tabManager: manager,
             window: window,
-            sidebarState: route.sidebarState,
-            sidebarSelectionState: route.sidebarSelectionState,
-            dockState: route.frozenWindowDockSnapshot.map { .frozen($0) }
+            sidebar: route.sidebar,
+            sidebarSelection: route.sidebarSelection,
+            dock: route.frozenWindowDockSnapshot.map { .frozen($0) }
         )
     }
 
@@ -178,9 +104,9 @@ extension AppDelegate {
             windowId: context.windowId,
             tabManager: context.tabManager,
             window: context.window ?? windowForMainWindowId(context.windowId),
-            sidebarState: context.sidebarState,
-            sidebarSelectionState: context.sidebarSelectionState,
-            dockState: context.existingWindowDock().map { .live($0) }
+            sidebar: context.sidebarState,
+            sidebarSelection: context.sidebarSelectionState,
+            dock: context.existingWindowDock().map { .live($0) }
         )
     }
 
@@ -258,13 +184,12 @@ extension AppDelegate {
 
     func rememberRecoverableMainWindowRoute(
         _ context: MainWindowContext,
-        purpose: RecoverableMainWindowRoute.Purpose
+        purpose: RecoverableMainWindowRoutePurpose
     ) {
         let windowId = context.windowId
-        let tabManager = context.tabManager
         let window = context.window
         guard let window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: window) else { return }
-        guard tabManagerHasRegisteredTerminalSurface(tabManager) else { return }
+        guard tabManagerHasRegisteredTerminalSurface(context.tabManager) else { return }
         let frozenWindowDockSnapshot: SessionSplitContainerSnapshot? = purpose == .liveRecovery
             ? context.windowDockSessionSnapshot(
                 includeScrollback: false,
@@ -274,10 +199,10 @@ extension AppDelegate {
             : nil
         let route = RecoverableMainWindowRoute(
             windowId: windowId,
-            tabManager: tabManager,
+            tabManager: context.tabManager,
             window: window,
-            sidebarState: context.sidebarState,
-            sidebarSelectionState: context.sidebarSelectionState,
+            sidebar: context.sidebarState,
+            sidebarSelection: context.sidebarSelectionState,
             frozenWindowDockSnapshot: frozenWindowDockSnapshot,
             purpose: purpose,
             order: mainWindowRouteLedger.issueOrder()
