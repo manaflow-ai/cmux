@@ -1,7 +1,7 @@
 internal import Foundation
 internal import GhosttyKit
 
-/// A bounded native screen-tail read serialized with native surface teardown.
+/// A bounded native screen-tail read ordered before later teardown requests.
 ///
 /// The raw surface pointer remains owned by its ``TerminalSurface``. The runtime
 /// coordinator executes this request without suspension, so an enqueued native
