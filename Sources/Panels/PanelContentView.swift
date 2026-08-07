@@ -186,7 +186,10 @@ struct PanelContentView: View {
             }
         case .notifications:
             if panel is NotificationsPanel {
-                NotificationsPage()
+                NotificationsPage(
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI
+                )
                     .contentShape(Rectangle())
                     .onTapGesture { onRequestPanelFocus() }
             }

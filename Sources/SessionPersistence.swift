@@ -206,10 +206,10 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
 
     init(selection: SidebarSelection) {
         switch selection {
-        case .tabs:
+        case .tabs, .notifications:
+            // Notifications moved from a window-level overlay to a pane tab.
+            // Never persist the retired overlay selection.
             self = .tabs
-        case .notifications:
-            self = .notifications
         }
     }
 
@@ -218,7 +218,8 @@ enum SessionSidebarSelection: String, Codable, Sendable, Equatable {
         case .tabs:
             return .tabs
         case .notifications:
-            return .notifications
+            // Migrate snapshots written by builds that used the overlay.
+            return .tabs
         }
     }
 }

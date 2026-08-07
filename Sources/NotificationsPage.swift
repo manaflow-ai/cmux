@@ -3,6 +3,9 @@ import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
+    let isFocused: Bool
+    let isVisibleInUI: Bool
+
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var tabManager: TabManager
     @FocusState private var focusedNotificationId: UUID?
@@ -33,6 +36,12 @@ struct NotificationsPage: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: setInitialFocus)
         .onChange(of: notificationStore.notifications.first?.id) { _ in
+            setInitialFocus()
+        }
+        .onChange(of: isFocused) { _ in
+            setInitialFocus()
+        }
+        .onChange(of: isVisibleInUI) { _ in
             setInitialFocus()
         }
     }
@@ -75,9 +84,10 @@ struct NotificationsPage: View {
     }
 
     private func setInitialFocus() {
-        // Only set focus when the notifications page is visible
-        // to avoid stealing focus from the terminal when notifications arrive
-        guard let firstId = notificationStore.notifications.first?.id else {
+        // Background-mounted pane tabs must not claim focus when their feed changes.
+        guard isFocused,
+              isVisibleInUI,
+              let firstId = notificationStore.notifications.first?.id else {
             focusedNotificationId = nil
             return
         }
