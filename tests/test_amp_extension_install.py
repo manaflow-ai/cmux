@@ -6,6 +6,7 @@ Regression test: the generated Amp plugin is importable and emits cmux hook call
 from __future__ import annotations
 
 import base64
+import json
 import os
 import shutil
 import subprocess
@@ -115,14 +116,36 @@ printf '\n---\n' >> "$FAKE_CMUX_STDIN_LOG"
         check_env["PWD"] = "/tmp/amp-project"
         check_env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
         check_source = """
+import * as fs from "node:fs";
 const extensionPath = process.env.CMUX_TEST_AMP_EXTENSION_PATH;
 const mod = await import(extensionPath);
 if (typeof mod.default !== "function") throw new Error("missing default export");
 const handlers = new Map();
+let stateSubscriber = null;
+let titleSubscriber = null;
+let currentState = "idle";
+const thread = {
+  id: "T-amp-session-test",
+  state: {
+    get: async () => currentState,
+    subscribe(cb) {
+      stateSubscriber = cb;
+      return { unsubscribe() {} };
+    }
+  },
+  title: {
+    get: async () => "Initial Amp title",
+    subscribe(cb) {
+      titleSubscriber = cb;
+      return { unsubscribe() {} };
+    }
+  }
+};
 mod.default({
   on(name, handler) {
     handlers.set(name, handler);
-  }
+  },
+  thread
 });
 for (const name of ["session.start", "agent.start", "agent.end"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
@@ -135,11 +158,33 @@ process.argv.splice(
   "--mode",
   "geppetto"
 );
-const thread = { id: "T-amp-session-test" };
 const ctx = { thread };
 await handlers.get("session.start")({ thread }, ctx);
+if (typeof stateSubscriber !== "function") throw new Error("missing thread.state subscription");
 await handlers.get("agent.start")({ thread, message: "hello amp", id: "msg-user-1" }, ctx);
+currentState = "running";
+await stateSubscriber(currentState);
+if (typeof titleSubscriber === "function") titleSubscriber("Updated Amp title");
 await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1", status: "done", messages: [] }, ctx);
+await new Promise((resolve) => setTimeout(resolve, 350));
+const beforeSettled = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
+  ? fs.readFileSync(process.env.FAKE_CMUX_ARGS_LOG, "utf8")
+  : "";
+if (beforeSettled.includes("hooks amp stop")) {
+  throw new Error("agent.end emitted completion before authoritative thread idle");
+}
+currentState = "awaiting-approval";
+await stateSubscriber(currentState);
+currentState = "idle";
+await stateSubscriber(currentState);
+
+await handlers.get("agent.start")({ thread, message: "fail now", id: "msg-user-2" }, ctx);
+currentState = "running";
+await stateSubscriber(currentState);
+await handlers.get("agent.end")({ thread, message: "fail now", id: "msg-user-2", status: "error", messages: [] }, ctx);
+currentState = "error";
+await stateSubscriber(currentState);
+await new Promise((resolve) => setTimeout(resolve, 350));
 """
         check_script = root / "check.mjs"
         check_script.write_text(check_source, encoding="utf-8")
@@ -167,7 +212,8 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
             if (
                 "hooks amp session-start" in args_log
                 and "hooks amp prompt-submit" in args_log
-                and "hooks amp stop" in args_log
+                and "hooks amp title-update" in args_log
+                and "hooks amp lifecycle" in args_log
                 and '"session_id":"T-amp-session-test"' in stdin_log
                 and "argv=" in env_log
             ):
@@ -179,13 +225,56 @@ await handlers.get("agent.end")({ thread, message: "hello amp", id: "msg-user-1"
         for expected in [
             "hooks amp session-start",
             "hooks amp prompt-submit",
-            "hooks amp stop",
+            "hooks amp title-update",
+            "hooks amp lifecycle",
         ]:
             if expected not in args_log:
                 print(f"FAIL: plugin did not invoke {expected}, got {args_log!r}")
                 return 1
         if '"session_id":"T-amp-session-test"' not in stdin_log:
             print(f"FAIL: plugin did not pass session id, got {stdin_log!r}")
+            return 1
+        payloads = []
+        for chunk in stdin_log.split("\n---\n"):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                payloads.append(json.loads(chunk))
+            except json.JSONDecodeError:
+                continue
+        lifecycle = [
+            payload for payload in payloads
+            if payload.get("hook_event_name") == "Lifecycle"
+        ]
+        states = [payload.get("agent_state") for payload in lifecycle]
+        for expected_state in ["running", "awaiting-approval", "idle", "error"]:
+            if expected_state not in states:
+                print(f"FAIL: plugin did not publish authoritative state {expected_state!r}, got {lifecycle!r}")
+                return 1
+        idle_outcomes = [
+            payload.get("turn_outcome") for payload in lifecycle
+            if payload.get("agent_state") == "idle"
+        ]
+        if idle_outcomes != ["done"]:
+            print(f"FAIL: idle reconciliation lost the completed turn outcome, got {idle_outcomes!r}")
+            return 1
+        error_outcomes = [
+            payload.get("turn_outcome") for payload in lifecycle
+            if payload.get("agent_state") == "error"
+        ]
+        if error_outcomes != ["error"]:
+            print(f"FAIL: error reconciliation lost the failed turn outcome, got {error_outcomes!r}")
+            return 1
+        title_updates = [
+            payload.get("title") for payload in payloads
+            if payload.get("hook_event_name") == "TitleUpdate"
+        ]
+        if title_updates[-1:] != ["Updated Amp title"]:
+            print(f"FAIL: plugin did not persist the latest Amp title, got {title_updates!r}")
+            return 1
+        if "hooks amp stop" in args_log:
+            print(f"FAIL: extension bypassed lifecycle reconciliation with a direct stop, got {args_log!r}")
             return 1
         if "kind=amp" not in env_log or "cwd=/tmp/amp-project" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
