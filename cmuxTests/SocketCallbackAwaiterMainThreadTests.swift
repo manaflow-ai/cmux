@@ -87,10 +87,13 @@ import Testing
 
 @Suite struct WindowScreenshotCaptureRoutingTests {
     @Test func windowNumberConversionRejectsValuesOutsideCGWindowIDRange() {
-        #expect(windowScreenshotCGWindowID(exactly: 42) == 42)
-        #expect(windowScreenshotCGWindowID(exactly: Int(UInt32.max)) == UInt32.max)
-        #expect(windowScreenshotCGWindowID(exactly: -1) == nil)
-        #expect(windowScreenshotCGWindowID(exactly: Int(UInt32.max) + 1) == nil)
+        #expect(WindowScreenshotTarget(windowNumber: 42)?.windowID == 42)
+        #expect(
+            WindowScreenshotTarget(windowNumber: Int(UInt32.max))?.windowID
+                == UInt32.max
+        )
+        #expect(WindowScreenshotTarget(windowNumber: -1) == nil)
+        #expect(WindowScreenshotTarget(windowNumber: Int(UInt32.max) + 1) == nil)
     }
 
     @Test func coordinatorSerializesCaptureAndDisablesTimedOutCompositor() async throws {
@@ -115,73 +118,30 @@ import Testing
         }
     }
 
+    @Test func coordinatorRetiresAdmissionDeliveredAfterSocketWaiterTimesOut() async throws {
+        let coordinator = WindowScreenshotCaptureCoordinator()
+        let lateClaimTask = Task {
+            await coordinator.claim()
+        }
+
+        let lateAdmission = try #require(await lateClaimTask.value)
+        let contendedClaim = await coordinator.claim()
+        #expect(contendedClaim == nil)
+
+        await coordinator.finishAfterClaim(lateClaimTask)
+
+        let replacement = try #require(await coordinator.claim())
+        #expect(replacement.id != lateAdmission.id)
+        await coordinator.finish(replacement, screenCaptureKitDidTimeOut: false)
+    }
+
     @Test func screenshotLabelsCannotCreatePathComponents() {
-        #expect(windowScreenshotSafeLabel("") == "")
-        #expect(windowScreenshotSafeLabel("issue-9065.window") == "issue-9065.window")
-        #expect(windowScreenshotSafeLabel("../../outside/file") == "outside-file")
-        #expect(windowScreenshotSafeLabel("///") == "capture")
-    }
-
-    @Test func onlyUnavailableCaptureFallsBackToAppKit() {
-        let data = Data([0x89, 0x50, 0x4E, 0x47])
-
+        #expect(WindowScreenshotLabel("").value == "")
         #expect(
-            windowScreenshotCaptureAction(for: .captured(data))
-                == .useCaptured(data)
+            WindowScreenshotLabel("issue-9065.window").value
+                == "issue-9065.window"
         )
-        #expect(
-            windowScreenshotCaptureAction(for: .unavailable)
-                == .captureWithAppKit
-        )
-        #expect(
-            windowScreenshotCaptureAction(for: .busy)
-                == .fail("screenshot capture already in progress")
-        )
-        #expect(
-            windowScreenshotCaptureAction(for: .timedOut)
-                == .fail("screenshot capture timed out")
-        )
-    }
-
-    @Test func completedAppKitCaptureRemainsFallbackForUnavailableOrTimedOutCompositor() {
-        let fallback = Data([0x89, 0x50, 0x4E, 0x47])
-
-        #expect(
-            windowScreenshotCaptureAction(
-                for: .unavailable,
-                appKitFallback: fallback
-            ) == .useCaptured(fallback)
-        )
-        #expect(
-            windowScreenshotCaptureAction(
-                for: .busy,
-                appKitFallback: fallback
-            ) == .fail("screenshot capture already in progress")
-        )
-        #expect(
-            windowScreenshotCaptureAction(
-                for: .timedOut,
-                appKitFallback: fallback
-            ) == .useCaptured(fallback)
-        )
-    }
-
-    @Test func appKitCaptureDeliveryGateDeliversAtMostOnce() {
-        let gate = WindowAppKitCaptureDeliveryGate()
-        var deliveries = 0
-
-        #expect(gate.deliver { deliveries += 1 })
-        #expect(!gate.deliver { deliveries += 1 })
-        #expect(deliveries == 1)
-    }
-
-    @Test func abandonedAppKitCaptureDeliveryGateRejectsLateCompletion() {
-        let gate = WindowAppKitCaptureDeliveryGate()
-        var deliveries = 0
-
-        gate.abandon()
-
-        #expect(!gate.deliver { deliveries += 1 })
-        #expect(deliveries == 0)
+        #expect(WindowScreenshotLabel("../../outside/file").value == "outside-file")
+        #expect(WindowScreenshotLabel("///").value == "capture")
     }
 }

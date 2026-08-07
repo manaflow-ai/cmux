@@ -440,7 +440,10 @@ final class AutomationSocketUITests: XCTestCase {
                 guard let screenshot = self.socketResult(
                     method: "debug.window.screenshot",
                     params: ["label": label],
-                    responseTimeout: min(5.0, timeout / 2)
+                    // The server may spend five seconds in AppKit and then
+                    // five more in ScreenCaptureKit before replying.
+                    responseTimeout: 12.0,
+                    allowsReplayFallback: false
                 ),
                     let path = screenshot["path"] as? String else {
                     return false
@@ -676,30 +679,39 @@ final class AutomationSocketUITests: XCTestCase {
     private func socketJSON(
         method: String,
         params: [String: Any],
-        responseTimeout: TimeInterval = 2.0
+        responseTimeout: TimeInterval = 2.0,
+        allowsReplayFallback: Bool = true
     ) -> [String: Any]? {
         let request: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
             "params": params,
         ]
-        return ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendJSON(request) ??
-            controlSocketJSONViaNetcat(
-                request,
-                socketPath: socketPath,
-                responseTimeout: responseTimeout
-            )
+        if let response = ControlSocketClient(
+            path: socketPath,
+            responseTimeout: responseTimeout
+        ).sendJSON(request) {
+            return response
+        }
+        guard allowsReplayFallback else { return nil }
+        return controlSocketJSONViaNetcat(
+            request,
+            socketPath: socketPath,
+            responseTimeout: responseTimeout
+        )
     }
 
     private func socketResult(
         method: String,
         params: [String: Any],
-        responseTimeout: TimeInterval = 2.0
+        responseTimeout: TimeInterval = 2.0,
+        allowsReplayFallback: Bool = true
     ) -> [String: Any]? {
         guard let envelope = socketJSON(
             method: method,
             params: params,
-            responseTimeout: responseTimeout
+            responseTimeout: responseTimeout,
+            allowsReplayFallback: allowsReplayFallback
         ),
               envelope["ok"] as? Bool == true else {
             return nil
