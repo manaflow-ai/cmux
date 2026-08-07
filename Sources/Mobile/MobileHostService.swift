@@ -554,6 +554,8 @@ final class MobileHostService {
         switch topic {
         case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes":
             return payload["surface_id"] as? String
+        case MobileHostEventTopicPolicy.simulatorFrameTopic:
+            return payload["panel_id"] as? String
         default:
             return nil
         }

@@ -12,6 +12,10 @@ import Foundation
 ///   the full frame arrives. The iOS client has no delta-continuity check, so a
 ///   silently dropped delta would corrupt its grid invisibly; the
 ///   poison-until-full rule makes a shed unobservable beyond one stale paint.
+/// - `simulator.frame`: video-style JPEG frames are absolute snapshots keyed by
+///   panel id. When a phone cannot drain at the simulator's frame cadence, the
+///   newest frame replaces older queued frames; simulator state and ownership
+///   events stay lossless.
 /// - `terminal.bytes`: chunks carry a byte-offset `seq`; the client detects the
 ///   gap and requests a replay on its own.
 /// - `terminal.updated` / `workspace.updated`: level-triggered pings; the newer
@@ -23,12 +27,17 @@ import Foundation
 /// lossless bound.
 enum MobileHostEventTopicPolicy {
     static let renderGridTopic = "terminal.render_grid"
+    static let simulatorFrameTopic = "simulator.frame"
 
     static func isDroppable(topic: String, coalesceKey: String?) -> Bool {
         switch topic {
         case renderGridTopic:
             // A render-grid event without a surface key cannot be resynced
             // per-surface, so it keeps the lossless close-on-overflow path.
+            return coalesceKey != nil
+        case simulatorFrameTopic:
+            // Simulator frames are whole-screen snapshots; a later frame fully
+            // supersedes an earlier one for the same panel.
             return coalesceKey != nil
         case "terminal.bytes", "terminal.updated", "workspace.updated":
             return true

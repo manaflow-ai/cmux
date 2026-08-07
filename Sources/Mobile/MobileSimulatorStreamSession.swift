@@ -25,6 +25,7 @@ final class MobileSimulatorStreamSession {
     private var needsFrameSend = false
     private var frameTask: Task<Void, Never>?
     private var stateTask: Task<Void, Never>?
+    private var subscriptionObserver: NSObjectProtocol?
 
     init(
         connectionID: UUID,
@@ -48,6 +49,7 @@ final class MobileSimulatorStreamSession {
     func start() {
         guard !isStopped else { return }
         panel.setVisibleInUI(true, hostID: id)
+        observeEventSubscriptions()
         observeCoordinator()
         emitState()
         emitCachedFrameIfNeeded()
@@ -62,12 +64,37 @@ final class MobileSimulatorStreamSession {
         frameTask = nil
         stateTask?.cancel()
         stateTask = nil
+        if let subscriptionObserver {
+            NotificationCenter.default.removeObserver(subscriptionObserver)
+            self.subscriptionObserver = nil
+        }
         reader?.setFramePublicationHandler(nil)
         reader = nil
         panel.setVisibleInUI(false, hostID: id)
         if sendClosed,
            let payload = wireEncoder.object(MobileSimulatorClosedEvent(panelID: panelID.uuidString)) {
             _ = await connection.sendEvent(topic: "simulator.closed", payload: payload)
+        }
+    }
+
+    private func observeEventSubscriptions() {
+        guard subscriptionObserver == nil else { return }
+        subscriptionObserver = NotificationCenter.default.addObserver(
+            forName: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] notification in
+            let changedTopics = notification.userInfo?["topics"] as? [String]
+            Task { @MainActor [weak self, changedTopics] in
+                guard let self, !self.isStopped else { return }
+                if let changedTopics,
+                   !changedTopics.contains("simulator.frame")
+                    && !changedTopics.contains("simulator.state") {
+                    return
+                }
+                self.emitState()
+                self.requestFrameSend()
+            }
         }
     }
 
@@ -129,25 +156,17 @@ final class MobileSimulatorStreamSession {
             guard let payload = wireEncoder.object(event) else { continue }
             let delivered = await connection.sendEvent(topic: "simulator.frame", payload: payload)
             guard delivered else {
-                // A refused frame means the connection is closed or its
-                // bounded event queue overflowed into a close; no later send
-                // will succeed. End the session so the coordinator releases
-                // the panel's control lock now, instead of another phone
-                // seeing `.locked` until the registry's connection-closed
-                // sweep runs.
-                await endAfterDeliveryFailure()
+                // A refused frame can be a transient event-subscription gap or
+                // a bounded-queue shed while the RPC control lane remains
+                // healthy. Keep the control session alive; a later frame
+                // publication or subscription reassertion will retry the
+                // current latest frame because `lastSentSequence` is unchanged.
                 return
             }
             lastSentSequence = event.sequence
             cachedFrame = event
             onFrame(panelID, event)
         }
-    }
-
-    private func endAfterDeliveryFailure() async {
-        guard !isStopped else { return }
-        await stop(sendClosed: false)
-        onEnded(id)
     }
 
     private func nextFrameEvent() async -> MobileSimulatorFrameEvent? {
