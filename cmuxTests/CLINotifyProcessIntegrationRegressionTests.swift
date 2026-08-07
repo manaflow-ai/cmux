@@ -8723,6 +8723,40 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    func testSurfaceResumeSetCLIRejectsKnownFlagAsMissingValueBeforeSocketRequest() throws {
+        let cliPath = try bundledCLIPath()
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-resume-known-flag-value-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--cwd", "--shell", "echo ok",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(
+            result.stderr.contains(
+                "surface resume set: --cwd requires a value. Known flags:"
+            ),
+            result.stderr
+        )
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
     func testSurfaceResumeSetCLIStopsParsingOptionsAfterTerminator() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-set-terminator")
