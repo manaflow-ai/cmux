@@ -73,6 +73,39 @@ struct SudoProcessLifecycleTests {
         #expect(!inspector.isRunning(process.identity))
     }
 
+    @Test("Password fallback terminates the script PTY tree before the deadline")
+    func passwordFallbackTerminatesPTYTree() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let inspector = SystemSudoProcessInspector()
+        let signaler = SystemSudoProcessSignaler()
+        let runner = SudoBoundedProcessRunner(
+            spawner: SudoPOSIXProcessSpawner(inspector: inspector),
+            inspector: inspector,
+            signaler: signaler
+        )
+        let command = SudoExecutionCommand(
+            executableURL: URL(fileURLWithPath: "/usr/bin/script"),
+            arguments: [
+                "/usr/bin/script", "-q", "/dev/null", "/bin/sh", "-c",
+                "printf 'Password:'; sleep 30",
+            ],
+            currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
+            outputURL: fixture.paths.results.appendingPathComponent("pty-password.out")
+        )
+
+        let process = try runner.spawn(command)
+        let outcome = runner.wait(
+            for: process,
+            deadline: Date.now.addingTimeInterval(1)
+        )
+
+        if case .timedOut = outcome {
+            Issue.record("password fallback remained blocked until the execution deadline")
+        }
+        #expect(!inspector.isRunning(process.identity))
+    }
+
     @Test("Hidden runner parent failure settles the approved request")
     func runnerSettlesUnexpectedParent() throws {
         let fixture = try SudoTestFixture()
