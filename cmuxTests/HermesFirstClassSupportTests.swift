@@ -294,8 +294,8 @@ struct HermesFirstClassSupportTests {
         #expect(revalidated.agentProcessIDs.isEmpty)
     }
 
-    @Test("Fresh quit-time load discovers a Hermes hook session missing from the cache")
-    func freshQuitTimeLoadDiscoversNewHermesSession() async throws {
+    @Test("Fresh synchronous lifecycle load discovers a Hermes hook session missing from the cache")
+    func freshSynchronousLifecycleLoadDiscoversNewHermesSession() throws {
         let fixture = try makeFixture { [StateRow("new-hook-session", cwd: $0.path)] }
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let processID = Int(Int32.max) - 9_531
@@ -321,7 +321,7 @@ struct HermesFirstClassSupportTests {
             ) == nil
         )
 
-        let freshResumeIndexes = await ProcessDetectedResumeIndexes.loadFresh(
+        let freshResumeIndexes = ProcessDetectedResumeIndexes.loadFreshSynchronously(
             homeDirectory: fixture.root.path,
             fileManager: .default
         )

@@ -3,6 +3,31 @@ import CmuxTerminalCore
 import Testing
 @testable import CmuxTerminal
 
+private final class HermesAliasDirectoryTrackingFileManager: FileManager {
+    private let trackedDirectoryPath: String
+    private(set) var scanCount = 0
+
+    init(trackedDirectoryURL: URL) {
+        self.trackedDirectoryPath = trackedDirectoryURL.standardizedFileURL.path
+        super.init()
+    }
+
+    override func contentsOfDirectory(
+        at url: URL,
+        includingPropertiesForKeys keys: [URLResourceKey]?,
+        options mask: DirectoryEnumerationOptions = []
+    ) throws -> [URL] {
+        if url.standardizedFileURL.path == trackedDirectoryPath {
+            scanCount += 1
+        }
+        return try super.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: mask
+        )
+    }
+}
+
 @Suite("Terminal surface command shims")
 struct TerminalSurfaceCommandShimPermissionsTests {
     @Test("Install hardens group-writable managed directories")
@@ -178,9 +203,9 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         #expect(arguments == ["-p", "coder", "--continue", "doctor"])
     }
 
-    @Test("Hermes profile aliases are scanned once per directory generation")
-    func hermesProfileAliasesAreCachedByDirectoryGeneration() async throws {
-        let fileManager = FileManager.default
+    @Test("Hermes profile aliases avoid redundant scans and refresh retargeted files")
+    func hermesProfileAliasesCacheUntilAnAliasFileChanges() async throws {
+        let setupFileManager = FileManager.default
         let root = URL.temporaryDirectory.appending(
             path: "TerminalSurfaceHermesAliasCatalogTests-\(UUID().uuidString)",
             directoryHint: .isDirectory
@@ -194,10 +219,10 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         )
         let officialAlias = aliasDirectory.appending(path: "coder", directoryHint: .notDirectory)
         let invocationLog = root.appending(path: "wrapper-args.log", directoryHint: .notDirectory)
-        defer { try? fileManager.removeItem(at: root) }
+        defer { try? setupFileManager.removeItem(at: root) }
 
         for directory in [wrapperDirectory, aliasDirectory] {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            try setupFileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
         try """
         #!/usr/bin/env bash
@@ -208,10 +233,19 @@ struct TerminalSurfaceCommandShimPermissionsTests {
         exec /opt/hermes/bin/hermes -p coder "$@"
         """.write(to: officialAlias, atomically: true, encoding: .utf8)
         for executable in [hermesWrapper, officialAlias] {
-            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+            try setupFileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         }
 
-        let catalog = HermesProfileAliasCatalog(wrapperDirectoryURL: aliasDirectory)
+        let aliasDirectoryModificationDate = try #require(
+            setupFileManager.attributesOfItem(atPath: aliasDirectory.path)[.modificationDate] as? Date
+        )
+        let fileManager = HermesAliasDirectoryTrackingFileManager(
+            trackedDirectoryURL: aliasDirectory
+        )
+        let catalog = HermesProfileAliasCatalog(
+            wrapperDirectoryURL: aliasDirectory,
+            fileManager: fileManager
+        )
         let first = try #require(
             await TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
@@ -229,12 +263,8 @@ struct TerminalSurfaceCommandShimPermissionsTests {
                 workingDirectoryURL: root
             ) == ["-p", "coder", "--continue"]
         )
+        #expect(fileManager.scanCount == 1)
 
-        let updatedWrapper = """
-        #!/bin/sh
-        exec /opt/hermes/bin/hermes -p reviewer "$@"
-        """
-        try Data(updatedWrapper.utf8).write(to: officialAlias, options: [])
         let cached = try #require(
             await TerminalSurface.installAgentCommandShimsIfPossible(
                 wrapperDirectoryURL: wrapperDirectory,
@@ -252,14 +282,19 @@ struct TerminalSurfaceCommandShimPermissionsTests {
                 workingDirectoryURL: root
             ) == ["-p", "coder", "--continue"]
         )
+        #expect(fileManager.scanCount == 1)
 
-        let generationMarker = aliasDirectory.appending(
-            path: "catalog-generation-marker",
-            directoryHint: .notDirectory
-        )
-        try Data().write(to: generationMarker)
+        let updatedWrapper = """
+        #!/bin/sh
+        exec /opt/hermes/bin/hermes -p audit "$@"
+        """
+        try Data(updatedWrapper.utf8).write(to: officialAlias, options: [])
         try fileManager.setAttributes(
-            [.modificationDate: Date.now.addingTimeInterval(1)],
+            [.modificationDate: Date.now.addingTimeInterval(2)],
+            ofItemAtPath: officialAlias.path
+        )
+        try fileManager.setAttributes(
+            [.modificationDate: aliasDirectoryModificationDate],
             ofItemAtPath: aliasDirectory.path
         )
         let refreshed = try #require(
@@ -277,8 +312,9 @@ struct TerminalSurfaceCommandShimPermissionsTests {
                 from: refreshedAliasShim,
                 logURL: invocationLog,
                 workingDirectoryURL: root
-            ) == ["-p", "reviewer", "--continue"]
+            ) == ["-p", "audit", "--continue"]
         )
+        #expect(fileManager.scanCount == 2)
     }
 
     private func capturedArguments(

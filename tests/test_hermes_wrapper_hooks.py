@@ -28,6 +28,7 @@ class WrapperResult:
     cmux_environment: dict[str, str]
     stderr: str
     real_path: str
+    shim_directory: str
     working_directory: str
     socket_path: str
     installer_started: bool
@@ -135,6 +136,7 @@ printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
   printf 'CMUX_AGENT_LAUNCH_ARGV_B64=%s\\n' "${CMUX_AGENT_LAUNCH_ARGV_B64-__UNSET__}"
   printf 'CMUX_AGENT_RESTORE_LAUNCH=%s\\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}"
   printf 'HERMES_HOME=%s\\n' "${HERMES_HOME-__UNSET__}"
+  printf 'PATH=%s\\n' "$PATH"
   printf 'REAL_PID=%s\\n' "$$"
 } > "$FAKE_REAL_ENV_LOG"
 """,
@@ -232,6 +234,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             cmux_environment=read_environment(cmux_env_log) if cmux_env_log.exists() else {},
             stderr=stderr.strip(),
             real_path=str(real_hermes),
+            shim_directory=str(shim_dir),
             working_directory=os.path.realpath(tmp),
             socket_path=socket_path,
             installer_started=installer_started_log.exists(),
@@ -352,6 +355,7 @@ def test_administrative_entrypoints_bypass_install(failures: list[str]) -> None:
         ("skin", ["skin", "list"]),
         ("sync", ["sync", "status"]),
         ("future-command", ["future-administrative-command", "--help"]),
+        ("profile-alias", ["profile", "alias", "coder"]),
         ("option-before-admin", ["--provider", "openrouter", "sessions", "stats"]),
     )
     for label, argv in entrypoints:
@@ -359,6 +363,17 @@ def test_administrative_entrypoints_bypass_install(failures: list[str]) -> None:
         expect(result.returncode == 0, f"{label}: wrapper exited {result.returncode}: {result.stderr}", failures)
         expect(result.real_argv == argv, f"{label}: original argv changed: {result.real_argv}", failures)
         expect(result.cmux_calls == [], f"{label}: administrative command installed hooks: {result.cmux_calls}", failures)
+
+
+def test_administrative_passthrough_strips_shim_path(failures: list[str]) -> None:
+    result = run_wrapper(["profile", "alias", "coder"])
+    passthrough_path = result.real_environment.get("PATH", "").split(os.pathsep)
+    expect(
+        result.shim_directory not in passthrough_path
+        and all("/cmux-cli-shims/" not in entry for entry in passthrough_path),
+        f"profile alias: administrative command retained ephemeral shim PATH: {passthrough_path}",
+        failures,
+    )
 
 
 def test_noninteractive_entrypoints_bypass_install(failures: list[str]) -> None:
@@ -451,6 +466,7 @@ def main() -> int:
         test_session_entrypoints(failures)
         test_profile_scoped_hook_install(failures)
         test_administrative_entrypoints_bypass_install(failures)
+        test_administrative_passthrough_strips_shim_path(failures)
         test_noninteractive_entrypoints_bypass_install(failures)
         test_opt_out_and_non_cmux_launches_bypass_install(failures)
         test_installer_failures_never_block_hermes(failures)
