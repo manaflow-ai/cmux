@@ -117,6 +117,10 @@ nonisolated private func v2RemotePTYUserFacingErrorMessage(_ message: String) ->
 @MainActor
 class TerminalController {
     static let shared = TerminalController()
+#if DEBUG
+    nonisolated let windowScreenshotCaptureCoordinator =
+        WindowScreenshotCaptureCoordinator()
+#endif
     private nonisolated static let maximumConcurrentReloadConfigurationWaiters =
         4
     private nonisolated let remotePTYControllerAvailabilityCondition = NSCondition()
@@ -1224,6 +1228,12 @@ class TerminalController {
                 // debug.sidebar.simulate_drag precedent).
                 return (true, "ERROR: Unknown command 'send_workspace'. Use 'help' for available commands.")
 #endif
+            case "screenshot":
+#if DEBUG
+                return (true, captureScreenshot(args))
+#else
+                return (true, "ERROR: Unknown command 'screenshot'. Use 'help' for available commands.")
+#endif
             case "reload_config":
                 return (true, reloadConfigurationAndWait(args))
             default:
@@ -1475,6 +1485,31 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.window.screenshot":
+            let label = (request.params["label"] as? String) ?? ""
+            let response = captureScreenshot(label)
+            guard response.hasPrefix("OK ") else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: response
+                )
+            }
+            let payload = String(response.dropFirst(3))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let parts = payload.split(separator: " ", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else {
+                return v2Error(
+                    id: request.id,
+                    code: "internal_error",
+                    message: "screenshot parse failed",
+                    data: ["payload": payload]
+                )
+            }
+            return v2Ok(id: request.id, result: [
+                "screenshot_id": parts[0],
+                "path": parts[1],
+            ])
         case "debug.mobile.transport.disconnect":
             let selectedConnectionID: UUID?
             if let rawConnectionID = request.params["connection_id"] {
@@ -1512,6 +1547,7 @@ class TerminalController {
             // answers method_not_found for debug verbs, so mirror that reply
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
+                || request.method == "debug.window.screenshot"
                 || request.method == "debug.mobile.transport.disconnect" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
@@ -13116,96 +13152,6 @@ class TerminalController {
         return "OK"
     }
 
-    func captureScreenshot(_ args: String) -> String {
-        // Parse optional label from args
-        let label = args.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Generate unique ID for this screenshot
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-            .replacingOccurrences(of: ":", with: "-")
-            .replacingOccurrences(of: "+", with: "_")
-        let shortId = UUID().uuidString.prefix(8)
-        let screenshotId = "\(timestamp)_\(shortId)"
-
-        // Determine output path
-        let outputDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-screenshots")
-        try? FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
-
-        let filename = label.isEmpty ? "\(screenshotId).png" : "\(label)_\(screenshotId).png"
-        let outputPath = outputDir.appendingPathComponent(filename)
-
-        // Capture the main window on main thread
-        var captureError: String?
-        v2MainSync {
-            let candidateWindows = NSApp.windows.filter { window in
-                window.isVisible &&
-                !window.isMiniaturized &&
-                window.contentView != nil &&
-                !window.frame.isEmpty
-            }
-            let preferredWindow = [NSApp.keyWindow, NSApp.mainWindow]
-                .compactMap { $0 }
-                .first { candidateWindows.contains($0) }
-            let window = preferredWindow ?? candidateWindows.max { lhs, rhs in
-                (lhs.frame.width * lhs.frame.height) < (rhs.frame.width * rhs.frame.height)
-            } ?? NSApp.mainWindow ?? NSApp.windows.first
-
-            guard let window else {
-                captureError = "No window available"
-                return
-            }
-
-            guard let pngData = self.captureCompositedWindowPNGData(window)
-                ?? self.captureAppKitWindowPNGData(window) else {
-                captureError = "Failed to create PNG data"
-                return
-            }
-
-            do {
-                try pngData.write(to: outputPath)
-            } catch {
-                captureError = "Failed to write file: \(error.localizedDescription)"
-            }
-        }
-
-        if let error = captureError {
-            return "ERROR: \(error)"
-        }
-
-        // Return OK with screenshot ID and path for easy reference
-        return "OK \(screenshotId) \(outputPath.path)"
-    }
-
-    private func captureCompositedWindowPNGData(_ window: NSWindow) -> Data? {
-        guard let cgImage = CGWindowListCreateImage(
-            .null,
-            .optionIncludingWindow,
-            CGWindowID(window.windowNumber),
-            [.boundsIgnoreFraming, .nominalResolution]
-        ) else {
-            return nil
-        }
-        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
-    }
-
-    private func captureAppKitWindowPNGData(_ window: NSWindow) -> Data? {
-        guard let contentView = window.contentView else {
-            return nil
-        }
-
-        let bounds = contentView.bounds
-        guard !bounds.isEmpty,
-              let bitmap = contentView.bitmapImageRepForCachingDisplay(in: bounds) else {
-            return nil
-        }
-        bitmap.size = bounds.size
-
-        contentView.displayIfNeeded()
-        contentView.cacheDisplay(in: bounds, to: bitmap)
-
-        return bitmap.representation(using: .png, properties: [:])
-    }
 #endif
 
     func parseSplitDirection(_ value: String) -> SplitDirection? {
