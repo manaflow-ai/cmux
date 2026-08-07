@@ -136,6 +136,108 @@ struct ArtifactRuntimeLifecycleTests {
         #expect(service.debugSessionDump().first?["tailer_active"] as? Bool == true)
     }
 
+    @Test("Transcript-observed completion captures without a Stop hook")
+    func transcriptObservedCompletionCapturesWithoutStopHook() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let artifact = root.appendingPathComponent("hookless-plan.md")
+        try "plan".write(to: artifact, atomically: true, encoding: .utf8)
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        try claudeArtifactLine(path: artifact.path).write(
+            to: transcript,
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: store)
+            )
+        )
+        let sessionID = UUID().uuidString
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: transcript.path,
+            cwd: root.path,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 1)
+        ))
+
+        service.publishBatch(
+            assistantCompletionBatch(timestamp: Date(timeIntervalSince1970: 2)),
+            sessionID: sessionID
+        )
+        let task = try #require(service.artifactCaptureTasks[sessionID]?.task)
+        await task.value
+
+        #expect(await store.importedPaths == [artifact.path])
+    }
+
+    @Test("Transcript flush after Stop schedules a newer automatic capture")
+    func transcriptFlushAfterStopSchedulesNewerCapture() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let artifact = root.appendingPathComponent("late-plan.md")
+        try "plan".write(to: artifact, atomically: true, encoding: .utf8)
+        let transcript = root.appendingPathComponent("transcript.jsonl")
+        try "".write(to: transcript, atomically: true, encoding: .utf8)
+        let store = OutOfOrderCaptureStore(suspendsFirstImport: false)
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            hasEventSubscribers: { false },
+            emitEventPayload: { _ in },
+            artifactCaptureCoordinator: AgentArtifactCaptureCoordinator(
+                captureService: ArtifactCaptureService(store: store)
+            )
+        )
+        let sessionID = UUID().uuidString
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: transcript.path,
+            cwd: root.path,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 1)
+        ))
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: sessionID,
+            hookEventName: .stop,
+            source: "claude",
+            workspaceId: "workspace",
+            surfaceId: nil,
+            transcriptPath: transcript.path,
+            cwd: root.path,
+            ppid: nil,
+            receivedAt: Date(timeIntervalSince1970: 2)
+        ))
+        let stopCapture = try #require(service.artifactCaptureTasks[sessionID]?.task)
+        await stopCapture.value
+
+        try claudeArtifactLine(path: artifact.path).write(
+            to: transcript,
+            atomically: true,
+            encoding: .utf8
+        )
+        service.publishBatch(
+            assistantCompletionBatch(timestamp: Date(timeIntervalSince1970: 3)),
+            sessionID: sessionID
+        )
+        let flushCapture = try #require(service.artifactCaptureTasks[sessionID]?.task)
+        await flushCapture.value
+
+        #expect(await store.importedPaths == [artifact.path])
+    }
+
     @Test("Automatic capture retries transient store contention")
     func captureRetriesTransientStoreContention() async throws {
         let root = try temporaryDirectory()
@@ -256,6 +358,41 @@ struct ArtifactRuntimeLifecycleTests {
                 receivedAt: .now
             )
         )
+    }
+
+    private func assistantCompletionBatch(
+        timestamp: Date
+    ) -> AgentChatTranscriptTailer.Batch {
+        AgentChatTranscriptTailer.Batch(
+            appended: [ChatMessage(
+                id: UUID().uuidString,
+                seq: 1,
+                role: .agent,
+                timestamp: timestamp,
+                kind: .prose(ChatProse(text: "Done"))
+            )],
+            updated: [],
+            discoveredTitle: nil
+        )
+    }
+
+    private func claudeArtifactLine(path: String) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: [
+            "type": "assistant",
+            "isSidechain": false,
+            "uuid": UUID().uuidString,
+            "timestamp": "2026-07-21T12:00:00.000Z",
+            "message": [
+                "role": "assistant",
+                "content": [[
+                    "type": "tool_use",
+                    "id": "write-plan",
+                    "name": "Write",
+                    "input": ["file_path": path, "content": "plan"],
+                ]],
+            ],
+        ])
+        return String(decoding: data, as: UTF8.self)
     }
 
     private func temporaryDirectory() throws -> URL {
