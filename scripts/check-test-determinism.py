@@ -357,19 +357,82 @@ def _starts_outside_quoted_string(line: str, index: int) -> bool:
     return quote is None
 
 
-def detect_live_network_host(line: str) -> bool:
+def _parenthesis_delta_outside_quoted_strings(line: str) -> int:
+    """Net parenthesis depth contributed by executable code on one line."""
+    quote: Optional[str] = None
+    escaped = False
+    delta = 0
+    for char in line:
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif quote is None:
+            if char in ("'", '"', "`"):
+                quote = char
+            elif char == "(":
+                delta += 1
+            elif char == ")":
+                delta -= 1
+        elif char == quote:
+            quote = None
+    return delta
+
+
+def _assertion_statement_line_indexes(lines: list[str]) -> set[int]:
+    """Lines belonging to a possibly multiline assertion expression."""
+    indexes: set[int] = set()
+    assertion_depth: Optional[int] = None
+    for index, line in enumerate(lines):
+        if assertion_depth is None:
+            if not _is_assertion_line(line):
+                continue
+            assertion_depth = 0
+
+        indexes.add(index)
+        assertion_depth += _parenthesis_delta_outside_quoted_strings(line)
+        if assertion_depth <= 0:
+            assertion_depth = None
+    return indexes
+
+
+_QUOTED_COMMAND_EXECUTOR = re.compile(
+    r"""(?x)
+    \b(?:ba|da|z)?sh\s+-c\b
+  | \b(?:
+        subprocess\.(?:run|call|Popen|check_call|check_output)
+      | os\.system
+      | child_process\.(?:exec|execSync|spawn|spawnSync)
+      | exec|execSync|spawn|spawnSync|system|eval
+    )\s*\(
+    """
+)
+
+
+def detect_live_network_host(line: str, *, assertion_context: bool = False) -> bool:
     # High-precision signal only: an actual http(s):// URL with a public host that
     # is ALSO handed to a network-driving verb on the same line (fetch/axios/
     # requests/urlopen/...). A URL used as a string fixture (markdown builder,
     # canonical-URL assertion, toContain) opens no socket and is not flagged.
     # Bare quoted IPs in data structures are likewise too ambiguous to flag.
     # Loopback/private/CGNAT/RFC2606 hosts are allowed.
-    # The URL argument to a real network call is normally quoted, but the verb
-    # itself must be executable code. Ignore command text embedded in fixtures,
-    # such as `expect(text).toContain("curl https://cmux.com/install.sh")`.
-    if not any(
-        _starts_outside_quoted_string(line, match.start())
-        for match in _NETWORK_VERB.finditer(line)
+    verb_matches = list(_NETWORK_VERB.finditer(line))
+    if not verb_matches:
+        return False
+    # A network-looking command asserted as rendered text is inert, including
+    # when the string argument spans several lines. Keep executable command
+    # strings and JavaScript template interpolation active: bash/subprocess/
+    # exec/eval can run a quoted curl, and `${fetch(...)}` runs code even though
+    # the verb is lexically inside a backtick string.
+    all_verbs_quoted = all(
+        not _starts_outside_quoted_string(line, match.start())
+        for match in verb_matches
+    )
+    if (
+        assertion_context
+        and all_verbs_quoted
+        and not _QUOTED_COMMAND_EXECUTOR.search(line)
+        and "${" not in line
     ):
         return False
     for match in _URL.finditer(line):
@@ -517,6 +580,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(l, suffix) for l in raw_lines]
+    assertion_lines = _assertion_statement_line_indexes(code_lines)
     findings: list[Finding] = []
 
     for i, code in enumerate(code_lines):
@@ -527,7 +591,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
 
         if detect_assert_on_duration(code):
             findings.append(Finding(rel_posix, line_no, RULE_ASSERT_ON_DURATION, snippet))
-        if detect_live_network_host(code):
+        if detect_live_network_host(code, assertion_context=i in assertion_lines):
             findings.append(Finding(rel_posix, line_no, RULE_LIVE_NETWORK_HOST, snippet))
         if detect_fixed_port_bind(code):
             findings.append(Finding(rel_posix, line_no, RULE_FIXED_PORT_BIND, snippet))
