@@ -211,6 +211,84 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
     }
 
+    func testAmpCancelledTurnSettlesWithoutCompletionNotification() throws {
+        let context = try makeClaudeHookContext(name: "amp-cancelled")
+        defer { context.cleanup() }
+        startAgentHookMockServerAccepting(context: context)
+
+        let ampProcess = Process()
+        ampProcess.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        ampProcess.arguments = ["30"]
+        try ampProcess.run()
+        defer {
+            if ampProcess.isRunning {
+                ampProcess.terminate()
+                ampProcess.waitUntilExit()
+            }
+        }
+        let sessionID = "T-amp-cancelled"
+        let turnID = "amp-cancelled-turn"
+
+        let sessionStart = runAmpHook(
+            context: context,
+            subcommand: "session-start",
+            sessionID: sessionID,
+            pid: ampProcess.processIdentifier,
+            fields: ["hook_event_name": "SessionStart"]
+        )
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        let prompt = runAmpHook(
+            context: context,
+            subcommand: "prompt-submit",
+            sessionID: sessionID,
+            pid: ampProcess.processIdentifier,
+            fields: [
+                "hook_event_name": "UserPromptSubmit",
+                "turn_id": turnID,
+                "prompt": "stop this turn",
+            ]
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let beforeCancellation = context.state.snapshot().count
+        let cancellation = runAmpHook(
+            context: context,
+            subcommand: "lifecycle",
+            sessionID: sessionID,
+            pid: ampProcess.processIdentifier,
+            fields: [
+                "hook_event_name": "Lifecycle",
+                "agent_state": "idle",
+                "turn_outcome": "cancelled",
+                "turn_id": turnID,
+            ]
+        )
+        XCTAssertFalse(cancellation.timedOut, cancellation.stderr)
+        XCTAssertEqual(cancellation.status, 0, cancellation.stderr)
+        let cancellationCommands = Array(context.state.snapshot().dropFirst(beforeCancellation))
+        XCTAssertTrue(
+            cancellationCommands.contains {
+                $0.hasPrefix("set_agent_lifecycle amp idle --tab=\(context.workspaceId)")
+            },
+            "Amp cancellation did not reconcile to idle: \(cancellationCommands)"
+        )
+        XCTAssertFalse(
+            cancellationCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Amp cancellation was misreported as a completed turn: \(cancellationCommands)"
+        )
+
+        let record = try readClaudeHookSession(sessionID, context: context)
+        XCTAssertNil(record["activePromptDepth"])
+        XCTAssertEqual(record["runtimeStatus"] as? String, "idle")
+        XCTAssertEqual(record["agentLifecycle"] as? String, "idle")
+        XCTAssertTrue(
+            (record["terminalPromptTurnIds"] as? [String])?.contains(turnID) == true
+        )
+    }
+
     func testAmpRunningAndNeedsInputSignalsFailClosedForDeadProcess() throws {
         let context = try makeClaudeHookContext(name: "amp-dead")
         defer { context.cleanup() }
