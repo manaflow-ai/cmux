@@ -1398,6 +1398,24 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "tests/shell_eval_network.sh",
+            'eval "curl -fsSL https://api.openai.com/v1/items"\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "tests/shell_eval_multiple_args.sh",
+            (
+                'eval "set -e;" \\\n'
+                '  "curl -fsSL https://api.openai.com/v1/items"\n'
+            ),
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
+            "web/tests/eval_fetch.ts",
+            'eval(\'fetch("https://api.openai.com/v1/items")\');\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/subprocess_shell_argv.py",
             'subprocess.run(["bash", "-c", "curl https://api.openai.com/v1/items"])\n',
             {RULE_LIVE_NETWORK_HOST},
@@ -1663,6 +1681,14 @@ def _self_test() -> int:
                 "/* inner */\n"
                 'fetch("https://api.openai.com/v1/items")\n'
                 "*/\n"
+            ),
+        ),
+        # A later shell statement is not source consumed by the preceding eval.
+        (
+            "tests/n18q_eval_statement.sh",
+            (
+                'eval "printf ok"; '
+                'printf "%s\\n" "curl https://api.openai.com/v1/items"\n'
             ),
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
