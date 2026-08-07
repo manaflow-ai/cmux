@@ -85,7 +85,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let captureResult = processSupport.runProcess(
+        let captureResult = runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -164,7 +164,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             }
         }
 
-        let startupResult = processSupport.runProcess(
+        let startupResult = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
@@ -275,7 +275,7 @@ struct SSHConfiguredRemoteCommandHostTests {
             "--ssh-option", "CmuxTestInvalidOption=yes",
             "cmux-config-unavailable-host",
         ]
-        let result = processSupport.runProcess(
+        let result = runProcess(
             executablePath: cliPath,
             arguments: arguments,
             environment: environment,
@@ -370,7 +370,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         captureEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         captureEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        let captureResult = processSupport.runProcess(
+        let captureResult = runProcess(
             executablePath: cliPath,
             arguments: [
                 "ssh",
@@ -409,7 +409,7 @@ struct SSHConfiguredRemoteCommandHostTests {
         )
         let executableStartupCommand = try harness.startupCommandUsingFakeSSH(startupCommand)
 
-        let startupResult = processSupport.runProcess(
+        let startupResult = runProcess(
             executablePath: "/bin/sh",
             arguments: ["-c", executableStartupCommand],
             environment: harness.startupEnvironment(
@@ -500,6 +500,124 @@ struct SSHConfiguredRemoteCommandHostTests {
             Comment(rawValue: command)
         )
         #expect(command.contains("ssh-session-end --lifecycle-only"), Comment(rawValue: command))
+    }
+
+    private struct ProcessRunResult {
+        let status: Int32
+        let stdout: String
+        let stderr: String
+        let timedOut: Bool
+    }
+
+    /// Runs this Swift Testing suite's child processes without delegating exit
+    /// observation to the shared global queue. App-host work can starve a queued
+    /// `waitUntilExit` task after the child has already exited and create a false
+    /// timeout at the exact deadline.
+    private func runProcess(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        standardInput: String? = nil,
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        let stdinPipe = standardInput == nil ? nil : Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = isolatedChildEnvironment(environment)
+        process.standardInput = stdinPipe ?? FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(
+                status: -1,
+                stdout: "",
+                stderr: String(describing: error),
+                timedOut: false
+            )
+        }
+        if let standardInput, let stdinPipe {
+            stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
+            try? stdinPipe.fileHandleForWriting.close()
+        }
+
+        let outputLock = NSLock()
+        var stdoutData = Data()
+        var stderrData = Data()
+        let outputGroup = DispatchGroup()
+
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stdoutData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+        outputGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            outputLock.lock()
+            stderrData = data
+            outputLock.unlock()
+            outputGroup.leave()
+        }
+
+        let exitDeadline = Date.now.addingTimeInterval(processSupport.processTimeout(timeout))
+        while process.isRunning, Date.now < exitDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        let timedOut = process.isRunning
+        if timedOut {
+            process.terminate()
+            let terminationDeadline = Date.now.addingTimeInterval(1)
+            while process.isRunning, Date.now < terminationDeadline {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                let killDeadline = Date.now.addingTimeInterval(1)
+                while process.isRunning, Date.now < killDeadline {
+                    Thread.sleep(forTimeInterval: 0.01)
+                }
+            }
+        }
+        if !process.isRunning {
+            process.waitUntilExit()
+        }
+
+        _ = outputGroup.wait(timeout: .now() + 2)
+        outputLock.lock()
+        let finalStdout = stdoutData
+        let finalStderr = stderrData
+        outputLock.unlock()
+        return ProcessRunResult(
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
+            stdout: String(data: finalStdout, encoding: .utf8) ?? "",
+            stderr: String(data: finalStderr, encoding: .utf8) ?? "",
+            timedOut: timedOut
+        )
+    }
+
+    private func isolatedChildEnvironment(_ environment: [String: String]) -> [String: String] {
+        guard environment["CMUX_APP_HOST_ISOLATION_REQUIRED"] == "1",
+              let rawHome = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawHome.isEmpty else {
+            return environment
+        }
+
+        var resolved = environment
+        resolved["CFFIXED_USER_HOME"] = rawHome
+        resolved["XDG_CONFIG_HOME"] = URL(
+            fileURLWithPath: rawHome,
+            isDirectory: true
+        ).appendingPathComponent(".config", isDirectory: true).path
+        return resolved
     }
 
     // MARK: - Fake RemoteCommand-host harness

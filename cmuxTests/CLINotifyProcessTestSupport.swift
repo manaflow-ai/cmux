@@ -419,30 +419,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             outputGroup.leave()
         }
 
-        // Observe the Process directly. Scheduling waitUntilExit on the shared
-        // global queue can starve behind app-host test work and report a false
-        // timeout after the child has already exited successfully.
-        let exitDeadline = Date.now.addingTimeInterval(processTimeout(timeout))
-        while process.isRunning, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
         }
-        let timedOut = process.isRunning
+
+        let timedOut = exitSignal.wait(timeout: .now() + processTimeout(timeout)) == .timedOut
         if timedOut {
             process.terminate()
-            let terminationDeadline = Date.now.addingTimeInterval(1)
-            while process.isRunning, Date.now < terminationDeadline {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            if process.isRunning {
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
                 kill(process.processIdentifier, SIGKILL)
-                let killDeadline = Date.now.addingTimeInterval(1)
-                while process.isRunning, Date.now < killDeadline {
-                    Thread.sleep(forTimeInterval: 0.01)
-                }
+                _ = exitSignal.wait(timeout: .now() + 1)
             }
-        }
-        if !process.isRunning {
-            process.waitUntilExit()
         }
 
         _ = outputGroup.wait(timeout: .now() + 2)
