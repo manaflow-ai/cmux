@@ -1257,6 +1257,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "アカウントが一致しません" } }
       }
     },
+    "mobile.simulatorStream.connectingControl" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connecting" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "接続中" } }
+      }
+    },
     "mobile.iroh.diagnostics.failure.protocolViolation" : {
       "extractionState" : "manual",
       "localizations" : {
