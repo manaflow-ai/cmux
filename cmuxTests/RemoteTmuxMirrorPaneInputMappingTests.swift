@@ -299,6 +299,73 @@ struct RemoteTmuxMirrorPaneInputMappingTests {
     }
 
     @Test
+    func cmuxTUITransportForwarderBoundsInFlightBytesAndFailsClosed() async throws {
+        let (deliveryStarts, deliveryStartContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let (deliveryReleases, deliveryReleaseContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let (failures, failureContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        var deliveryStartIterator = deliveryStarts.makeAsyncIterator()
+        var failureIterator = failures.makeAsyncIterator()
+
+        let forwarder = CmuxTUITerminalTransportForwarder(
+            maximumEventBytes: 4,
+            maximumPendingBytes: 4,
+            maximumBufferedEvents: 4,
+            deliver: { _ in
+                deliveryStartContinuation.yield()
+                for await _ in deliveryReleases { break }
+                return true
+            },
+            onFailure: {
+                failureContinuation.yield()
+            }
+        )
+
+        #expect(forwarder.send(.input(.bytes(Data([1, 2, 3])))) == .enqueued)
+        _ = try #require(await deliveryStartIterator.next())
+        #expect(forwarder.send(.input(.bytes(Data([4, 5])))) == .overflow)
+        _ = try #require(await failureIterator.next())
+        #expect(
+            forwarder.send(.resize(.init(columns: 80, rows: 24)))
+                == .inactive
+        )
+
+        deliveryReleaseContinuation.yield()
+        deliveryReleaseContinuation.finish()
+        forwarder.shutdown()
+    }
+
+    @Test
+    func cmuxTUITransportForwarderFailsClosedAfterDeliveryRejection() async throws {
+        let (failures, failureContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        var failureIterator = failures.makeAsyncIterator()
+        let forwarder = CmuxTUITerminalTransportForwarder(
+            maximumEventBytes: 4,
+            maximumPendingBytes: 4,
+            maximumBufferedEvents: 4,
+            deliver: { _ in false },
+            onFailure: {
+                failureContinuation.yield()
+            }
+        )
+
+        #expect(
+            forwarder.send(.resize(.init(columns: 80, rows: 24)))
+                == .enqueued
+        )
+        _ = try #require(await failureIterator.next())
+        #expect(forwarder.send(.input(.bytes(Data([1])))) == .inactive)
+        forwarder.shutdown()
+    }
+
+    @Test
     func remoteManualInputDelegatesNavigationAndFunctionKeysToTmux() async throws {
         let harness = try Harness()
         defer { harness.tearDown() }
