@@ -368,6 +368,9 @@ extension CMUXCLI {
     private func suppliedExecutableSearchDirectories(searchPath: String?) -> [String] {
         guard let searchPath else { return [] }
         let currentDirectory = FileManager.default.currentDirectoryPath
+        guard !searchPath.isEmpty else {
+            return normalizedExecutableSearchDirectories([currentDirectory])
+        }
         let directories = searchPath
             .split(separator: ":", omittingEmptySubsequences: false)
             .map { $0.isEmpty ? currentDirectory : String($0) }
