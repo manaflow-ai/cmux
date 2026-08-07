@@ -584,9 +584,10 @@ pub unsafe extern "C" fn cmux_frontend_client_attach_terminal(
 /// Copies and consumes the next ordered native-renderer event.
 ///
 /// A first call with a null/undersized payload buffer returns the event
-/// metadata without consuming a non-empty event. Allocate `payload_length`
-/// bytes and call again to copy and consume it. Empty events are consumed by
-/// the first call.
+/// metadata and leases that exact non-empty event. Allocate `payload_length`
+/// bytes and call again to copy and consume the lease. A concurrent resync can
+/// replace queued events but cannot invalidate the lease. Empty events are
+/// consumed by the first call.
 ///
 /// # Safety
 ///
@@ -602,7 +603,11 @@ pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
     let Some(terminal) = (unsafe { terminal.as_ref() }) else { return false };
     let Some(event_out) = (unsafe { event.as_mut() }) else { return false };
     let mut state = terminal.state.lock().unwrap();
-    let Some(next) = state.native_render_events.as_ref().and_then(VecDeque::front) else {
+    if state.native_render_event_lease.is_none() {
+        state.native_render_event_lease =
+            state.native_render_events.as_mut().and_then(VecDeque::pop_front);
+    }
+    let Some(next) = state.native_render_event_lease.as_ref() else {
         return false;
     };
     *event_out = CmuxFrontendRenderEvent {
@@ -618,7 +623,7 @@ pub unsafe extern "C" fn cmux_frontend_terminal_copy_next_render_event(
         // SAFETY: the caller provides a writable buffer at least payload_length bytes long.
         unsafe { std::ptr::copy_nonoverlapping(next.payload.as_ptr(), buffer, next.payload.len()) };
     }
-    let removed = state.native_render_events.as_mut().and_then(VecDeque::pop_front);
+    let removed = state.native_render_event_lease.take();
     if let Some(removed) = removed {
         state.native_render_event_bytes =
             state.native_render_event_bytes.saturating_sub(removed.payload.len());

@@ -434,6 +434,7 @@ struct ClientState {
     rows: u16,
     cell_pixels: (u16, u16),
     native_render_events: Option<VecDeque<NativeRenderEvent>>,
+    native_render_event_lease: Option<NativeRenderEvent>,
     native_render_event_bytes: usize,
 }
 
@@ -522,12 +523,14 @@ impl ClientState {
             rows: 0,
             cell_pixels: (8, 16),
             native_render_events: None,
+            native_render_event_lease: None,
             native_render_event_bytes: 0,
         })
     }
 
     fn enable_native_render_events(&mut self) {
         self.native_render_events = Some(VecDeque::new());
+        self.native_render_event_lease = None;
         self.native_render_event_bytes = 0;
     }
 
@@ -538,16 +541,19 @@ impl ClientState {
         rows: u16,
         payload: Vec<u8>,
     ) -> bool {
+        let leased_event_count = usize::from(self.native_render_event_lease.is_some());
+        let leased_payload_bytes =
+            self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
         let Some(events) = self.native_render_events.as_mut() else { return true };
         if kind == NativeRenderEventKind::Bytes && payload.is_empty() {
             return true;
         }
-        if events.len() >= MAX_NATIVE_RENDER_EVENTS
+        if events.len().saturating_add(leased_event_count) >= MAX_NATIVE_RENDER_EVENTS
             || self.native_render_event_bytes.saturating_add(payload.len())
                 > MAX_NATIVE_RENDER_EVENT_BYTES
         {
             events.clear();
-            self.native_render_event_bytes = 0;
+            self.native_render_event_bytes = leased_payload_bytes;
             return false;
         }
         if kind == NativeRenderEventKind::Bytes
@@ -604,7 +610,8 @@ impl ClientState {
         if let Some(events) = self.native_render_events.as_mut() {
             events.clear();
         }
-        self.native_render_event_bytes = 0;
+        self.native_render_event_bytes =
+            self.native_render_event_lease.as_ref().map_or(0, |event| event.payload.len());
         Ok(())
     }
 
