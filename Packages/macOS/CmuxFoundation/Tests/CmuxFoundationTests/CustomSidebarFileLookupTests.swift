@@ -88,6 +88,41 @@ struct CustomSidebarFileLookupTests {
         #expect(!lookup.exists(directory.appendingPathComponent("LinkToFile.swift")))
     }
 
+    /// The lookup is asked the same question repeatedly about a live directory — a sidebar surface
+    /// re-resolves on every `cmux sidebar reload` — so it has to answer about the filesystem as it is
+    /// now, not as it was the first time this URL was asked about.
+    ///
+    /// `URL` memoises resource values it has already fetched. A caller that holds one candidate URL
+    /// and probes it across a rename therefore gets the *old* spelling back, and a sidebar the
+    /// classifier will now refuse keeps resolving as though nothing changed. The rename here is
+    /// case-only because that is exactly the case this type exists to catch, and the one a
+    /// case-insensitive volume will not catch for it.
+    @Test("a retained URL re-probed after a case-only rename reports the new spelling")
+    func retainedURLDoesNotServeAStaleName() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let original = directory.appendingPathComponent("board.swift")
+        try "x".write(to: original, atomically: true, encoding: .utf8)
+        let lookup = CustomSidebarFileLookup()
+
+        // One retained URL, probed before and after the rename, as a live surface does.
+        let candidate = directory.appendingPathComponent("board.swift", isDirectory: false)
+        #expect(lookup.exists(candidate))
+
+        try FileManager.default.moveItem(
+            at: original,
+            to: directory.appendingPathComponent("BOARD.swift")
+        )
+        // The rename really took, independently of anything the lookup believes.
+        #expect(
+            try FileManager.default.contentsOfDirectory(atPath: directory.path) == ["BOARD.swift"]
+        )
+
+        #expect(!lookup.exists(candidate))
+        // And the other direction now resolves, on a URL that has never been probed before.
+        #expect(lookup.exists(directory.appendingPathComponent("BOARD.swift", isDirectory: false)))
+    }
+
     @Test("a missing file, and a missing directory, resolve to nothing")
     func missingPaths() throws {
         let directory = try makeDirectory()
