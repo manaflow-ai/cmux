@@ -366,7 +366,12 @@ export default function cmuxOmpSessionExtension(api: ExtensionAPI) {
   const adoptSwitchedSession = async (_event: unknown, ctx: ExtensionContext) => {
     const sessionId = contextSessionId(ctx);
     if (!sessionId) return;
-    paneOwnership().sessionId = sessionId;
+    const ownership = paneOwnership();
+    // OMP's reload() re-emits session_switch for the unchanged session file.
+    // A same-id "switch" is not an ownership transition: a spurious
+    // session-start would mark an idle pane running with no agent_end coming.
+    if (ownership.sessionId === sessionId) return;
+    ownership.sessionId = sessionId;
     await sendHook("session-start", ctx);
   };
   api.on("session_switch", adoptSwitchedSession);
