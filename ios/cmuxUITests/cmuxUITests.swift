@@ -5475,6 +5475,11 @@ final class cmuxUITests: XCTestCase {
         // the current device's center point lands on a card after relayout.
         // Use the mode-specific shared-toolbar item as the stable presentation
         // endpoint, while still requiring the pane-map subtree to exist.
+        // Hittability is only required on the active (pane-map) side: the
+        // terminal's toolbar lives in a full-screen cover, and toolbar items
+        // inside a presented cover never report hittable to XCUI on the CI
+        // simulator runtime even though real taps land (the shared tap helper
+        // falls back to frame coordinates for exactly that reason).
         let modeControl = app.buttons[
             isActive ? "MobilePaneMapRefresh" : "MobileWorkspaceUtilitiesMenu"
         ]
@@ -5482,7 +5487,7 @@ final class cmuxUITests: XCTestCase {
             predicate: NSPredicate(
                 block: { _, _ in
                     modeControl.exists
-                        && modeControl.isHittable
+                        && (!isActive || modeControl.isHittable)
                         && (isActive ? overlay.exists : !overlay.exists)
                         && (isActive || !app.buttons["MobilePaneMapRefresh"].exists)
                 }
