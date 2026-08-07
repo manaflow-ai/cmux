@@ -465,6 +465,28 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
+  lock-screen-symbol-canary:
+    needs:
+      - changes
+      - linux-preflight
+    # See app-host-unit-tests for why the direct needs are required explicitly.
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.linux-preflight.result == 'success' && needs.changes.outputs.macos == 'true' }}
+    name: lock-screen symbol canary (macOS 26)
+    # The unit-test canary in SleepyPowerControlsLockTests runs on the macOS 15
+    # app-host runners, but the bug class it guards (issue #9730: macOS 26
+    # removed the CGSession lock binary) manifests on new macOS majors. Resolve
+    # the replacement SACLockScreenImmediate symbol on the macOS 26 runner too,
+    # via a build-free script, so a future removal there turns CI red. The
+    # script never invokes the symbol, so it cannot lock the runner.
+    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Verify SACLockScreenImmediate resolves on this macOS
+        run: swift scripts/ci/check-lock-screen-symbol.swift
+
   app-host-unit-tests:
     needs:
       - changes
@@ -2048,6 +2070,7 @@ jobs:
       - diff-sidecar-check
       - web-db-migrations
       - linux-preflight
+      - lock-screen-symbol-canary
       - app-host-unit-tests
       - tests
       - swift-package-tests
