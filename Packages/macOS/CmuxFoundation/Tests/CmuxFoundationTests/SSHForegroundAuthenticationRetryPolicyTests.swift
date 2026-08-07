@@ -1034,21 +1034,22 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        cmux_ssh_auth_identity() {
-          case "$1" in
-            101) printf '7|2|Thu_Jan_1_00:00:00_1970\n' ;;
-            103) printf '8|2|Thu_Jan_1_00:00:00_1970\n' ;;
-            102|104) printf '9|99|Thu_Jan_1_00:00:00_1970\n' ;;
-            *) return 1 ;;
-          esac
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 7 2 T Thu Jan 1 00:00:00 1970\n102 9 99 T Thu Jan 1 00:00:00 1970\n103 8 2 T Thu Jan 1 00:00:00 1970\n104 9 99 T Thu Jan 1 00:00:00 1970\n' \
+          > "$CMUX_TEST_CURRENT"
         printf '101 1 2 Thu_Jan_1_00:00:00_1970\n102 1 2 Thu_Jan_1_00:00:00_1970\n103\n104\n' \
           > "$CMUX_TEST_SIGNALED_PIDS"
         # The exact and legacy records retain the pre-crash parent, while the
         # current processes have been reparented without changing stable identity.
         printf '103 1 2 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
@@ -1061,10 +1062,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let result = try runShellCommand(
             command,
             environment: [
+                "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
                 "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
                 "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
                 "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
                 "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
             ],
             shellPath: shellPath
         )
@@ -1084,15 +1089,13 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
 
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
-        cmux_ssh_auth_identity() {
-          case "$1" in
-            101) printf '7|11|Thu_Jan_1_00:00:00_1970\n' ;;
-            102) printf '9|99|Thu_Jan_1_00:00:00_1970\n' ;;
-            103) printf '8|13|Thu_Jan_1_00:00:00_1970\n' ;;
-            *) return 1 ;;
-          esac
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 7 11 T Thu Jan 1 00:00:00 1970\n102 9 99 T Thu Jan 1 00:00:00 1970\n103 8 13 T Thu Jan 1 00:00:00 1970\n' \
+          > "$CMUX_TEST_CURRENT"
         printf '11 101 1 Thu_Jan_1_00:00:00_1970\n12 102 1 Thu_Jan_1_00:00:00_1970\n13\n14\n' \
           > "$CMUX_TEST_SIGNALED_GROUPS"
         # The recorded members were reparented after cleanup crashed. Their
@@ -1100,6 +1103,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         printf '103 1 13 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALED_PIDS"
         : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
@@ -1115,10 +1121,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let result = try runShellCommand(
             command,
             environment: [
+                "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
                 "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
                 "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
                 "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
                 "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
             ],
             shellPath: shellPath
         )
@@ -1139,39 +1149,45 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         let command = """
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_deadline_allows_signal() { return 1; }
-        cmux_ssh_auth_identity() {
-          case "$1" in
-            101) printf '1|11|Thu_Jan_1_00:00:00_1970\n' ;;
-            102) printf '1|12|Thu_Jan_1_00:00:00_1970\n' ;;
-            *) return 1 ;;
-          esac
+        cmux_ssh_auth_now_millis() { printf '1000\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          /bin/cp "$CMUX_TEST_CURRENT" "$1"
         }
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '101 1 11 T Thu Jan 1 00:00:00 1970\n102 1 12 T Thu Jan 1 00:00:00 1970\n' \
+          > "$CMUX_TEST_CURRENT"
         printf '11 101 1 Thu_Jan_1_00:00:00_1970\n12 102 1 Thu_Jan_1_00:00:00_1970\n' \
           > "$CMUX_TEST_SIGNALED_GROUPS"
         printf '101 1 11 Thu_Jan_1_00:00:00_1970\n102 1 12 Thu_Jan_1_00:00:00_1970\n' \
           > "$CMUX_TEST_SIGNALED_PIDS"
         : > "$CMUX_TEST_SIGNALS"
         cmux_ssh_auth_deadline_millis=1
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
         cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
         cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
         cmux_ssh_auth_resume_signaled_processes || exit 99
-        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" -eq 4 \
+        test "$(/usr/bin/wc -l < "$CMUX_TEST_SIGNALS" | /usr/bin/tr -d '[:space:]')" -eq 2 \
           || exit 98
         /usr/bin/grep -Fqx -- '-CONT -- -11' "$CMUX_TEST_SIGNALS" || exit 97
         /usr/bin/grep -Fqx -- '-CONT -- -12' "$CMUX_TEST_SIGNALS" || exit 96
-        /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
-        /usr/bin/grep -Fqx -- '-CONT 102' "$CMUX_TEST_SIGNALS" || exit 94
+        ! /usr/bin/grep -Fqx -- '-CONT 101' "$CMUX_TEST_SIGNALS" || exit 95
+        ! /usr/bin/grep -Fqx -- '-CONT 102' "$CMUX_TEST_SIGNALS" || exit 94
         """
 
         let result = try runShellCommand(
             command,
             environment: [
+                "CMUX_TEST_CURRENT": root.appendingPathComponent("current").path,
                 "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
                 "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
                 "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
                 "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
             ],
             shellPath: shellPath
         )
@@ -1190,7 +1206,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { try? fileManager.removeItem(at: root) }
 
         let started = "Thu_Jan_1_00:00:00_1970"
-        let processIDs = 101...164
+        let processIDs = 101...1124
         let groupJournal = processIDs
             .map { "11 \($0) 1 \(started)" }
             .joined(separator: "\n") + "\n"
@@ -1251,6 +1267,58 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
                 "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
                 "CMUX_TEST_SNAPSHOT_CALLS": root.appendingPathComponent("snapshot-calls").path,
+            ],
+            shellPath: shellPath
+        )
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
+    }
+
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func rollbackCannotExtendPastSafetyMargin(shellPath: String) throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-ssh-auth-rollback-deadline-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        cmux_ssh_auth_now_millis() { printf '1500\n'; }
+        cmux_ssh_auth_take_process_snapshot_until() {
+          : > "$CMUX_TEST_SNAPSHOT_CALLED"
+          return 1
+        }
+        kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
+        printf '11 101 1 Thu_Jan_1_00:00:00_1970\n' \
+          > "$CMUX_TEST_SIGNALED_GROUPS"
+        : > "$CMUX_TEST_SIGNALED_PIDS"
+        : > "$CMUX_TEST_SIGNALS"
+        cmux_ssh_auth_hard_deadline_millis=1000
+        cmux_ssh_auth_process_snapshot="$CMUX_TEST_SNAPSHOT"
+        cmux_ssh_auth_resume_groups="$CMUX_TEST_RESUME_GROUPS"
+        cmux_ssh_auth_individual_processes="$CMUX_TEST_INDIVIDUALS"
+        cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
+        cmux_ssh_auth_signaled_processes="$CMUX_TEST_SIGNALED_PIDS"
+        cmux_ssh_auth_frozen_processes="$CMUX_TEST_FROZEN"
+        if cmux_ssh_auth_resume_signaled_processes; then exit 99; fi
+        test ! -e "$CMUX_TEST_SNAPSHOT_CALLED" || exit 98
+        test ! -s "$CMUX_TEST_SIGNALS" || exit 97
+        """
+
+        let result = try runShellCommand(
+            command,
+            environment: [
+                "CMUX_TEST_FROZEN": root.appendingPathComponent("frozen").path,
+                "CMUX_TEST_INDIVIDUALS": root.appendingPathComponent("individuals").path,
+                "CMUX_TEST_RESUME_GROUPS": root.appendingPathComponent("groups.resume").path,
+                "CMUX_TEST_SIGNALED_GROUPS": root.appendingPathComponent("signaled.groups").path,
+                "CMUX_TEST_SIGNALED_PIDS": root.appendingPathComponent("signaled.pids").path,
+                "CMUX_TEST_SIGNALS": root.appendingPathComponent("signals").path,
+                "CMUX_TEST_SNAPSHOT": root.appendingPathComponent("snapshot").path,
+                "CMUX_TEST_SNAPSHOT_CALLED": root.appendingPathComponent("snapshot-called").path,
             ],
             shellPath: shellPath
         )
