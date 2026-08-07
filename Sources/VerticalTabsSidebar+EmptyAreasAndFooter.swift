@@ -624,6 +624,9 @@ struct SidebarEmptyArea: View {
     @ViewBuilder
     private var hitTarget: some View {
         if expandsVertically {
+            // This full-height background extends behind the rows. Keep it
+            // SwiftUI-only so native hit testing cannot steal row presses;
+            // the AppKit table and clip view own native-sidebar window drags.
             Color.clear
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
