@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminalCore
 import Testing
 
@@ -64,6 +65,30 @@ struct GhosttyScrollViewTests {
         #expect(
             hostedView.hitTest(NSPoint(x: 40, y: 40)) === surfaceView,
             "the transparent virtual scroll document must forward viewport hits to the renderer"
+        )
+    }
+
+    @Test func virtualDocumentForwardsHitsAcrossOffsetCoordinateSpaces() {
+        let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 1_400, height: 800))
+        let surfaceView = GhosttyNSView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 240)
+        )
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = NSRect(x: 300, y: 200, width: 800, height: 240)
+        containerView.addSubview(hostedView)
+        hostedView.layoutSubtreeIfNeeded()
+        hostedView.setSessionContentWidthPresentation(SessionContentWidthPresentation(
+            storedMaximumWidth: 600,
+            storedAlignment: SessionContentAlignment.center.rawValue
+        ))
+
+        let pointInHostedView = NSPoint(x: 150, y: 50)
+        let pointInContainer = hostedView.convert(pointInHostedView, to: containerView)
+
+        #expect(surfaceView.frame.origin == NSPoint(x: 100, y: 0))
+        #expect(
+            hostedView.hitTest(pointInContainer) === surfaceView,
+            "offset portal and renderer frames must preserve terminal pointer routing"
         )
     }
 }

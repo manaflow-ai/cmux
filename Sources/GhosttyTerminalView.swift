@@ -8838,9 +8838,10 @@ final class GhosttySurfaceScrollView: NSView {
     override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        let pointInSelf = convert(point, from: superview)
         if let overlay = cloudTerminalReconnectOverlayView,
            overlay.superview === self,
-           let hit = overlay.hitTest(convert(point, to: overlay)) {
+           let hit = overlay.hitTest(pointInSelf) {
             return hit
         }
 
@@ -8848,7 +8849,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard hit === scrollView.contentView || hit === documentView else {
             return hit
         }
-        return surfaceView.hitTest(convert(point, to: surfaceView))
+        return surfaceView.hitTest(pointInSelf)
     }
 
     // Avoid stealing focus on scroll; focus is managed explicitly by the surface view.
