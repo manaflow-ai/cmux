@@ -102,31 +102,37 @@ actor FrontendService {
     params: [String: JSONValue],
     mutation: Bool = false,
     as type: T.Type = T.self
-  ) throws -> T {
-    guard let raw else {
+  ) async throws -> T {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
       throw FrontendServiceError.message(
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
     let paramsJSON = try params.encodedJSON()
-    var error = [CChar](repeating: 0, count: 4_096)
-    let result = operation.withCString { operationPointer in
-      paramsJSON.withCString { paramsPointer in
-        cmux_frontend_client_request(
-          raw,
-          operationPointer,
-          paramsPointer,
-          mutation,
-          &error,
-          error.count
-        )
+    let response = await Task.detached(priority: .userInitiated) {
+      var error = [CChar](repeating: 0, count: 4_096)
+      let result = operation.withCString { operationPointer in
+        paramsJSON.withCString { paramsPointer in
+          cmux_frontend_client_request(
+            OpaquePointer(bitPattern: rawAddress)!,
+            operationPointer,
+            paramsPointer,
+            mutation,
+            &error,
+            error.count
+          )
+        }
       }
+      guard let result else { return Result<String, String>.failure(decodeError(error)) }
+      defer { cmux_frontend_string_free(result) }
+      return Result<String, String>.success(String(cString: result))
+    }.value
+    let payload: String
+    switch response {
+    case .success(let value): payload = value
+    case .failure(let error): throw FrontendServiceError.message(error)
     }
-    guard let result else {
-      throw FrontendServiceError.message(decodeError(error))
-    }
-    defer { cmux_frontend_string_free(result) }
-    let data = Data(String(cString: result).utf8)
+    let data = Data(payload.utf8)
     return try JSONDecoder().decode(type, from: data)
   }
 
@@ -134,8 +140,8 @@ actor FrontendService {
     _ operation: String,
     params: [String: JSONValue],
     mutation: Bool = false
-  ) throws {
-    let _: JSONValueResult = try request(
+  ) async throws {
+    let _: JSONValueResult = try await request(
       operation,
       params: params,
       mutation: mutation,

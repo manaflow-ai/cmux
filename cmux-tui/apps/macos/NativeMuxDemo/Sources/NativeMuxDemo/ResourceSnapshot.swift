@@ -101,23 +101,53 @@ struct ResourceSnapshot: Decodable, Sendable {
     let browsers: [BrowserSnapshot]
     let cursor: ResourceCursor
 
+    private let screensByWorkspaceID: [String: [ScreenSnapshot]]
+    private let panesByID: [String: PaneSnapshot]
+    private let tabsByPaneID: [String: [TabSnapshot]]
+    private let terminalsByID: [String: TerminalSnapshot]
+    private let browsersByID: [String: BrowserSnapshot]
+
+    private enum CodingKeys: String, CodingKey {
+        case machine, session, workspaces, screens, panes, tabs, terminals, browsers, cursor
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        machine = try container.decode(ResourceIdentity.self, forKey: .machine)
+        session = try container.decode(ResourceIdentity.self, forKey: .session)
+        workspaces = try container.decode([WorkspaceSnapshot].self, forKey: .workspaces)
+        screens = try container.decode([ScreenSnapshot].self, forKey: .screens)
+        panes = try container.decode([PaneSnapshot].self, forKey: .panes)
+        tabs = try container.decode([TabSnapshot].self, forKey: .tabs)
+        terminals = try container.decode([TerminalSnapshot].self, forKey: .terminals)
+        browsers = try container.decode([BrowserSnapshot].self, forKey: .browsers)
+        cursor = try container.decode(ResourceCursor.self, forKey: .cursor)
+        screensByWorkspaceID = Dictionary(grouping: screens, by: \.workspaceID)
+            .mapValues { $0.sorted { $0.index < $1.index } }
+        panesByID = Dictionary(uniqueKeysWithValues: panes.map { ($0.id, $0) })
+        tabsByPaneID = Dictionary(grouping: tabs, by: \.paneID)
+            .mapValues { $0.sorted { $0.index < $1.index } }
+        terminalsByID = Dictionary(uniqueKeysWithValues: terminals.map { ($0.id, $0) })
+        browsersByID = Dictionary(uniqueKeysWithValues: browsers.map { ($0.id, $0) })
+    }
+
     func screens(in workspaceID: String) -> [ScreenSnapshot] {
-        screens.filter { $0.workspaceID == workspaceID }.sorted { $0.index < $1.index }
+        screensByWorkspaceID[workspaceID] ?? []
     }
 
     func pane(_ id: String) -> PaneSnapshot? {
-        panes.first { $0.id == id }
+        panesByID[id]
     }
 
     func tabs(in paneID: String) -> [TabSnapshot] {
-        tabs.filter { $0.paneID == paneID }.sorted { $0.index < $1.index }
+        tabsByPaneID[paneID] ?? []
     }
 
     func terminal(for tab: TabSnapshot) -> TerminalSnapshot? {
-        terminals.first { $0.id == tab.contentID }
+        terminalsByID[tab.contentID]
     }
 
     func browser(for tab: TabSnapshot) -> BrowserSnapshot? {
-        browsers.first { $0.id == tab.contentID }
+        browsersByID[tab.contentID]
     }
 }

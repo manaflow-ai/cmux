@@ -43,6 +43,7 @@
 "error.no_machine" = "The daemon reported no machine.";
 "error.no_session" = "The daemon reported no session.";
 "error.terminal_input_rejected" = "Terminal input was rejected.";
+"error.terminal_attach" = "The terminal could not be attached.";
 "error.terminal_resize_rejected" = "Terminal resize was rejected.";
 "error.ghostty_runtime" = "The embedded Ghostty renderer could not start.";
 "error.ghostty_surface" = "The embedded Ghostty terminal surface could not start.";

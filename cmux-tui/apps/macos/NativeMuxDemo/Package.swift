@@ -1,5 +1,14 @@
 // swift-tools-version: 6.0
 import PackageDescription
+import Foundation
+
+let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+let rustLibraryPath = packageRoot
+  .appendingPathComponent("../../../target/native-mux-demo/rust-build/debug")
+  .standardizedFileURL.path
+let ghosttyLibraryPath = packageRoot
+  .appendingPathComponent("../../../../GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a")
+  .standardizedFileURL.path
 
 let package = Package(
   name: "NativeMuxDemo",
@@ -16,10 +25,10 @@ let package = Package(
       dependencies: ["CCmuxTerminal", "GhosttyKit"],
       linkerSettings: [
         .unsafeFlags([
-          "-L../../../target/native-mux-demo/rust-build/debug", "-lcmux_terminal_client",
+          "-L\(rustLibraryPath)", "-lcmux_terminal_client",
         ]),
         .unsafeFlags([
-          "../../../../GhosttyKit.xcframework/macos-arm64_x86_64/ghostty-internal.a"
+          ghosttyLibraryPath
         ]),
         .linkedFramework("Carbon"),
         .linkedLibrary("c++"),

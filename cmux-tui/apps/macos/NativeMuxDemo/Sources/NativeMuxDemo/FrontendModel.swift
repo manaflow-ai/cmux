@@ -227,20 +227,28 @@ final class FrontendModel {
     }
 
     func selectWorkspace(_ workspace: WorkspaceSnapshot) {
+        let previousWorkspaceID = selectedWorkspaceID
+        let previousScreenID = selectedScreenID
         selectedWorkspaceID = workspace.id
         selectedScreenID = snapshot?.screens(in: workspace.id).first { $0.focused }?.id
             ?? snapshot?.screens(in: workspace.id).first?.id
         mutate(
             "workspace.focus",
-            selectors: ["workspace": workspace.id]
+            selectors: ["workspace": workspace.id],
+            onFailure: {
+                self.selectedWorkspaceID = previousWorkspaceID
+                self.selectedScreenID = previousScreenID
+            }
         )
     }
 
     func selectScreen(_ screen: ScreenSnapshot) {
+        let previousScreenID = selectedScreenID
         selectedScreenID = screen.id
         mutate(
             "screen.focus",
-            selectors: ["workspace": screen.workspaceID, "screen": screen.id]
+            selectors: ["workspace": screen.workspaceID, "screen": screen.id],
+            onFailure: { self.selectedScreenID = previousScreenID }
         )
     }
 
@@ -438,7 +446,8 @@ final class FrontendModel {
     private func mutate(
         _ operation: String,
         selectors: [String: String],
-        fields: [String: JSONValue] = [:]
+        fields: [String: JSONValue] = [:],
+        onFailure: (() -> Void)? = nil
     ) {
         guard let service, let machineID, let sessionID else { return }
         var params: [String: JSONValue] = [
@@ -456,6 +465,7 @@ final class FrontendModel {
                 )
                 scheduleRefresh()
             } catch {
+                onFailure?()
                 errorMessage = error.localizedDescription
             }
         }

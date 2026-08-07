@@ -79,7 +79,10 @@ final class NativeTerminalModel {
         beginUpdates(from: handle)
         await consumeUpdates(from: handle)
       } catch {
-        errorMessage = error.localizedDescription
+        errorMessage = L10n.text(
+          "error.terminal_attach",
+          "The terminal could not be attached."
+        )
       }
       attachTask = nil
     }

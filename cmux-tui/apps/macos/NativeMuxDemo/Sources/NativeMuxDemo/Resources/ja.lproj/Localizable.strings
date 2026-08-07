@@ -43,6 +43,7 @@
 "error.no_machine" = "デーモンからマシンが返されませんでした。";
 "error.no_session" = "デーモンからセッションが返されませんでした。";
 "error.terminal_input_rejected" = "ターミナル入力が拒否されました。";
+"error.terminal_attach" = "ターミナルに接続できませんでした。";
 "error.terminal_resize_rejected" = "ターミナルのサイズ変更が拒否されました。";
 "error.ghostty_runtime" = "組み込み Ghostty レンダラーを起動できませんでした。";
 "error.ghostty_surface" = "組み込み Ghostty ターミナルサーフェスを起動できませんでした。";
