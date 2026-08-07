@@ -22,6 +22,7 @@ struct WorkspaceCanvasHostView: View {
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
     @Environment(\.settingsRuntime) private var settingsRuntime
+    @Environment(\.workspaceAttentionColor) private var workspaceAttentionColor
     @AppStorage(SessionContentWidthSettings.maxWidthKey)
     private var storedSessionContentMaximumWidth = SessionContentWidthSettings.noMaximumWidth
     @AppStorage(SessionContentWidthSettings.alignmentKey)
@@ -69,10 +70,12 @@ struct WorkspaceCanvasHostView: View {
                             appearance: appearance,
                             windowAppearance: windowAppearance,
                             settingsRuntime: settingsRuntime,
+                            workspaceAttentionColor: workspaceAttentionColor,
                             sessionContentWidthPresentation: sessionContentWidthPresentation
                         ),
                         panelId: panelId,
                         container: container,
+                        workspaceAttentionColor: workspaceAttentionColor,
                         onFocusPanel: { [weak workspace] panelId in
                             workspace?.focusPanel(panelId)
                         }
@@ -86,7 +89,8 @@ struct WorkspaceCanvasHostView: View {
                         showsInactiveOverlay: isSplit && !isFocused,
                         inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
                         inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
-                        sessionContentWidthPresentation: sessionContentWidthPresentation
+                        sessionContentWidthPresentation: sessionContentWidthPresentation,
+                        workspaceAttentionColor: workspaceAttentionColor
                     )
                 }
             )
@@ -124,6 +128,7 @@ struct WorkspaceCanvasHostView: View {
         appearance: PanelAppearance,
         windowAppearance: WindowAppearanceSnapshot,
         settingsRuntime: SettingsRuntime?,
+        workspaceAttentionColor: WorkspaceAttentionColor,
         sessionContentWidthPresentation: SessionContentWidthPresentation
     ) -> CanvasPaneContent {
         if let terminalPanel = panel as? TerminalPanel {
@@ -134,7 +139,8 @@ struct WorkspaceCanvasHostView: View {
         let presentation = CanvasHostedPanelPresentation(
             isFocused: isFocused,
             allowsPointerInput: allowsPointerInput,
-            pointerInputOwner: pointerInputOwner
+            pointerInputOwner: pointerInputOwner,
+            workspaceAttentionColor: workspaceAttentionColor
         )
         let content = CanvasHostedPanelContentView(
             presentation: presentation,
@@ -150,13 +156,30 @@ struct WorkspaceCanvasHostView: View {
                 workspace?.focusPanel(panel.id)
             }
         )
-        let hosted = NSHostingView(rootView: AnyView(
-            content.environment(\.settingsRuntime, settingsRuntime)
-        ))
+        let hosted = NSHostingView(rootView: AnyView(CanvasHostedPanelRootView(
+            content: content,
+            presentation: presentation,
+            settingsRuntime: settingsRuntime
+        )))
         // The pane's content container dictates the size; never let the
         // hosting view shrink to SwiftUI's ideal size.
         hosted.sizingOptions = []
         return .hosted(panel, hosted, presentation)
+    }
+}
+
+/// Re-establishes app-owned environment values across the canvas's nested
+/// `NSHostingView` boundary. Presentation is observable, so mounted panes
+/// receive color changes without rebuilding their hosted content.
+private struct CanvasHostedPanelRootView: View {
+    let content: CanvasHostedPanelContentView
+    @Bindable var presentation: CanvasHostedPanelPresentation
+    let settingsRuntime: SettingsRuntime?
+
+    var body: some View {
+        content
+            .environment(\.settingsRuntime, settingsRuntime)
+            .environment(\.workspaceAttentionColor, presentation.workspaceAttentionColor)
     }
 }
 
