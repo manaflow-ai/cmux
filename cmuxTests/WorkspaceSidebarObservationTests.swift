@@ -271,6 +271,210 @@ struct WorkspaceSidebarObservationTests {
     }
 
     @Test
+    func workspaceAttentionScopesSeparateAfterOnePanelMovesToDock() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let workspacePanelId = try #require(workspace.focusedPanelId)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+        let dockPanelId = try #require(
+            workspace.newTerminalSurface(inPane: paneId, focus: false)?.id
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        let coordinator = FeedCoordinator.shared
+
+        let workspaceTarget = try #require(
+            coordinator.surfaceBlockingDecisionAttention(
+                event: WorkstreamEvent(
+                    sessionId: "workspace-attention",
+                    hookEventName: .permissionRequest,
+                    source: "codex",
+                    requestId: "workspace-attention-request"
+                ),
+                resolved: (workspace.id, workspacePanelId)
+            )
+        )
+        let dockTarget = try #require(
+            coordinator.surfaceBlockingDecisionAttention(
+                event: WorkstreamEvent(
+                    sessionId: "dock-bound-attention",
+                    hookEventName: .permissionRequest,
+                    source: "codex",
+                    requestId: "dock-bound-attention-request"
+                ),
+                resolved: (workspace.id, dockPanelId)
+            )
+        )
+        defer {
+            coordinator.concludeBlockingDecisionAttention(workspaceTarget)
+            coordinator.concludeBlockingDecisionAttention(dockTarget)
+            dock.closeAllPanels()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let transfer = try #require(
+            workspace.detachSurface(panelId: dockPanelId)
+        )
+        let dockPaneId = try #require(dock.bonsplitController.allPaneIds.first)
+        #expect(
+            dock.attachDetachedSurface(
+                transfer,
+                inPane: dockPaneId,
+                focus: false
+            ) == dockPanelId
+        )
+        #expect(
+            ControlSidebarPanelOwner.workspace(workspace).statusEntry(
+                key: "codex",
+                panelId: workspacePanelId
+            ) != nil
+        )
+        #expect(
+            ControlSidebarPanelOwner.dock(dock).statusEntry(
+                key: "codex",
+                panelId: dockPanelId
+            ) != nil
+        )
+
+        coordinator.concludeBlockingDecisionAttention(workspaceTarget)
+
+        #expect(
+            ControlSidebarPanelOwner.workspace(workspace).statusEntry(
+                key: "codex",
+                panelId: workspacePanelId
+            ) == nil,
+            "The workspace badge must clear once its last workspace-owned decision ends."
+        )
+        #expect(
+            ControlSidebarPanelOwner.dock(dock).statusEntry(
+                key: "codex",
+                panelId: dockPanelId
+            ) != nil,
+            "The moved panel's Dock-scoped decision must remain visible."
+        )
+
+        coordinator.concludeBlockingDecisionAttention(dockTarget)
+        #expect(
+            ControlSidebarPanelOwner.dock(dock).statusEntry(
+                key: "codex",
+                panelId: dockPanelId
+            ) == nil,
+            "The Dock badge must clear when its exact moved decision ends."
+        )
+    }
+
+    @Test
+    func dockAttentionScopesMergeWhenPanelsMoveIntoOneWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager(autoWelcomeIfNeeded: false)
+        AppDelegate.shared = appDelegate
+        appDelegate.tabManager = tabManager
+        let sourceWorkspace = tabManager.addWorkspace(select: true)
+        let destinationWorkspace = tabManager.addWorkspace(select: false)
+        let firstPanelId = try #require(sourceWorkspace.focusedPanelId)
+        let sourcePaneId = try #require(
+            sourceWorkspace.bonsplitController.focusedPaneId
+        )
+        let secondPanelId = try #require(
+            sourceWorkspace.newTerminalSurface(
+                inPane: sourcePaneId,
+                focus: false
+            )?.id
+        )
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        let dockPaneId = try #require(dock.bonsplitController.allPaneIds.first)
+        for panelId in [firstPanelId, secondPanelId] {
+            let transfer = try #require(
+                sourceWorkspace.detachSurface(panelId: panelId)
+            )
+            #expect(
+                dock.attachDetachedSurface(
+                    transfer,
+                    inPane: dockPaneId,
+                    focus: false
+                ) == panelId
+            )
+        }
+
+        let coordinator = FeedCoordinator.shared
+        let firstTarget = try #require(
+            coordinator.surfaceBlockingDecisionAttention(
+                event: WorkstreamEvent(
+                    sessionId: "first-dock-attention",
+                    hookEventName: .permissionRequest,
+                    source: "codex",
+                    requestId: "first-dock-attention-request"
+                ),
+                resolved: (sourceWorkspace.id, firstPanelId)
+            )
+        )
+        let secondTarget = try #require(
+            coordinator.surfaceBlockingDecisionAttention(
+                event: WorkstreamEvent(
+                    sessionId: "second-dock-attention",
+                    hookEventName: .permissionRequest,
+                    source: "codex",
+                    requestId: "second-dock-attention-request"
+                ),
+                resolved: (sourceWorkspace.id, secondPanelId)
+            )
+        )
+        defer {
+            coordinator.concludeBlockingDecisionAttention(firstTarget)
+            coordinator.concludeBlockingDecisionAttention(secondTarget)
+            dock.closeAllPanels()
+            for workspace in [sourceWorkspace, destinationWorkspace]
+                where tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let destinationPaneId = try #require(
+            destinationWorkspace.bonsplitController.focusedPaneId
+        )
+        for panelId in [firstPanelId, secondPanelId] {
+            let transfer = try #require(dock.detachSurface(panelId: panelId))
+            #expect(
+                destinationWorkspace.attachDetachedSurface(
+                    transfer,
+                    inPane: destinationPaneId,
+                    focus: false
+                ) == panelId
+            )
+        }
+
+        coordinator.concludeBlockingDecisionAttention(firstTarget)
+        #expect(
+            ControlSidebarPanelOwner.workspace(destinationWorkspace)
+                .statusEntry(key: "codex", panelId: firstPanelId) != nil,
+            "Workspace-scoped status must remain while the other moved panel still needs input."
+        )
+
+        coordinator.concludeBlockingDecisionAttention(secondTarget)
+        #expect(
+            ControlSidebarPanelOwner.workspace(destinationWorkspace)
+                .statusEntry(key: "codex", panelId: secondPanelId) == nil,
+            "The shared workspace badge must clear after the last moved decision ends."
+        )
+    }
+
+    @Test
     func sessionScopedBuiltInKeysRequireExactProcessGeneration() {
         #expect(
             TerminalController.shared

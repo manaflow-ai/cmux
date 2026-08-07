@@ -3359,6 +3359,39 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testManagedCodexSubagentSessionStartDoesNotPublishVisibleLifecycle() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-start-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session-start"
+        startAgentHookMockServerAccepting(context: context)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(
+                context: context,
+                sessionId: sessionId
+            ).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_agent_pid codex.")
+                    || $0.contains("set_agent_lifecycle codex ")
+            },
+            "Managed subagent SessionStart should persist routing without mutating the visible parent's PID or lifecycle, saw \(context.state.commands)"
+        )
+    }
+
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
