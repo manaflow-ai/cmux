@@ -34,6 +34,7 @@ final class NativeTerminalModel {
   @ObservationIgnored private var inputTask: Task<Void, Never>?
   @ObservationIgnored private var attachTask: Task<Void, Never>?
   @ObservationIgnored private var resizeTask: Task<Void, Never>?
+  @ObservationIgnored private var resizeGeneration: UInt64 = 0
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
   @ObservationIgnored private var latestGeometry: TerminalGeometry?
@@ -142,9 +143,12 @@ final class NativeTerminalModel {
     latestGeometry = geometry
     guard let handle, isAttached else { return }
     resizeTask?.cancel()
+    resizeGeneration &+= 1
+    let generation = resizeGeneration
     resizeTask = Task { [weak self] in
       guard let self else { return }
       let accepted = await handle.resize(cols: geometry.cols, rows: geometry.rows)
+      guard !Task.isCancelled, generation == resizeGeneration else { return }
       if !accepted, !isShuttingDown {
         errorMessage = L10n.text(
           "error.terminal_resize_rejected",
@@ -164,6 +168,7 @@ final class NativeTerminalModel {
     isShuttingDown = true
     attachTask?.cancel()
     resizeTask?.cancel()
+    resizeGeneration &+= 1
     updateTask?.cancel()
     inputTask?.cancel()
     inputContinuation.finish()

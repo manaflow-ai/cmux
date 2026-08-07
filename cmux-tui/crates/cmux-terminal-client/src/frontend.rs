@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use cmux_remote::mux_codec::{MuxLineAssembler, encode_line};
@@ -334,6 +334,7 @@ unsafe fn frontend_connect(
             return std::ptr::null_mut();
         }
     };
+    let started = Instant::now();
     let connected = match timeout {
         Some(timeout) => runtime.block_on(connect_with_timeout(
             connect_transport(invitation, "NativeMux Demo"),
@@ -356,7 +357,10 @@ unsafe fn frontend_connect(
         };
     let control_result = match timeout {
         Some(timeout) => {
-            runtime.block_on(connect_with_timeout(open_control_stream(&multiplexer), timeout))
+            runtime.block_on(connect_with_timeout(
+                open_control_stream(&multiplexer),
+                timeout.saturating_sub(started.elapsed()),
+            ))
         }
         None => runtime.block_on(open_control_stream(&multiplexer)),
     };
@@ -377,6 +381,7 @@ unsafe fn frontend_connect(
         Err(error) => {
             copy_utf8(&error, error_buffer, error_capacity);
             runtime.block_on(async {
+                let _ = stream.close().await;
                 multiplexer.shutdown().await;
                 let _ = connection.close().await;
                 provider.close().await;
