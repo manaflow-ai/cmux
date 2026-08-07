@@ -180522,25 +180522,25 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show a blue ring around panes with unread notifications."
+            "value": "Show a ring around panes with unread notifications."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未読の通知があるペインの周囲に青いリングを表示します。"
+            "value": "未読の通知があるペインの周囲にリングを表示します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "읽지 않은 알림이 있는 패인 주위에 파란색 링을 표시합니다."
+            "value": "읽지 않은 알림이 있는 패인 주위에 링을 표시합니다."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показувати синє кільце навколо панелей з непрочитаними сповіщеннями."
+            "value": "Показувати кільце навколо панелей з непрочитаними сповіщеннями."
           }
         }
       }
