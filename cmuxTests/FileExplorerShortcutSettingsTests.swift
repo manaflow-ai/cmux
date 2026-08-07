@@ -16,8 +16,9 @@ private typealias ShortcutStroke = cmux.ShortcutStroke
 private final class ShortcutNoopFileSearchController: FileSearchControlling {
     var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
 
-    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {}
+    func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int, options: FileSearchOptions) {}
     func cancel(clear: Bool) {}
+    func loadMore() {}
 }
 
 @MainActor
@@ -156,7 +157,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
             KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelection)
             KeyboardShortcutSettings.setShortcut(.unbound, for: .fileExplorerOpenSelectionFinderAlias)
 
-            let tableView = FileExplorerSearchResultsTableView()
+            let tableView = FileExplorerSearchOutlineView()
             var commitCount = 0
             tableView.onCommit = {
                 commitCount += 1
@@ -194,7 +195,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
             )
             window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
             let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
-            let tableView = FileExplorerSearchResultsTableView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            let tableView = FileExplorerSearchOutlineView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
             tableView.fileExplorerPanelPlacement = .pane
             var commitCount = 0
             tableView.onCommit = {
@@ -238,7 +239,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
             )
             window.identifier = NSUserInterfaceItemIdentifier("cmux.test.externalFileExplorerProbe")
             let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
-            let tableView = FileExplorerSearchResultsTableView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            let tableView = FileExplorerSearchOutlineView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
             tableView.fileExplorerPanelPlacement = .pane
             var commitCount = 0
             tableView.onCommit = {
@@ -281,7 +282,7 @@ private final class ShortcutNoopFileSearchController: FileSearchControlling {
             )
             window.identifier = NSUserInterfaceItemIdentifier("cmux.about")
             let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
-            let tableView = FileExplorerSearchResultsTableView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
+            let tableView = FileExplorerSearchOutlineView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
             tableView.fileExplorerPanelPlacement = .pane
             var commitCount = 0
             tableView.onCommit = {
