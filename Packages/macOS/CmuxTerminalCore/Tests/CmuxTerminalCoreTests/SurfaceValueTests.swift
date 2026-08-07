@@ -50,10 +50,10 @@ import GhosttyKit
     }
 
     @Test func queuedPromptCarriesAdmissionTimeHumanSnapshot() {
-        let snapshot = TerminalPromptInputLedger.HumanInputSnapshot(
-            epoch: 7,
-            generation: 42
-        )
+        var ledger = TerminalPromptInputLedger()
+        ledger.synchronizeAgentScope("agent:test")
+        ledger.recordHumanInput(.unknown)
+        let snapshot = ledger.humanInputSnapshot
         let input = PendingSocketInput.promptSubmission(
             text: Data("prompt".utf8),
             submitKey: PendingKeyEvent(
