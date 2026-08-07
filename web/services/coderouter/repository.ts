@@ -60,6 +60,19 @@ export async function revokeRouteTokensForUser(
     ));
 }
 
+export async function revokeRouteTokensForTeam(
+  teamId: string,
+  now = new Date(),
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterRouteTokens.teamId, teamId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ));
+}
+
 export async function authenticateRouteToken(
   token: string,
   now = new Date(),
