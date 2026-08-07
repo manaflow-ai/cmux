@@ -34,6 +34,8 @@ extension CMUXCLI {
               let action = NativeAgentAttentionAction(rawValue: rawAction),
               let pidValue = optionValue(commandArgs, name: "--pid"),
               let pid = Int(pidValue),
+              pid > 0,
+              pid <= Int(Int32.max),
               let processIdentity = AgentPIDProcessIdentity(
                   agentTurnPID: pid
               ),

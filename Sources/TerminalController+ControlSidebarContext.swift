@@ -26,14 +26,36 @@ extension TerminalController: ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        processGeneration: ControlSidebarAgentProcessGeneration? = nil
     ) {
         let appFormat = SidebarMetadataFormat(rawValue: format.rawValue) ?? .plain
-        let acceptedProcessIdentity = pid.flatMap {
+        let exactProcessIdentity = processGeneration.map {
+            AgentPIDProcessIdentity(
+                pid: $0.pid,
+                startSeconds: $0.startSeconds,
+                startMicroseconds: $0.startMicroseconds
+            )
+        }
+        let reconstructedProcessIdentity = pid.flatMap {
             AgentPIDProcessIdentity(pid: $0)
         }
         controlSidebarSchedulePanelOwnedMutation(target: target, panelID: panelID) { _, owner in
             if let pid {
+                let keyIsBuiltIn = AgentHibernationLifecycleStatusKeys(
+                    rawValue: key
+                ).isBuiltInNamespace
+                let acceptedProcessIdentity: AgentPIDProcessIdentity?
+                if keyIsBuiltIn {
+                    guard let exactProcessIdentity,
+                          exactProcessIdentity.pid == pid else {
+                        return
+                    }
+                    acceptedProcessIdentity = exactProcessIdentity
+                } else {
+                    acceptedProcessIdentity =
+                        exactProcessIdentity ?? reconstructedProcessIdentity
+                }
                 guard owner.recordAgentPID(
                     key: key,
                     pid: pid,
@@ -120,7 +142,7 @@ extension TerminalController: ControlSidebarContext {
                 acceptedProcessIdentity = exactProcessIdentity
             } else if AgentHibernationLifecycleStatusKeys(
                 rawValue: key
-            ).isAllowed {
+            ).isBuiltInNamespace {
                 return
             } else {
                 acceptedProcessIdentity = reconstructedProcessIdentity
@@ -233,7 +255,9 @@ extension TerminalController: ControlSidebarContext {
         // Never reconstruct a missing generation from the current numeric PID:
         // local and relayed hooks can both arrive after that PID was recycled
         // in their respective process namespaces.
-        AgentHibernationLifecycleStatusKeys(rawValue: key).isAllowed
+        AgentHibernationLifecycleStatusKeys(
+            rawValue: key
+        ).isBuiltInNamespace
     }
 
     nonisolated func controlSidebarScheduleAgentLifecycle(

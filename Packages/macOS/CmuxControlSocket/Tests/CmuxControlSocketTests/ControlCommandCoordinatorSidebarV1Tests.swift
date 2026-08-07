@@ -103,6 +103,30 @@ struct ControlCommandCoordinatorSidebarV1Tests {
         #expect(context.statusUpsertCall == nil)
     }
 
+    @Test func builtInStatusPIDForwardsExactProcessGeneration() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+
+        let response = coordinator.handleSidebarV1(
+            command: "set_status",
+            args:
+                "codex Running --pid=4242 --pid-start-seconds=100 "
+                + "--pid-start-microseconds=200 "
+                + "--tab=\(workspaceID.uuidString)"
+        )
+
+        #expect(response == "OK")
+        #expect(
+            context.statusUpsertCall?.processGeneration
+                == ControlSidebarAgentProcessGeneration(
+                    pid: 4242,
+                    startSeconds: 100,
+                    startMicroseconds: 200
+                )
+        )
+    }
+
     @Test func partialAgentProcessGenerationIsRejected() {
         let context = FakeSidebarV1ControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
