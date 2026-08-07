@@ -45,6 +45,7 @@ struct CLIRemoteShellStartupPerformanceTests {
         )
         let shellMarker = root.url.appendingPathComponent("remote-shell-started")
         let relayRPCGate = root.url.appendingPathComponent("relay-rpc-gate")
+        let sshInvocationLog = root.url.appendingPathComponent("ssh-invocations.log")
 
         var environment = ProcessInfo.processInfo.environment
         environment["HOME"] = root.home.path
@@ -57,6 +58,7 @@ struct CLIRemoteShellStartupPerformanceTests {
         environment["CMUX_SURFACE_ID"] = "surface-cli-perf"
         environment["CMUX_FAKE_SHELL_MARKER"] = shellMarker.path
         environment["CMUX_FAKE_RELAY_RPC_GATE"] = relayRPCGate.path
+        environment["CMUX_FAKE_SSH_LOG"] = sshInvocationLog.path
         environment["CMUX_PERSISTENT_PTY_EXEC_HELPER"] = root.bin.appendingPathComponent("cmux").path
 
         let running = try launchProcess(
@@ -74,10 +76,16 @@ struct CLIRemoteShellStartupPerformanceTests {
         let shellStartedBeforeRelayRPCCompleted = waitForFile(shellMarker, timeout: 3)
         try Data().write(to: relayRPCGate)
         let result = waitForProcess(running, timeout: 5)
+        let sshInvocations =
+            (try? String(contentsOf: sshInvocationLog, encoding: .utf8)) ?? "<no fake SSH invocation>"
 
         #expect(
             shellStartedBeforeRelayRPCCompleted,
-            "CLI SSH startup waited for relay RPC warmup before starting the remote shell"
+            """
+            CLI SSH startup waited for relay RPC warmup before starting the remote shell.
+            Fake SSH invocations:\n\(sshInvocations)
+            Startup stderr:\n\(result.stderr)
+            """
         )
         #expect(!result.timedOut)
         #expect(result.status == 0)
@@ -243,40 +251,68 @@ struct CLIRemoteShellStartupPerformanceTests {
     }
 
     private var fakeSSHScript: String {
-        // Mirrors OpenSSH RemoteCommand semantics: the first obtained value
-        // wins and `none` clears it (so the bootstrap install hop's
-        // `-o RemoteCommand=none` guard for issue #7246 falls through to the
-        // positional installer command, exactly like real ssh).
+        // Mirrors the OpenSSH argv boundary: options precede one destination,
+        // and every remaining argument forms the remote login-shell command.
+        // The first RemoteCommand value wins; `none` clears it so a positional
+        // installer command can run, exactly like real ssh.
         """
         #!/bin/sh
+        if [ -n "${CMUX_FAKE_SSH_LOG:-}" ]; then
+          printf '%s\\n' '---' "$@" >> "$CMUX_FAKE_SSH_LOG"
+        fi
         remote_command=
         remote_command_seen=
-        last=
         while [ "$#" -gt 0 ]; do
-          if [ "$1" = "-o" ] && [ "$#" -gt 1 ]; then
-            shift
-            case "$1" in
-              RemoteCommand=*)
-                if [ -z "$remote_command_seen" ]; then
-                  remote_command_seen=1
-                  remote_command="${1#RemoteCommand=}"
-                  [ "$remote_command" = none ] && remote_command=
-                fi ;;
-            esac
-          elif [ "${1#RemoteCommand=}" != "$1" ]; then
-            if [ -z "$remote_command_seen" ]; then
-              remote_command_seen=1
-              remote_command="${1#RemoteCommand=}"
-              [ "$remote_command" = none ] && remote_command=
-            fi
-          fi
-          last="$1"
-          shift
+          case "$1" in
+            -G)
+              printf '%s\\n' 'controlpath none'
+              exit 0
+              ;;
+            -o)
+              [ "$#" -gt 1 ] || exit 2
+              option="$2"
+              if [ -z "$remote_command_seen" ]; then
+                case "$option" in
+                  RemoteCommand=*|remotecommand=*)
+                    remote_command_seen=1
+                    remote_command="${option#*=}"
+                    [ "$remote_command" = none ] && remote_command=
+                    ;;
+                esac
+              fi
+              shift 2
+              ;;
+            -oRemoteCommand=*|-oremotecommand=*)
+              if [ -z "$remote_command_seen" ]; then
+                remote_command_seen=1
+                remote_command="${1#*=}"
+                [ "$remote_command" = none ] && remote_command=
+              fi
+              shift
+              ;;
+            -S|-p|-i|-l|-F|-E|-e|-b|-c|-D|-I|-J|-L|-m|-Q|-R|-W|-w|-B)
+              [ "$#" -gt 1 ] || exit 2
+              shift 2
+              ;;
+            --)
+              shift
+              [ "$#" -gt 0 ] || exit 2
+              shift
+              break
+              ;;
+            -*) shift ;;
+            *)
+              shift
+              break
+              ;;
+          esac
         done
-        [ -n "$remote_command" ] && exec /bin/sh -c "$remote_command"
-        # The staged installer arrives either as the legacy literal /bin/sh -c form or
-        # per-word quoted ('/bin/sh' '-c' ...); a real remote login shell parses both.
-        case "$last" in /bin/sh\\ -c*|"'/bin/sh' '-c' "*) exec /bin/sh -c "$last" ;; esac
+        if [ -n "$remote_command" ]; then
+          exec /bin/sh -c "$remote_command"
+        fi
+        if [ "$#" -gt 0 ]; then
+          exec /bin/sh -c "$*"
+        fi
         exit 0
         """
     }
