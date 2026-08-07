@@ -34,7 +34,7 @@ final class NativeTerminalModel {
   @ObservationIgnored private var inputTask: Task<Void, Never>?
   @ObservationIgnored private var attachTask: Task<Void, Never>?
   @ObservationIgnored private var resizeTask: Task<Void, Never>?
-  @ObservationIgnored private var resizeGeneration: UInt64 = 0
+  @ObservationIgnored private var pendingResize: TerminalGeometry?
   @ObservationIgnored private let inputStream: AsyncStream<TerminalInput>
   @ObservationIgnored private let inputContinuation: AsyncStream<TerminalInput>.Continuation
   @ObservationIgnored private var latestGeometry: TerminalGeometry?
@@ -145,18 +145,20 @@ final class NativeTerminalModel {
     guard geometry != latestGeometry else { return }
     latestGeometry = geometry
     guard let handle, isAttached else { return }
-    resizeTask?.cancel()
-    resizeGeneration &+= 1
-    let generation = resizeGeneration
+    pendingResize = geometry
+    guard resizeTask == nil else { return }
     resizeTask = Task { [weak self] in
       guard let self else { return }
-      let accepted = await handle.resize(cols: geometry.cols, rows: geometry.rows)
-      guard !Task.isCancelled, generation == resizeGeneration else { return }
-      if !accepted, !isShuttingDown {
-        errorMessage = L10n.text(
-          "error.terminal_resize_rejected",
-          "Terminal resize was rejected."
-        )
+      while !Task.isCancelled, let next = pendingResize {
+        pendingResize = nil
+        let accepted = await handle.resize(cols: next.cols, rows: next.rows)
+        guard !Task.isCancelled else { return }
+        if !accepted, pendingResize == nil, !isShuttingDown {
+          errorMessage = L10n.text(
+            "error.terminal_resize_rejected",
+            "Terminal resize was rejected."
+          )
+        }
       }
       resizeTask = nil
     }
@@ -171,7 +173,7 @@ final class NativeTerminalModel {
     isShuttingDown = true
     attachTask?.cancel()
     resizeTask?.cancel()
-    resizeGeneration &+= 1
+    pendingResize = nil
     updateTask?.cancel()
     inputTask?.cancel()
     inputContinuation.finish()

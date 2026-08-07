@@ -1,5 +1,6 @@
 import CCmuxTerminal
 import Foundation
+import Dispatch
 
 enum FrontendServiceError: LocalizedError {
   case message(String)
@@ -77,11 +78,18 @@ func copyFrontendCString(
 
 actor FrontendService {
   private var raw: OpaquePointer?
+  private let ffiQueue = DispatchQueue(label: "cmux.native-frontend.ffi")
   private var updateSink: FrontendUpdateSink?
   private var updateGeneration: UInt64 = 0
 
   private init(rawAddress: UInt) {
     raw = OpaquePointer(bitPattern: rawAddress)
+  }
+
+  private func enqueue<T: Sendable>(_ operation: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { continuation in
+      ffiQueue.async { continuation.resume(returning: operation()) }
+    }
   }
 
   static func connect(invitation: String) async throws -> FrontendService {
@@ -113,7 +121,7 @@ actor FrontendService {
       )
     }
     let paramsJSON = try params.encodedJSON()
-    let response = await Task.detached(priority: .userInitiated) {
+    let response: Result<String, DetachedRequestFailure> = await enqueue {
       var error = [CChar](repeating: 0, count: 4_096)
       let result = operation.withCString { operationPointer in
         paramsJSON.withCString { paramsPointer in
@@ -127,14 +135,10 @@ actor FrontendService {
           )
         }
       }
-      guard let result else {
-        return Result<String, DetachedRequestFailure>.failure(
-          DetachedRequestFailure(message: decodeError(error))
-        )
-      }
+      guard let result else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
       defer { cmux_frontend_string_free(result) }
-      return Result<String, DetachedRequestFailure>.success(String(cString: result))
-    }.value
+      return .success(String(cString: result))
+    }
     let payload: String
     switch response {
     case .success(let value): payload = value
@@ -157,20 +161,28 @@ actor FrontendService {
     )
   }
 
-  func attachTerminal(id: String) throws -> TerminalHandle {
-    guard let raw else {
+  func attachTerminal(id: String) async throws -> TerminalHandle {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else {
       throw FrontendServiceError.message(
         L10n.text("error.connection_closed", "The frontend connection is closed.")
       )
     }
-    var error = [CChar](repeating: 0, count: 2_048)
-    let terminal = id.withCString {
-      cmux_frontend_client_attach_terminal(raw, $0, &error, error.count, 15_000)
+    let result: Result<UInt, DetachedRequestFailure> = await enqueue {
+      var error = [CChar](repeating: 0, count: 2_048)
+      let terminal = id.withCString {
+        cmux_frontend_client_attach_terminal(
+          OpaquePointer(bitPattern: rawAddress)!, $0, &error, error.count, 15_000
+        )
+      }
+      guard let terminal else { return .failure(DetachedRequestFailure(message: decodeError(error))) }
+      return .success(UInt(bitPattern: terminal))
     }
-    guard let terminal else {
-      throw FrontendServiceError.message(decodeError(error))
+    let address: UInt
+    switch result {
+    case .success(let value): address = value
+    case .failure(let error): throw FrontendServiceError.message(error.message)
     }
-    return TerminalHandle(rawAddress: UInt(bitPattern: terminal))
+    return TerminalHandle(rawAddress: address)
   }
 
   func updates() -> FrontendUpdateSubscription {
@@ -212,7 +224,7 @@ actor FrontendService {
     stopUpdates()
     guard let raw else { return }
     self.raw = nil
-    cmux_frontend_client_disconnect(raw)
+    await enqueue { cmux_frontend_client_disconnect(raw) }
   }
 }
 
@@ -222,6 +234,7 @@ private struct JSONValueResult: Decodable, Sendable {}
 
 actor TerminalHandle {
   private var raw: OpaquePointer?
+  private let ffiQueue = DispatchQueue(label: "cmux.native-terminal.ffi")
   private var updateSink: FrontendUpdateSink?
   private var updateGeneration: UInt64 = 0
 
@@ -229,34 +242,33 @@ actor TerminalHandle {
     raw = OpaquePointer(bitPattern: rawAddress)
   }
 
-  func submit(_ input: TerminalInput) -> Bool {
-    guard let raw else { return false }
-    switch input {
-    case .bytes(let data):
-      return data.withUnsafeBytes {
-        cmux_frontend_terminal_send(
-          raw,
-          $0.bindMemory(to: UInt8.self).baseAddress,
-          $0.count
-        )
-      }
-    case .paste(let text):
-      let data = Data(text.utf8)
-      return data.withUnsafeBytes {
-        cmux_frontend_terminal_paste(
-          raw,
-          $0.bindMemory(to: UInt8.self).baseAddress,
-          $0.count
-        )
-      }
-    case .key(let chord, let isRepeat):
-      return chord.withCString { cmux_frontend_terminal_send_key(raw, $0, isRepeat) }
+  private func enqueue<T: Sendable>(_ operation: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { continuation in
+      ffiQueue.async { continuation.resume(returning: operation()) }
     }
   }
 
-  func resize(cols: UInt16, rows: UInt16) -> Bool {
-    guard let raw else { return false }
-    return cmux_frontend_terminal_resize(raw, cols, rows)
+  func submit(_ input: TerminalInput) async -> Bool {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return false }
+    return await enqueue {
+      let raw = OpaquePointer(bitPattern: rawAddress)!
+      switch input {
+      case .bytes(let data):
+        return data.withUnsafeBytes { cmux_frontend_terminal_send(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+      case .paste(let text):
+        let data = Data(text.utf8)
+        return data.withUnsafeBytes { cmux_frontend_terminal_paste(raw, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+      case .key(let chord, let isRepeat):
+        return chord.withCString { cmux_frontend_terminal_send_key(raw, $0, isRepeat) }
+      }
+    }
+  }
+
+  func resize(cols: UInt16, rows: UInt16) async -> Bool {
+    guard let rawAddress = raw.map({ UInt(bitPattern: $0) }) else { return false }
+    return await enqueue {
+      cmux_frontend_terminal_resize(OpaquePointer(bitPattern: rawAddress)!, cols, rows)
+    }
   }
 
   func updates() -> FrontendUpdateSubscription {
@@ -341,7 +353,7 @@ actor TerminalHandle {
     stopUpdates()
     guard let raw else { return }
     self.raw = nil
-    cmux_frontend_terminal_disconnect(raw)
+    await enqueue { cmux_frontend_terminal_disconnect(raw) }
   }
 }
 
