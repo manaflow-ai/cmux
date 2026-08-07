@@ -716,9 +716,22 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           return 0
         }
 
+        cmux_ssh_auth_recovery_configure_paths() {
+          if [ -n "${TMPDIR:-}" ]; then
+            cmux_ssh_auth_recovery_base="$TMPDIR"
+            cmux_ssh_auth_recovery_root="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-recovery"
+          else
+            cmux_ssh_auth_recovery_base=/tmp
+            cmux_ssh_auth_recovery_user_id=$(/usr/bin/id -u 2>/dev/null) || return 1
+            case "$cmux_ssh_auth_recovery_user_id" in
+              ''|*[!0-9]*) return 1 ;;
+            esac
+            cmux_ssh_auth_recovery_root="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-recovery.$cmux_ssh_auth_recovery_user_id"
+          fi
+        }
+
         cmux_ssh_auth_recovery_prepare() {
-          cmux_ssh_auth_recovery_base="${TMPDIR:-/tmp}"
-          cmux_ssh_auth_recovery_root="$cmux_ssh_auth_recovery_base/cmux-ssh-auth-recovery"
+          cmux_ssh_auth_recovery_configure_paths || return 1
           if [ -L "$cmux_ssh_auth_recovery_root" ]; then return 1; fi
           if [ ! -d "$cmux_ssh_auth_recovery_root" ]; then
             (umask 077; /bin/mkdir "$cmux_ssh_auth_recovery_root") 2>/dev/null || \

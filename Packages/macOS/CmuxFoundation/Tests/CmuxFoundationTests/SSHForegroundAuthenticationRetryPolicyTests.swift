@@ -2602,16 +2602,21 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(!functions.contains("/usr/bin/lockf -s -t 1 9"))
     }
 
-    @Test func sharedTmpRecoveryFallbackIsScopedToCurrentUser() {
-        let functions = SSHForegroundAuthenticationRetryPolicy()
-            .processTreeTerminationShellFunction()
+    @Test(arguments: ["/bin/sh", "/bin/zsh"])
+    func sharedTmpRecoveryFallbackIsScopedToCurrentUser(shellPath: String) throws {
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        unset TMPDIR
+        cmux_ssh_auth_recovery_configure_paths || exit 99
+        test "$cmux_ssh_auth_recovery_base" = /tmp || exit 98
+        cmux_test_user_id=$(/usr/bin/id -u) || exit 97
+        test "$cmux_ssh_auth_recovery_root" = \
+          "/tmp/cmux-ssh-auth-recovery.$cmux_test_user_id" || exit 96
+        """
 
-        #expect(functions.contains("cmux_ssh_auth_recovery_user_id=$(/usr/bin/id -u"))
-        #expect(
-            functions.contains(
-                "cmux-ssh-auth-recovery.$cmux_ssh_auth_recovery_user_id"
-            )
-        )
+        let result = try runShellCommand(command, shellPath: shellPath)
+
+        #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
     @Test func completedAuthenticationCleanupDrainsLongLivedRecoveryQueue() throws {
