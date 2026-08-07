@@ -184,6 +184,20 @@ export function spawn(command, args, options) {
   const call = { command, args: Array.from(args || []), options, stdin: "" };
   globalThis.__cmuxAmpSpawnCalls.push(call);
   let closeStatus = 0;
+  let hangs = false;
+  let stdout = "";
+  if (
+    call.args.slice(0, 5).join(" ")
+      === "hooks amp __native-attention identify --pid"
+  ) {
+    const pidIndex = call.args.indexOf("--pid");
+    const requestedPid = Number(call.args[pidIndex + 1]);
+    stdout = JSON.stringify({
+      pid: requestedPid,
+      pid_start_seconds: 1234,
+      pid_start_microseconds: 5678,
+    });
+  }
   if (
     call.args.slice(0, 4).join(" ")
       === "hooks amp __native-attention end"
@@ -192,18 +206,37 @@ export function spawn(command, args, options) {
     const observationId = call.args[observationIndex + 1] || "missing";
     const attempt = nativeAttentionEndAttempts.get(observationId) || 0;
     nativeAttentionEndAttempts.set(observationId, attempt + 1);
-    if (attempt === 0) closeStatus = 1;
+    if (attempt === 0) hangs = true;
   }
-  return {
+  const handlers = new Map();
+  const stdoutHandlers = new Map();
+  const child = {
     on(name, callback) {
-      if (name === "close") queueMicrotask(() => callback(closeStatus));
+      handlers.set(name, callback);
+      return child;
     },
     unref() {},
+    kill(signal) {
+      call.killedWith = signal;
+      return true;
+    },
+    stdout: {
+      on(name, callback) {
+        stdoutHandlers.set(name, callback);
+        return child.stdout;
+      },
+    },
     stdin: {
       on() {},
       end(value) { call.stdin = String(value || ""); },
     },
   };
+  queueMicrotask(() => {
+    if (hangs) return;
+    if (stdout) stdoutHandlers.get("data")?.(stdout);
+    handlers.get("close")?.(closeStatus);
+  });
+  return child;
 }
 
 export function spawnSync(command, args, options) {
@@ -232,8 +265,8 @@ export function spawnSync(command, args, options) {
         )
         instrumented_path = extension_path.parent / "cmux-session-instrumented.ts"
         instrumented_text = extension_text.replace(
-            'import { spawn, spawnSync } from "node:child_process";',
-            'import { spawn, spawnSync } from "./cmux-test-spawn.mjs";',
+            'from "node:child_process";',
+            'from "./cmux-test-spawn.mjs";',
             1,
         )
         if instrumented_text == extension_text:
@@ -262,8 +295,18 @@ const attentionCalls = (action) => globalThis.__cmuxAmpSpawnCalls.filter(
     call.args.slice(0, 4).join(" ")
       === `hooks amp __native-attention ${action}`
 );
-if (attentionCalls("identify").length !== 1) {
-  throw new Error("Amp did not capture its exact process generation once");
+const waitFor = async (predicate, description, timeout = 4000) => {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(
+    `${description}: ${JSON.stringify(globalThis.__cmuxAmpSpawnCalls)}`
+  );
+};
+if (globalThis.__cmuxAmpSpawnCalls.length !== 0) {
+  throw new Error("Amp synchronously spawned cmux while loading the plugin");
 }
 const makeThread = (id, initialState = "running", deferInitialGet = false) => {
   let currentState = initialState;
@@ -312,28 +355,24 @@ const otherCtx = { thread: otherThread };
 await handlers.get("agent.start")({ thread, message: "delegate", id: "msg-1" }, ctx);
 thread.setState("awaiting-approval");
 thread.setState("awaiting-approval");
-await Promise.resolve();
-if (attentionCalls("begin").length !== 1) {
-  throw new Error(
-    `Amp awaiting-approval emitted duplicate attention: ${
-      JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
-    }`
-  );
-}
+await waitFor(
+  () => attentionCalls("identify").length === 1
+    && attentionCalls("begin").length === 1,
+  "Amp awaiting-approval emitted duplicate attention"
+);
 thread.setState("running");
 thread.setState("running");
-await Promise.resolve();
-if (attentionCalls("end").length !== 2) {
-  throw new Error(
-    `Amp did not retry one failed approval conclusion exactly once: ${
-      JSON.stringify(globalThis.__cmuxAmpSpawnCalls)
-    }`
-  );
-}
+await waitFor(
+  () => attentionCalls("end").length === 2,
+  "Amp did not retry one timed-out approval conclusion exactly once"
+);
 const beginAttention = attentionCalls("begin")[0].args;
 const endAttentionAttempts = attentionCalls("end").map((call) => call.args);
 const endAttention = endAttentionAttempts.at(-1);
 const identifyAttention = attentionCalls("identify")[0].args;
+if (attentionCalls("end")[0].killedWith !== "SIGKILL") {
+  throw new Error("Amp did not kill a timed-out native-attention subprocess");
+}
 const option = (args, name) => args[args.indexOf(name) + 1];
 if (
   option(identifyAttention, "--pid") !== option(beginAttention, "--pid")
@@ -536,7 +575,13 @@ try {
     throw new Error("the hanging native state emitted a false settled boundary");
   }
 
-  await new Promise((resolve) => originalSetTimeout(resolve, 50));
+  const leaseDeadline = Date.now() + 2000;
+  while (
+    hangingThread.observerCount() !== 0
+    && Date.now() < leaseDeadline
+  ) {
+    await new Promise((resolve) => originalSetTimeout(resolve, 5));
+  }
   if (hangingThread.observerCount() !== 0) {
     throw new Error("a silent native subscription outlived its bounded lease");
   }
