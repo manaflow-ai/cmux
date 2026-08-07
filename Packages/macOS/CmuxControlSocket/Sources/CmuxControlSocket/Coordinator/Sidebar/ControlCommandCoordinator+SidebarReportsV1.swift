@@ -328,7 +328,7 @@ extension ControlCommandCoordinator {
         }
 
         let explicitScope = sidebarExplicitScope(options: parsed.options)
-        if explicitScope.invalidTerminalLifecycleID {
+        if explicitScope.invalidTerminalLifecycleScope {
             return context.controlSidebarInvalidTerminalLifecycleIDError()
         }
         if let scope = explicitScope.scope {

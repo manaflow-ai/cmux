@@ -119,29 +119,12 @@ final class DockSplitStore: BonsplitDelegate {
     /// of walking every window × workspace tab on each resolution. Entries drop
     /// automatically when a store deallocates; accessed on the main actor only.
     @MainActor private static let liveStoresTable = NSHashTable<DockSplitStore>.weakObjects()
-    /// Direct ownership route for shell telemetry. Workspace and window Dock
-    /// owner ids are unique, and weak values disappear with their stores.
-    @MainActor private static let liveStoresByWorkspaceID =
-        NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
     /// Weak, presentation-workspace-scoped ownership avoids app-wide Dock
     /// traversal for every remote terminal lifecycle callback.
     @MainActor private static var remoteTerminalStoresByPresentationWorkspaceID:
         [UUID: NSHashTable<DockSplitStore>] = [:]
 
     @MainActor static var liveStores: [DockSplitStore] { liveStoresTable.allObjects }
-
-    @MainActor
-    static func liveStore(
-        workspaceID: UUID,
-        containingPanel panelID: UUID
-    ) -> DockSplitStore? {
-        guard let store = liveStoresByWorkspaceID.object(
-            forKey: workspaceID as NSUUID
-        ), store.containsPanel(panelID) else {
-            return nil
-        }
-        return store
-    }
 
     @MainActor
     static func liveRemoteTerminalStores(
@@ -343,10 +326,6 @@ final class DockSplitStore: BonsplitDelegate {
         }
         focusHistoryNavigation.attach(host: self)
         Self.liveStoresTable.add(self)
-        Self.liveStoresByWorkspaceID.setObject(
-            self,
-            forKey: workspaceId as NSUUID
-        )
     }
 
     var focusHistoryIncludesPanesAndTabs: Bool {

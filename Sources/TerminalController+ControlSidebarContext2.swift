@@ -275,7 +275,7 @@ extension TerminalController {
     nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String {
         String(
             localized: "controlSocket.reportShellState.invalidTerminalLifecycleID",
-            defaultValue: "ERROR: Missing or invalid terminal lifecycle id"
+            defaultValue: "ERROR: Terminal session is out of date; restart the shell and try again"
         )
     }
 

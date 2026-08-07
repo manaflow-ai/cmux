@@ -179,7 +179,7 @@ extension ControlSidebarContext {
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {}
 
     nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String {
-        "ERROR: Missing or invalid terminal lifecycle id"
+        "ERROR: Terminal session is out of date; restart the shell and try again"
     }
 
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution {

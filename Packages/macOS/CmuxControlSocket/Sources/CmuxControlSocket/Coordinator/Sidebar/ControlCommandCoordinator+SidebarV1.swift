@@ -351,10 +351,11 @@ extension ControlCommandCoordinator {
     /// identity while crossing the v1 compatibility path.
     nonisolated func sidebarExplicitScope(
         options: [String: String]
-    ) -> (scope: ControlSidebarPanelScope?, invalidTerminalLifecycleID: Bool) {
+    ) -> (scope: ControlSidebarPanelScope?, invalidTerminalLifecycleScope: Bool) {
+        let rawLifecycleID = options["terminal-lifecycle-id"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let terminalLifecycleID: UUID?
-        if let rawLifecycleID = options["terminal-lifecycle-id"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines) {
+        if let rawLifecycleID {
             guard !rawLifecycleID.isEmpty,
                   let parsedLifecycleID = UUID(uuidString: rawLifecycleID) else {
                 return (nil, true)
@@ -369,7 +370,9 @@ extension ControlCommandCoordinator {
               !panelRaw.isEmpty,
               let workspaceId = UUID(uuidString: tabRaw),
               let panelId = UUID(uuidString: panelRaw) else {
-            return (nil, false)
+            // A supplied generation must never fall through to an inferred
+            // surface path that cannot preserve its identity.
+            return (nil, rawLifecycleID != nil)
         }
         return (
             ControlSidebarPanelScope(

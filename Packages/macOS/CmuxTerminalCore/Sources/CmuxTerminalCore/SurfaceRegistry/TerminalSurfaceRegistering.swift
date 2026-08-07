@@ -58,6 +58,21 @@ public protocol TerminalSurfaceRegistering: AnyObject, Sendable {
     /// The registered surface with the given id, if it is still alive.
     func surface(id: UUID) -> (any TerminalSurfacing)?
 
+    /// Whether the current surface owns a reported terminal-process generation.
+    ///
+    /// A `nil` generation retains compatibility with callers that can only
+    /// prove the surface is live. Implementations must compare non-`nil`
+    /// generations against the same state updated by
+    /// ``advanceTerminalLifecycle(for:)``.
+    /// - Parameters:
+    ///   - id: The stable surface identity.
+    ///   - terminalLifecycleID: The reported process generation, if supplied.
+    /// - Returns: Whether the report targets the current registered surface.
+    func isCurrentSurface(
+        id: UUID,
+        terminalLifecycleID: UUID?
+    ) -> Bool
+
     /// Whether the surface with the given id is placed in the right-sidebar
     /// dock.
     func isRightSidebarDockSurface(id: UUID) -> Bool

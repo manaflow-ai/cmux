@@ -60,7 +60,7 @@ struct RemoteShellPromptRelayTests {
         )
 
         #expect(output.contains(
-            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
         ), Comment(rawValue: output))
     }
 
@@ -76,7 +76,7 @@ struct RemoteShellPromptRelayTests {
         )
 
         #expect(output.contains(
-            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt"}"#
+            #"rpc surface.report_shell_state {"workspace_id":"11111111-1111-1111-1111-111111111111","state":"prompt","terminal_lifecycle_id":"33333333-3333-3333-3333-333333333333"}"#
         ), Comment(rawValue: output))
     }
 

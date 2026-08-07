@@ -546,7 +546,7 @@ extension ControlSurfaceContext {
     ) -> ControlSurfaceReportShellStateResolution { .pending }
 
     func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
-        "Missing or invalid terminal_lifecycle_id"
+        "Terminal session is out of date; restart the shell and try again"
     }
 
     func controlSurfacePortsKick(

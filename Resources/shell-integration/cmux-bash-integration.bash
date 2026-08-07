@@ -224,9 +224,9 @@ _cmux_report_shell_activity_state_via_relay() {
     params="{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
     if [[ -n "${CMUX_PANEL_ID:-}" ]]; then
         params+=",\"surface_id\":\"$CMUX_PANEL_ID\""
-        if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
-            params+=",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
-        fi
+    fi
+    if [[ -n "${CMUX_TERMINAL_LIFECYCLE_ID:-}" ]]; then
+        params+=",\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
     fi
     params+="}"
     _cmux_relay_rpc_bg "surface.report_shell_state" "$params"

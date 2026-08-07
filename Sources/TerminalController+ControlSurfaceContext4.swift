@@ -157,31 +157,32 @@ extension TerminalController {
             return .explicit(surfaceID: requestedSurfaceID, published: shouldPublish)
         }
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let tab = self.controlTabForSidebarMutation(id: workspaceID) else { return }
-            let validSurfaceIds = Set(tab.panels.keys)
-            tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-            let surfaceId = self.controlResolveReportedSurfaceId(
-                in: tab,
-                requestedSurfaceId: requestedSurfaceID,
-                validSurfaceIds: validSurfaceIds
-            )
-            guard let surfaceId, validSurfaceIds.contains(surfaceId) else { return }
-            self.controlApplyScopedShellActivityState(
-                workspaceID: tab.id,
-                surfaceID: surfaceId,
-                terminalLifecycleID: terminalLifecycleID,
-                state: state
-            )
+        guard let tab = controlTabForSidebarMutation(id: workspaceID) else {
+            return .pending
         }
+        let validSurfaceIds = Set(tab.panels.keys)
+        tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
+        let surfaceId = controlResolveReportedSurfaceId(
+            in: tab,
+            requestedSurfaceId: requestedSurfaceID,
+            validSurfaceIds: validSurfaceIds
+        )
+        guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
+            return .pending
+        }
+        controlApplyScopedShellActivityState(
+            workspaceID: tab.id,
+            surfaceID: surfaceId,
+            terminalLifecycleID: terminalLifecycleID,
+            state: state
+        )
         return .pending
     }
 
     func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
         String(
             localized: "controlSocket.surface.reportShellState.invalidTerminalLifecycleID",
-            defaultValue: "Missing or invalid terminal_lifecycle_id"
+            defaultValue: "Terminal session is out of date; restart the shell and try again"
         )
     }
 

@@ -233,8 +233,6 @@ struct DockControlDefinitionDecodingTests {
             ).userInfo
         )
 
-        #expect(terminal.displayTitle != "codex · issue 9337")
-        #expect(store.bonsplitController.tab(tabID)?.title == "Agent")
         let flushedSnapshot = store.sessionSnapshot(includeScrollback: false)
         let flushedPanel = try #require(
             flushedSnapshot.panels.first { $0.id == terminal.id }
@@ -277,6 +275,54 @@ struct DockControlDefinitionDecodingTests {
         store.flushPendingTerminalTitleUpdates()
         #expect(terminal.displayTitle == "claude · issue 9337")
         #expect(store.bonsplitController.tab(tabID)?.title == "Pinned agent")
+    }
+
+    @Test("Window Dock title routing retains every live window store")
+    @MainActor
+    func windowDockTitleRoutingRetainsEveryLiveStore() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let firstStore = manager.makeWindowDockStore(windowId: UUID())
+        let secondStore = manager.makeWindowDockStore(windowId: UUID())
+        defer {
+            firstStore.closeAllPanels()
+            secondStore.closeAllPanels()
+            workspace.teardownAllPanels()
+        }
+
+        let firstPaneID = try #require(
+            firstStore.bonsplitController.allPaneIds.first
+        )
+        let firstPanelID = try #require(firstStore.newSurface(
+            kind: .terminal,
+            inPane: firstPaneID,
+            workingDirectory: "/tmp",
+            focus: false
+        ))
+        let firstTerminal = try #require(
+            firstStore.panels[firstPanelID] as? TerminalPanel
+        )
+        let firstTabID = try #require(
+            firstStore.surfaceId(forPanelId: firstPanelID)
+        )
+        let liveTitle = "codex · first window Dock"
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: GhosttyTitleChange(
+                tabId: firstStore.workspaceId,
+                surfaceId: firstPanelID,
+                title: liveTitle,
+                sourceSurfaceIdentifier: ObjectIdentifier(firstTerminal.surface)
+            ).userInfo
+        )
+        firstStore.flushPendingTerminalTitleUpdates()
+
+        #expect(firstTerminal.displayTitle == liveTitle)
+        #expect(
+            firstStore.bonsplitController.tab(firstTabID)?.title == liveTitle
+        )
     }
 
     @Test("Dock terminal title bursts use the configured coalescing delay")
@@ -441,6 +487,17 @@ struct DockControlDefinitionDecodingTests {
         defer { detachedFromDock.panel.close() }
         #expect(detachedFromDock.title == "claude · before detach")
         #expect(detachedFromDock.cachedTitle == "claude · before detach")
+        #expect(detachedFromDock.customTitle == nil)
+        #expect(detachedFromDock.restoredPanelTitleBoundary == nil)
+
+        terminal.updateTitle("claude · after detach")
+        let tablessMetadata = store.resolvedDockTitleMetadata(
+            panel: terminal,
+            transfer: detachedFromDock,
+            tab: nil
+        )
+        #expect(tablessMetadata.title == "claude · after detach")
+        #expect(tablessMetadata.cachedTitle == "claude · after detach")
     }
 
     @Test("Project config identity follows the resolved dock file, not child cwd")

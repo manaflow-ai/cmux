@@ -288,9 +288,9 @@ if test "$_cmux_integration_enabled" != 0
         set -l params "{\"workspace_id\":\"$workspace_id\",\"state\":\"$state\""
         if test -n "$CMUX_PANEL_ID"
             set params "$params,\"surface_id\":\"$CMUX_PANEL_ID\""
-            if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
-                set params "$params,\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
-            end
+        end
+        if test -n "$CMUX_TERMINAL_LIFECYCLE_ID"
+            set params "$params,\"terminal_lifecycle_id\":\"$CMUX_TERMINAL_LIFECYCLE_ID\""
         end
         set params "$params}"
         _cmux_relay_rpc_bg surface.report_shell_state "$params"

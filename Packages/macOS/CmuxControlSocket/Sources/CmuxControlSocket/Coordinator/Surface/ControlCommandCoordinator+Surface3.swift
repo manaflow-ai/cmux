@@ -393,7 +393,8 @@ extension ControlCommandCoordinator {
             return .err(
                 code: "invalid_params",
                 message: context?
-                    .controlSurfaceInvalidTerminalLifecycleIDError() ?? "",
+                    .controlSurfaceInvalidTerminalLifecycleIDError()
+                    ?? "Control context unavailable",
                 data: nil
             )
         }

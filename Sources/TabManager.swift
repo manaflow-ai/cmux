@@ -194,7 +194,8 @@ class TabManager: ObservableObject {
     // side effects in didSet).
     let workspaces = WorkspacesModel<Workspace>()
     private(set) var workspacesById: [UUID: Workspace] = [:]
-    private weak var windowDockTitleRoutingStore: DockSplitStore?
+    private let windowDockTitleRoutingStores =
+        NSMapTable<NSUUID, DockSplitStore>.strongToWeakObjects()
 
     var tabs: [Workspace] {
         get { workspaces.tabs }
@@ -590,7 +591,9 @@ class TabManager: ObservableObject {
                         return
                     }
                 }
-                _ = windowDockTitleRoutingStore?.applyTerminalTitleChange(change)
+                _ = windowDockTitleRoutingStores.object(
+                    forKey: change.tabId as NSUUID
+                )?.applyTerminalTitleChange(change)
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -1045,7 +1048,10 @@ class TabManager: ObservableObject {
             remoteBrowserSettingsProvider: { .local },
             settings: settings
         )
-        windowDockTitleRoutingStore = store
+        windowDockTitleRoutingStores.setObject(
+            store,
+            forKey: windowId as NSUUID
+        )
         return store
     }
 

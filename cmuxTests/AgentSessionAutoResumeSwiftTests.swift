@@ -142,7 +142,7 @@ struct AgentSessionAutoResumeSwiftTests {
     /// continue the same boundary instead of treating the next startup event as
     /// a fresh, user-owned title.
     @MainActor
-    @Test func restoredTitleBoundarySurvivesDetachedSurfaceTransfer() async throws {
+    @Test func restoredTitleBoundarySurvivesDetachedSurfaceTransfer() throws {
         let persistedTitle = "Pre-transfer restored title"
         let snapshotSource = Workspace()
         defer { snapshotSource.teardownAllPanels() }
@@ -207,10 +207,7 @@ struct AgentSessionAutoResumeSwiftTests {
         // report must not discard the pending title before commandRunning.
         dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .promptIdle)
         dock.updatePanelShellActivityState(panelId: restoredPanelID, state: .commandRunning)
-        for _ in 0..<10 {
-            await Task.yield()
-            if dock.bonsplitController.tab(dockTabID)?.title == commandTitle { break }
-        }
+        dock.flushPendingTerminalTitleUpdates()
         #expect(dockTerminal.displayTitle == commandTitle)
         #expect(dock.bonsplitController.tab(dockTabID)?.title == commandTitle)
         let detachedFromDock = try #require(dock.detachSurface(panelId: restoredPanelID))

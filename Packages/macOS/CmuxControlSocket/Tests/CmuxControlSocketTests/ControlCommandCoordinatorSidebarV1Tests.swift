@@ -118,7 +118,21 @@ struct ControlCommandCoordinatorSidebarV1Tests {
                 + "--terminal-lifecycle-id=not-a-uuid"
         )
 
-        #expect(response == "ERROR: Missing or invalid terminal lifecycle id")
+        #expect(response == "ERROR: Terminal session is out of date; restart the shell and try again")
+        #expect(context.shellStateCall == nil)
+    }
+
+    @Test func shellStateRejectsLifecycleIdentityWithoutCompleteScope() {
+        let context = FakeSidebarV1ControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let response = coordinator.handleSidebarV1(
+            command: "report_shell_state",
+            args: "prompt --tab=\(UUID().uuidString) "
+                + "--terminal-lifecycle-id=\(UUID().uuidString)"
+        )
+
+        #expect(response == "ERROR: Terminal session is out of date; restart the shell and try again")
         #expect(context.shellStateCall == nil)
     }
 }

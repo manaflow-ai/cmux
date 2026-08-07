@@ -93,6 +93,7 @@ extension DockSplitStore {
         panelId: UUID,
         restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> SessionPanelSnapshot? {
+        flushPendingTerminalTitleUpdate(panelId: panelId)
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let observationWorkspaceId =
             transfer?.sessionRestoreWorkspaceId ?? workspaceId

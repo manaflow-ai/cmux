@@ -272,7 +272,7 @@ struct DockSessionPersistenceTests {
     @MainActor
     func directlyRestoredTerminalProtectsPersistedTitle(
         scope: DockScope
-    ) async throws {
+    ) throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         let store: DockSplitStore
@@ -331,7 +331,7 @@ struct DockSessionPersistenceTests {
                 sourceSurfaceIdentifier: ObjectIdentifier(terminal.surface)
             ).userInfo
         )
-        for _ in 0..<10 { await Task.yield() }
+        store.flushPendingTerminalTitleUpdates()
         #expect(store.bonsplitController.tab(tabID)?.title == persistedTitle)
 
         let detached = try #require(store.detachSurface(panelId: panelID))
@@ -372,7 +372,7 @@ struct DockSessionPersistenceTests {
             panelId: panelID,
             state: .commandRunning
         )
-        for _ in 0..<10 { await Task.yield() }
+        destinationStore.flushPendingTerminalTitleUpdates()
         #expect(
             destinationStore.bonsplitController.tab(destinationTabID)?.title
                 == persistedTitle
@@ -443,6 +443,11 @@ struct DockSessionPersistenceTests {
         let store = DockSplitStore(
             workspaceId: workspaceID,
             baseDirectoryProvider: { "/tmp" },
+            terminalTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: { _, _ in
+                    {}
+                }
+            ),
             closedItemHistoryStore: history
         )
         defer { store.closeAllPanels() }
@@ -461,9 +466,9 @@ struct DockSessionPersistenceTests {
         )
         let originalLifecycleID = originalTerminal.surface.terminalLifecycleId
         let controller = TerminalController.shared
-        controller.socketFastPathState.removeShellActivity(panelId: panelID)
+        controller.socketFastPathState.removeShellActivity(panelIds: [panelID])
         defer {
-            controller.socketFastPathState.removeShellActivity(panelId: panelID)
+            controller.socketFastPathState.removeShellActivity(panelIds: [panelID])
         }
 
         controller.controlSidebarScheduleScopedShellState(
@@ -477,6 +482,15 @@ struct DockSessionPersistenceTests {
         TerminalMutationBus.shared.drainForTesting()
         #expect(originalTerminal.shellActivity.state == .promptIdle)
 
+        let titleAtClose = "codex · closing Dock"
+        #expect(store.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: workspaceID,
+            surfaceId: panelID,
+            title: titleAtClose,
+            sourceSurfaceIdentifier: ObjectIdentifier(originalTerminal.surface)
+        )))
+        #expect(originalTerminal.displayTitle != titleAtClose)
+
         #expect(store.closePanel(panelID))
         #expect(history.canReopen)
         #expect(store.reopenMostRecentlyClosedPanel())
@@ -485,6 +499,12 @@ struct DockSessionPersistenceTests {
         try #require(restoredPanelID == panelID)
         let restoredTerminal = try #require(
             store.panels[restoredPanelID] as? TerminalPanel
+        )
+        let restoredTabID = try #require(
+            store.surfaceId(forPanelId: restoredPanelID)
+        )
+        #expect(
+            store.bonsplitController.tab(restoredTabID)?.title == titleAtClose
         )
         let replacementLifecycleID = restoredTerminal.surface.terminalLifecycleId
         #expect(replacementLifecycleID != originalLifecycleID)
@@ -534,9 +554,6 @@ struct DockSessionPersistenceTests {
         )
         TerminalMutationBus.shared.drainForTesting()
 
-        let restoredTabID = try #require(
-            store.surfaceId(forPanelId: restoredPanelID)
-        )
         #expect(restoredTerminal.displayTitle == runningTitle)
         #expect(
             store.bonsplitController.tab(restoredTabID)?.title == runningTitle

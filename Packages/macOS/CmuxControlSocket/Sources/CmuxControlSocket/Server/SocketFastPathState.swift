@@ -90,12 +90,13 @@ public final class SocketFastPathState: Sendable {
     /// replacement shell must publish its first state even when that state
     /// matches the shell that was closed.
     ///
-    /// - Parameter panelId: The panel ID whose entries should be removed from
-    ///   every workspace scope.
-    public func removeShellActivity(panelId: UUID) {
+    /// - Parameter panelIds: The panel IDs whose entries should be removed
+    ///   from every workspace scope.
+    public func removeShellActivity(panelIds: Set<UUID>) {
+        guard !panelIds.isEmpty else { return }
         lastReportedShellStates.withLock { lastReportedShellStates in
             lastReportedShellStates = lastReportedShellStates.filter {
-                $0.key.panelId != panelId
+                !panelIds.contains($0.key.panelId)
             }
         }
     }

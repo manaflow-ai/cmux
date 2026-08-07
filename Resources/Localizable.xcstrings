@@ -81641,13 +81641,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "ERROR: Missing or invalid terminal lifecycle id"
+            "value": "ERROR: Terminal session is out of date; restart the shell and try again"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エラー: ターミナルライフサイクルIDがないか、無効です"
+            "value": "エラー: ターミナルセッションが古いため、シェルを再起動してもう一度お試しください"
           }
         }
       }
@@ -81658,13 +81658,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Missing or invalid terminal_lifecycle_id"
+            "value": "Terminal session is out of date; restart the shell and try again"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "terminal_lifecycle_idがないか、無効です"
+            "value": "ターミナルセッションが古いため、シェルを再起動してもう一度お試しください"
           }
         }
       }

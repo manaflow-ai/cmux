@@ -46,7 +46,7 @@ struct SocketFastPathStateTests {
         #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: otherPanel, state: "promptIdle"))
         #expect(state.shouldPublishShellActivity(workspaceId: otherWorkspace, panelId: panel, state: "promptIdle"))
 
-        state.removeShellActivity(panelId: panel)
+        state.removeShellActivity(panelIds: [panel])
 
         #expect(state.shouldPublishShellActivity(workspaceId: workspace, panelId: panel, state: "promptIdle"))
         #expect(state.shouldPublishShellActivity(workspaceId: otherWorkspace, panelId: panel, state: "promptIdle"))

@@ -154,14 +154,16 @@ extension TerminalController {
         terminalLifecycleID: UUID?,
         state: PanelShellActivityState
     ) -> Bool {
-        let registeredSurface = GhosttyApp.terminalSurfaceRegistry
-            .surface(id: surfaceID) as? TerminalSurface
-        if let terminalLifecycleID {
-            guard let registeredSurface,
-                  registeredSurface.terminalLifecycleId == terminalLifecycleID else {
-                return false
-            }
+        let registry = GhosttyApp.terminalSurfaceRegistry
+        if terminalLifecycleID != nil,
+           !registry.isCurrentSurface(
+               id: surfaceID,
+               terminalLifecycleID: terminalLifecycleID
+           ) {
+            return false
         }
+        let registeredSurface = registry
+            .surface(id: surfaceID) as? TerminalSurface
         // A live surface keeps its registry workspace binding current when it
         // moves, while the already-running child process cannot rewrite the
         // CMUX_WORKSPACE_ID it inherited at launch. Route by the authoritative
@@ -169,10 +171,7 @@ extension TerminalController {
         let currentWorkspaceID = registeredSurface?.tabId ?? workspaceID
 
         if registeredSurface?.focusPlacement == .rightSidebarDock,
-           let dock = DockSplitStore.liveStore(
-               workspaceID: currentWorkspaceID,
-               containingPanel: surfaceID
-           ) {
+           let dock = DockSplitStore.liveStore(containingPanel: surfaceID) {
             dock.updatePanelShellActivityState(panelId: surfaceID, state: state)
             return true
         }

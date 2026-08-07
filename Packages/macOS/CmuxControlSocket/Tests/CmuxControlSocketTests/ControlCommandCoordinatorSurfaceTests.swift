@@ -665,10 +665,29 @@ struct ControlCommandCoordinatorSurfaceTests {
 
         #expect(result == .err(
             code: "invalid_params",
-            message: "Missing or invalid terminal_lifecycle_id",
+            message: "Terminal session is out of date; restart the shell and try again",
             data: nil
         ))
         #expect(context.reportedShellState == nil)
+    }
+
+    @Test func reportShellStateReturnsFallbackWhenContextIsUnavailable() {
+        let coordinator = ControlCommandCoordinator(context: nil)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "terminal_lifecycle_id": .string("not-a-uuid"),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Control context unavailable",
+            data: nil
+        ))
     }
 
     @Test func clearGitBranchResolvesWorkspaceScopedTmuxSurface() {
