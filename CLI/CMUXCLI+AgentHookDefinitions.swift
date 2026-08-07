@@ -136,7 +136,9 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse
+        case codexSubagentStart, codexSubagentStop
+        case sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -149,6 +151,8 @@ extension CMUXCLI {
         "approval-response": .approvalResponse,
         "shell-exec": .promptSubmit,
         "shell-done": .noop,
+        "subagent-start": .codexSubagentStart,
+        "subagent-stop": .codexSubagentStop,
         "session-end": .sessionEnd,
         "session-finalize": .sessionFinalize,
     ]
@@ -235,7 +239,7 @@ extension CMUXCLI {
     private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
     private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
 
-    private static func agentHookShellCommand(
+    static func agentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"

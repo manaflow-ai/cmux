@@ -3,13 +3,14 @@ import Foundation
 
 extension CMUXCLI {
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
-    /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
-    /// hooks for one codex invocation. Returns the arg list:
+    /// splice ahead of the user's args to enable + inject cmux's hooks for one
+    /// codex invocation. Returns the arg list:
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
     ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<ff>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
-    /// where `<ff>` is `codexFireAndForgetAgentHookShellCommand(...)` so each
-    /// hook returns `{}` to codex instantly and backgrounds the real cmux call.
+    /// Completion/status hooks return `{}` instantly and background the real
+    /// cmux call. Subagent lifecycle hooks run synchronously so their locked
+    /// state write happens before Codex can emit the following lifecycle event.
     /// Requires no live socket: pure string construction from the agent def.
     func emitCodexWrapperInjectArgs() throws {
         guard let codexDef = Self.agentDef(named: "codex") else {
@@ -28,16 +29,28 @@ extension CMUXCLI {
         let hooksDir = Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in CodexHookInjectionSchema.current.events {
-            let ff = Self.codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(event.cmuxSubcommand)", for: codexDef
-            )
+            let hookCommand = "cmux hooks codex \(event.cmuxSubcommand)"
+            let hookBody: String
+            if event.cmuxSubcommand == "subagent-start"
+                || event.cmuxSubcommand == "subagent-stop" {
+                hookBody = Self.agentHookShellCommand(hookCommand, for: codexDef)
+            } else {
+                hookBody = Self.codexFireAndForgetAgentHookShellCommand(
+                    hookCommand,
+                    for: codexDef
+                )
+            }
             let command: String
             if let scriptPath = hooksDir.flatMap({
-                Self.writeCodexHookScript(subcommand: event.cmuxSubcommand, body: ff, in: $0)
+                Self.writeCodexHookScript(
+                    subcommand: event.cmuxSubcommand,
+                    body: hookBody,
+                    in: $0
+                )
             }), !scriptPath.contains("'''") {
                 command = scriptPath
             } else {
-                command = ff
+                command = hookBody
             }
             // TOML multi-line literal string ('''...''') preserves bytes verbatim
             // and may contain single quotes, so the embedded `echo '{}'` / `sh -c

@@ -154,6 +154,10 @@ struct ClaudeHookSessionRecord: Codable {
     var activePromptTurnIds: [String]?
     var lastPromptTurnId: String?
     var terminalPromptTurnIds: [String]?
+    /// Native Codex subagents currently running under this parent session.
+    /// Optional for compatibility with stores written before lifecycle hooks
+    /// became authoritative for the pending-work notification decision.
+    var activeCodexSubagentIds: [String]?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
     /// Immutable age anchor for a demoted record awaiting external cleanup.
@@ -758,6 +762,9 @@ final class ClaudeHookSessionStore {
             if codexSessionStartIsStale(record, incomingPID: pid) {
                 return false
             }
+            if let existingPID = record.pid, let pid, existingPID != pid {
+                record.activeCodexSubagentIds = nil
+            }
             clearCodexSessionStartTurnState(on: &record)
             update(
                 &record,
@@ -854,6 +861,79 @@ final class ClaudeHookSessionStore {
         return try withLockedState { state in
             guard let record = state.sessions[normalized] else { return false }
             return terminalPromptTurnSet(from: record).contains(normalizedTurnId)
+        }
+    }
+
+    /// Applies a native Codex subagent lifecycle event inside the same file
+    /// lock used by Stop. A minimal record is synthesized when SubagentStart
+    /// wins the race with the fire-and-forget SessionStart hook.
+    func recordCodexSubagentLifecycle(
+        sessionId: String,
+        agentId: String,
+        isActive: Bool,
+        workspaceId: String?,
+        surfaceId: String?,
+        cwd: String?,
+        pid: Int?
+    ) throws {
+        let normalizedSessionId = normalizeSessionId(sessionId)
+        guard !normalizedSessionId.isEmpty,
+              let normalizedAgentId = normalizeOptional(agentId) else {
+            return
+        }
+        try withLockedState { state in
+            let existing = state.sessions[normalizedSessionId]
+            guard existing != nil
+                || (normalizeOptional(workspaceId) != nil && normalizeOptional(surfaceId) != nil) else {
+                return
+            }
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalizedSessionId,
+                workspaceId: normalizeOptional(workspaceId) ?? existing?.workspaceId ?? "",
+                surfaceId: normalizeOptional(surfaceId) ?? existing?.surfaceId ?? "",
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: normalizeOptional(workspaceId) ?? record.workspaceId,
+                surfaceId: normalizeOptional(surfaceId) ?? record.surfaceId,
+                cwd: cwd,
+                transcriptPath: nil,
+                pid: pid,
+                launchCommand: nil,
+                isRestorable: nil,
+                agentLifecycle: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: false,
+                runtimeStatus: nil,
+                updateRuntimeStatus: false,
+                now: now
+            )
+            var activeIds = Set(
+                record.activeCodexSubagentIds?.compactMap { normalizeOptional($0) } ?? []
+            )
+            if isActive {
+                activeIds.insert(normalizedAgentId)
+            } else {
+                activeIds.remove(normalizedAgentId)
+            }
+            record.activeCodexSubagentIds = activeIds.isEmpty ? nil : activeIds.sorted()
+            state.sessions[normalizedSessionId] = record
+        }
+    }
+
+    func hasActiveCodexSubagents(sessionId: String) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let ids = state.sessions[normalized]?.activeCodexSubagentIds else {
+                return false
+            }
+            return ids.contains { normalizeOptional($0) != nil }
         }
     }
 
@@ -28059,6 +28139,15 @@ struct CMUXCLI {
         return false
     }
 
+    /// Uses native Codex SubagentStart/SubagentStop state rather than the
+    /// transcript, whose final lifecycle lines can race the parent Stop hook.
+    func hasActiveCodexBackgroundWork(
+        sessionId: String,
+        store: ClaudeHookSessionStore
+    ) -> Bool {
+        (try? store.hasActiveCodexSubagents(sessionId: sessionId)) == true
+    }
+
     private func mergedNodeOptions(existing: String?, restoreModulePath: String) -> String {
         let requireOption = "--require=\(restoreModulePath)"
         let memoryOption = "--max-old-space-size=4096"
@@ -31383,6 +31472,31 @@ export default CMUXSessionRestore;
 #endif
             return target
         }
+        func recordCodexSubagentLifecycle(isActive: Bool) {
+            guard def.name == "codex",
+                  !sessionId.isEmpty,
+                  let agentId = input.rawObject.flatMap({
+                      firstString(in: $0, keys: ["agent_id", "agentId"])
+                  }) ?? input.object.flatMap({
+                      firstString(in: $0, keys: ["agent_id", "agentId"])
+                  }) else {
+                return
+            }
+            let mapped = try? store.lookup(sessionId: sessionId)
+            try? store.recordCodexSubagentLifecycle(
+                sessionId: sessionId,
+                agentId: agentId,
+                isActive: isActive,
+                workspaceId: resolvedDirectWorkspaceArg ?? mapped?.workspaceId ?? directWorkspaceArg,
+                surfaceId: resolvedDirectSurfaceArg ?? mapped?.surfaceId ?? directSurfaceArg,
+                cwd: hookCwd ?? mapped?.cwd,
+                pid: preferredAgentHookEventPID(
+                    agentName: def.name,
+                    mappedPID: mapped?.pid,
+                    inferredPID: inferredPID
+                )
+            )
+        }
         defer {
             if !didSendFeedTelemetry, !shouldSuppressGenericFeedTelemetry() {
                 sendAgentFeedTelemetry()
@@ -31390,6 +31504,12 @@ export default CMUXSessionRestore;
         }
 
         switch action {
+        case .codexSubagentStart:
+            recordCodexSubagentLifecycle(isActive: true)
+
+        case .codexSubagentStop:
+            recordCodexSubagentLifecycle(isActive: false)
+
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
             guard let target = resolveAgentHookTarget(mapped: mapped) else {
@@ -31988,9 +32108,13 @@ export default CMUXSessionRestore;
                     def.displayName
             )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
+            let codexHasActiveBackgroundWork = def.name == "codex"
+                && hasActiveCodexBackgroundWork(sessionId: sessionId, store: store)
+            let hasActiveBackgroundWork = antigravityHasActiveBackgroundWork
+                || codexHasActiveBackgroundWork
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
             let lifecycleAfterStop: AgentHibernationLifecycleState = {
-                if antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle {
+                if hasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
                 }
                 return stopNotificationStatus == .idle ? .idle : .needsInput
@@ -32065,7 +32189,7 @@ export default CMUXSessionRestore;
                                   lastBody: body,
                                   lastNotificationStatus: stopNotificationStatus,
                                   updateLastNotificationStatus: true,
-                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
+                                  runtimeStatus: (hasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
                                   updateRuntimeStatus: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -32118,7 +32242,7 @@ export default CMUXSessionRestore;
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 // Tag successful turn-end pings; error alerts always deliver.
                 let stopMeta: String? = stopNotificationStatus == .idle
-                    ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: antigravityHasActiveBackgroundWork)
+                    ? AgentHookNotifyCategory.turnComplete.metaSegment(pending: hasActiveBackgroundWork)
                     : nil
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
@@ -32193,7 +32317,7 @@ export default CMUXSessionRestore;
                         "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
-                } else if antigravityHasActiveBackgroundWork {
+                } else if hasActiveBackgroundWork {
                     setAgentLifecycle(
                         client: client,
                         key: def.statusKey,
@@ -33238,6 +33362,8 @@ export default CMUXSessionRestore;
         case "prompt-submit": return "UserPromptSubmit"
         case "pre-tool-use", "cron-create-guard": return "PreToolUse"
         case "post-tool-use", "push-notification": return "PostToolUse"
+        case "subagent-start": return "SubagentStart"
+        case "subagent-stop": return "SubagentStop"
         case "stop", "idle": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"
@@ -34762,6 +34888,35 @@ export default CMUXSessionRestore;
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
         ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+
+        if source == "codex",
+           hookEventName == "SubagentStart" || hookEventName == "SubagentStop",
+           let agentId = firstString(in: stdinObj, keys: ["agent_id", "agentId"]) {
+            let store = ClaudeHookSessionStore(
+                processEnv: env.merging(
+                    ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(
+                        sessionStoreSuffix: "codex",
+                        env: env
+                    )],
+                    uniquingKeysWith: { _, new in new }
+                )
+            )
+            try? store.recordCodexSubagentLifecycle(
+                sessionId: sessionId,
+                agentId: agentId,
+                isActive: hookEventName == "SubagentStart",
+                workspaceId: feedWorkspaceId(
+                    rawObject: stdinObj,
+                    fallback: env["CMUX_WORKSPACE_ID"]
+                ),
+                surfaceId: env["CMUX_SURFACE_ID"],
+                cwd: firstString(
+                    in: stdinObj,
+                    keys: ["cwd", "working_directory", "workingDirectory"]
+                ),
+                pid: agentPid
+            )
+        }
 
         var eventDict: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
