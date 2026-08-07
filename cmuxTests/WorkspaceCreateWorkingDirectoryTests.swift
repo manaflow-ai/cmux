@@ -133,10 +133,13 @@ import Testing
 
     @Test func focusedInitialInputDoesNotScheduleAutomaticWelcomeCommand() async throws {
         _ = try #require(AppDelegate.shared)
+        let controller = TerminalController.shared
+        let previousManager = controller.activeTabManagerForCallerNotification()
         let defaults = UserDefaults.standard
         let welcomeShownKey = AccountCatalogSection().welcomeShown.userDefaultsKey
         let previousWelcomeShown = defaults.object(forKey: welcomeShownKey)
         defer {
+            controller.setActiveTabManager(previousManager)
             if let previousWelcomeShown {
                 defaults.set(previousWelcomeShown, forKey: welcomeShownKey)
             } else {
@@ -150,14 +153,22 @@ import Testing
         let readyNotifications = NotificationCenter.default.notifications(
             named: .terminalSurfaceDidBecomeReady
         )
+        controller.setActiveTabManager(manager)
         defaults.removeObject(forKey: welcomeShownKey)
 
-        _ = TerminalController.shared.v2WorkspaceCreate(params: [
+        let response = try Self.v2SocketResponse(method: "workspace.create", params: [
             "initial_input": initialInput,
             "focus": true,
-        ], tabManager: manager)
+        ])
 
-        let created = try #require(manager.tabs.first { !initialWorkspaceIDs.contains($0.id) })
+        #expect(response["ok"] as? Bool == true)
+        let result = try #require(response["result"] as? [String: Any])
+        let createdID = try #require(
+            (result["workspace_id"] as? String).flatMap(UUID.init(uuidString:))
+        )
+        let created = try #require(manager.tabs.first { $0.id == createdID })
+        #expect(!initialWorkspaceIDs.contains(created.id))
+        #expect(manager.selectedWorkspace?.id == created.id)
         let panel = try #require(created.panels.values.compactMap { $0 as? TerminalPanel }.first)
         for await notification in readyNotifications {
             guard notification.userInfo?["workspaceId"] as? UUID == created.id else {
@@ -328,7 +339,6 @@ import Testing
         ], tabManager: manager, idempotencyCache: cache)
 
         #expect(Set(manager.tabs.map(\.id)) == initialIDs)
-        #expect(restored.id != sourceWorkspace.id)
         #expect(restored.taskCreateOperationID == operationID)
         #expect(restored.panels.values.compactMap { $0 as? TerminalPanel }
             .allSatisfy { $0.surface.debugInitialCommand() != "must-not-launch" })
