@@ -1412,6 +1412,14 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         #expect(result.status == 0, "Shell failed: \(result.standardError)")
     }
 
+    @Test func recoveryLockAvoidsNewerLockfDescriptorSyntax() {
+        let functions = SSHForegroundAuthenticationRetryPolicy()
+            .processTreeTerminationShellFunction()
+
+        #expect(functions.contains("/usr/bin/perl -MFcntl=:flock"))
+        #expect(!functions.contains("/usr/bin/lockf -s -t 1 9"))
+    }
+
     @Test func completedAuthenticationCleanupDrainsLongLivedRecoveryQueue() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
