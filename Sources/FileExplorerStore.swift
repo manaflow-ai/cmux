@@ -225,7 +225,107 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?
+    let configFile: String?
+    let useIPv4: Bool
+    let useIPv6: Bool
+    let forwardAgent: Bool
+    let compressionEnabled: Bool
     let sshOptions: [String]
+
+    init(
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        configFile: String? = nil,
+        useIPv4: Bool = false,
+        useIPv6: Bool = false,
+        forwardAgent: Bool = false,
+        compressionEnabled: Bool = false,
+        sshOptions: [String]
+    ) {
+        self.destination = destination
+        self.port = port
+        self.identityFile = identityFile
+        self.configFile = configFile
+        self.useIPv4 = useIPv4
+        self.useIPv6 = useIPv6
+        self.forwardAgent = forwardAgent
+        self.compressionEnabled = compressionEnabled
+        self.sshOptions = sshOptions
+    }
+
+    init(detectedSSHSession session: DetectedSSHSession) {
+        var options = session.sshOptions
+        if let jumpHost = session.jumpHost?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !jumpHost.isEmpty,
+           !Self.containsOption(options, key: "ProxyJump") {
+            options.append("ProxyJump=\(jumpHost)")
+        }
+        if let controlPath = session.controlPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !controlPath.isEmpty,
+           !Self.containsOption(options, key: "ControlPath") {
+            options.append("ControlPath=\(controlPath)")
+        }
+
+        self.init(
+            destination: session.destination,
+            port: session.port,
+            identityFile: session.identityFile,
+            configFile: session.configFile,
+            useIPv4: session.useIPv4,
+            useIPv6: session.useIPv6,
+            forwardAgent: session.forwardAgent,
+            compressionEnabled: session.compressionEnabled,
+            sshOptions: options
+        )
+    }
+
+    func sshArguments(command: String) -> [String] {
+        var arguments = SSHHostConfiguredRemoteCommand().overrideArguments
+        if useIPv4 {
+            arguments.append("-4")
+        } else if useIPv6 {
+            arguments.append("-6")
+        }
+        if forwardAgent {
+            arguments.append("-A")
+        }
+        if compressionEnabled {
+            arguments.append("-C")
+        }
+        if let configFile = configFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !configFile.isEmpty {
+            arguments += ["-F", configFile]
+        }
+        if let port {
+            arguments += ["-p", String(port)]
+        }
+        if let identityFile = identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !identityFile.isEmpty {
+            arguments += ["-i", identityFile]
+        }
+        for option in sshOptions where Self.optionKey(option) != "batchmode" {
+            arguments += ["-o", option]
+        }
+        arguments += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
+        arguments += [destination, command]
+        return arguments
+    }
+
+    private static func containsOption(_ options: [String], key: String) -> Bool {
+        let normalizedKey = key.lowercased()
+        return options.contains { optionKey($0) == normalizedKey }
+    }
+
+    private static func optionKey(_ option: String) -> String? {
+        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
+            .first
+            .map(String.init)?
+            .lowercased()
+    }
 }
 
 protocol SSHFileExplorerTransport: AnyObject {
@@ -623,20 +723,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
-        var args: [String] = SSHHostConfiguredRemoteCommand().overrideArguments
-        if let port = connection.port {
-            args += ["-p", String(port)]
-        }
-        if let identityFile = connection.identityFile {
-            args += ["-i", identityFile]
-        }
-        for option in connection.sshOptions {
-            args += ["-o", option]
-        }
-        // Batch mode, no TTY, connection timeout
-        args += ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-T"]
-        args += [connection.destination, command]
-        return args
+        connection.sshArguments(command: command)
     }
 
     private static func runSSHListCommand(
@@ -758,6 +845,10 @@ final class FileExplorerStore: ObservableObject {
         self.gitStatusProvider = gitStatusProvider
     }
 
+    var usesRemoteProvider: Bool {
+        provider is SSHFileExplorerProvider
+    }
+
     var displayRootPath: String {
         if let sshProvider = provider as? SSHFileExplorerProvider {
             guard !rootPath.isEmpty else {
@@ -828,15 +919,12 @@ final class FileExplorerStore: ObservableObject {
         }
         let path = rootPath
         if let sshProvider = provider as? SSHFileExplorerProvider {
-            let dest = sshProvider.destination
-            let port = sshProvider.port
-            let identity = sshProvider.identityFile
-            let opts = sshProvider.sshOptions
+            let connection = sshProvider.connection
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
                 let status = gitStatusProvider.fetchStatusSSH(
-                    directory: path, destination: dest, port: port,
-                    identityFile: identity, sshOptions: opts
+                    directory: path,
+                    connection: connection
                 )
                 DispatchQueue.main.async { [weak self] in
                     self?.gitStatusByPath = status

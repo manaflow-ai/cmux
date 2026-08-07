@@ -213,6 +213,66 @@ struct FileExplorerGitStatusProviderTests {
         }
     }
 
+    @Test
+    func sshStatusQueryPreservesDetectedSessionConnectionArguments() throws {
+        let repoURL = try Self.makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: repoURL) }
+
+        let argvLog = repoURL.appendingPathComponent("ssh-argv.txt")
+        let fakeSSHURL = try Self.writeExecutableScript(
+            #"""
+            #!/bin/sh
+            for arg in "$@"; do printf '%s\n' "$arg"; done > "$CMUX_TEST_SSH_ARGV_LOG"
+            printf '%s\n---GIT_STATUS---\n M remote.txt\0' "$CMUX_TEST_REPO_ROOT"
+            """#,
+            named: "fake-ssh",
+            in: repoURL
+        )
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_TEST_REPO_ROOT"] = repoURL.path
+        environment["CMUX_TEST_SSH_ARGV_LOG"] = argvLog.path
+        let session = DetectedSSHSession(
+            destination: "dev@example.internal",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            configFile: "/Users/alice/.ssh/cmux config",
+            jumpHost: "bastion@example.net",
+            controlPath: "/tmp/cmux ssh-%C",
+            useIPv4: true,
+            useIPv6: false,
+            forwardAgent: true,
+            compressionEnabled: true,
+            sshOptions: ["UserKnownHostsFile=/tmp/cmux-known-hosts"]
+        )
+
+        let status = GitStatusProvider(
+            sshExecutableURL: fakeSSHURL,
+            environment: environment
+        ).fetchStatusSSH(
+            directory: repoURL.path,
+            connection: SSHFileExplorerConnection(detectedSSHSession: session)
+        )
+
+        #expect(
+            status[repoURL.appendingPathComponent("remote.txt").path] == .some(.modified)
+        )
+        let arguments = try String(contentsOf: argvLog, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map(String.init)
+        let containsPair = { (flag: String, value: String) in
+            arguments.indices.dropLast().contains { index in
+                arguments[index] == flag && arguments[index + 1] == value
+            }
+        }
+        #expect(containsPair("-F", session.configFile!))
+        #expect(arguments.contains("-4"))
+        #expect(arguments.contains("-A"))
+        #expect(arguments.contains("-C"))
+        #expect(containsPair("-o", "ProxyJump=\(session.jumpHost!)"))
+        #expect(containsPair("-o", "ControlPath=\(session.controlPath!)"))
+        #expect(containsPair("-o", "BatchMode=yes"))
+    }
+
     private static func makeTemporaryDirectory() throws -> URL {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-file-explorer-git-status-\(UUID().uuidString)", isDirectory: true)

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import Testing
 
 #if canImport(cmux_DEV)
@@ -163,6 +164,12 @@ struct FileExplorerStoreTests {
         }
     }
 
+    private func containsArgumentPair(_ arguments: [String], flag: String, value: String) -> Bool {
+        arguments.indices.dropLast().contains { index in
+            arguments[index] == flag && arguments[index + 1] == value
+        }
+    }
+
     // MARK: - Basic loading
 
     @Test
@@ -193,6 +200,231 @@ struct FileExplorerStoreTests {
         store.setProviderForTesting(provider)
         store.rootPath = "/home/user/project"
         #expect(store.displayRootPath == "~/project")
+    }
+
+    @Test
+    func detectedSSHSessionPreservesEveryReusableSSHOption() {
+        let session = DetectedSSHSession(
+            destination: "dev@example.internal",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            configFile: "/Users/alice/.ssh/cmux config",
+            jumpHost: "bastion@example.net:2200",
+            controlPath: "/tmp/cmux ssh-%C",
+            useIPv4: true,
+            useIPv6: false,
+            forwardAgent: true,
+            compressionEnabled: true,
+            sshOptions: ["UserKnownHostsFile=/tmp/cmux-known-hosts"]
+        )
+
+        let connection = SSHFileExplorerConnection(detectedSSHSession: session)
+        let arguments = connection.sshArguments(command: "printf test")
+
+        #expect(connection.destination == session.destination)
+        #expect(connection.port == session.port)
+        #expect(connection.identityFile == session.identityFile)
+        #expect(connection.configFile == session.configFile)
+        #expect(connection.useIPv4)
+        #expect(!connection.useIPv6)
+        #expect(connection.forwardAgent)
+        #expect(connection.compressionEnabled)
+        #expect(connection.sshOptions.contains("ProxyJump=\(session.jumpHost!)"))
+        #expect(connection.sshOptions.contains("ControlPath=\(session.controlPath!)"))
+        #expect(containsArgumentPair(arguments, flag: "-p", value: "2222"))
+        #expect(containsArgumentPair(arguments, flag: "-i", value: session.identityFile!))
+        #expect(containsArgumentPair(arguments, flag: "-F", value: session.configFile!))
+        #expect(arguments.contains("-4"))
+        #expect(arguments.contains("-A"))
+        #expect(arguments.contains("-C"))
+        #expect(containsArgumentPair(arguments, flag: "-o", value: "ProxyJump=\(session.jumpHost!)"))
+        #expect(containsArgumentPair(arguments, flag: "-o", value: "ControlPath=\(session.controlPath!)"))
+        #expect(containsArgumentPair(arguments, flag: "-o", value: "BatchMode=yes"))
+    }
+
+    @Test
+    func sshOnlyDetectionRejectsEternalTerminalAndAcceptsSSH() {
+        let sshProcess = TerminalSSHSessionDetector.ProcessSnapshot(
+            pid: 42,
+            pgid: 42,
+            tpgid: 42,
+            tty: "ttys001",
+            executableName: "ssh"
+        )
+        let eternalTerminalProcess = TerminalSSHSessionDetector.ProcessSnapshot(
+            pid: 43,
+            pgid: 43,
+            tpgid: 43,
+            tty: "ttys001",
+            executableName: "et"
+        )
+
+        let sshSession = TerminalSSHSessionDetector.detectSSHForTesting(
+            ttyName: "/dev/ttys001",
+            processes: [sshProcess],
+            argumentsByPID: [42: ["ssh", "dev@example.internal"]]
+        )
+        let eternalTerminalSession = TerminalSSHSessionDetector.detectSSHForTesting(
+            ttyName: "/dev/ttys001",
+            processes: [eternalTerminalProcess],
+            argumentsByPID: [43: ["et", "dev@example.internal"]]
+        )
+
+        #expect(sshSession?.destination == "dev@example.internal")
+        #expect(eternalTerminalSession == nil)
+    }
+
+    @Test
+    func sshSessionMonitorPublishesDetectionAndClearsWhenDisabled() async {
+        let session = DetectedSSHSession(
+            destination: "dev@example.internal",
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+        let workspaceId = UUID()
+        let monitor = FileExplorerSSHSessionMonitor(
+            pollInterval: .seconds(60),
+            detector: { ttyName in
+                ttyName == "/dev/ttys001" ? session : nil
+            }
+        )
+        let updates = await monitor.updates()
+        var iterator = updates.makeAsyncIterator()
+
+        let initialEvent = await iterator.next()
+        #expect(initialEvent != nil)
+        #expect(initialEvent.flatMap { $0 } == nil)
+
+        await monitor.update(
+            isEnabled: true,
+            workspaceId: workspaceId,
+            ttyName: "/dev/ttys001"
+        )
+        let detectedEvent = await iterator.next()
+        let snapshot = detectedEvent.flatMap { $0 }
+        #expect(snapshot?.workspaceId == workspaceId)
+        #expect(snapshot?.ttyName == "/dev/ttys001")
+        #expect(snapshot?.session == session)
+
+        await monitor.update(isEnabled: false, workspaceId: nil, ttyName: nil)
+        let clearedEvent = await iterator.next()
+        #expect(clearedEvent != nil)
+        #expect(clearedEvent.flatMap { $0 } == nil)
+        await monitor.stop()
+    }
+
+    @Test
+    func workspaceRootResolverUsesDetectedSSHHomeForLocalWorkspace() {
+        let workspace = Workspace(workingDirectory: "/Users/alice/project")
+        let session = DetectedSSHSession(
+            destination: "dev@example.internal",
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+
+        let root = FileExplorerWorkspaceRootResolver().resolve(
+            workspace: workspace,
+            detectedSSHSession: session
+        )
+
+        guard case let .remoteSSH(
+            workspaceId,
+            connection,
+            displayTarget,
+            rootPath,
+            isAvailable,
+            unavailableDetail
+        ) = root else {
+            Issue.record("Expected an ad-hoc SSH workspace root")
+            return
+        }
+        #expect(workspaceId == workspace.id)
+        #expect(connection.destination == session.destination)
+        #expect(displayTarget == session.destination)
+        #expect(rootPath == nil)
+        #expect(isAvailable)
+        #expect(unavailableDetail == nil)
+    }
+
+    @Test
+    func workspaceRootResolverKeepsManagedRemoteWorkspacePrecedence() {
+        let workspace = Workspace(workingDirectory: "/Users/alice/project")
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "managed@example.internal",
+            port: 2200,
+            identityFile: "/Users/alice/.ssh/managed",
+            sshOptions: ["ServerAliveInterval=30"],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        workspace.remoteConfiguration = configuration
+        workspace.remoteConnectionState = .connected
+        let adHocSession = DetectedSSHSession(
+            destination: "adhoc@example.net",
+            port: nil,
+            identityFile: nil,
+            configFile: nil,
+            jumpHost: nil,
+            controlPath: nil,
+            useIPv4: false,
+            useIPv6: false,
+            forwardAgent: false,
+            compressionEnabled: false,
+            sshOptions: []
+        )
+
+        let root = FileExplorerWorkspaceRootResolver().resolve(
+            workspace: workspace,
+            detectedSSHSession: adHocSession
+        )
+
+        guard case let .remoteSSH(
+            workspaceId,
+            connection,
+            displayTarget,
+            _,
+            isAvailable,
+            _
+        ) = root else {
+            Issue.record("Expected the managed SSH workspace root")
+            return
+        }
+        #expect(workspaceId == workspace.id)
+        #expect(connection.destination == configuration.destination)
+        #expect(displayTarget == configuration.displayTarget)
+        #expect(isAvailable)
+    }
+
+    @Test
+    func workspaceRootResolverFallsBackToLocalDirectoryWithoutSSH() {
+        let workspace = Workspace(workingDirectory: "/Users/alice/project")
+
+        let root = FileExplorerWorkspaceRootResolver().resolve(
+            workspace: workspace,
+            detectedSSHSession: nil
+        )
+
+        #expect(root == .local(workspaceId: workspace.id, path: "/Users/alice/project"))
     }
 
     @Test
