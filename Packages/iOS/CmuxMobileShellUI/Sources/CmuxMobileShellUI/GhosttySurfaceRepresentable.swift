@@ -344,9 +344,6 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                     let latencyApplyStart = MobileLatencyTrace.captureTime()
                     #endif
-                    if let frame = chunk.sourceRenderGridFrame {
-                        surfaceView.setNativeScrollScreen(frame.activeScreen)
-                    }
                     switch terminalOutputApplicationPath(
                         for: chunk,
                         expectedSurfaceID: surfaceID
@@ -360,6 +357,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             store: store
                         )
                         if applied {
+                            surfaceView.setNativeScrollScreen(frame.activeScreen)
                             #if DEBUG
                             MobileLatencyTrace.stampElapsed(
                                 "ap.done",
@@ -461,6 +459,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                             "path=legacy us=\($0)"
                     }
                     #endif
+                    if let frame = chunk.sourceRenderGridFrame {
+                        surfaceView.setNativeScrollScreen(frame.activeScreen)
+                    }
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken

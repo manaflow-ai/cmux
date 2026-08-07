@@ -1,6 +1,16 @@
 #if canImport(UIKit)
 import CoreGraphics
 
+enum TerminalNativeScrollSynchronization {
+    static func shouldSynchronize(
+        explicitlyRequested: Bool,
+        isInteracting: Bool,
+        hasPendingScroll: Bool
+    ) -> Bool {
+        explicitlyRequested || (!isInteracting && !hasPendingScroll)
+    }
+}
+
 /// Maps Ghostty's row-based viewport onto UIKit's point-based scroll range.
 struct TerminalNativeScrollGeometry: Equatable, Sendable {
     struct Boundary: Equatable, Sendable {
