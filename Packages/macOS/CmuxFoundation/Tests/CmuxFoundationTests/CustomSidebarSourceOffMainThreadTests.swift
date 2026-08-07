@@ -19,40 +19,19 @@ struct CustomSidebarSourceOffMainThreadTests {
         return url
     }
 
-    private func withFIFOURL(_ body: (URL) -> Void) throws {
+    /// A FIFO is not a sidebar file, and a reader must not wait for a writer before discovering that.
+    /// All three entry points return from the writerless fixture because the descriptor is opened
+    /// nonblocking and rejected from its file type before any bytes are requested.
+    @Test("a writerless FIFO .url source is rejected immediately as unreadable")
+    func fifoURLIsRejected() async throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let fileURL = directory.appendingPathComponent("board.url", isDirectory: false)
         try #require(mkfifo(fileURL.path, 0o600) == 0, "mkfifo failed with errno \(errno)")
-        let writerFinished = DispatchSemaphore(value: 0)
-        Thread.detachNewThread {
-            let descriptor = open(fileURL.path, O_WRONLY | O_CLOEXEC)
-            if descriptor >= 0 {
-                _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
-                let data = Data("http://127.0.0.1:8787/\n".utf8)
-                data.withUnsafeBytes { bytes in
-                    _ = Darwin.write(descriptor, bytes.baseAddress, bytes.count)
-                }
-                close(descriptor)
-            }
-            writerFinished.signal()
-        }
 
-        body(fileURL)
-        try #require(writerFinished.wait(timeout: .now() + 5) == .success, "FIFO writer did not finish")
-    }
-
-    /// A FIFO can contain valid URL text but is still not a sidebar file. The paired writer lets the
-    /// old blocking reader complete and expose its false acceptance, while a nonblocking reader rejects
-    /// the file from its descriptor metadata before parsing any bytes.
-    @Test("a FIFO .url source is rejected as unreadable instead of accepted as URL text")
-    func fifoURLIsRejected() throws {
-        try withFIFOURL { fileURL in
-            #expect(CustomSidebarSource.classify(fileURL: fileURL) == nil)
-        }
-        try withFIFOURL { fileURL in
-            #expect(CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) == .unreadable)
-        }
+        #expect(CustomSidebarSource.classify(fileURL: fileURL) == nil)
+        #expect(CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) == .unreadable)
+        #expect(await CustomSidebarSource.classifying(fileURL: fileURL) == nil)
     }
 
     @Test("a symlink to a regular .url file remains loadable")

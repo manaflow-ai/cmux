@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxSwiftRender
+import Darwin
 import Foundation
 
 /// Validates custom sidebar files using the same JSON schema and Swift interpreter as rendering.
@@ -132,7 +133,17 @@ public struct CustomSidebarValidator {
                         )
                     )
                 }
-                _ = try Data(contentsOf: fileURL)
+                guard isReadableRegularFile(fileURL) else {
+                    return CustomSidebarValidationEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        errorMessage: String(
+                            localized: "sidebar.custom.validation.readFailed",
+                            defaultValue: "Failed to read sidebar file."
+                        )
+                    )
+                }
             case .url:
                 if let problem = CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) {
                     return CustomSidebarValidationEntry(
@@ -202,6 +213,30 @@ public struct CustomSidebarValidator {
                 ),
                 scheme
             )
+        }
+    }
+
+    /// Whether a path opens immediately as a readable regular file.
+    ///
+    /// One byte is enough to establish readability, including EOF for an empty document. Opening with
+    /// `O_NONBLOCK` and checking `fstat` first rejects FIFOs, sockets, and devices without waiting on
+    /// them, while following ordinary symlinks to regular files just as WebKit does.
+    private func isReadableRegularFile(_ url: URL) -> Bool {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return false }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+            return false
+        }
+
+        var byte: UInt8 = 0
+        while true {
+            let count = Darwin.read(descriptor, &byte, 1)
+            if count >= 0 { return true }
+            if errno != EINTR { return false }
         }
     }
 

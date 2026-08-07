@@ -65,6 +65,36 @@ struct CustomSidebarWebValidationStrictnessTests {
         #expect(validator.validate(directory: dir, name: "board").validCount == 1)
     }
 
+    @Test("a FIFO named as an html document is rejected without waiting for a writer")
+    func rejectsFIFODocument() throws {
+        let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("board.html")
+        try #require(mkfifo(fileURL.path, 0o600) == 0, "mkfifo failed with errno \(errno)")
+
+        let report = validator.validate(directory: dir, name: "board")
+
+        #expect(report.entries.first?.errorMessage == "Failed to read sidebar file.")
+    }
+
+    @Test("a symlink to a readable html document still validates")
+    func acceptsSymlinkedDocument() throws {
+        let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let target = dir.appendingPathComponent("document")
+        try "<!doctype html><title>Board</title>".write(
+            to: target,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.createSymbolicLink(
+            at: dir.appendingPathComponent("board.html"),
+            withDestinationURL: target
+        )
+
+        #expect(validator.validate(directory: dir, name: "board").validCount == 1)
+    }
+
     @Test(
         "a url file naming a hostless target fails validation rather than mounting a blank page",
         arguments: ["http:", "https:", "http:///path"]

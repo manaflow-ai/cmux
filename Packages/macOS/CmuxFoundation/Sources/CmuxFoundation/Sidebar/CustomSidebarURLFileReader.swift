@@ -1,3 +1,4 @@
+internal import Darwin
 internal import Foundation
 
 /// The one place a `.url` sidebar file is read and parsed.
@@ -34,7 +35,7 @@ enum CustomSidebarURLFileReader {
         case lines([String])
     }
 
-    /// Reads a `.url` file and returns its candidate lines, bounded.
+    /// Reads a regular `.url` file and returns its candidate lines, bounded.
     ///
     /// Blank lines, `[Section]` headers, and `#` comments are dropped, and a Windows `URL=` prefix
     /// is stripped, since that is what a browser writes. What survives is the sequence of strings a
@@ -42,9 +43,21 @@ enum CustomSidebarURLFileReader {
     /// "first loadable URL wins" and the diagnostic precedence two readings of one list rather than
     /// two parsers that have to be kept in step.
     ///
+    /// FIFOs, sockets, devices, and directories are rejected from descriptor metadata before a read.
+    /// The descriptor is opened nonblocking so even a FIFO with no writer returns immediately. Normal
+    /// symlinks remain supported because `open` follows the link and `fstat` checks its target.
+    ///
     /// - Parameter fileURL: The `.url` file to read.
     static func read(fileURL: URL) -> Outcome {
-        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return .unreadable }
+        let descriptor = Darwin.open(fileURL.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return .unreadable }
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+            Darwin.close(descriptor)
+            return .unreadable
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         defer { try? handle.close() }
         // One byte past the limit: enough to tell "exactly at the limit" from "over it" without
         // reading, or holding, any of the overflow.
