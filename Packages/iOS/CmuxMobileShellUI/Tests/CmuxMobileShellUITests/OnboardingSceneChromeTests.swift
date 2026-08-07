@@ -58,7 +58,7 @@ import UIKit
 
         #expect(signIn.showsBack)
         #expect(!signIn.showsSkip)
-        #expect(signIn.primaryTitle == nil)
+        #expect(signIn.primaryTitle != nil)
         #expect(signIn.secondaryTitle == nil)
 
         #expect(searching.primaryTitle == nil)
@@ -105,6 +105,20 @@ import UIKit
         }
     }
 
+    @Test @MainActor func deviceFrameUsesFullResolutionProductArtwork() async throws {
+        for appearance in OnboardingScreenshotAppearance.allCases {
+            let frame = await OnboardingScreenshot.deviceFrameImage(appearance: appearance)
+            let framePixels = try #require(frame.cgImage)
+            #expect(framePixels.width == 1_470)
+            #expect(framePixels.height == 3_000)
+        }
+        let mask = await OnboardingScreenshot.screenMaskImage()
+        let maskPixels = try #require(mask.cgImage)
+
+        #expect(maskPixels.width == 1_320)
+        #expect(maskPixels.height == 2_868)
+    }
+
     @Test func screenshotAppearanceMatchesTheSystemColorScheme() {
         #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .light) == .light)
         #expect(OnboardingScreenshotAppearance.resolve(colorScheme: .dark) == .dark)
@@ -113,7 +127,7 @@ import UIKit
     @Test @MainActor func onboardingCopyUsesNativeLineBalancing() {
         let label = OnboardingBalancedText.makeLabel()
         label.font = .preferredFont(forTextStyle: .body)
-        label.text = "See every workspace and its latest activity, wherever you are."
+        label.text = "Review every agent alert in one feed, even when push alerts are off."
         let maximumWidth: CGFloat = 360
         let maximumHeight = label.sizeThatFits(
             CGSize(width: maximumWidth, height: .greatestFiniteMagnitude)
@@ -128,6 +142,24 @@ import UIKit
         #expect(label.lineBreakStrategy == .pushOut)
         #expect(balancedSize.width < maximumWidth)
         #expect(balancedSize.height == ceil(maximumHeight))
+    }
+
+    @Test @MainActor func onboardingSubtitlesCanBeCappedAtTwoLines() {
+        let label = OnboardingBalancedText.makeLabel()
+        OnboardingBalancedText.configure(
+            label,
+            text: "Use the same cmux account on both devices. Your Mac connects automatically.",
+            role: .body,
+            alignment: .center,
+            maximumNumberOfLines: 2
+        )
+        let balancedSize = OnboardingBalancedText.balancedSize(
+            for: label,
+            maximumWidth: 360
+        )
+
+        #expect(label.numberOfLines == 2)
+        #expect(balancedSize.width > 120)
     }
 }
 #endif

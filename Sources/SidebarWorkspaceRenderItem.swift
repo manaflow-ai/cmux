@@ -73,6 +73,38 @@ enum SidebarWorkspaceRenderItem {
         return items
     }
 
+    /// Workspace ids represented by ordinary rows, in their rendered order.
+    ///
+    /// Group headers represent their anchor workspace for interaction, but are
+    /// containers rather than numbered workspace rows.
+    static func numberedWorkspaceIds(
+        from renderItems: [SidebarWorkspaceRenderItem]
+    ) -> [UUID] {
+        renderItems.compactMap { item in
+            guard case .workspace(let workspaceId) = item else { return nil }
+            return workspaceId
+        }
+    }
+
+    static func numberedWorkspaceIndexById(
+        from renderItems: [SidebarWorkspaceRenderItem]
+    ) -> [UUID: Int] {
+        var result: [UUID: Int] = [:]
+        result.reserveCapacity(renderItems.count)
+        for item in renderItems {
+            guard case .workspace(let workspaceId) = item else { continue }
+            result[workspaceId] = result.count
+        }
+        return result
+    }
+
+    static func numberedWorkspaceIds(
+        tabs: [Workspace],
+        groupsById: [UUID: WorkspaceGroup]
+    ) -> [UUID] {
+        numberedWorkspaceIds(from: renderItems(tabs: tabs, groupsById: groupsById))
+    }
+
     static func memberWorkspaceIdsByGroupId(tabs: [Workspace]) -> [UUID: [UUID]] {
         var result: [UUID: [UUID]] = [:]
         for tab in tabs {
