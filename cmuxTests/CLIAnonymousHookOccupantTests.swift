@@ -45,8 +45,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
 
-        let firstPID = 41_001
-        let replacementPID = 41_002
+        let firstAgent = Process()
+        firstAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        firstAgent.arguments = ["30"]
+        let replacementAgent = Process()
+        replacementAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        replacementAgent.arguments = ["30"]
+        try firstAgent.run()
+        try replacementAgent.run()
+        defer {
+            for process in [firstAgent, replacementAgent] where process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+        let firstPID = Int(firstAgent.processIdentifier)
+        let replacementPID = Int(replacementAgent.processIdentifier)
         for pid in [firstPID, replacementPID] {
             let start = runKiroHook(
                 "session-start",
@@ -57,6 +71,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(start.status, 0, start.stderr)
             XCTAssertEqual(start.stdout, "{}\n")
         }
+
+        let delayedStartCommandOffset = state.snapshot().count
+        let delayedOlderStart = runKiroHook(
+            "session-start",
+            pid: firstPID,
+            eventName: "SessionStart"
+        )
+        XCTAssertFalse(delayedOlderStart.timedOut, delayedOlderStart.stderr)
+        XCTAssertEqual(delayedOlderStart.status, 0, delayedOlderStart.stderr)
+        XCTAssertEqual(delayedOlderStart.stdout, "{}\n")
+        let delayedStartCommands = Array(state.snapshot().dropFirst(delayedStartCommandOffset))
+        XCTAssertFalse(
+            delayedStartCommands.contains {
+                $0.hasPrefix("set_agent_pid ")
+                    || $0.hasPrefix("set_agent_lifecycle ")
+                    || $0.hasPrefix("set_status ")
+                    || $0.hasPrefix("clear_notifications ")
+                    || $0.hasPrefix("notify_target_async ")
+            },
+            "A delayed older SessionStart must not reclaim durable or app ownership: \(delayedStartCommands)"
+        )
 
         let lateCommandStart = state.snapshot().count
         let latePrompt = runKiroHook(
@@ -73,6 +108,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 $0.hasPrefix("set_agent_lifecycle ")
                     || $0.hasPrefix("set_status ")
                     || $0.hasPrefix("clear_notifications ")
+                    || $0.hasPrefix("notify_target_async ")
             },
             "A late hook from the replaced anonymous process must not mutate the current occupant: \(lateCommands)"
         )
@@ -182,8 +218,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
 
-        let firstPID = 42_001
-        let replacementPID = 42_002
+        let firstAgent = Process()
+        firstAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        firstAgent.arguments = ["30"]
+        let replacementAgent = Process()
+        replacementAgent.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        replacementAgent.arguments = ["30"]
+        try firstAgent.run()
+        try replacementAgent.run()
+        defer {
+            for process in [firstAgent, replacementAgent] where process.isRunning {
+                process.terminate()
+                process.waitUntilExit()
+            }
+        }
+        let firstPID = Int(firstAgent.processIdentifier)
+        let replacementPID = Int(replacementAgent.processIdentifier)
         for pid in [firstPID, replacementPID] {
             let start = runRovoDevHook(
                 "session-start",
@@ -222,6 +272,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 $0.hasPrefix("set_agent_lifecycle ")
                     || $0.hasPrefix("set_status ")
                     || $0.hasPrefix("clear_notifications ")
+                    || $0.hasPrefix("notify_target_async ")
             },
             "A late Rovo Dev hook sharing an inferred workspace session must not mutate the current occupant: \(lateCommands)"
         )
