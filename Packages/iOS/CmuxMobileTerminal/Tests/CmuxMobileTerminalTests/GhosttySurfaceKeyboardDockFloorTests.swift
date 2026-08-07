@@ -320,6 +320,36 @@ struct GhosttySurfaceKeyboardDockFloorTests {
         #expect(toggle.accessibilityLabel == "Show Keyboard")
     }
 
+    @Test("a real keyboard-down outlives intent left by a same-keyboard composer handoff")
+    func swipeDismissAfterComposerCloseHandoffReadsKeyboardDown() throws {
+        let harness = try makeHarness()
+        defer { tearDown(harness) }
+
+        // Keyboard up while the composer field owns typing.
+        let field = try mountFocusedComposer(in: harness)
+        deliverKeyboardTransition(coveringBottom: Self.keyboardHeight, to: harness)
+
+        // Close the composer while typing: the terminal proxy re-takes first
+        // responder IN PLACE, so UIKit posts no keyboard frame for the handoff
+        // and nothing ever acknowledges the show intent recorded here.
+        harness.view.setComposerActive(false)
+        #expect(!field.isFirstResponder)
+        #expect(harness.view.inputProxyForTesting.isFirstResponder)
+
+        // Swipe-dismiss: UIKit resigns the typing owner, then posts the
+        // keyboard-down frame.
+        _ = harness.view.inputProxyForTesting.resignFirstResponder()
+        deliverKeyboardTransition(coveringBottom: 0, to: harness)
+
+        // The toggle must read show-keyboard. A show intent stored during the
+        // frameless handoff can never match a keyboard-down fact, so it would
+        // pin the hide glyph through the dismissal and app re-entry, and a
+        // later composer close would re-summon the keyboard the user dismissed.
+        let accessory = try #require(harness.view.inputAccessoryView)
+        let toggle = try #require(keyboardToggleButton(in: accessory))
+        #expect(toggle.accessibilityLabel == "Show Keyboard")
+    }
+
     @Test("rapid hide and show restores the composer field as keyboard owner")
     func rapidKeyboardToggleRestoresComposerOwner() throws {
         let harness = try makeHarness()
