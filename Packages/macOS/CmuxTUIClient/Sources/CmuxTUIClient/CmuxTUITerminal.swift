@@ -72,7 +72,8 @@ func drainCmuxTUIRenderEventBatch(
             )
         )
         payloadBytes += payload.count
-        if events.count == maximumEventCount
+        if kind == .reset
+            || events.count == maximumEventCount
             || payloadBytes >= maximumBatchPayloadBytes {
             return CmuxTUIRenderEventBatch(events: events, hasMore: true)
         }

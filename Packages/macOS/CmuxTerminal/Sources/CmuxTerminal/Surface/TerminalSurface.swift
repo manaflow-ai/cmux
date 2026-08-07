@@ -217,16 +217,74 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// (inline in the free task, or transported through the teardown
     /// coordinator's request).
     var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
-    /// Output delivered before the runtime surface exists. Flushed once the
-    /// surface is created so background mirror output is not lost.
-    var pendingRemoteOutput = Data()
-    /// Grid carried by the latest authoritative remote snapshot. It is applied
-    /// before `pendingRemoteOutput` so replay bytes wrap exactly as they did on
-    /// the PTY owner.
-    var pendingRemoteGrid: (columns: UInt16, rows: UInt16)?
+    enum PendingRemoteRuntimeEvent: Sendable {
+        case reset(columns: UInt16, rows: UInt16, replay: Data)
+        case bytes(Data)
+        case resize(columns: UInt16, rows: UInt16)
+
+        var payloadByteCount: Int {
+            switch self {
+            case .reset(_, _, let replay), .bytes(let replay):
+                return replay.count
+            case .resize:
+                return 0
+            }
+        }
+    }
+
+    /// Ordered output and geometry received while no manual runtime exists.
+    /// A reset is one atomic event, so later output can never truncate its
+    /// replay prefix or replace its grid before a fresh emulator consumes it.
+    var pendingRemoteRuntimeEvents: [PendingRemoteRuntimeEvent] = []
+    var pendingRemoteRuntimeEventBytes = 0
+
+    /// Test/debug projections retained for callers that inspect cold state.
+    var pendingRemoteOutput: Data {
+        var output = Data(capacity: pendingRemoteRuntimeEventBytes)
+        for event in pendingRemoteRuntimeEvents {
+            switch event {
+            case .reset(_, _, let replay), .bytes(let replay):
+                output.append(replay)
+            case .resize:
+                continue
+            }
+        }
+        return output
+    }
+
+    var pendingRemoteGrid: (columns: UInt16, rows: UInt16)? {
+        for event in pendingRemoteRuntimeEvents {
+            if case .reset(let columns, let rows, _) = event {
+                return (columns, rows)
+            }
+        }
+        for event in pendingRemoteRuntimeEvents.reversed() {
+            if case .resize(let columns, let rows) = event {
+                return (columns, rows)
+            }
+        }
+        return nil
+    }
+
+#if DEBUG
+    var pendingRemoteEventKindsForTesting: [String] {
+        pendingRemoteRuntimeEvents.map { event in
+            switch event {
+            case .reset(let columns, let rows, let replay):
+                return "reset:\(columns)x\(rows):\(replay.count)"
+            case .bytes(let data):
+                return "bytes:\(data.count)"
+            case .resize(let columns, let rows):
+                return "resize:\(columns)x\(rows)"
+            }
+        }
+    }
+#endif
+
     // Match cmux-terminal-client's native render queue. A reset carries an
     // authoritative VT replay, so truncating it would produce corrupt state.
     let maxPendingRemoteOutputBytes = 32 * 1_048_576
+    let maxPendingRemoteRuntimeEvents = 4_096
 
     /// The explicit startup environment overrides replayed on respawn.
     public var respawnInitialEnvironmentOverrides: [String: String] {

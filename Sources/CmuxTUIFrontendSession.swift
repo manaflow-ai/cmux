@@ -18,6 +18,8 @@ final class CmuxTUITerminalBinding {
     private weak var surface: TerminalSurface?
     private var transportTask: Task<Void, Never>?
     private var updateTask: Task<Void, Never>?
+    private var previousRuntimeReadyHandler: (@MainActor () -> Void)?
+    private var isWaitingForResetRuntime = false
     private var didStart = false
     private var isShuttingDown = false
     private(set) var errorMessage: String?
@@ -52,6 +54,14 @@ final class CmuxTUITerminalBinding {
         guard !didStart, !isShuttingDown else { return }
         didStart = true
         self.surface = surface
+        let previousRuntimeReadyHandler = surface.onRuntimeReady
+        self.previousRuntimeReadyHandler = previousRuntimeReadyHandler
+        surface.onRuntimeReady = { [weak self] in
+            previousRuntimeReadyHandler?()
+            Task { @MainActor [weak self] in
+                await self?.consumeUpdates()
+            }
+        }
         beginTransportDelivery()
         beginUpdates()
     }
@@ -97,6 +107,10 @@ final class CmuxTUITerminalBinding {
 
     private func consumeUpdates() async {
         guard !isShuttingDown, let surface else { return }
+        if isWaitingForResetRuntime {
+            guard surface.hasLiveSurface else { return }
+            isWaitingForResetRuntime = false
+        }
         do {
             var hasMore = true
             while hasMore {
@@ -114,19 +128,31 @@ final class CmuxTUITerminalBinding {
                                 "remote terminal snapshot could not reset the native surface"
                             )
                         }
+                        if !surface.hasLiveSurface {
+                            isWaitingForResetRuntime = true
+                        }
                     case .bytes:
-                        surface.processRemoteOutput(event.payload)
+                        guard surface.processRemoteOutput(event.payload) else {
+                            throw CmuxTUIClientError.invalidRenderEvent(
+                                "remote terminal output exceeded the pending native surface limit"
+                            )
+                        }
                     case .resize:
-                        surface.applyRemoteGrid(
+                        guard surface.applyRemoteGrid(
                             columns: event.geometry.columns,
                             rows: event.geometry.rows
-                        )
+                        ) else {
+                            throw CmuxTUIClientError.invalidRenderEvent(
+                                "remote terminal resize exceeded the pending native surface limit"
+                            )
+                        }
                     case .ready:
                         surface.forceRefresh(reason: "cmuxTUI.ready")
                     case .exit:
                         didExit = true
                     }
                 }
+                if isWaitingForResetRuntime { return }
                 hasMore = batch.hasMore
                 if hasMore { await Task.yield() }
             }
@@ -149,6 +175,10 @@ final class CmuxTUITerminalBinding {
         transportTask?.cancel()
         updateTask?.cancel()
         transportContinuation.finish()
+        if let surface {
+            surface.onRuntimeReady = previousRuntimeReadyHandler
+        }
+        previousRuntimeReadyHandler = nil
         await terminal.shutdown()
         onShutdown?(id)
         onShutdown = nil

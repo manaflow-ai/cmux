@@ -338,7 +338,12 @@ extension TerminalSurface {
 
         rendererPresentationPhase = .awaitingFirstPresentation
         createSurface(for: view, source: .normal)
-        return surface != nil || configurationReloadDeferredRuntimeSurfaceCreation
+        if surface == nil, !configurationReloadDeferredRuntimeSurfaceCreation {
+            requestBackgroundSurfaceStartIfNeeded()
+        }
+        return surface != nil
+            || configurationReloadDeferredRuntimeSurfaceCreation
+            || backgroundSurfaceStartQueued
     }
 
     /// Frees the runtime surface while keeping the model alive for an
@@ -791,21 +796,9 @@ extension TerminalSurface {
             lastYScale = scaleFactors.y
         }
 
-        if let grid = pendingRemoteGrid {
-            var resolved = ghostty_surface_size_s()
-            _ = ghostty_surface_set_grid_size(
-                createdSurface,
-                grid.columns,
-                grid.rows,
-                &resolved
-            )
-            pendingRemoteGrid = nil
-        }
-
-        // Flush remote-tmux output that arrived before the surface existed
-        // after sizing, so the seed paints into the final grid instead of
-        // wrapping at Ghostty's default grid.
-        flushPendingRemoteOutput(to: createdSurface)
+        // Replay reset, output, and resize events in their authoritative order.
+        // A reset applies its own grid immediately before its VT replay.
+        flushPendingRemoteRuntimeEvents(to: createdSurface)
 
         // Some GhosttyKit builds can drop explicit font_size during post-create
         // config/scale reconciliation. Re-apply explicit runtime points so

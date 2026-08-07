@@ -538,36 +538,52 @@ extension TerminalSurface {
         manualIONoReflow = value
     }
 
-    /// Inject remote tmux `%output` into the terminal parser. If the Ghostty
-    /// runtime is not live yet, buffer a bounded tail and flush it on creation.
+    /// Inject remote output into the terminal parser. If the Ghostty runtime is
+    /// not live yet, preserve its ordered relationship with reset and resize
+    /// events. A standalone tmux byte stream retains the historical bounded-tail
+    /// behavior; bytes following an authoritative reset fail instead of
+    /// truncating its replay prefix.
+    @discardableResult
     @MainActor
-    public func processRemoteOutput(_ data: Data) {
-        guard !data.isEmpty else { return }
+    public func processRemoteOutput(_ data: Data) -> Bool {
+        guard !data.isEmpty else { return true }
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
-            pendingRemoteOutput.append(data)
-            if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {
-                pendingRemoteOutput.removeFirst(pendingRemoteOutput.count - maxPendingRemoteOutputBytes)
-            }
-            return
+            return enqueuePendingRemoteBytes(data)
         }
-        flushPendingRemoteOutput(to: surface)
+        flushPendingRemoteRuntimeEvents(to: surface)
         writeProcessOutputData(data, to: surface)
         ghostty_surface_refresh(surface)
+        return true
     }
 
     /// Applies an authoritative remote character grid without claiming local
     /// PTY ownership. This is distinct from the tmux assigned-grid pin: the
     /// remote terminal protocol can subsequently accept a local viewport resize.
+    @discardableResult
     @MainActor
-    public func applyRemoteGrid(columns: UInt16, rows: UInt16) {
+    public func applyRemoteGrid(columns: UInt16, rows: UInt16) -> Bool {
         let grid = (columns: max(1, columns), rows: max(1, rows))
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteGrid") else {
-            pendingRemoteGrid = grid
-            return
+            if case .resize = pendingRemoteRuntimeEvents.last {
+                pendingRemoteRuntimeEvents[pendingRemoteRuntimeEvents.count - 1] = .resize(
+                    columns: grid.columns,
+                    rows: grid.rows
+                )
+                return true
+            }
+            guard pendingRemoteRuntimeEvents.count < maxPendingRemoteRuntimeEvents else {
+                return false
+            }
+            pendingRemoteRuntimeEvents.append(.resize(
+                columns: grid.columns,
+                rows: grid.rows
+            ))
+            return true
         }
         var resolved = ghostty_surface_size_s()
         _ = ghostty_surface_set_grid_size(surface, grid.columns, grid.rows, &resolved)
         ghostty_surface_refresh(surface)
+        return true
     }
 
     /// Replaces a manual-I/O emulator with one authoritative snapshot.
@@ -583,25 +599,95 @@ extension TerminalSurface {
         rows: UInt16,
         replay: Data
     ) -> Bool {
-        guard ioMode.usesManualIO, replay.count <= maxPendingRemoteOutputBytes else {
+        guard ioMode.usesManualIO,
+              allowsRuntimeSurfaceCreation(),
+              replay.count <= maxPendingRemoteOutputBytes else {
             return false
         }
-        pendingRemoteGrid = (columns: max(1, columns), rows: max(1, rows))
-        pendingRemoteOutput = replay
+        pendingRemoteRuntimeEvents = [
+            .reset(
+                columns: max(1, columns),
+                rows: max(1, rows),
+                replay: replay
+            ),
+        ]
+        pendingRemoteRuntimeEventBytes = replay.count
 
         guard surface != nil else {
             requestBackgroundSurfaceStartIfNeeded()
             return true
         }
-        return recreateManualRuntimeSurfaceForRemoteReset()
+        _ = recreateManualRuntimeSurfaceForRemoteReset()
+        return true
     }
 
     @MainActor
-    func flushPendingRemoteOutput(to surface: ghostty_surface_t) {
-        guard !pendingRemoteOutput.isEmpty else { return }
-        let buffered = pendingRemoteOutput
-        pendingRemoteOutput = Data()
-        writeProcessOutputData(buffered, to: surface)
+    func flushPendingRemoteRuntimeEvents(to surface: ghostty_surface_t) {
+        guard !pendingRemoteRuntimeEvents.isEmpty else { return }
+        let events = pendingRemoteRuntimeEvents
+        pendingRemoteRuntimeEvents.removeAll(keepingCapacity: true)
+        pendingRemoteRuntimeEventBytes = 0
+        for event in events {
+            switch event {
+            case .reset(let columns, let rows, let replay):
+                var resolved = ghostty_surface_size_s()
+                _ = ghostty_surface_set_grid_size(surface, columns, rows, &resolved)
+                writeProcessOutputData(replay, to: surface)
+            case .bytes(let data):
+                writeProcessOutputData(data, to: surface)
+            case .resize(let columns, let rows):
+                var resolved = ghostty_surface_size_s()
+                _ = ghostty_surface_set_grid_size(surface, columns, rows, &resolved)
+            }
+        }
+    }
+
+    @MainActor
+    private func enqueuePendingRemoteBytes(_ data: Data) -> Bool {
+        let containsReset = pendingRemoteRuntimeEvents.contains { event in
+            if case .reset = event { return true }
+            return false
+        }
+        if containsReset,
+           data.count > maxPendingRemoteOutputBytes - pendingRemoteRuntimeEventBytes {
+            return false
+        }
+
+        if case .bytes(var buffered) = pendingRemoteRuntimeEvents.last {
+            buffered.append(data)
+            pendingRemoteRuntimeEventBytes += data.count
+            pendingRemoteRuntimeEvents[pendingRemoteRuntimeEvents.count - 1] = .bytes(buffered)
+        } else {
+            guard pendingRemoteRuntimeEvents.count < maxPendingRemoteRuntimeEvents else {
+                return false
+            }
+            pendingRemoteRuntimeEvents.append(.bytes(data))
+            pendingRemoteRuntimeEventBytes += data.count
+        }
+
+        guard !containsReset,
+              pendingRemoteRuntimeEventBytes > maxPendingRemoteOutputBytes else {
+            return true
+        }
+        var bytesToDrop = pendingRemoteRuntimeEventBytes - maxPendingRemoteOutputBytes
+        var index = 0
+        while bytesToDrop > 0, index < pendingRemoteRuntimeEvents.count {
+            guard case .bytes(var buffered) = pendingRemoteRuntimeEvents[index] else {
+                index += 1
+                continue
+            }
+            if buffered.count <= bytesToDrop {
+                bytesToDrop -= buffered.count
+                pendingRemoteRuntimeEventBytes -= buffered.count
+                pendingRemoteRuntimeEvents.remove(at: index)
+            } else {
+                buffered.removeFirst(bytesToDrop)
+                pendingRemoteRuntimeEventBytes -= bytesToDrop
+                pendingRemoteRuntimeEvents[index] = .bytes(buffered)
+                bytesToDrop = 0
+            }
+        }
+        return true
     }
 
     static func readText(

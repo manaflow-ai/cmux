@@ -22,6 +22,11 @@ private struct CmuxTUIConnectedHandle: Sendable {
     let error: String
 }
 
+private struct CmuxTUIAttachedHandle: Sendable {
+    let rawAddress: UInt?
+    let error: String
+}
+
 private func cmuxTUITimeoutMilliseconds(_ timeout: Duration) -> UInt64 {
     let components = timeout.components
     guard components.seconds >= 0, components.attoseconds >= 0 else { return 1 }
@@ -44,6 +49,9 @@ public actor CmuxTUIFrontendClient {
     private var raw: OpaquePointer?
     private var updateSink: CmuxTUIUpdateSink?
     private var updateGeneration: UInt64 = 0
+    private var inFlightBlockingOperations = 0
+    private var shutdownRequested = false
+    private var shutdownWaiters: [CheckedContinuation<Void, Never>] = []
 
     private init(library: CmuxTUIClientLibrary, rawAddress: UInt) {
         self.library = library
@@ -82,23 +90,34 @@ public actor CmuxTUIFrontendClient {
         operation: String,
         paramsJSON: Data = Data("{}".utf8),
         mutation: Bool = false
-    ) throws -> Data {
-        guard let raw else { throw CmuxTUIClientError.message("frontend connection closed") }
+    ) async throws -> Data {
+        let (library, rawAddress) = try beginBlockingOperation()
+        defer { finishBlockingOperation() }
         guard let params = String(data: paramsJSON, encoding: .utf8) else {
             throw CmuxTUIClientError.message("request params are not UTF-8")
         }
-        var error = [CChar](repeating: 0, count: 4_096)
-        guard let result = library.request(
-            client: raw,
-            operation: operation,
-            paramsJSON: params,
-            mutation: mutation,
-            errorBuffer: &error
-        ) else {
-            throw CmuxTUIClientError.message(Self.decodeError(error))
+        let result = await Task.detached(priority: .userInitiated) {
+            var error = [CChar](repeating: 0, count: 4_096)
+            guard let value = library.request(
+                client: OpaquePointer(bitPattern: rawAddress),
+                operation: operation,
+                paramsJSON: params,
+                mutation: mutation,
+                errorBuffer: &error
+            ) else {
+                return Result<Data, CmuxTUIClientError>.failure(
+                    .message(Self.decodeError(error))
+                )
+            }
+            defer { library.free(string: value) }
+            return .success(Data(String(cString: value).utf8))
+        }.value
+        switch result {
+        case .success(let data):
+            return data
+        case .failure(let error):
+            throw error
         }
-        defer { library.free(string: result) }
-        return Data(String(cString: result).utf8)
     }
 
     public func request<Response: Decodable & Sendable>(
@@ -106,8 +125,8 @@ public actor CmuxTUIFrontendClient {
         paramsJSON: Data = Data("{}".utf8),
         mutation: Bool = false,
         as _: Response.Type = Response.self
-    ) throws -> Response {
-        let data = try request(
+    ) async throws -> Response {
+        let data = try await request(
             operation: operation,
             paramsJSON: paramsJSON,
             mutation: mutation
@@ -118,21 +137,33 @@ public actor CmuxTUIFrontendClient {
     public func attachTerminal(
         publicID: String,
         timeout: Duration = .seconds(15)
-    ) throws -> CmuxTUITerminal {
-        guard let raw else { throw CmuxTUIClientError.message("frontend connection closed") }
+    ) async throws -> CmuxTUITerminal {
+        let (library, rawAddress) = try beginBlockingOperation()
+        defer { finishBlockingOperation() }
         let timeoutMilliseconds = cmuxTUITimeoutMilliseconds(timeout)
-        var error = [CChar](repeating: 0, count: 4_096)
-        guard let terminal = library.attachTerminal(
-            client: raw,
-            publicID: publicID,
-            errorBuffer: &error,
-            timeoutMilliseconds: timeoutMilliseconds
-        ) else {
-            throw CmuxTUIClientError.message(Self.decodeError(error))
+        let result = await Task.detached(priority: .userInitiated) {
+            var error = [CChar](repeating: 0, count: 4_096)
+            let terminal = library.attachTerminal(
+                client: OpaquePointer(bitPattern: rawAddress),
+                publicID: publicID,
+                errorBuffer: &error,
+                timeoutMilliseconds: timeoutMilliseconds
+            )
+            return CmuxTUIAttachedHandle(
+                rawAddress: terminal.map { UInt(bitPattern: $0) },
+                error: Self.decodeError(error)
+            )
+        }.value
+        guard let terminalAddress = result.rawAddress else {
+            throw CmuxTUIClientError.message(result.error)
+        }
+        guard !shutdownRequested else {
+            library.disconnectTerminal(OpaquePointer(bitPattern: terminalAddress))
+            throw CmuxTUIClientError.message("frontend connection closed")
         }
         return CmuxTUITerminal(
             library: library,
-            rawAddress: UInt(bitPattern: terminal)
+            rawAddress: terminalAddress
         )
     }
 
@@ -170,11 +201,35 @@ public actor CmuxTUIFrontendClient {
         library.clientDiagnostics(raw)
     }
 
-    public func shutdown() {
+    public func shutdown() async {
+        guard !shutdownRequested else { return }
+        shutdownRequested = true
+        if inFlightBlockingOperations > 0 {
+            await withCheckedContinuation { continuation in
+                shutdownWaiters.append(continuation)
+            }
+        }
         stopUpdates()
         guard let raw else { return }
         self.raw = nil
         library.disconnectClient(raw)
+    }
+
+    private func beginBlockingOperation() throws -> (CmuxTUIClientLibrary, UInt) {
+        guard !shutdownRequested, let raw else {
+            throw CmuxTUIClientError.message("frontend connection closed")
+        }
+        inFlightBlockingOperations += 1
+        return (library, UInt(bitPattern: raw))
+    }
+
+    private func finishBlockingOperation() {
+        precondition(inFlightBlockingOperations > 0)
+        inFlightBlockingOperations -= 1
+        guard inFlightBlockingOperations == 0 else { return }
+        let waiters = shutdownWaiters
+        shutdownWaiters.removeAll(keepingCapacity: false)
+        for waiter in waiters { waiter.resume() }
     }
 
     private static func decodeError(_ buffer: [CChar]) -> String {
