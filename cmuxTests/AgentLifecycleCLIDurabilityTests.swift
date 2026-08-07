@@ -119,6 +119,138 @@ struct AgentLifecycleCLIDurabilityTests {
         #expect(persisted == settlement)
     }
 
+    @Test func cursorApprovalObserverLeasesBoundEachProcessGeneration() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cursor-observer-leases-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let firstGeneration = try #require(
+            AgentPIDProcessIdentity(
+                agentTurnPID: Int(ProcessInfo.processInfo.processIdentifier)
+            )
+        )
+        let secondGeneration = AgentPIDProcessIdentity(
+            pid: firstGeneration.pid,
+            startSeconds: firstGeneration.startSeconds + 1,
+            startMicroseconds: firstGeneration.startMicroseconds
+        )
+        var leases: [CursorNativeApprovalObserverLease] = []
+        defer { leases.forEach { $0.release() } }
+
+        for _ in 0 ..< CursorNativeApprovalObserverLease
+            .maximumConcurrentObserversPerProcess {
+            leases.append(
+                try #require(
+                    CursorNativeApprovalObserverLease.claim(
+                        processIdentity: firstGeneration,
+                        rootDirectory: root
+                    )
+                )
+            )
+        }
+
+        #expect(
+            CursorNativeApprovalObserverLease.claim(
+                processIdentity: firstGeneration,
+                rootDirectory: root
+            ) == nil
+        )
+        let otherGenerationLease = try #require(
+            CursorNativeApprovalObserverLease.claim(
+                processIdentity: secondGeneration,
+                rootDirectory: root
+            )
+        )
+        otherGenerationLease.release()
+
+        let releasedLease = leases.removeLast()
+        releasedLease.release()
+        let replacementLease = try #require(
+            CursorNativeApprovalObserverLease.claim(
+                processIdentity: firstGeneration,
+                rootDirectory: root
+            )
+        )
+        replacementLease.release()
+    }
+
+    @Test func terminalWorkTombstoneOverflowDefersDelayedSettlement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-terminal-work-overflow-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ClaudeHookSessionStore(
+            processEnv: [
+                "CMUX_CLAUDE_HOOK_STATE_PATH": root
+                    .appendingPathComponent("sessions.json")
+                    .path,
+            ]
+        )
+        let processIdentity = try #require(
+            AgentPIDProcessIdentity(
+                agentTurnPID: Int(ProcessInfo.processInfo.processIdentifier)
+            )
+        )
+        let sessionID = "terminal-overflow-session"
+        let turnID = "terminal-overflow-turn"
+        let workspaceID = "33333333-3333-3333-3333-333333333333"
+        let surfaceID = "44444444-4444-4444-4444-444444444444"
+        var update = AgentStructuredBackgroundWorkUpdate(
+            activeWorkCount: 0,
+            deferredSettlement: nil
+        )
+
+        for index in 0 ... 64 {
+            update = try store.recordStructuredBackgroundWorkEvent(
+                sessionId: sessionID,
+                eventName: "SubagentStop",
+                workId: "completed-work-\(index)",
+                turnId: turnID,
+                processGeneration: processIdentity,
+                workspaceId: workspaceID,
+                surfaceId: surfaceID,
+                cwd: root.path
+            )
+        }
+
+        #expect(update.activeWorkCount == 1)
+        #expect(
+            try store.lookup(sessionId: sessionID)?
+                .backgroundWorkOverflowTurnKeys?.contains(turnID) == true
+        )
+        #expect(
+            try store.deferTurnSettlementIfStructuredWorkActive(
+                sessionId: sessionID,
+                workspaceId: workspaceID,
+                surfaceId: surfaceID,
+                cwd: root.path,
+                turnId: turnID,
+                processGeneration: processIdentity,
+                transcriptPath: nil,
+                lastAssistantMessage: "done"
+            ) == 1
+        )
+        let delayedStart = try store.recordStructuredBackgroundWorkEvent(
+            sessionId: sessionID,
+            eventName: "SubagentStart",
+            workId: "completed-work-0",
+            turnId: turnID,
+            processGeneration: processIdentity,
+            workspaceId: workspaceID,
+            surfaceId: surfaceID,
+            cwd: root.path
+        )
+        #expect(delayedStart.activeWorkCount > 0)
+    }
+
     /// A stateless filesystem double that makes eager directory loading fail.
     private final class RefusingDirectoryMaterializationFileManager:
         FileManager,
