@@ -16,7 +16,7 @@ final class BrowserDownloadsPopoverAppearanceWindowObservingView: NSView {
         reportWindowIfAttached()
     }
 
-    private func reportWindowIfAttached() {
+    func reportWindowIfAttached() {
         guard let window else { return }
         onWindow?(window)
     }

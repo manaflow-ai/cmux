@@ -18,6 +18,7 @@ struct BrowserDownloadsPopoverAppearanceWindowAccessor: NSViewRepresentable {
         context: Context
     ) {
         nsView.onWindow = onWindow
+        nsView.reportWindowIfAttached()
     }
 }
 #endif
