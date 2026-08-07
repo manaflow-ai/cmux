@@ -310,6 +310,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     var debugLastScrollbar: (total: Int, offset: Int, len: Int)?
     var debugBottomScrollStressPhase = "idle"
     var debugBottomViewportMismatchObserved = false
+    private var keyboardDockFrameRecorder: KeyboardDockFrameRecorder?
 
     /// The live `key=value;…` description of the bottom dock, read by
     /// ``ComposerDockProbeView`` on every accessibility query. `fieldFocused` is the
@@ -365,10 +366,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let toolbarMaxY = toolbarFrameInSurface.map { pointValue($0.maxY) } ?? "none"
         let keyboardTransitionID = bottomDockTransitionInFlight ? 1 : -1
         let keyboardTransitionTarget = pointValue(keyboardHeight)
-        // Key kept so the log format stays parseable: now the accessory's top
-        // edge in surface coordinates, -1 while the accessory is unhosted.
+        // Key kept so the log format stays parseable: now the accessory's bottom
+        // edge (the software-keyboard top) in surface coordinates, -1 while the
+        // accessory is unhosted.
         let keyboardGuideTop = accessoryFrameInSurfaceCoordinates()
-            .map { pointValue($0.minY) } ?? pointValue(-1)
+            .map { pointValue($0.maxY) } ?? pointValue(-1)
+        let frameRecorder = keyboardDockFrameRecorder
+        let worstFrame = frameRecorder?.worstSample
         return [
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
@@ -408,6 +412,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "scrollTotal=\(debugLastScrollbar?.total ?? -1)", "scrollOffset=\(debugLastScrollbar?.offset ?? -1)",
             "scrollLen=\(debugLastScrollbar?.len ?? -1)", "scrollAtBottom=\(debugScrollbarAtBottomForTesting ? 1 : 0)",
             "staleViewportObserved=\(debugBottomViewportMismatchObserved ? 1 : 0)",
+            "dockFrameSamples=\(frameRecorder?.sampleCount ?? 0)",
+            "dockFrameKeyboardSamples=\(frameRecorder?.keyboardFrameCount ?? 0)",
+            "dockFrameDetached=\(frameRecorder?.detachedFrameCount ?? 0)",
+            "dockFrameMaxGap=\(pointValue(frameRecorder?.maxGap ?? 0))",
+            "dockWorstKeyboardUp=\(worstFrame?.keyboardUp == true ? 1 : 0)",
+            "dockWorstComposerMaxY=\(pointValue(worstFrame?.composerMaxY ?? -1))",
+            "dockWorstToolbarMaxY=\(pointValue(worstFrame?.toolbarMaxY ?? -1))",
+            "dockWorstBoundsHeight=\(pointValue(worstFrame?.boundsHeight ?? -1))",
+            "dockWorstAccessoryBottomY=\(pointValue(worstFrame?.accessoryBottomY ?? -1))",
             inputProxy.accessoryLayoutDiagnostics,
         ].joined(separator: ";")
     }
@@ -767,10 +780,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - keyboardFrameTracker: Keyboard-frame source for the bottom-dock
     ///     floor. Production callers keep the shared process-wide tracker;
     ///     tests inject a notification-center-isolated instance.
+    ///   - keyboardDockFrameRecordingEnabled: Enables the DEBUG-only, existing-
+    ///     display-link dock verifier used by the focused XCUITest stress lane.
     public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
                 fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai,
                 terminalConfigTheme: TerminalTheme? = nil,
-                keyboardFrameTracker: MobileKeyboardFrameTracker = .shared) {
+                keyboardFrameTracker: MobileKeyboardFrameTracker = .shared,
+                keyboardDockFrameRecordingEnabled: Bool = false) {
         self.runtime = runtime
         self.delegate = delegate
         self.keyboardFrameTracker = keyboardFrameTracker
@@ -780,6 +796,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         self.terminalTheme = terminalTheme.validatedOrDefault()
         self.terminalConfigTheme = (terminalConfigTheme ?? terminalTheme).validatedOrDefault()
         super.init(frame: CGRect(x: 0, y: 0, width: 402, height: 700))
+        #if DEBUG
+        if keyboardDockFrameRecordingEnabled {
+            keyboardDockFrameRecorder = KeyboardDockFrameRecorder()
+        }
+        #endif
         bridge.attach(to: self)
         // The local view background (the area behind/around the rendered cells,
         // and the letterbox fill) is sourced from the synced theme rather than a
@@ -3206,6 +3227,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
         #if DEBUG
+        recordKeyboardDockFrameIfEnabled()
         // Main-thread liveness heartbeat + presented-surface state. Time-gated,
         // no behavior change. The `contents`/size fields let an IDLE blank be
         // classified without a fresh output/geometry event: contents=false ⇒
@@ -3344,6 +3366,52 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             fadeOutZoomOverlay()
         }
     }
+
+    #if DEBUG
+    /// Samples dock geometry on the terminal's existing display-link tick. The
+    /// recorder is absent unless the focused UI-test flag was injected, so normal
+    /// DEBUG typing and dogfood builds pay no per-frame geometry cost.
+    private func recordKeyboardDockFrameIfEnabled() {
+        guard keyboardDockFrameRecorder != nil,
+              let accessory = keyboardDockAccessory,
+              let toolbar = dockedToolbar else { return }
+
+        let composerFrame = composerContainer.layer.presentation()?.frame
+            ?? composerContainer.frame
+        let toolbarFrame = toolbar.layer.presentation()?.frame ?? toolbar.frame
+        let accessoryFrameInSurface = accessoryPresentationFrameInSurfaceCoordinates()
+            ?? accessoryFrameInSurfaceCoordinates()
+        let visibleDockMaxY = composerFrame.height > 0.5
+            ? composerFrame.maxY
+            : toolbarFrame.maxY
+        // `keyboardVisible` flips at the transition notification, before the
+        // first animated frame. From that point onward every display-link frame
+        // is in scope: skipping the accessory-transfer frame would hide exactly
+        // the one-frame pop this harness exists to catch. An unhosted accessory
+        // uses the surface height as an unmistakable failure sentinel.
+        let gap: CGFloat? = if keyboardVisible {
+            accessory.window == nil
+                ? max(bounds.height, 2)
+                : abs(accessory.bounds.maxY - visibleDockMaxY)
+        } else {
+            nil
+        }
+        let composerMaxYInSurface = accessoryFrameInSurface.map {
+            $0.minY + composerFrame.maxY - accessory.bounds.minY
+        } ?? -1
+        let toolbarMaxYInSurface = accessoryFrameInSurface.map {
+            $0.minY + toolbarFrame.maxY - accessory.bounds.minY
+        } ?? -1
+        keyboardDockFrameRecorder?.record(KeyboardDockFrameRecorder.Sample(
+            keyboardUp: keyboardVisible,
+            composerMaxY: composerMaxYInSurface,
+            toolbarMaxY: toolbarMaxYInSurface,
+            boundsHeight: bounds.height,
+            accessoryBottomY: accessoryFrameInSurface?.maxY ?? -1,
+            gap: gap
+        ))
+    }
+    #endif
 
     /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
     /// to the off-main surface queue.

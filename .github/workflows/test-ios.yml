@@ -9,7 +9,7 @@ on:
         required: false
         default: ""
       test_filter:
-        description: "UI test class or class/method, for example cmuxUITests/testSignInPairingAndWorkspaceShell"
+        description: "UI test class or class/method, for example cmuxUITests/testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"
         required: false
         default: ""
       device_family:
@@ -370,6 +370,13 @@ jobs:
           TEST_FILTER: ${{ inputs.test_filter }}
         run: |
           set -euo pipefail
+          if [[ "${TEST_FILTER:-}" == *"testTerminalKeyboardDockRapidToggleIsPixelAttachedEveryFrame"* ]]; then
+            # This lane verifies the real software-keyboard key plane and the
+            # system inputAccessoryView on every display-link frame. An attached
+            # hardware keyboard suppresses that UI and would turn the run into a
+            # false pass over keyboard-down geometry.
+            defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          fi
           XCODEBUILD_ARGS=(
             -workspace ios/cmux.xcworkspace
             -scheme cmux-ios

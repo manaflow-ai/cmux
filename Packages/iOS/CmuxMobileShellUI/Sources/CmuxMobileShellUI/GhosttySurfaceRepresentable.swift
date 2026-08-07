@@ -83,7 +83,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: fontSize,
             terminalTheme: terminalTheme,
-            terminalConfigTheme: terminalConfigTheme
+            terminalConfigTheme: terminalConfigTheme,
+            keyboardDockFrameRecordingEnabled: UITestConfig.keyboardDockFrameRecordingEnabled
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
         view.artifactFilesEnabled = artifactFilesEnabled

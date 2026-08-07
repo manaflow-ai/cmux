@@ -79,6 +79,24 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the real terminal should record keyboard-dock geometry on every
+    /// existing render display-link tick for the focused XCUITest stress lane.
+    public static var keyboardDockFrameRecordingEnabled: Bool {
+        keyboardDockFrameRecordingEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// Resolves the keyboard-dock frame recorder flag from an explicit environment.
+    ///
+    /// - Parameter env: The environment dictionary to inspect.
+    /// - Returns: `true` only for a DEBUG build with an explicit `"1"` value.
+    public static func keyboardDockFrameRecordingEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_KEYBOARD_DOCK_FRAME_RECORDING"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether the standalone workspace-list layout preview is enabled.
     ///
     /// When `CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1`, the root view renders a
