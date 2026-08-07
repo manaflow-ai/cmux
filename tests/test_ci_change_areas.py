@@ -233,6 +233,75 @@ def run_linux_preflight(needs: dict[str, object]) -> subprocess.CompletedProcess
     )
 
 
+def run_app_host_unit_test_step_with_late_batch_crash() -> subprocess.CompletedProcess[str]:
+    script = workflow_job_step_script("app-host-unit-tests", "Run unit tests")
+    script = script.replace("${{ matrix.shard }}", "1")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        runner_temp = root / "runner"
+        fake_bin = root / "bin"
+        ci_scripts = root / "scripts" / "ci"
+        runner_temp.mkdir()
+        fake_bin.mkdir()
+        ci_scripts.mkdir(parents=True)
+
+        shard_helper = ci_scripts / "cmux_unit_test_shard.py"
+        shard_helper.write_text(
+            """
+import sys
+from pathlib import Path
+
+output = Path(sys.argv[sys.argv.index("--output") + 1])
+output.parent.mkdir(parents=True, exist_ok=True)
+output.write_text("", encoding="utf-8")
+""".lstrip(),
+            encoding="utf-8",
+        )
+
+        console_runner = ci_scripts / "run-in-console-session.sh"
+        console_runner.write_text(
+            """
+#!/bin/bash
+set -euo pipefail
+counter="${CMUX_TEST_BATCH_COUNTER:?}"
+iteration=0
+if [ -f "$counter" ]; then
+  iteration="$(cat "$counter")"
+fi
+iteration=$((iteration + 1))
+printf '%s\n' "$iteration" > "$counter"
+if [ "$iteration" -eq 1 ]; then
+  echo "Executed 2 tests, with 2 failures (0 unexpected)"
+  exit 1
+fi
+echo "simulated app-host crash before test summary" >&2
+exit 9
+""".lstrip(),
+            encoding="utf-8",
+        )
+        console_runner.chmod(0o755)
+
+        fake_sleep = fake_bin / "sleep"
+        fake_sleep.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        fake_sleep.chmod(0o755)
+
+        return subprocess.run(
+            ["bash", "-c", script],
+            cwd=root,
+            env={
+                **os.environ,
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "RUNNER_TEMP": str(runner_temp),
+                "CMUX_DERIVED_DATA_PATH": str(root / "derived-data"),
+                "CMUX_TEST_BATCH_COUNTER": str(root / "batch-counter"),
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+
 def linux_preflight_needs(
     *,
     outputs: dict[str, str] | None = None,
@@ -718,6 +787,23 @@ def test_remote_tmux_layout_identity_uses_a_nontolerant_focused_gate() -> None:
     assert step in block
     assert selector in block
     assert block.index(step) < block.index("- name: Run unit tests")
+
+
+def test_settings_store_noop_persistence_uses_a_nontolerant_focused_gate() -> None:
+    block = workflow_job_block("app-host-unit-tests")
+    step = "Run settings file-store no-op persistence regression"
+    selector = "-only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests"
+
+    assert step in block
+    assert selector in block
+    assert block.index(step) < block.index("- name: Run unit tests")
+
+
+def test_app_host_multi_batch_failure_cannot_reuse_prior_expected_summary() -> None:
+    result = run_app_host_unit_test_step_with_late_batch_crash()
+
+    assert result.returncode != 0, result.stdout
+    assert "simulated app-host crash before test summary" in result.stdout
 
 
 def test_agent_session_web_resources_runs_only_for_agent_session_web_area() -> None:

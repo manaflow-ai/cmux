@@ -23,11 +23,15 @@ export function captureInstallEvent(input: InstallCapture): void {
     process.env.VERCEL_ENV !== "production" &&
     process.env.INSTALL_ANALYTICS_FORCE !== "1"
   ) return;
-  const properties: Record<string, string | number> = {
+  const properties: Record<string, string | number | boolean> = {
     product: input.product,
     method: input.method,
     schema_version: 1,
     $insert_id: randomUUID(),
+    // Requests are forwarded by Vercel, but explicitly disable GeoIP anyway
+    // and avoid creating persistent PostHog person profiles for installers.
+    $geoip_disable: true,
+    $process_person_profile: false,
   };
   if (safeLabel(input.platform)) properties.platform = input.platform!;
   if (safeVersion(input.version)) properties.version = input.version!;

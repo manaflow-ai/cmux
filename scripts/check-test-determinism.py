@@ -327,8 +327,8 @@ def _is_assertion_line(line: str) -> bool:
     return bool(_ASSERT_TOKEN.search(line) or _RAISE_IF.search(line))
 
 
-def _is_inside_string_literal(line: str, offset: int) -> bool:
-    """Best-effort check for whether ``offset`` is inside a quoted string.
+def _executable_code_positions(line: str) -> list[bool]:
+    """Return which character offsets are executable code on this source line.
 
     The network detector intentionally accepts URLs in string arguments to real
     clients (for example, ``fetch("https://...")``), so stripping every string
@@ -337,47 +337,81 @@ def _is_inside_string_literal(line: str, offset: int) -> bool:
     such as ``expect(html).toContain("curl https://...")`` from looking like a
     network call while preserving the real ``fetch(...)`` case.
 
-    This remains a conservative line-level heuristic, not a language parser. It
-    recognizes the quote forms used by the scanned languages and honors escaped
-    quote characters.
+    JavaScript template literals need one extra distinction: backtick text is
+    inert, while each ``${...}`` interpolation is executable code and may contain
+    nested strings, object literals, or template literals. This remains a
+    conservative line-level lexer, not a full language parser.
     """
-    quote: Optional[str] = None
-    escaped = False
-    for character in line[:offset]:
-        if escaped:
-            escaped = False
+    executable = [False] * len(line)
+    # Contexts are (kind, brace_depth). Only template-expression contexts use
+    # brace depth; nested quote/template contexts sit above them on the stack.
+    contexts: list[tuple[str, int]] = [("code", 0)]
+    index = 0
+    while index < len(line):
+        kind, brace_depth = contexts[-1]
+        character = line[index]
+
+        if kind in ("single-quote", "double-quote"):
+            quote = "'" if kind == "single-quote" else '"'
+            if character == "\\":
+                index += 2
+                continue
+            if character == quote:
+                contexts.pop()
+            index += 1
             continue
-        if character == "\\":
-            escaped = True
+
+        if kind == "template-text":
+            if character == "\\":
+                index += 2
+                continue
+            if character == "`":
+                contexts.pop()
+                index += 1
+                continue
+            if character == "$" and index + 1 < len(line) and line[index + 1] == "{":
+                contexts.append(("template-expression", 1))
+                index += 2
+                continue
+            index += 1
             continue
-        if quote is None:
-            if character in ('"', "'", "`"):
-                quote = character
-        elif character == quote:
-            quote = None
-    return quote is not None
+
+        executable[index] = True
+        if character == "'":
+            executable[index] = False
+            contexts.append(("single-quote", 0))
+        elif character == '"':
+            executable[index] = False
+            contexts.append(("double-quote", 0))
+        elif character == "`":
+            executable[index] = False
+            contexts.append(("template-text", 0))
+        elif kind == "template-expression" and character == "{":
+            contexts[-1] = (kind, brace_depth + 1)
+        elif kind == "template-expression" and character == "}":
+            if brace_depth == 1:
+                contexts.pop()
+            else:
+                contexts[-1] = (kind, brace_depth - 1)
+        index += 1
+
+    return executable
+
+
+def _is_inside_string_literal(line: str, offset: int) -> bool:
+    positions = _executable_code_positions(line)
+    return 0 <= offset < len(positions) and not positions[offset]
 
 
 def _call_contains_offset(line: str, opening_paren: int, offset: int) -> bool:
     """Whether ``offset`` is inside the call opened at ``opening_paren``."""
     depth = 0
-    quote: Optional[str] = None
-    escaped = False
+    executable = _executable_code_positions(line)
     for index in range(opening_paren, min(offset + 1, len(line))):
+        if not executable[index]:
+            continue
         character = line[index]
-        if escaped:
-            escaped = False
-            continue
-        if character == "\\":
-            escaped = True
-            continue
-        if quote is not None:
-            if character == quote:
-                quote = None
-            continue
-        if character in ('"', "'", "`"):
-            quote = character
-        elif character == "(":
+        if character == "(":
             depth += 1
         elif character == ")":
             depth -= 1
@@ -733,6 +767,11 @@ def _self_test() -> int:
             {RULE_LIVE_NETWORK_HOST},
         ),
         (
+            "web/tests/template_interpolation_fetch.ts",
+            'const result = `${await fetch("https://api.openai.com/v1/items")}`;\n',
+            {RULE_LIVE_NETWORK_HOST},
+        ),
+        (
             "tests/d.py",
             "sock.connect(('8.8.8.8', 53))\n",  # bare IP -> only the fixed port is high-confidence
             {RULE_FIXED_PORT_BIND},
@@ -876,6 +915,12 @@ def _self_test() -> int:
         (
             "web/tests/n18d.ts",
             "expect(help).toContain('execSync(\\\"curl https://cmux.com/status\\\")')\n",
+        ),
+        # Plain template text is still fixture data; only `${...}` regions are
+        # executable JavaScript.
+        (
+            "web/tests/n18e.ts",
+            'const example = `fetch("https://api.openai.com/v1/items")`;\n',
         ),
         # A quoted shell command embedded in a Swift terminal-parser fixture is a
         # STRING literal, not a real delay: "sleep 5" must not flag sleep-then-assert.
