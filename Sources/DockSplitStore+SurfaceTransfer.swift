@@ -465,6 +465,10 @@ extension DockSplitStore {
             from: detached.sourceWorkspaceId,
             to: workspaceId
         )
+        FeedCoordinator.shared.retargetAgentAttention(
+            panelId: detached.panelId,
+            to: .dock(self)
+        )
         if let index {
             _ = bonsplitController.reorderTab(newTabId, toIndex: index)
         }
@@ -561,6 +565,10 @@ extension DockSplitStore {
             panelId: detached.panelId,
             from: detached.sourceWorkspaceId,
             to: workspaceId
+        )
+        FeedCoordinator.shared.retargetAgentAttention(
+            panelId: detached.panelId,
+            to: .dock(self)
         )
 
         repairPlaceholderOnlyDockPane(paneId)

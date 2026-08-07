@@ -10957,6 +10957,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        FeedCoordinator.shared.retargetAgentAttention(
+            panelId: detached.panelId,
+            to: .workspace(self)
+        )
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
