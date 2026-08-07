@@ -1036,7 +1036,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         cmux_ssh_auth_identity() {
           case "$1" in
-            101|103) printf '1|2|Thu_Jan_1_00:00:00_1970\n' ;;
+            101) printf '7|2|Thu_Jan_1_00:00:00_1970\n' ;;
+            103) printf '8|2|Thu_Jan_1_00:00:00_1970\n' ;;
             102|104) printf '9|99|Thu_Jan_1_00:00:00_1970\n' ;;
             *) return 1 ;;
           esac
@@ -1044,6 +1045,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         kill() { printf '%s\n' "$*" >> "$CMUX_TEST_SIGNALS"; }
         printf '101 1 2 Thu_Jan_1_00:00:00_1970\n102 1 2 Thu_Jan_1_00:00:00_1970\n103\n104\n' \
           > "$CMUX_TEST_SIGNALED_PIDS"
+        # The exact and legacy records retain the pre-crash parent, while the
+        # current processes have been reparented without changing stable identity.
         printf '103 1 2 Thu_Jan_1_00:00:00_1970 T\n' > "$CMUX_TEST_FROZEN"
         : > "$CMUX_TEST_SIGNALS"
         cmux_ssh_auth_signaled_groups="$CMUX_TEST_SIGNALED_GROUPS"
