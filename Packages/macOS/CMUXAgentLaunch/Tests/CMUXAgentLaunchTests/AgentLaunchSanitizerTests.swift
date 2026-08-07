@@ -636,15 +636,29 @@ struct AgentLaunchSanitizerTests {
         )
         #expect(
             AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-                from: ["qoder", "-w", "/tmp/project", "--model", "best"],
-                workingDirectory: "/tmp/project"
-            ) == ["qoder", "--model", "best"]
-        )
-        #expect(
-            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
                 from: ["kimi", "--resume", "session", "--work-dir=/tmp/project", "--model", "kimi-k2"],
                 workingDirectory: "/tmp/project"
             ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
+        )
+    }
+
+    @Test("Preserves ambiguous short options without agent semantics")
+    func preservesAmbiguousShortWorkingDirectoryOptions() {
+        let splitWorktree = ["cmux", "claude-teams", "-w", "/tmp/team-worktree", "--model", "sonnet"]
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: splitWorktree,
+                workingDirectory: "/tmp/team-worktree"
+            ) == splitWorktree
+        )
+
+        let attachedWorktree = ["cmux", "claude-teams", "-w/tmp/team-worktree", "--model", "sonnet"]
+        #expect(
+            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
+                from: attachedWorktree,
+                workingDirectory: nil,
+                removeAllWorkingDirectoryOptions: true
+            ) == attachedWorktree
         )
     }
 
@@ -670,13 +684,6 @@ struct AgentLaunchSanitizerTests {
                 workingDirectory: nil,
                 removeAllWorkingDirectoryOptions: true
             ) == ["codex", "resume", "session", "--model", "gpt-5.4"]
-        )
-        #expect(
-            AgentLaunchSanitizer.removingSavedWorkingDirectoryOptions(
-                from: ["kimi", "--resume", "session", "-w/local/repo", "--model", "kimi-k2"],
-                workingDirectory: nil,
-                removeAllWorkingDirectoryOptions: true
-            ) == ["kimi", "--resume", "session", "--model", "kimi-k2"]
         )
     }
 }

@@ -4380,6 +4380,25 @@ extension SessionPersistenceTests {
         )
     }
 
+    func testAgentHookSurfaceResumeBindingPreservesClaudeTeamsWorktreeOption() {
+        let workingDirectory = "/tmp/team-worktree"
+        let command = "cmux claude-teams --resume team-session -w '\(workingDirectory)' --model sonnet"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "cd '\(workingDirectory)' && \(command)",
+            cwd: workingDirectory,
+            source: "agent-hook",
+            updatedAt: 1
+        )
+
+        XCTAssertEqual(
+            binding.command,
+            TerminalStartupWorkingDirectoryPrefix.optionalChangeDirectoryPrefix(
+                for: workingDirectory
+            ).map { $0 + command }
+        )
+    }
+
     func testAgentHookSurfaceResumeBindingPreservesShellOperatorsWhenDroppingDuplicateWorkingDirectoryOption() {
         let binding = SurfaceResumeBindingSnapshot(
             command: "cd '/tmp/project' && codex resume session --cd '/tmp/project' && echo done",
